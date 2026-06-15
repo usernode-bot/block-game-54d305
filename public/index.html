@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  
+
   <script>
   // usernode-dev-console@1
   (function () {
@@ -66,56 +66,378 @@
   <title>block-game</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script>tailwind.config = { darkMode: 'class' }</script>
+  <script type="importmap">
+  { "imports": { "three": "https://unpkg.com/three@0.160.0/build/three.module.js" } }
+  </script>
+  <style>
+    html, body { margin: 0; height: 100%; overflow: hidden; }
+    #scene { position: fixed; inset: 0; display: block; }
+  </style>
 </head>
-<body class="bg-zinc-950 text-zinc-100 min-h-screen flex flex-col items-center justify-center gap-8 p-4">
-  <h1 class="text-2xl font-bold">block-game</h1>
+<body class="bg-zinc-950 text-zinc-100">
+  <canvas id="scene"></canvas>
 
-  <button id="press-btn" class="w-32 h-32 rounded-full bg-violet-600 hover:bg-violet-500 active:scale-95 transition-all text-white text-xl font-bold shadow-lg shadow-violet-600/30">
-    Press!
-  </button>
-
-  <div id="count" class="text-lg text-zinc-400">0 total presses</div>
-
-  <div class="w-full max-w-sm">
-    <h2 class="text-sm font-medium text-zinc-500 mb-2 text-center">Leaderboard</h2>
-    <div id="leaderboard" class="space-y-1"></div>
+  <!-- Crosshair -->
+  <div id="crosshair" class="pointer-events-none fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-10">
+    <div class="w-5 h-5 relative">
+      <span class="absolute left-1/2 top-0 h-5 w-px -translate-x-1/2 bg-white/80"></span>
+      <span class="absolute top-1/2 left-0 w-5 h-px -translate-y-1/2 bg-white/80"></span>
+    </div>
   </div>
 
-  <script>
+  <!-- Click-to-play overlay -->
+  <div id="overlay" class="fixed inset-0 z-30 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+    <div class="max-w-md p-8 text-center">
+      <h1 class="text-2xl font-bold mb-2">block-game</h1>
+      <p class="text-zinc-300 mb-1">A shared 3D world everyone builds together.</p>
+      <p class="text-zinc-500 text-sm mb-6">Click to play — move the mouse to look, press Esc to release.</p>
+      <button id="play-btn" class="px-5 py-2 rounded-lg bg-violet-600 hover:bg-violet-500 font-semibold">Click to play</button>
+      <div id="status" class="mt-4 text-sm text-zinc-500"></div>
+    </div>
+  </div>
+
+  <!-- Controls hint (fades) -->
+  <div id="hint" class="pointer-events-none fixed top-3 left-1/2 -translate-x-1/2 z-20 text-center text-xs text-zinc-300/90 bg-black/40 rounded-lg px-3 py-2 transition-opacity duration-700">
+    <span class="font-semibold">WASD</span> move · <span class="font-semibold">Space/Shift</span> up·down ·
+    <span class="font-semibold">Left-click</span> break · <span class="font-semibold">Right-click</span> place ·
+    <span class="font-semibold">1–9</span> pick block · <span class="font-semibold">Esc</span> release
+  </div>
+
+  <!-- Block palette -->
+  <div id="palette" class="fixed bottom-4 left-1/2 -translate-x-1/2 z-20 flex gap-1.5 p-1.5 rounded-xl bg-black/50 backdrop-blur"></div>
+
+  <script type="module">
+    import * as THREE from 'three';
+
     const params = new URLSearchParams(window.location.search);
     const token = params.get('token') || '';
     const headers = token ? { 'x-usernode-token': token } : {};
+    const statusEl = document.getElementById('status');
 
-    async function loadLeaderboard() {
-      const res = await fetch('/api/leaderboard', { headers });
-      if (!res.ok) return;
-      const { leaderboard } = await res.json();
-      const el = document.getElementById('leaderboard');
-      if (!leaderboard.length) {
-        el.innerHTML = '<p class="text-center text-zinc-600 text-sm">No presses yet</p>';
-        return;
-      }
-      el.innerHTML = leaderboard.map((r, i) =>
-        '<div class="flex justify-between px-3 py-1 rounded ' + (i === 0 ? 'bg-violet-600/20 text-violet-300' : 'text-zinc-400') + '">' +
-        '<span>' + (i + 1) + '. ' + r.username + '</span>' +
-        '<span class="font-mono">' + r.presses + '</span></div>'
-      ).join('');
-      const total = leaderboard.reduce((s, r) => s + parseInt(r.presses), 0);
-      document.getElementById('count').textContent = total + ' total presses';
+    // ---- World/runtime state ----
+    let DIMS = { w: 32, d: 32, h: 24 };
+    let PALETTE = [];
+    const blocks = new Map();        // "x,y,z" -> block_type (non-zero only)
+    let cursor = 0;                  // last seq seen from the server
+    let selectedType = 1;
+    const key = (x, y, z) => x + ',' + y + ',' + z;
+
+    // ---- Three.js scaffold ----
+    const canvas = document.getElementById('scene');
+    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color('#8ec7ff');
+    scene.fog = new THREE.Fog('#8ec7ff', 40, 90);
+
+    const camera = new THREE.PerspectiveCamera(70, 1, 0.1, 500);
+    camera.position.set(DIMS.w / 2, 3.5, DIMS.d / 2 + 8);
+
+    scene.add(new THREE.AmbientLight(0xffffff, 0.65));
+    const sun = new THREE.DirectionalLight(0xffffff, 0.9);
+    sun.position.set(30, 60, 20);
+    scene.add(sun);
+
+    const cube = new THREE.BoxGeometry(1, 1, 1);
+    const materials = new Map();     // block_type -> Material
+    function materialFor(p) {
+      const opts = { color: new THREE.Color(p.color) };
+      if (p.opacity != null && p.opacity < 1) { opts.transparent = true; opts.opacity = p.opacity; }
+      return new THREE.MeshLambertMaterial(opts);
     }
 
-    document.getElementById('press-btn').addEventListener('click', async () => {
+    // Ground = immutable grass layer at y = 0 (one InstancedMesh, raycastable
+    // so blocks can be placed on top, but never breakable).
+    let groundMesh = null;
+    function buildGround() {
+      const grass = PALETTE.find((p) => p.name === 'Grass') || PALETTE[0];
+      const count = DIMS.w * DIMS.d;
+      const mesh = new THREE.InstancedMesh(cube, materialFor(grass), count);
+      const dummy = new THREE.Object3D();
+      const cells = [];
+      let i = 0;
+      for (let x = 0; x < DIMS.w; x++) {
+        for (let z = 0; z < DIMS.d; z++) {
+          dummy.position.set(x + 0.5, 0.5, z + 0.5);
+          dummy.updateMatrix();
+          mesh.setMatrixAt(i, dummy.matrix);
+          cells[i] = { x, y: 0, z };
+          i++;
+        }
+      }
+      mesh.instanceMatrix.needsUpdate = true;
+      mesh.userData.cells = cells;
+      mesh.userData.ground = true;
+      groundMesh = mesh;
+      scene.add(mesh);
+    }
+
+    // Dynamic (user-placed) blocks: one InstancedMesh per type, rebuilt from
+    // the `blocks` map whenever it changes. Plot is small, so a full rebuild
+    // is cheap and keeps instanceId -> cell mapping trivial.
+    const blockGroup = new THREE.Group();
+    scene.add(blockGroup);
+    function rebuildBlockMeshes() {
+      // InstancedMeshes share the cached `cube` geometry and palette materials,
+      // so disposing them here would break other meshes — just drop the refs.
+      blockGroup.clear();
+      const byType = new Map();
+      for (const [k, t] of blocks) {
+        if (!byType.has(t)) byType.set(t, []);
+        const [x, y, z] = k.split(',').map(Number);
+        byType.get(t).push({ x, y, z });
+      }
+      const dummy = new THREE.Object3D();
+      for (const [t, cells] of byType) {
+        const p = PALETTE.find((q) => q.id === t);
+        if (!p) continue;
+        const mesh = new THREE.InstancedMesh(cube, materialFor(p), cells.length);
+        cells.forEach((c, i) => {
+          dummy.position.set(c.x + 0.5, c.y + 0.5, c.z + 0.5);
+          dummy.updateMatrix();
+          mesh.setMatrixAt(i, dummy.matrix);
+        });
+        mesh.instanceMatrix.needsUpdate = true;
+        mesh.userData.cells = cells;
+        blockGroup.add(mesh);
+      }
+    }
+
+    // Targeting highlight (thin wireframe box on the aimed cell).
+    const highlight = new THREE.LineSegments(
+      new THREE.EdgesGeometry(cube),
+      new THREE.LineBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.6 })
+    );
+    highlight.visible = false;
+    scene.add(highlight);
+
+    // ---- Raycast from screen center to find the aimed cell + face ----
+    const raycaster = new THREE.Raycaster();
+    const centre = new THREE.Vector2(0, 0);
+    let target = null; // { cell:{x,y,z}, place:{x,y,z} }
+    function updateTarget() {
+      raycaster.setFromCamera(centre, camera);
+      const targets = [groundMesh, ...blockGroup.children].filter(Boolean);
+      const hits = raycaster.intersectObjects(targets, false);
+      target = null;
+      highlight.visible = false;
+      if (!hits.length) return;
+      const hit = hits[0];
+      const cells = hit.object.userData.cells;
+      const cell = cells && cells[hit.instanceId];
+      if (!cell) return;
+      const n = hit.face ? hit.face.normal : { x: 0, y: 1, z: 0 };
+      target = {
+        cell,
+        place: { x: cell.x + n.x, y: cell.y + n.y, z: cell.z + n.z },
+      };
+      highlight.position.set(cell.x + 0.5, cell.y + 0.5, cell.z + 0.5);
+      highlight.visible = true;
+    }
+
+    const inBounds = (x, y, z) =>
+      x >= 0 && x < DIMS.w && z >= 0 && z < DIMS.d && y >= 1 && y < DIMS.h;
+
+    // ---- Apply an edit locally + send to server (optimistic) ----
+    function applyLocal(x, y, z, t) {
+      const k = key(x, y, z);
+      if (t === 0) blocks.delete(k); else blocks.set(k, t);
+      rebuildBlockMeshes();
+    }
+    async function sendEdit(x, y, z, t) {
+      applyLocal(x, y, z, t);
       try {
-        const res = await fetch('/api/press', {
+        const res = await fetch('/api/block', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', ...headers },
+          body: JSON.stringify({ x, y, z, block_type: t }),
         });
-        if (res.ok) loadLeaderboard();
-        else if (res.status === 401) document.getElementById('count').textContent = 'Sign in to press!';
-      } catch {}
+        if (res.ok) {
+          const { seq } = await res.json();
+          if (seq && seq > cursor) cursor = seq;
+        }
+      } catch (e) { /* poll loop will reconcile */ }
+    }
+
+    function placeBlock() {
+      if (!target) return;
+      const { x, y, z } = target.place;
+      if (!inBounds(x, y, z)) return;
+      if (blocks.get(key(x, y, z)) === selectedType) return;
+      sendEdit(x, y, z, selectedType);
+    }
+    function breakBlock() {
+      if (!target) return;
+      const { x, y, z } = target.cell;
+      if (y < 1) return; // ground layer is immutable
+      if (!blocks.has(key(x, y, z))) return;
+      sendEdit(x, y, z, 0);
+    }
+
+    // ---- Pointer-lock fly camera ----
+    let yaw = Math.PI, pitch = -0.15;
+    let locked = false;
+    const move = { f: false, b: false, l: false, r: false, up: false, down: false };
+    const SPEED = 9, SENS = 0.0022;
+
+    function applyLook() {
+      const e = new THREE.Euler(pitch, yaw, 0, 'YXZ');
+      camera.quaternion.setFromEuler(e);
+    }
+    applyLook();
+
+    canvas.addEventListener('mousemove', (e) => {
+      if (!locked) return;
+      yaw -= e.movementX * SENS;
+      pitch -= e.movementY * SENS;
+      const lim = Math.PI / 2 - 0.01;
+      pitch = Math.max(-lim, Math.min(lim, pitch));
+      applyLook();
     });
 
-    loadLeaderboard();
+    document.addEventListener('pointerlockchange', () => {
+      locked = document.pointerLockElement === canvas;
+      document.getElementById('overlay').style.display = locked ? 'none' : 'flex';
+    });
+    document.getElementById('play-btn').addEventListener('click', () => canvas.requestPointerLock());
+    canvas.addEventListener('click', () => { if (!locked) canvas.requestPointerLock(); });
+
+    canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+    canvas.addEventListener('mousedown', (e) => {
+      if (!locked) return;
+      if (e.button === 0) breakBlock();
+      else if (e.button === 2) placeBlock();
+    });
+
+    const codeMap = {
+      KeyW: 'f', KeyS: 'b', KeyA: 'l', KeyD: 'r',
+      ArrowUp: 'f', ArrowDown: 'b', ArrowLeft: 'l', ArrowRight: 'r',
+      Space: 'up', ShiftLeft: 'down', ShiftRight: 'down',
+    };
+    window.addEventListener('keydown', (e) => {
+      if (codeMap[e.code]) { move[codeMap[e.code]] = true; if (e.code === 'Space') e.preventDefault(); }
+      if (e.code.startsWith('Digit')) {
+        const n = parseInt(e.code.slice(5), 10);
+        if (n >= 1 && n <= 9 && PALETTE[n - 1]) selectType(PALETTE[n - 1].id);
+      }
+    });
+    window.addEventListener('keyup', (e) => { if (codeMap[e.code]) move[codeMap[e.code]] = false; });
+
+    // ---- Palette UI ----
+    function selectType(id) {
+      selectedType = id;
+      for (const el of document.querySelectorAll('#palette [data-id]')) {
+        el.classList.toggle('ring-2', Number(el.dataset.id) === id);
+        el.classList.toggle('ring-white', Number(el.dataset.id) === id);
+      }
+    }
+    function buildPalette() {
+      const wrap = document.getElementById('palette');
+      wrap.innerHTML = '';
+      PALETTE.forEach((p, i) => {
+        const btn = document.createElement('button');
+        btn.dataset.id = p.id;
+        btn.title = p.name + (i < 9 ? ' (' + (i + 1) + ')' : '');
+        btn.className = 'relative w-10 h-10 rounded-md ring-offset-1 ring-offset-black/0 transition';
+        btn.style.background = p.color;
+        if (p.opacity != null && p.opacity < 1) btn.style.opacity = '0.7';
+        if (i < 9) {
+          const num = document.createElement('span');
+          num.textContent = i + 1;
+          num.className = 'absolute bottom-0 right-0.5 text-[10px] font-bold text-black/60';
+          btn.appendChild(num);
+        }
+        btn.addEventListener('click', () => selectType(p.id));
+        wrap.appendChild(btn);
+      });
+      selectType(selectedType);
+    }
+
+    // ---- Server sync ----
+    async function loadWorld() {
+      const res = await fetch('/api/world', { headers });
+      if (!res.ok) {
+        statusEl.textContent = res.status === 401 ? 'Open this app inside Usernode to play.' : 'Failed to load world.';
+        return false;
+      }
+      const data = await res.json();
+      DIMS = data.dims;
+      PALETTE = data.palette;
+      cursor = data.cursor || 0;
+      selectedType = PALETTE[0] ? PALETTE[0].id : 1;
+      blocks.clear();
+      for (const b of data.blocks) blocks.set(key(b.x, b.y, b.z), b.t);
+      buildGround();
+      buildPalette();
+      rebuildBlockMeshes();
+      // Re-centre spawn now that real dims are known.
+      camera.position.set(DIMS.w / 2, 3.5, DIMS.d / 2 + 8);
+      return true;
+    }
+
+    async function poll() {
+      if (document.hidden) return;
+      try {
+        const res = await fetch('/api/world/changes?since=' + cursor, { headers });
+        if (!res.ok) return;
+        const { changes, cursor: c } = await res.json();
+        if (changes.length) {
+          for (const ch of changes) {
+            const k = key(ch.x, ch.y, ch.z);
+            if (ch.t === 0) blocks.delete(k); else blocks.set(k, ch.t);
+          }
+          rebuildBlockMeshes();
+        }
+        if (c && c > cursor) cursor = c;
+      } catch (e) { /* transient; next tick retries */ }
+    }
+
+    // ---- Render loop ----
+    function resize() {
+      const w = window.innerWidth, h = window.innerHeight;
+      renderer.setSize(w, h, false);
+      camera.aspect = w / h;
+      camera.updateProjectionMatrix();
+    }
+    window.addEventListener('resize', resize);
+
+    let prev = performance.now();
+    const fwd = new THREE.Vector3(), right = new THREE.Vector3(), up = new THREE.Vector3(0, 1, 0);
+    function loop(now) {
+      const dt = Math.min((now - prev) / 1000, 0.1);
+      prev = now;
+
+      camera.getWorldDirection(fwd);
+      right.crossVectors(fwd, up).normalize();
+      const step = SPEED * dt;
+      if (move.f) camera.position.addScaledVector(fwd, step);
+      if (move.b) camera.position.addScaledVector(fwd, -step);
+      if (move.r) camera.position.addScaledVector(right, step);
+      if (move.l) camera.position.addScaledVector(right, -step);
+      if (move.up) camera.position.y += step;
+      if (move.down) camera.position.y -= step;
+
+      // Clamp to the plot (plus a small margin) so you can't fly away.
+      const m = 4;
+      camera.position.x = Math.max(-m, Math.min(DIMS.w + m, camera.position.x));
+      camera.position.z = Math.max(-m, Math.min(DIMS.d + m, camera.position.z));
+      camera.position.y = Math.max(1.2, Math.min(DIMS.h + 6, camera.position.y));
+
+      updateTarget();
+      renderer.render(scene, camera);
+      requestAnimationFrame(loop);
+    }
+
+    // Fade the controls hint after a few seconds.
+    setTimeout(() => { document.getElementById('hint').style.opacity = '0'; }, 6000);
+
+    (async function init() {
+      resize();
+      const ok = await loadWorld();
+      if (!ok) return;
+      requestAnimationFrame(loop);
+      setInterval(poll, 1500);
+    })();
   </script>
 </body>
 </html>
