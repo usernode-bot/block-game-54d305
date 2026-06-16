@@ -285,7 +285,7 @@
     }
 
     // ---- Pointer-lock fly camera ----
-    let yaw = Math.PI, pitch = -0.15;
+    let yaw = 0, pitch = 0;
     let locked = false;          // true OS pointer lock is held (native path)
     let playing = false;         // game is active / overlay hidden
     let dragMode = false;        // fallback: playing without OS pointer lock
@@ -561,13 +561,17 @@
     window.addEventListener('resize', resize);
 
     let prev = performance.now();
-    const fwd = new THREE.Vector3(), right = new THREE.Vector3(), up = new THREE.Vector3(0, 1, 0);
+    const fwd = new THREE.Vector3(), right = new THREE.Vector3();
     function loop(now) {
       const dt = Math.min((now - prev) / 1000, 0.1);
       prev = now;
 
-      camera.getWorldDirection(fwd);
-      right.crossVectors(fwd, up).normalize();
+      // Movement basis is horizontal-only: derive forward/right from yaw so
+      // forward/back keeps a steady altitude (matching strafe) regardless of
+      // pitch. Vertical motion is handled solely by Space/Shift below. Aiming
+      // and raycasting still use the full pitched look direction (updateTarget).
+      fwd.set(-Math.sin(yaw), 0, -Math.cos(yaw));
+      right.set(Math.cos(yaw), 0, -Math.sin(yaw));
       const step = SPEED * dt;
       if (move.f) camera.position.addScaledVector(fwd, step);
       if (move.b) camera.position.addScaledVector(fwd, -step);
