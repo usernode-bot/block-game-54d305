@@ -567,6 +567,11 @@
       prev = now;
 
       camera.getWorldDirection(fwd);
+      // Flatten the look direction onto the horizontal plane so W/S move
+      // straight along the yaw, never drifting up/down with the pitch.
+      fwd.y = 0;
+      if (fwd.lengthSq() < 1e-6) fwd.set(0, 0, -1); // looking straight up/down
+      fwd.normalize();
       right.crossVectors(fwd, up).normalize();
       const step = SPEED * dt;
       if (move.f) camera.position.addScaledVector(fwd, step);
