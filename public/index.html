@@ -98,6 +98,32 @@
       -webkit-user-select: none;
       -webkit-tap-highlight-color: transparent;
     }
+
+    /* Joystick widget: circular base with draggable center knob. */
+    .joystick-base {
+      position: absolute;
+      width: 120px;
+      height: 120px;
+      border-radius: 50%;
+      background: rgba(0, 0, 0, 0.35);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .joystick-knob {
+      position: absolute;
+      width: 50px;
+      height: 50px;
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.3);
+      border: 1px solid rgba(255, 255, 255, 0.5);
+      cursor: grab;
+      transition: transform 0.1s ease-out;
+    }
+    .joystick-knob:active {
+      cursor: grabbing;
+    }
   </style>
 </head>
 <body class="bg-zinc-950 text-zinc-100">
@@ -183,12 +209,9 @@
     <!-- Menu / pause (Esc equivalent), top-left -->
     <button data-act="menu" class="touch-ctrl pointer-events-auto absolute top-3 left-3 px-3 h-9 rounded-lg bg-black/45 active:bg-black/70 text-zinc-100 text-sm font-semibold flex items-center justify-center">☰ Menu</button>
 
-    <!-- Move pad (forward/back/left/right), bottom-left -->
-    <div class="absolute left-4 bottom-4 grid grid-cols-3 grid-rows-3 gap-1.5 opacity-90">
-      <button data-mv="f" class="touch-ctrl pointer-events-auto col-start-2 row-start-1 w-14 h-14 rounded-xl bg-black/40 active:bg-black/70 text-2xl text-zinc-100 flex items-center justify-center">▲</button>
-      <button data-mv="l" class="touch-ctrl pointer-events-auto col-start-1 row-start-2 w-14 h-14 rounded-xl bg-black/40 active:bg-black/70 text-2xl text-zinc-100 flex items-center justify-center">◀</button>
-      <button data-mv="r" class="touch-ctrl pointer-events-auto col-start-3 row-start-2 w-14 h-14 rounded-xl bg-black/40 active:bg-black/70 text-2xl text-zinc-100 flex items-center justify-center">▶</button>
-      <button data-mv="b" class="touch-ctrl pointer-events-auto col-start-2 row-start-3 w-14 h-14 rounded-xl bg-black/40 active:bg-black/70 text-2xl text-zinc-100 flex items-center justify-center">▼</button>
+    <!-- Joystick (analog stick for movement), bottom-left -->
+    <div id="joystick" class="joystick-base touch-ctrl pointer-events-auto absolute left-4 bottom-4 opacity-90">
+      <div class="joystick-knob"></div>
     </div>
 
     <!-- Fly + build cluster, bottom-right -->
@@ -216,7 +239,7 @@
 
     // Build identifier — bump this (to the deploying commit short SHA) on every
     // change so the top-right stamp confirms exactly which code is running.
-    const BUILD_VERSION = 'mobile-touch';
+    const BUILD_VERSION = 'joystick-move';
 
     // Touch capability: drives (a) the on-screen control overlay, (b) skipping
     // mouse-lock in favour of direct touch play, and (c) portrait force-rotation.
@@ -421,6 +444,11 @@
     const move = { f: false, b: false, l: false, r: false, up: false, down: false };
     const SPEED = 9, SENS = 0.0022;
 
+    // ---- Joystick analog input ----
+    const stick = { x: 0, y: 0 }; // range ±1, magnitude clamped to 1
+    let stickActiveId = null;     // track the active pointer id
+    const STICK_DEAD_ZONE = 0.12; // magnitude below which stick reads as zero
+
     const overlayEl = document.getElementById('overlay');
     const overlayHelpEl = document.getElementById('overlay-help');
     const hintEl = document.getElementById('hint');
@@ -486,6 +514,10 @@
     function resetMove() {
       for (const k in move) move[k] = false;
       dragging = false;
+      stick.x = 0;
+      stick.y = 0;
+      const knob = document.querySelector('.joystick-knob');
+      if (knob) knob.style.transform = '';
     }
     window.addEventListener('blur', resetMove);
     document.addEventListener('visibilitychange', () => { if (document.hidden) resetMove(); });
@@ -762,6 +794,74 @@
       });
     }
 
+    // ---- Joystick input handler (Pointer Events) ----
+    const joystickBase = document.getElementById('joystick');
+    const joystickKnob = joystickBase.querySelector('.joystick-knob');
+    const JOYSTICK_RADIUS = 60; // half of 120px base diameter
+    const KNOB_RADIUS = 25;     // half of 50px knob diameter
+
+    function recenterKnob() {
+      joystickKnob.style.transform = '';
+    }
+
+    joystickBase.addEventListener('pointerdown', (e) => {
+      if (stickActiveId !== null) return; // already active
+      stickActiveId = e.pointerId;
+      joystickBase.setPointerCapture(e.pointerId);
+    });
+
+    joystickBase.addEventListener('pointermove', (e) => {
+      if (e.pointerId !== stickActiveId) return;
+      const rect = joystickBase.getBoundingClientRect();
+      const centerX = rect.width / 2;
+      const centerY = rect.height / 2;
+      let offsetX = e.clientX - (rect.left + centerX);
+      let offsetY = e.clientY - (rect.top + centerY);
+
+      // When force-rotated in portrait, remap screen frame to widget frame:
+      // local-x ← screen-y, local-y ← -screen-x
+      if (forceRotated) {
+        const temp = offsetX;
+        offsetX = offsetY;
+        offsetY = -temp;
+      }
+
+      // Clamp offset to the stick radius.
+      const dist = Math.hypot(offsetX, offsetY);
+      if (dist > JOYSTICK_RADIUS) {
+        const scale = JOYSTICK_RADIUS / dist;
+        offsetX *= scale;
+        offsetY *= scale;
+      }
+
+      // Update knob visual position.
+      joystickKnob.style.transform = `translate(${offsetX}px, ${offsetY}px)`;
+
+      // Compute stick magnitude and apply dead zone.
+      let magnitude = dist / JOYSTICK_RADIUS;
+      if (magnitude < STICK_DEAD_ZONE) magnitude = 0;
+
+      // Normalize and apply magnitude to stick vector.
+      if (magnitude > 0 && dist > 0) {
+        stick.x = (offsetX / dist) * magnitude;
+        stick.y = (offsetY / dist) * magnitude;
+      } else {
+        stick.x = 0;
+        stick.y = 0;
+      }
+    });
+
+    const releaseStick = (e) => {
+      if (e.pointerId !== stickActiveId) return;
+      stickActiveId = null;
+      stick.x = 0;
+      stick.y = 0;
+      recenterKnob();
+    };
+
+    joystickBase.addEventListener('pointerup', releaseStick);
+    joystickBase.addEventListener('pointercancel', releaseStick);
+
     // ---- Controls overlay toggle ----
     // Shared by the `h` key and the top-right "(?)" button — both show/hide the
     // help panel listing every key/mouse binding.
@@ -772,7 +872,7 @@
       const ul = controlsEl.querySelector('ul');
       if (ul) ul.innerHTML = [
         '<li><span class="font-semibold">Drag</span> — look around</li>',
-        '<li><span class="font-semibold">Move pad</span> — glide forward / back / left / right</li>',
+        '<li><span class="font-semibold">Joystick</span> — drag to move; push further to go faster</li>',
         '<li><span class="font-semibold">Up / Down</span> — fly up / down</li>',
         '<li><span class="font-semibold">Add</span> / <span class="font-semibold">Delete</span> — place / remove a block at the crosshair</li>',
         '<li><span class="font-semibold">Palette</span> — tap a swatch to pick a block</li>',
@@ -920,6 +1020,10 @@
         if (move.b) horiz.sub(fwd);
         if (move.r) horiz.add(right);
         if (move.l) horiz.sub(right);
+        // Add analog stick contribution: stick.y is forward (negative pitch),
+        // stick.x is strafe (perpendicular to fwd).
+        horiz.addScaledVector(fwd, stick.y);
+        horiz.addScaledVector(right, stick.x);
         if (horiz.lengthSq() > 1) horiz.normalize();
         camera.position.addScaledVector(horiz, step);
         if (move.up) camera.position.y += step;
