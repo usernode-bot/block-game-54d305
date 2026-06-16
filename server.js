@@ -53,10 +53,58 @@ const BLOCK_POINTS = {
 // Sentinel "user" id for staging seed rows so they never reference a real user.
 const SEED_USER_ID = 0;
 
+// Badge definitions (authoritative; mirrored to the client for panel rendering).
+const BADGES = [
+  { id: 'first_block',     name: 'First Block',    icon: '🏗️', flavour: 'Placed your first block!' },
+  { id: 'builder',         name: 'Builder',         icon: '🧱', flavour: 'Placed 10 blocks!' },
+  { id: 'architect',       name: 'Architect',       icon: '🏰', flavour: 'Placed 100 blocks!' },
+  { id: 'high_scorer',     name: 'High Scorer',     icon: '⭐', flavour: 'Earned 1,000 score points!' },
+  { id: 'comboist',        name: 'Comboist',        icon: '⚡', flavour: 'Hit a ×3 combo multiplier!' },
+  { id: 'rainbow_placer',  name: 'Rainbow Placer',  icon: '🌈', flavour: 'Placed a Rainbow Block!' },
+  { id: 'golden_touch',    name: 'Golden Touch',    icon: '✨', flavour: 'Placed a Gold Block!' },
+  { id: 'glowmaster',      name: 'Glowmaster',      icon: '💡', flavour: 'Placed a Glowstone block!' },
+  { id: 'shadow_sculptor', name: 'Shadow Sculptor', icon: '🌑', flavour: 'Placed an Obsidian block!' },
+  { id: 'material_artist', name: 'Material Artist', icon: '🎨', flavour: 'Used 8+ different block types!' },
+];
+
+// Returns badges from BADGES that are newly earned given updated leaderboard
+// totals, the block type just placed, and distinct type count.
+function checkBadges({ lb, justPlacedType, typeCount }, earnedIds) {
+  const newBadges = [];
+  for (const badge of BADGES) {
+    if (earnedIds.has(badge.id)) continue;
+    let earned = false;
+    switch (badge.id) {
+      case 'first_block':     earned = lb.blocks_placed >= 1; break;
+      case 'builder':         earned = lb.blocks_placed >= 10; break;
+      case 'architect':       earned = lb.blocks_placed >= 100; break;
+      case 'high_scorer':     earned = lb.total_score >= 1000; break;
+      case 'comboist':        earned = lb.best_combo >= 3; break;
+      case 'rainbow_placer':  earned = justPlacedType === 17; break;
+      case 'golden_touch':    earned = justPlacedType === 14; break;
+      case 'glowmaster':      earned = justPlacedType === 15; break;
+      case 'shadow_sculptor': earned = justPlacedType === 16; break;
+      case 'material_artist': earned = typeCount >= 8; break;
+    }
+    if (earned) newBadges.push(badge);
+  }
+  return newBadges;
+}
+
 // Paths that stay open without authentication. Add a path here (and add it
 // with `app.get`/`app.post` below) if you deliberately want it public.
 // Everything else requires a valid platform-issued JWT.
 const PUBLIC_API_PATHS = new Set(['/health']);
+
+// ---- Daily Challenge: deterministic placement target [20, 100] from UTC date ----
+// Using UTC year/month/day so the same date always yields the same target
+// regardless of server timezone or restarts. No DB row needed for the target itself.
+function dailyTarget(dateObj) {
+  const y = dateObj.getUTCFullYear();
+  const m = dateObj.getUTCMonth() + 1;
+  const d = dateObj.getUTCDate();
+  return 20 + ((y * 31 + m * 7 + d) % 81);
+}
 
 app.use(express.json());
 
@@ -103,6 +151,7 @@ app.get('/api/world', async (_req, res) => {
 // ---- Place / break a single block. block_type 0 means break (air). ----
 // Air-as-row: breaking writes block_type = 0 (never DELETE) with a bumped
 // seq, so the change feed below can surface breaks to other clients.
+// Placements (block_type > 0) also increment the player's daily challenge counter.
 app.post('/api/block', async (req, res) => {
   try {
     const x = Number(req.body.x);
@@ -138,9 +187,38 @@ app.post('/api/block', async (req, res) => {
     );
     const seq = Number(rows[0].seq);
 
+    // Track challenge progress for placements only (breaks don't count).
+    let challenge = null;
     // ---- Scoring (placements only; breaks earn 0) ----
     let earned = 0, combo_multiplier = 1, rainbow_multiplier = 1, combo_tier = 1;
+    let newly_earned_badges = [];
     if (t !== 0) {
+      const now = new Date();
+      const dateStr = now.toISOString().slice(0, 10);
+      const target = dailyTarget(now);
+      const cr = await pool.query(
+        `INSERT INTO daily_challenge_progress
+           (challenge_date, user_id, username, blocks_placed, completed_at, updated_at)
+         VALUES ($1, $2, $3, 1,
+           CASE WHEN 1 >= $4 THEN NOW() ELSE NULL END,
+           NOW())
+         ON CONFLICT (challenge_date, user_id) DO UPDATE SET
+           blocks_placed = daily_challenge_progress.blocks_placed + 1,
+           username = EXCLUDED.username,
+           completed_at = CASE
+             WHEN daily_challenge_progress.completed_at IS NOT NULL
+               THEN daily_challenge_progress.completed_at
+             WHEN daily_challenge_progress.blocks_placed + 1 >= $4
+               THEN NOW()
+             ELSE NULL
+           END,
+           updated_at = NOW()
+         RETURNING blocks_placed, completed_at`,
+        [dateStr, req.user.id, req.user.username, target]
+      );
+      const cr0 = cr.rows[0];
+      challenge = { placed: cr0.blocks_placed, target, completed_at: cr0.completed_at };
+
       const base = BLOCK_POINTS[t] || 1;
 
       // Combo: count placements this user made in the last 10 seconds
@@ -172,8 +250,8 @@ app.post('/api/block', async (req, res) => {
 
       earned = Math.round(base * combo_multiplier * rainbow_multiplier);
 
-      // Upsert leaderboard
-      await pool.query(
+      // Upsert leaderboard — RETURNING gives post-upsert totals for badge checks.
+      const lbRes = await pool.query(
         `INSERT INTO leaderboard (user_id, username, total_score, blocks_placed, best_combo, updated_at)
          VALUES ($1, $2, $3, 1, $4, NOW())
          ON CONFLICT (user_id) DO UPDATE SET
@@ -181,12 +259,48 @@ app.post('/api/block', async (req, res) => {
            blocks_placed = leaderboard.blocks_placed + 1,
            best_combo    = GREATEST(leaderboard.best_combo, EXCLUDED.best_combo),
            username      = EXCLUDED.username,
-           updated_at    = NOW()`,
+           updated_at    = NOW()
+         RETURNING total_score, blocks_placed, best_combo`,
         [req.user.id, req.user.username, earned, combo_tier]
       );
+      const lb = {
+        total_score:   Number(lbRes.rows[0].total_score),
+        blocks_placed: Number(lbRes.rows[0].blocks_placed),
+        best_combo:    lbRes.rows[0].best_combo,
+      };
+
+      // Track which block types this player has ever placed.
+      await pool.query(
+        `INSERT INTO player_type_usage (user_id, block_type) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+        [req.user.id, t]
+      );
+
+      // Fetch already-earned badge IDs for this user.
+      const earnedRes = await pool.query(
+        `SELECT badge_id FROM player_badges WHERE user_id = $1`,
+        [req.user.id]
+      );
+      const earnedIds = new Set(earnedRes.rows.map((r) => r.badge_id));
+
+      // Count distinct block types used (post-insert, so current placement counts).
+      const typeCountRes = await pool.query(
+        `SELECT COUNT(*)::int AS type_count FROM player_type_usage WHERE user_id = $1`,
+        [req.user.id]
+      );
+      const typeCount = typeCountRes.rows[0].type_count;
+
+      // Evaluate predicates and insert any newly-earned badges.
+      const newBadges = checkBadges({ lb, justPlacedType: t, typeCount }, earnedIds);
+      for (const badge of newBadges) {
+        await pool.query(
+          `INSERT INTO player_badges (user_id, badge_id, earned_at) VALUES ($1, $2, NOW()) ON CONFLICT DO NOTHING`,
+          [req.user.id, badge.id]
+        );
+      }
+      newly_earned_badges = newBadges.map((b) => ({ id: b.id, name: b.name, icon: b.icon, flavour: b.flavour }));
     }
 
-    res.json({ ok: true, seq, earned, combo_multiplier, rainbow_multiplier });
+    res.json({ ok: true, seq, ...(challenge ? { challenge } : {}), earned, combo_multiplier, rainbow_multiplier, newly_earned_badges });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -204,6 +318,33 @@ app.get('/api/world/changes', async (req, res) => {
     const cursor = rows.length ? Number(rows[rows.length - 1].seq) : since;
     res.json({
       changes: rows.map((r) => ({ x: r.x, y: r.y, z: r.z, t: r.block_type })),
+      cursor,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- Chat: fetch messages since a cursor (message id) ----
+// On initial load (since=0), returns the 50 most recent messages so the
+// history doesn't dump the entire table. Delta polls are unbounded since
+// the cursor bounds them naturally.
+app.get('/api/chat', async (req, res) => {
+  try {
+    const since = Number(req.query.since) || 0;
+    const limit = since === 0 ? 50 : 500;
+    const { rows } = await pool.query(
+      `SELECT id, username, body, created_at FROM chat_messages WHERE id > $1 ORDER BY id LIMIT $2`,
+      [since, limit]
+    );
+    const cursor = rows.length ? Number(rows[rows.length - 1].id) : since;
+    res.json({
+      messages: rows.map((r) => ({
+        id: Number(r.id),
+        username: r.username,
+        body: r.body,
+        created_at: r.created_at,
+      })),
       cursor,
     });
   } catch (err) {
@@ -283,6 +424,39 @@ app.get('/api/leaderboard', async (req, res) => {
   }
 });
 
+// ---- Badges: current player's earned badges ----
+app.get('/api/badges', async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT badge_id, earned_at FROM player_badges WHERE user_id = $1 ORDER BY earned_at`,
+      [req.user.id]
+    );
+    res.json({
+      badges: rows.map((r) => ({ id: r.badge_id, earned_at: r.earned_at })),
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- Chat: post a new message ----
+app.post('/api/chat', async (req, res) => {
+  try {
+    const body = (typeof req.body.body === 'string' ? req.body.body : '').trim();
+    if (!body) return res.status(400).json({ error: 'message body is required' });
+    if (body.length > 200) return res.status(400).json({ error: 'message exceeds 200 characters' });
+
+    const { rows } = await pool.query(
+      `INSERT INTO chat_messages (user_id, username, body) VALUES ($1, $2, $3) RETURNING id`,
+      [req.user.id, req.user.username, body]
+    );
+    res.json({ ok: true, id: Number(rows[0].id) });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+
 // ---- Block attribution: who placed the block at (x, y, z) and when. ----
 // Returns { username, updated_at } for a placed block, or null for empty /
 // ground cells. Ground (y < 1) is the immutable grass layer — never stored.
@@ -300,6 +474,32 @@ app.get('/api/block/:x/:y/:z', async (req, res) => {
     );
     if (!rows.length || !rows[0].updated_by_username) return res.json(null);
     res.json({ username: rows[0].updated_by_username, updated_at: rows[0].updated_at });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- Daily Challenge: today's goal and the requesting user's progress. ----
+// Target is derived deterministically from the UTC date — no DB write needed.
+// Returns { date, target, placed, completed_at }.
+app.get('/api/challenge/today', async (req, res) => {
+  try {
+    const now = new Date();
+    const dateStr = now.toISOString().slice(0, 10);
+    const target = dailyTarget(now);
+    const { rows } = await pool.query(
+      `SELECT blocks_placed, completed_at
+       FROM daily_challenge_progress
+       WHERE challenge_date = $1 AND user_id = $2`,
+      [dateStr, req.user.id]
+    );
+    const row = rows[0];
+    res.json({
+      date: dateStr,
+      target,
+      placed: row ? row.blocks_placed : 0,
+      completed_at: row ? row.completed_at : null,
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -410,7 +610,7 @@ async function seedStaging() {
   // colliding with real platform user IDs, which are positive integers).
   const fakeScores = [
     { id: -1, username: 'staging-demo-alice', total_score: 1450, blocks_placed: 320, best_combo: 3 },
-    { id: -2, username: 'staging-demo-bob',   total_score: 980,  blocks_placed: 210, best_combo: 2 },
+    { id: -2, username: 'staging-demo-bob',   total_score: 980,  blocks_placed: 210, best_combo: 3 },
     { id: -3, username: 'staging-demo-carol', total_score: 720,  blocks_placed: 180, best_combo: 2 },
     { id: -4, username: 'staging-demo-dave',  total_score: 440,  blocks_placed:  95, best_combo: 1 },
     { id: -5, username: 'staging-demo-eve',   total_score: 115,  blocks_placed:  30, best_combo: 1 },
@@ -423,6 +623,67 @@ async function seedStaging() {
       [s.id, s.username, s.total_score, s.blocks_placed, s.best_combo]
     );
   }
+
+  // Seed player_type_usage for staging users so the material_artist badge
+  // and type-based badge logic are exercised with realistic data.
+  const typeUsageSeed = [
+    // alice: 10 different types (qualifies for material_artist)
+    ...[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((bt) => ({ userId: -1, blockType: bt })),
+    // bob: 6 types including Rainbow Block
+    ...[1, 2, 3, 4, 5, 17].map((bt) => ({ userId: -2, blockType: bt })),
+    // carol: 3 types
+    ...[1, 2, 3].map((bt) => ({ userId: -3, blockType: bt })),
+    // dave: 5 types including Gold Block
+    ...[1, 2, 3, 4, 14].map((bt) => ({ userId: -4, blockType: bt })),
+  ];
+  for (const u of typeUsageSeed) {
+    await pool.query(
+      `INSERT INTO player_type_usage (user_id, block_type) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+      [u.userId, u.blockType]
+    );
+  }
+
+  // Seed player_badges for staging users to showcase the panel.
+  const badgeSeed = [
+    { userId: -1, badgeId: 'first_block' },
+    { userId: -1, badgeId: 'builder' },
+    { userId: -1, badgeId: 'architect' },
+    { userId: -1, badgeId: 'high_scorer' },
+    { userId: -1, badgeId: 'comboist' },
+    { userId: -1, badgeId: 'golden_touch' },
+    { userId: -1, badgeId: 'material_artist' },
+    { userId: -2, badgeId: 'first_block' },
+    { userId: -2, badgeId: 'builder' },
+    { userId: -2, badgeId: 'rainbow_placer' },
+    { userId: -2, badgeId: 'comboist' },
+    { userId: -3, badgeId: 'first_block' },
+    { userId: -4, badgeId: 'first_block' },
+    { userId: -4, badgeId: 'builder' },
+  ];
+  for (const b of badgeSeed) {
+    await pool.query(
+      `INSERT INTO player_badges (user_id, badge_id, earned_at)
+       VALUES ($1, $2, NOW() - INTERVAL '3 days')
+       ON CONFLICT DO NOTHING`,
+      [b.userId, b.badgeId]
+    );
+  }
+
+  // Daily challenge progress seed: three personas at different completion states
+  // so both in-progress and complete widget states can be verified.
+  const now = new Date();
+  const todayStr = now.toISOString().slice(0, 10);
+  const targetToday = dailyTarget(now);
+  await pool.query(
+    `INSERT INTO daily_challenge_progress
+       (challenge_date, user_id, username, blocks_placed, completed_at, updated_at)
+     VALUES
+       ($1,  0, 'Staging demo',  5,           NULL, NOW()),
+       ($1, -1, 'alice_builder', 38,          NULL, NOW()),
+       ($1, -2, 'reza99',        $2, NOW(), NOW())
+     ON CONFLICT (challenge_date, user_id) DO NOTHING`,
+    [todayStr, targetToday]
+  );
 }
 
 // Seed the leaderboard with 6 fake builders so staging shows a populated panel.
@@ -448,6 +709,30 @@ async function seedLeaderboard() {
       );
     }
   }
+}
+
+// ---- Staging seed: a few obviously-fake chat messages so the chat drawer
+// has visible content when a reviewer first opens it. Uses explicit IDs with
+// ON CONFLICT DO NOTHING for idempotency across reboots. ----
+async function seedChat() {
+  const msgs = [
+    { id: 1, body: 'Hello from staging! Chat is now live.' },
+    { id: 2, body: 'Try placing a glass block on top of the hut.' },
+    { id: 3, body: 'Chat messages appear here in real time.' },
+  ];
+  for (const m of msgs) {
+    await pool.query(
+      `INSERT INTO chat_messages (id, user_id, username, body)
+       OVERRIDING SYSTEM VALUE
+       VALUES ($1, $2, 'Staging demo', $3)
+       ON CONFLICT (id) DO NOTHING`,
+      [m.id, SEED_USER_ID, m.body]
+    );
+  }
+  // Advance the sequence past the seed IDs so real messages start at ID 4+.
+  await pool.query(
+    `SELECT setval('chat_messages_id_seq', GREATEST((SELECT MAX(id) FROM chat_messages), 3))`
+  );
 }
 
 async function start() {
@@ -479,6 +764,38 @@ async function start() {
     )
   `);
 
+  // Tracks which block types each player has ever placed. The blocks table
+  // records only the current placer of each cell, so overwrites erase
+  // history — this table preserves the full per-player type inventory.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS player_type_usage (
+      user_id    INTEGER NOT NULL,
+      block_type SMALLINT NOT NULL,
+      PRIMARY KEY (user_id, block_type)
+    )
+  `);
+
+  // One row per badge per player; append-only (badges are never revoked).
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS player_badges (
+      user_id   INTEGER NOT NULL,
+      badge_id  VARCHAR(32) NOT NULL,
+      earned_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (user_id, badge_id)
+    )
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS chat_messages (
+      id         BIGSERIAL PRIMARY KEY,
+      user_id    INTEGER      NOT NULL,
+      username   VARCHAR(255) NOT NULL,
+      body       VARCHAR(200) NOT NULL,
+      created_at TIMESTAMPTZ  DEFAULT NOW()
+    )
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS chat_messages_id_idx ON chat_messages (id)`);
+
   await pool.query(`
     CREATE TABLE IF NOT EXISTS user_presence (
       user_id  INTEGER PRIMARY KEY,
@@ -487,9 +804,30 @@ async function start() {
     )
   `);
 
+  // Daily challenge progress: one row per (date, user). Public table —
+  // placement counts and usernames are not sensitive.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS daily_challenge_progress (
+      challenge_date DATE NOT NULL,
+      user_id INTEGER NOT NULL,
+      username VARCHAR(255) NOT NULL,
+      blocks_placed INTEGER NOT NULL DEFAULT 0,
+      completed_at TIMESTAMPTZ,
+      updated_at TIMESTAMPTZ DEFAULT NOW(),
+      PRIMARY KEY (challenge_date, user_id)
+    )
+  `);
+  // Index for future leaderboard queries (challenge_date + ranked by blocks_placed).
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS daily_challenge_progress_date_placed_idx
+    ON daily_challenge_progress (challenge_date, blocks_placed DESC)
+  `);
+
   if (IS_STAGING) {
     try { await seedStaging(); }
-    catch (err) { console.error('staging seed failed', err); }
+    catch (err) { console.error('staging blocks seed failed', err); }
+    try { await seedChat(); }
+    catch (err) { console.error('staging chat seed failed', err); }
     try { await seedLeaderboard(); }
     catch (err) { console.error('leaderboard seed failed', err); }
   }
