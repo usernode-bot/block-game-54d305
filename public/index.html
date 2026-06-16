@@ -339,6 +339,15 @@
       } catch (e) {
         onLockFail();
       }
+      // Safety net for the "silent no-op" denial mode: some browsers neither
+      // reject the promise nor fire pointerlockerror — requestPointerLock()
+      // just returns undefined and does nothing. If we haven't locked or
+      // otherwise started shortly after, assume denial and fall back. The
+      // !locked && !playing guard keeps a legitimately-slow native lock
+      // (which sets both via pointerlockchange) from being clobbered.
+      setTimeout(() => {
+        if (!locked && !playing) onLockFail();
+      }, 400);
     }
 
     canvas.addEventListener('mousemove', (e) => {
@@ -357,6 +366,9 @@
       // itself (Esc / play-button) since there is no pointer lock to release.
       if (!pointerLockBlocked) overlayEl.style.display = locked ? 'none' : 'flex';
     });
+    // Iframe Permissions-Policy denials commonly surface here (not as a
+    // rejected promise), so this is the primary failure path in production.
+    document.addEventListener('pointerlockerror', onLockFail);
     document.getElementById('play-btn').addEventListener('click', tryPointerLock);
     canvas.addEventListener('click', () => {
       // Native path only: re-acquire the lock on a bare canvas click. In
