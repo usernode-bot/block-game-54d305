@@ -126,7 +126,7 @@
 
     // Build stamp — bump on every movement/look change so a tester can
     // confirm (via the ?debug=1 HUD) the preview is running current code.
-    const BUILD_STAMP = 'move-2026-06-16.5';
+    const BUILD_STAMP = 'move-2026-06-16.6';
     // Always-visible build tag on the play overlay, so a tester can confirm
     // exactly which build is running before judging behavior.
     const buildTagEl = document.getElementById('build-tag');
@@ -202,6 +202,20 @@
     // is cheap and keeps instanceId -> cell mapping trivial.
     const blockGroup = new THREE.Group();
     scene.add(blockGroup);
+
+    // Distant backdrop ground: a big flat plane at y≈0 so a level (pitch 0)
+    // view has a real ground-meets-sky horizon at eye level. Sized well past
+    // the fog far (90) so its edge is buried in fog and never shows. Purely
+    // visual — deliberately NOT added to the build raycaster targets, so it
+    // can never become a placement/break surface (editing stays on the 32×32
+    // groundMesh + blockGroup). Recentred on the player each frame.
+    const horizonGround = new THREE.Mesh(
+      new THREE.PlaneGeometry(600, 600),
+      new THREE.MeshLambertMaterial({ color: 0x6f9e57 })
+    );
+    horizonGround.rotation.x = -Math.PI / 2; // lie flat in the XZ plane
+    horizonGround.position.y = -0.02;         // a hair below the plot: no z-fight
+    scene.add(horizonGround);
     function rebuildBlockMeshes() {
       // InstancedMeshes share the cached `cube` geometry and palette materials,
       // so disposing them here would break other meshes — just drop the refs.
@@ -344,6 +358,22 @@
       camera.quaternion.setFromEuler(e);
     }
     applyLook();
+
+    // Place the player just outside an edge at a modest eye height, facing
+    // across the plot toward its centre, with a level (pitch 0) view — so the
+    // build area sits naturally in front of you rather than off the near edge.
+    // Yaw is derived from the look direction to the centre, so it stays correct
+    // for any DIMS. Pitch stays 0 (no baked tilt).
+    function spawnView() {
+      const cx = DIMS.w / 2, cz = DIMS.d / 2;
+      // z = DIMS.d + 4 sits at the clamp margin (m=4) so it isn't snapped.
+      camera.position.set(cx, 2.5, DIMS.d + 4);
+      const dx = cx - camera.position.x, dz = cz - camera.position.z;
+      // forward = (-sin yaw, 0, -cos yaw) must point toward (dx, ·, dz).
+      yaw = Math.atan2(-dx, -dz);
+      pitch = 0;
+      applyLook();
+    }
 
     // Secondary backstop (the settle window is primary): drop any single
     // mouse-move component this large — a warp/glitch, never real motion.
@@ -584,8 +614,9 @@
       buildGround();
       buildPalette();
       rebuildBlockMeshes();
-      // Re-centre spawn now that real dims are known.
-      camera.position.set(DIMS.w / 2, 3.5, DIMS.d / 2 + 8);
+      // Frame the spawn now that real dims are known: outside an edge, level,
+      // facing the plot centre.
+      spawnView();
       return true;
     }
 
@@ -711,6 +742,11 @@
       camera.position.x = Math.max(-m, Math.min(DIMS.w + m, camera.position.x));
       camera.position.z = Math.max(-m, Math.min(DIMS.d + m, camera.position.z));
       camera.position.y = Math.max(1.2, Math.min(DIMS.h + 6, camera.position.y));
+
+      // Keep the distant backdrop ground centred under the player so its edge
+      // stays out past the fog and the horizon never reveals a boundary.
+      horizonGround.position.x = camera.position.x;
+      horizonGround.position.z = camera.position.z;
 
       updateTarget();
       if (debugOn) updateDebugHud();
