@@ -16,21 +16,39 @@ const DIMS = { w: 32, d: 32, h: 24 }; // x in [0,w-1], z in [0,d-1], y in [0,h-1
 
 // Block palette (authoritative). id 0 is reserved for "air" (a broken cell).
 // `opacity` < 1 renders semi-transparent (glass). Colors are hex strings.
+// `material` 'standard' uses MeshStandardMaterial (PBR); default is Lambert.
+// `emissive` / `emissiveIntensity` add a glow. `powerup` marks animated blocks.
 const PALETTE = [
-  { id: 1,  name: 'Grass',  color: '#5fae3a' },
-  { id: 2,  name: 'Dirt',   color: '#8a5a32' },
-  { id: 3,  name: 'Stone',  color: '#8d8d92' },
-  { id: 4,  name: 'Wood',   color: '#a9763f' },
-  { id: 5,  name: 'Leaves', color: '#3f8f33' },
-  { id: 6,  name: 'Sand',   color: '#ddca8a' },
-  { id: 7,  name: 'Brick',  color: '#9c4a3c' },
-  { id: 8,  name: 'Glass',  color: '#9fd4e8', opacity: 0.45 },
-  { id: 9,  name: 'Red',    color: '#d23b3b' },
-  { id: 10, name: 'Blue',   color: '#3b6dd2' },
-  { id: 11, name: 'Yellow', color: '#e3c93b' },
-  { id: 12, name: 'White',  color: '#ededed' },
+  { id: 1,  name: 'Grass',         color: '#5fae3a' },
+  { id: 2,  name: 'Dirt',          color: '#8a5a32' },
+  { id: 3,  name: 'Stone',         color: '#8d8d92' },
+  { id: 4,  name: 'Wood',          color: '#a9763f' },
+  { id: 5,  name: 'Leaves',        color: '#3f8f33' },
+  { id: 6,  name: 'Sand',          color: '#ddca8a' },
+  { id: 7,  name: 'Brick',         color: '#9c4a3c' },
+  { id: 8,  name: 'Glass',         color: '#9fd4e8', opacity: 0.45 },
+  { id: 9,  name: 'Red',           color: '#d23b3b' },
+  { id: 10, name: 'Blue',          color: '#3b6dd2' },
+  { id: 11, name: 'Yellow',        color: '#e3c93b' },
+  { id: 12, name: 'White',         color: '#ededed' },
+  { id: 13, name: 'Snow',          color: '#d8eeff' },
+  { id: 14, name: 'Gold Block',    color: '#f5c842', material: 'standard', metalness: 0.85, roughness: 0.2 },
+  { id: 15, name: 'Glowstone',     color: '#ffb040', emissive: '#ff8800', emissiveIntensity: 0.6 },
+  { id: 16, name: 'Obsidian',      color: '#18082a', material: 'standard', metalness: 0.3, roughness: 0.1 },
+  { id: 17, name: 'Rainbow Block', color: '#ff4488', powerup: true },
 ];
 const VALID_TYPES = new Set(PALETTE.map((p) => p.id)); // does NOT include 0
+
+// Points awarded per block placed (type 0 = break = 0 points).
+const BLOCK_POINTS = {
+  1: 1, 2: 1, 3: 1, 4: 1, 5: 1, 6: 1,   // Grass, Dirt, Stone, Wood, Leaves, Sand
+  7: 2, 8: 2, 9: 2, 10: 2, 11: 2, 12: 2, // Brick, Glass, Red, Blue, Yellow, White
+  13: 2,  // Snow
+  14: 5,  // Gold Block
+  15: 3,  // Glowstone
+  16: 4,  // Obsidian
+  17: 5,  // Rainbow Block
+};
 
 // Sentinel "user" id for staging seed rows so they never reference a real user.
 const SEED_USER_ID = 0;
@@ -118,7 +136,57 @@ app.post('/api/block', async (req, res) => {
        RETURNING seq`,
       [x, y, z, t, req.user.id, req.user.username]
     );
-    res.json({ ok: true, seq: Number(rows[0].seq) });
+    const seq = Number(rows[0].seq);
+
+    // ---- Scoring (placements only; breaks earn 0) ----
+    let earned = 0, combo_multiplier = 1, rainbow_multiplier = 1, combo_tier = 1;
+    if (t !== 0) {
+      const base = BLOCK_POINTS[t] || 1;
+
+      // Combo: count placements this user made in the last 10 seconds
+      // (exclude the just-inserted cell to avoid double-counting).
+      const comboRes = await pool.query(
+        `SELECT COUNT(*)::int AS recent
+         FROM blocks
+         WHERE updated_by_user_id = $1
+           AND block_type <> 0
+           AND updated_at > NOW() - INTERVAL '10 seconds'
+           AND NOT (x = $2 AND y = $3 AND z = $4)`,
+        [req.user.id, x, y, z]
+      );
+      const recent = comboRes.rows[0].recent;
+      if (recent >= 10) { combo_multiplier = 3; combo_tier = 3; }
+      else if (recent >= 6) { combo_multiplier = 2; combo_tier = 2; }
+      else if (recent >= 3) { combo_multiplier = 1.5; combo_tier = 2; }
+
+      // Rainbow power-up: did this user place a Rainbow Block in the last 30s?
+      const rainbowRes = await pool.query(
+        `SELECT 1 FROM blocks
+         WHERE updated_by_user_id = $1
+           AND block_type = 17
+           AND updated_at > NOW() - INTERVAL '30 seconds'
+         LIMIT 1`,
+        [req.user.id]
+      );
+      if (rainbowRes.rows.length > 0) rainbow_multiplier = 2;
+
+      earned = Math.round(base * combo_multiplier * rainbow_multiplier);
+
+      // Upsert leaderboard
+      await pool.query(
+        `INSERT INTO leaderboard (user_id, username, total_score, blocks_placed, best_combo, updated_at)
+         VALUES ($1, $2, $3, 1, $4, NOW())
+         ON CONFLICT (user_id) DO UPDATE SET
+           total_score   = leaderboard.total_score + EXCLUDED.total_score,
+           blocks_placed = leaderboard.blocks_placed + 1,
+           best_combo    = GREATEST(leaderboard.best_combo, EXCLUDED.best_combo),
+           username      = EXCLUDED.username,
+           updated_at    = NOW()`,
+        [req.user.id, req.user.username, earned, combo_tier]
+      );
+    }
+
+    res.json({ ok: true, seq, earned, combo_multiplier, rainbow_multiplier });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -170,6 +238,40 @@ app.get('/api/chat', async (req, res) => {
   }
 });
 
+// ---- Leaderboard: top 10 + caller's own row ----
+app.get('/api/leaderboard', async (req, res) => {
+  try {
+    const topRes = await pool.query(
+      `SELECT rank() OVER (ORDER BY total_score DESC) AS rank,
+              user_id, username, total_score, blocks_placed, best_combo
+       FROM leaderboard
+       ORDER BY total_score DESC
+       LIMIT 10`
+    );
+    const selfRes = await pool.query(
+      `SELECT rank() OVER (ORDER BY total_score DESC) AS rank,
+              user_id, username, total_score, blocks_placed, best_combo
+       FROM leaderboard
+       WHERE user_id = $1`,
+      [req.user.id]
+    );
+    const toRow = (r) => ({
+      rank: Number(r.rank),
+      user_id: r.user_id,
+      username: r.username,
+      total_score: Number(r.total_score),
+      blocks_placed: Number(r.blocks_placed),
+      best_combo: r.best_combo,
+    });
+    res.json({
+      top: topRes.rows.map(toRow),
+      self: selfRes.rows.length ? toRow(selfRes.rows[0]) : null,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ---- Chat: post a new message ----
 app.post('/api/chat', async (req, res) => {
   try {
@@ -186,6 +288,7 @@ app.post('/api/chat', async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
 
 // ---- Block attribution: who placed the block at (x, y, z) and when. ----
 // Returns { username, updated_at } for a placed block, or null for empty /
@@ -281,6 +384,12 @@ function buildSeedCells() {
   // A short sand path leading to the door — Staging demo.
   set(16, 1, 13, 6);
   set(16, 1, 12, 6);
+  // A few new block types to showcase them.
+  set(20, 1, 10, 14); // Gold Block
+  set(21, 1, 10, 15); // Glowstone
+  set(22, 1, 10, 16); // Obsidian
+  set(23, 1, 10, 17); // Rainbow Block
+  set(20, 1, 11, 13); // Snow
   return cells;
 }
 
@@ -292,6 +401,24 @@ async function seedStaging() {
        VALUES ($1, $2, $3, $4, nextval('block_seq'), $5, $6, NOW())
        ON CONFLICT (x, y, z) DO NOTHING`,
       [c.x, c.y, c.z, c.t, c.userId, c.username]
+    );
+  }
+
+  // Seed leaderboard with obviously-fake entries (negative user IDs avoid
+  // colliding with real platform user IDs, which are positive integers).
+  const fakeScores = [
+    { id: -1, username: 'staging-demo-alice', total_score: 1450, blocks_placed: 320, best_combo: 3 },
+    { id: -2, username: 'staging-demo-bob',   total_score: 980,  blocks_placed: 210, best_combo: 2 },
+    { id: -3, username: 'staging-demo-carol', total_score: 720,  blocks_placed: 180, best_combo: 2 },
+    { id: -4, username: 'staging-demo-dave',  total_score: 440,  blocks_placed:  95, best_combo: 1 },
+    { id: -5, username: 'staging-demo-eve',   total_score: 115,  blocks_placed:  30, best_combo: 1 },
+  ];
+  for (const s of fakeScores) {
+    await pool.query(
+      `INSERT INTO leaderboard (user_id, username, total_score, blocks_placed, best_combo, updated_at)
+       VALUES ($1, $2, $3, $4, $5, NOW())
+       ON CONFLICT (user_id) DO NOTHING`,
+      [s.id, s.username, s.total_score, s.blocks_placed, s.best_combo]
     );
   }
 }
@@ -336,6 +463,18 @@ async function start() {
   `);
   await pool.query(`CREATE SEQUENCE IF NOT EXISTS block_seq`);
   await pool.query(`CREATE INDEX IF NOT EXISTS blocks_seq_idx ON blocks (seq)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS blocks_user_time_idx ON blocks (updated_by_user_id, updated_at)`);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS leaderboard (
+      user_id       INTEGER PRIMARY KEY,
+      username      VARCHAR(255) NOT NULL,
+      total_score   BIGINT NOT NULL DEFAULT 0,
+      blocks_placed BIGINT NOT NULL DEFAULT 0,
+      best_combo    SMALLINT NOT NULL DEFAULT 1,
+      updated_at    TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS chat_messages (
