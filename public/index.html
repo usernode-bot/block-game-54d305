@@ -257,7 +257,7 @@
 
     // Build identifier — bump this (to the deploying commit short SHA) on every
     // change so the top-right stamp confirms exactly which code is running.
-    const BUILD_VERSION = 'online-presence+ta-attribution+audio-sfx';
+    const BUILD_VERSION = 'online-presence+block-attribution+audio-sfx+next-piece-preview';
 
     // Touch capability: drives (a) the on-screen control overlay, (b) skipping
     // mouse-lock in favour of direct touch play, and (c) portrait force-rotation.
@@ -561,7 +561,16 @@
     highlight.visible = false;
     scene.add(highlight);
 
-    // ---- Raycast from screen center ----
+    // Placement preview ghost: a translucent block at target.place showing
+    // where the next block will land before the player commits.
+    const previewMaterial = new THREE.MeshLambertMaterial({
+      transparent: true, opacity: 0.38, depthWrite: false,
+    });
+    const previewMesh = new THREE.Mesh(cube, previewMaterial);
+    previewMesh.visible = false;
+    scene.add(previewMesh);
+
+    // ---- Raycast from screen center to find the aimed cell + face ----
     const raycaster = new THREE.Raycaster();
     const centre = new THREE.Vector2(0, 0);
     let target = null; // { cell:{x,y,z}, place:{x,y,z} }
@@ -624,6 +633,7 @@
       const hits = raycaster.intersectObjects(targets, false);
       target = null;
       highlight.visible = false;
+      previewMesh.visible = false;
       if (!hits.length) return;
       const hit = hits[0];
       const cells = hit.object.userData.cells;
@@ -636,6 +646,12 @@
       };
       highlight.position.set(cell.x + 0.5, cell.y + 0.5, cell.z + 0.5);
       highlight.visible = true;
+      // Show ghost at the prospective placement cell if it's empty and in-bounds.
+      const p = target.place;
+      if (inBounds(p.x, p.y, p.z) && !blocks.has(key(p.x, p.y, p.z))) {
+        previewMesh.position.set(p.x + 0.5, p.y + 0.5, p.z + 0.5);
+        previewMesh.visible = true;
+      }
     }
 
     const inBounds = (x, y, z) =>
@@ -1172,6 +1188,14 @@
       for (const el of document.querySelectorAll('#palette [data-id]')) {
         el.classList.toggle('ring-2', Number(el.dataset.id) === id);
         el.classList.toggle('ring-white', Number(el.dataset.id) === id);
+      }
+      // Sync ghost color/opacity to the newly selected block type.
+      const p = PALETTE.find((q) => q.id === id);
+      if (p) {
+        previewMaterial.color.set(p.color);
+        // Semi-transparent blocks (Glass) would nearly vanish at full ghost
+        // opacity, so scale down proportionally and cap at 0.38.
+        previewMaterial.opacity = Math.min(0.38, (p.opacity ?? 1) * 0.55);
       }
     }
     function buildPalette() {
