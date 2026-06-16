@@ -636,7 +636,13 @@
     // ---- Render loop ----
     function resize() {
       const w = window.innerWidth, h = window.innerHeight;
-      renderer.setSize(w, h, false);
+      // updateStyle MUST stay true (the default): a fixed-position <canvas>
+      // with width:auto is a replaced element that falls back to its intrinsic
+      // (drawing-buffer) size and ignores `inset:0`, so passing false here let
+      // the canvas display at w·devicePixelRatio — 2× the viewport on HiDPI,
+      // breaking aim and making the world appear to "tilt". Let three.js set the
+      // inline CSS size to the viewport while keeping the 2× buffer for sharpness.
+      renderer.setSize(w, h);
       camera.aspect = w / h;
       camera.updateProjectionMatrix();
     }
