@@ -99,13 +99,13 @@
   <!-- Controls hint (fades) -->
   <div id="hint" class="pointer-events-none fixed top-3 left-1/2 -translate-x-1/2 z-20 text-center text-xs text-zinc-300/90 bg-black/40 rounded-lg px-3 py-2 transition-opacity duration-700">
     <span class="font-semibold">WASD</span> move · <span class="font-semibold">Space/Shift</span> up·down ·
-    <span class="font-semibold">Left-click</span> break · <span class="font-semibold">Right-click</span> place ·
-    <span class="font-semibold">1–9</span> pick block · <span class="font-semibold">Esc</span> release
+    <span class="font-semibold">Left-click/F</span> add · <span class="font-semibold">Right-click/G</span> delete ·
+    <span class="font-semibold">1–9</span> pick block · <span class="font-semibold">H</span> controls · <span class="font-semibold">Esc</span> release
   </div>
   <div id="hint-fallback" class="hidden pointer-events-none fixed top-3 left-1/2 -translate-x-1/2 z-20 text-center text-xs text-zinc-300/90 bg-black/40 rounded-lg px-3 py-2 transition-opacity duration-700">
     <span class="font-semibold">WASD</span> move · <span class="font-semibold">Space/Shift</span> up·down ·
-    <span class="font-semibold">Drag</span> look · <span class="font-semibold">Left-click</span> break · <span class="font-semibold">Right-click</span> place ·
-    <span class="font-semibold">1–9</span> pick block · <span class="font-semibold">Esc</span> menu
+    <span class="font-semibold">Drag</span> look · <span class="font-semibold">Left-click/F</span> add · <span class="font-semibold">Right-click/G</span> delete ·
+    <span class="font-semibold">1–9</span> pick block · <span class="font-semibold">H</span> controls · <span class="font-semibold">Esc</span> menu
   </div>
 
   <!-- Look-mode control: always-visible, clickable, shows the active look
@@ -116,9 +116,34 @@
   <!-- Block palette -->
   <div id="palette" class="fixed bottom-4 left-1/2 -translate-x-1/2 z-20 flex gap-1.5 p-1.5 rounded-xl bg-black/50 backdrop-blur"></div>
 
+  <!-- Help/controls toggle: circular "(?)" button fixed in the top-right
+       corner. Clicking it does exactly what pressing `h` does — show/hide the
+       controls overlay below. -->
+  <button id="help-btn" title="Controls (h)" aria-label="Toggle controls"
+          class="fixed top-3 right-3 z-30 w-9 h-9 rounded-full bg-black/50 hover:bg-black/70 text-zinc-100 text-lg font-bold leading-none flex items-center justify-center transition-colors cursor-pointer">?</button>
+
   <!-- Build/version stamp: always visible, dim, so the running build can be
-       confirmed at a glance. Bump BUILD_VERSION (below) on every change. -->
-  <div id="build-stamp" class="pointer-events-none fixed top-3 right-3 z-20 text-[11px] text-zinc-300/70 bg-black/40 rounded px-2 py-1 font-mono"></div>
+       confirmed at a glance. Bump BUILD_VERSION (below) on every change.
+       Sits just below the help button so the two don't overlap. -->
+  <div id="build-stamp" class="pointer-events-none fixed top-14 right-3 z-20 text-[11px] text-zinc-300/70 bg-black/40 rounded px-2 py-1 font-mono"></div>
+
+  <!-- Controls overlay: a help panel listing every key/mouse binding. Hidden
+       by default; toggled by pressing `h` or clicking the "(?)" button. -->
+  <div id="controls" class="hidden fixed top-16 right-3 z-30 w-72 max-w-[90vw] rounded-xl bg-black/70 backdrop-blur p-4 text-sm text-zinc-200 shadow-xl">
+    <div class="flex items-center justify-between mb-2">
+      <h2 class="font-bold text-zinc-100">Controls</h2>
+      <button id="controls-close" aria-label="Close controls" class="text-zinc-400 hover:text-zinc-100 cursor-pointer leading-none">✕</button>
+    </div>
+    <ul class="space-y-1.5">
+      <li><span class="font-semibold">WASD</span> / arrows — move</li>
+      <li><span class="font-semibold">Space</span> / <span class="font-semibold">Shift</span> — up / down</li>
+      <li><span class="font-semibold">Left-click</span> or <span class="font-semibold">F</span> — add a block</li>
+      <li><span class="font-semibold">Right-click</span> or <span class="font-semibold">G</span> — delete a block</li>
+      <li><span class="font-semibold">1–9</span> — pick block type</li>
+      <li><span class="font-semibold">H</span> or <span class="font-semibold">(?)</span> — toggle this panel</li>
+      <li><span class="font-semibold">Esc</span> — release / menu</li>
+    </ul>
+  </div>
 
   <script type="module">
     import * as THREE from 'three';
@@ -130,7 +155,7 @@
 
     // Build identifier — bump this (to the deploying commit short SHA) on every
     // change so the top-right stamp confirms exactly which code is running.
-    const BUILD_VERSION = '4f1d510';
+    const BUILD_VERSION = 'controls-fgh';
     const buildStampEl = document.getElementById('build-stamp');
     buildStampEl.textContent = 'build ' + BUILD_VERSION;
 
@@ -516,9 +541,9 @@
     canvas.addEventListener('contextmenu', (e) => e.preventDefault());
     canvas.addEventListener('mousedown', (e) => {
       if (locked) {
-        // Native path: immediate build action, unchanged.
-        if (e.button === 0) breakBlock();
-        else if (e.button === 2) placeBlock();
+        // Native path: immediate build action. Left adds, right deletes.
+        if (e.button === 0) placeBlock();
+        else if (e.button === 2) breakBlock();
         return;
       }
       if (!playing) return;
@@ -534,8 +559,9 @@
       canvas.style.cursor = 'grab';
       const moved = Math.hypot(e.clientX - pressX, e.clientY - pressY);
       if (moved < DRAG_THRESHOLD) {
-        if (e.button === 0) breakBlock();
-        else if (e.button === 2) placeBlock();
+        // Left adds, right deletes.
+        if (e.button === 0) placeBlock();
+        else if (e.button === 2) breakBlock();
       }
     });
 
@@ -550,6 +576,14 @@
         const n = parseInt(e.code.slice(5), 10);
         if (n >= 1 && n <= 9 && PALETTE[n - 1]) selectType(PALETTE[n - 1].id);
       }
+      // Build via keyboard: F adds a block, G deletes one (mirrors the mouse
+      // bindings). Only act while actually playing so the keys don't fire from
+      // behind the menu.
+      if (e.code === 'KeyF' && playing) placeBlock();
+      if (e.code === 'KeyG' && playing) breakBlock();
+      // H toggles the controls overlay (same as the "(?)" button), available
+      // whether or not the game is currently being played.
+      if (e.code === 'KeyH') toggleControls();
       // Drag mode has no OS pointer lock to release, so Escape returns to the
       // overlay manually. In native (locked) mode the browser handles Esc and
       // fires pointerlockchange, which restores the overlay there.
@@ -562,6 +596,16 @@
       }
     });
     window.addEventListener('keyup', (e) => { if (codeMap[e.code]) move[codeMap[e.code]] = false; });
+
+    // ---- Controls overlay toggle ----
+    // Shared by the `h` key and the top-right "(?)" button — both show/hide the
+    // help panel listing every key/mouse binding.
+    const controlsEl = document.getElementById('controls');
+    function toggleControls() { controlsEl.classList.toggle('hidden'); }
+    document.getElementById('help-btn').addEventListener('click', toggleControls);
+    document.getElementById('controls-close').addEventListener('click', () => {
+      controlsEl.classList.add('hidden');
+    });
 
     // ---- Palette UI ----
     function selectType(id) {
