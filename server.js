@@ -233,9 +233,9 @@ app.post('/api/block', async (req, res) => {
         [req.user.id, x, y, z]
       );
       const recent = comboRes.rows[0].recent;
-      if (recent >= 10) { combo_multiplier = 3; combo_tier = 3; }
-      else if (recent >= 6) { combo_multiplier = 2; combo_tier = 2; }
-      else if (recent >= 3) { combo_multiplier = 1.5; combo_tier = 2; }
+      if (recent >= 10) { combo_multiplier = 5; combo_tier = 4; }
+      else if (recent >= 6) { combo_multiplier = 3; combo_tier = 3; }
+      else if (recent >= 3) { combo_multiplier = 2; combo_tier = 2; }
 
       // Rainbow power-up: did this user place a Rainbow Block in the last 30s?
       const rainbowRes = await pool.query(
