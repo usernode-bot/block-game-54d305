@@ -114,6 +114,10 @@
     </div>
   </div>
 
+  <!-- Block attribution label: appears below the crosshair when aiming at a
+       player-placed block. Hidden by default; shown/hidden by JS. -->
+  <div id="attribution" class="hidden pointer-events-none fixed left-1/2 z-10 text-xs text-white/90 bg-black/55 rounded px-2 py-1 font-medium whitespace-nowrap" style="top: calc(50% + 20px); transform: translateX(-50%);"></div>
+
   <!-- Click-to-play overlay -->
   <div id="overlay" class="fixed inset-0 z-30 flex items-center justify-center bg-black/60 backdrop-blur-sm">
     <div class="max-w-md p-8 text-center">
@@ -240,7 +244,7 @@
 
     // Build identifier — bump this (to the deploying commit short SHA) on every
     // change so the top-right stamp confirms exactly which code is running.
-    const BUILD_VERSION = 'chat';
+    const BUILD_VERSION = 'chat+attribution';
 
     // Touch capability: drives (a) the on-screen control overlay, (b) skipping
     // mouse-lock in favour of direct touch play, and (c) portrait force-rotation.
@@ -379,6 +383,58 @@
     const raycaster = new THREE.Raycaster();
     const centre = new THREE.Vector2(0, 0);
     let target = null; // { cell:{x,y,z}, place:{x,y,z} }
+
+    // ---- Block attribution ("Who built this?") ----
+    const attributionEl = document.getElementById('attribution');
+    let _attrTimer = null;   // debounce handle
+    let _attrAbort = null;   // AbortController for in-flight fetch
+    let _attrKey = null;     // cell key of last fetch so we don't re-fetch same cell
+
+    function relativeTime(isoStr) {
+      const diff = Math.floor((Date.now() - new Date(isoStr).getTime()) / 1000);
+      if (diff < 60) return 'just now';
+      if (diff < 3600) return Math.floor(diff / 60) + ' min ago';
+      if (diff < 86400) return Math.floor(diff / 3600) + ' hr ago';
+      return Math.floor(diff / 86400) + ' days ago';
+    }
+
+    function clearAttribution() {
+      if (_attrTimer !== null) { clearTimeout(_attrTimer); _attrTimer = null; }
+      if (_attrAbort !== null) { _attrAbort.abort(); _attrAbort = null; }
+      _attrKey = null;
+      attributionEl.textContent = '';
+      attributionEl.classList.add('hidden');
+    }
+
+    function scheduleAttribution(cellKey, x, y, z) {
+      if (_attrKey === cellKey) return; // already showing / fetching this cell
+      clearAttribution();
+      _attrKey = cellKey;
+      _attrTimer = setTimeout(async () => {
+        _attrTimer = null;
+        const ac = new AbortController();
+        _attrAbort = ac;
+        try {
+          const res = await fetch('/api/block/' + x + '/' + y + '/' + z,
+            { headers, signal: ac.signal });
+          if (!res.ok || ac.signal.aborted) return;
+          const data = await res.json();
+          if (!data || !data.username) return;
+          attributionEl.textContent = 'Built by ' + data.username + ' · ' + relativeTime(data.updated_at);
+          attributionEl.classList.remove('hidden');
+        } catch (_) { /* AbortError or network error — fine */ }
+      }, 200);
+    }
+
+    function updateAttribution() {
+      if (!target || target.cell.y < 1 || !blocks.has(key(target.cell.x, target.cell.y, target.cell.z))) {
+        clearAttribution();
+      } else {
+        const c = target.cell;
+        scheduleAttribution(key(c.x, c.y, c.z), c.x, c.y, c.z);
+      }
+    }
+
     function updateTarget() {
       raycaster.setFromCamera(centre, camera);
       const targets = [groundMesh, ...blockGroup.children].filter(Boolean);
@@ -407,6 +463,7 @@
       const k = key(x, y, z);
       if (t === 0) blocks.delete(k); else blocks.set(k, t);
       rebuildBlockMeshes();
+      clearAttribution(); // label is stale after any block change; loop will re-fetch
     }
     async function sendEdit(x, y, z, t) {
       applyLocal(x, y, z, t);
@@ -1110,6 +1167,7 @@
       }
 
       updateTarget();
+      updateAttribution();
       renderer.render(scene, camera);
       requestAnimationFrame(loop);
     }

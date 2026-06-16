@@ -187,6 +187,28 @@ app.post('/api/chat', async (req, res) => {
   }
 });
 
+// ---- Block attribution: who placed the block at (x, y, z) and when. ----
+// Returns { username, updated_at } for a placed block, or null for empty /
+// ground cells. Ground (y < 1) is the immutable grass layer — never stored.
+app.get('/api/block/:x/:y/:z', async (req, res) => {
+  try {
+    const x = Number(req.params.x);
+    const y = Number(req.params.y);
+    const z = Number(req.params.z);
+    if (y < 1) return res.json(null);
+    const { rows } = await pool.query(
+      `SELECT updated_by_username, updated_at
+       FROM blocks
+       WHERE x = $1 AND y = $2 AND z = $3 AND block_type <> 0`,
+      [x, y, z]
+    );
+    if (!rows.length || !rows[0].updated_by_username) return res.json(null);
+    res.json({ username: rows[0].updated_by_username, updated_at: rows[0].updated_at });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.use(express.static(path.join(__dirname, 'public'), {
   setHeaders(res, filePath) {
     // The entire game is inline in index.html, so a cached shell hides a
@@ -213,13 +235,21 @@ app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-// ---- Staging seed: an obviously-fake "Staging demo" starter build so a
-// fresh staging DB (the blocks table is created empty by the migration)
-// has something to render, target, break, and sync. No-op in production. ----
+// ---- Staging seed: an obviously-fake starter build so a fresh staging DB
+// has something to render, target, break, and sync. Uses three distinct fake
+// usernames so the "Who built this?" attribution tooltip shows variety.
+// No-op in production. ----
 function buildSeedCells() {
   const cells = [];
-  const set = (x, y, z, t) => cells.push({ x, y, z, t });
+  const DEMO  = { userId: SEED_USER_ID, username: 'Staging demo' };
+  const ALICE = { userId: -1, username: 'alice_builder' };
+  const REZA  = { userId: -2, username: 'reza99' };
+  const set = (x, y, z, t, who) => {
+    const w = who || DEMO;
+    cells.push({ x, y, z, t, userId: w.userId, username: w.username });
+  };
   // A 5x5 hollow stone hut near plot center (x 14..18, z 14..18).
+  // Walls: Staging demo. Windows + roof: alice_builder. Tree: reza99.
   const x0 = 14, x1 = 18, z0 = 14, z1 = 18;
   for (let y = 1; y <= 3; y++) {
     for (let x = x0; x <= x1; x++) {
@@ -228,27 +258,27 @@ function buildSeedCells() {
         if (!perimeter) continue;
         // Door gap on the south wall (z0) at x = 16, lower two rows.
         if (x === 16 && z === z0 && y <= 2) continue;
-        set(x, y, z, 3); // Stone
+        set(x, y, z, 3); // Stone, Staging demo
       }
     }
   }
-  // Glass windows on the east/west walls.
-  set(x0, 2, 16, 8);
-  set(x1, 2, 16, 8);
-  // Wood roof covering the 5x5 footprint.
+  // Glass windows on the east/west walls — placed by alice_builder.
+  set(x0, 2, 16, 8, ALICE);
+  set(x1, 2, 16, 8, ALICE);
+  // Wood roof covering the 5x5 footprint — placed by alice_builder.
   for (let x = x0; x <= x1; x++) {
-    for (let z = z0; z <= z1; z++) set(x, 4, z, 4);
+    for (let z = z0; z <= z1; z++) set(x, 4, z, 4, ALICE);
   }
-  // A small tree to the side: wood trunk + leaf canopy.
+  // A small tree to the side: wood trunk + leaf canopy — planted by reza99.
   const tx = 23, tz = 23;
-  for (let y = 1; y <= 3; y++) set(tx, y, tz, 4);
+  for (let y = 1; y <= 3; y++) set(tx, y, tz, 4, REZA);
   for (let dx = -1; dx <= 1; dx++) {
     for (let dz = -1; dz <= 1; dz++) {
-      set(tx + dx, 4, tz + dz, 5);
+      set(tx + dx, 4, tz + dz, 5, REZA);
     }
   }
-  set(tx, 5, tz, 5);
-  // A short sand path leading to the door.
+  set(tx, 5, tz, 5, REZA);
+  // A short sand path leading to the door — Staging demo.
   set(16, 1, 13, 6);
   set(16, 1, 12, 6);
   return cells;
@@ -259,9 +289,9 @@ async function seedStaging() {
   for (const c of cells) {
     await pool.query(
       `INSERT INTO blocks (x, y, z, block_type, seq, updated_by_user_id, updated_by_username, updated_at)
-       VALUES ($1, $2, $3, $4, nextval('block_seq'), $5, 'Staging demo', NOW())
+       VALUES ($1, $2, $3, $4, nextval('block_seq'), $5, $6, NOW())
        ON CONFLICT (x, y, z) DO NOTHING`,
-      [c.x, c.y, c.z, c.t, SEED_USER_ID]
+      [c.x, c.y, c.z, c.t, c.userId, c.username]
     );
   }
 }
