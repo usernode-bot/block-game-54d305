@@ -58,6 +58,16 @@ const SEED_USER_ID = 0;
 // Everything else requires a valid platform-issued JWT.
 const PUBLIC_API_PATHS = new Set(['/health']);
 
+// ---- Daily Challenge: deterministic placement target [20, 100] from UTC date ----
+// Using UTC year/month/day so the same date always yields the same target
+// regardless of server timezone or restarts. No DB row needed for the target itself.
+function dailyTarget(dateObj) {
+  const y = dateObj.getUTCFullYear();
+  const m = dateObj.getUTCMonth() + 1;
+  const d = dateObj.getUTCDate();
+  return 20 + ((y * 31 + m * 7 + d) % 81);
+}
+
 app.use(express.json());
 
 // Verify platform-issued JWT if one was passed, then enforce auth on
@@ -103,6 +113,7 @@ app.get('/api/world', async (_req, res) => {
 // ---- Place / break a single block. block_type 0 means break (air). ----
 // Air-as-row: breaking writes block_type = 0 (never DELETE) with a bumped
 // seq, so the change feed below can surface breaks to other clients.
+// Placements (block_type > 0) also increment the player's daily challenge counter.
 app.post('/api/block', async (req, res) => {
   try {
     const x = Number(req.body.x);
@@ -138,9 +149,37 @@ app.post('/api/block', async (req, res) => {
     );
     const seq = Number(rows[0].seq);
 
+    // Track challenge progress for placements only (breaks don't count).
+    let challenge = null;
     // ---- Scoring (placements only; breaks earn 0) ----
     let earned = 0, combo_multiplier = 1, rainbow_multiplier = 1, combo_tier = 1;
     if (t !== 0) {
+      const now = new Date();
+      const dateStr = now.toISOString().slice(0, 10);
+      const target = dailyTarget(now);
+      const cr = await pool.query(
+        `INSERT INTO daily_challenge_progress
+           (challenge_date, user_id, username, blocks_placed, completed_at, updated_at)
+         VALUES ($1, $2, $3, 1,
+           CASE WHEN 1 >= $4 THEN NOW() ELSE NULL END,
+           NOW())
+         ON CONFLICT (challenge_date, user_id) DO UPDATE SET
+           blocks_placed = daily_challenge_progress.blocks_placed + 1,
+           username = EXCLUDED.username,
+           completed_at = CASE
+             WHEN daily_challenge_progress.completed_at IS NOT NULL
+               THEN daily_challenge_progress.completed_at
+             WHEN daily_challenge_progress.blocks_placed + 1 >= $4
+               THEN NOW()
+             ELSE NULL
+           END,
+           updated_at = NOW()
+         RETURNING blocks_placed, completed_at`,
+        [dateStr, req.user.id, req.user.username, target]
+      );
+      const cr0 = cr.rows[0];
+      challenge = { placed: cr0.blocks_placed, target, completed_at: cr0.completed_at };
+
       const base = BLOCK_POINTS[t] || 1;
 
       // Combo: count placements this user made in the last 10 seconds
@@ -186,7 +225,7 @@ app.post('/api/block', async (req, res) => {
       );
     }
 
-    res.json({ ok: true, seq, earned, combo_multiplier, rainbow_multiplier });
+    res.json({ ok: true, seq, ...(challenge ? { challenge } : {}), earned, combo_multiplier, rainbow_multiplier });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -305,6 +344,32 @@ app.get('/api/block/:x/:y/:z', async (req, res) => {
   }
 });
 
+// ---- Daily Challenge: today's goal and the requesting user's progress. ----
+// Target is derived deterministically from the UTC date — no DB write needed.
+// Returns { date, target, placed, completed_at }.
+app.get('/api/challenge/today', async (req, res) => {
+  try {
+    const now = new Date();
+    const dateStr = now.toISOString().slice(0, 10);
+    const target = dailyTarget(now);
+    const { rows } = await pool.query(
+      `SELECT blocks_placed, completed_at
+       FROM daily_challenge_progress
+       WHERE challenge_date = $1 AND user_id = $2`,
+      [dateStr, req.user.id]
+    );
+    const row = rows[0];
+    res.json({
+      date: dateStr,
+      target,
+      placed: row ? row.blocks_placed : 0,
+      completed_at: row ? row.completed_at : null,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.use(express.static(path.join(__dirname, 'public'), {
   setHeaders(res, filePath) {
     // The entire game is inline in index.html, so a cached shell hides a
@@ -406,23 +471,21 @@ async function seedStaging() {
     );
   }
 
-  // Seed leaderboard with obviously-fake entries (negative user IDs avoid
-  // colliding with real platform user IDs, which are positive integers).
-  const fakeScores = [
-    { id: -1, username: 'staging-demo-alice', total_score: 1450, blocks_placed: 320, best_combo: 3 },
-    { id: -2, username: 'staging-demo-bob',   total_score: 980,  blocks_placed: 210, best_combo: 2 },
-    { id: -3, username: 'staging-demo-carol', total_score: 720,  blocks_placed: 180, best_combo: 2 },
-    { id: -4, username: 'staging-demo-dave',  total_score: 440,  blocks_placed:  95, best_combo: 1 },
-    { id: -5, username: 'staging-demo-eve',   total_score: 115,  blocks_placed:  30, best_combo: 1 },
-  ];
-  for (const s of fakeScores) {
-    await pool.query(
-      `INSERT INTO leaderboard (user_id, username, total_score, blocks_placed, best_combo, updated_at)
-       VALUES ($1, $2, $3, $4, $5, NOW())
-       ON CONFLICT (user_id) DO NOTHING`,
-      [s.id, s.username, s.total_score, s.blocks_placed, s.best_combo]
-    );
-  }
+  // Daily challenge progress seed: three personas at different completion states
+  // so both in-progress and complete widget states can be verified.
+  const now = new Date();
+  const todayStr = now.toISOString().slice(0, 10);
+  const targetToday = dailyTarget(now);
+  await pool.query(
+    `INSERT INTO daily_challenge_progress
+       (challenge_date, user_id, username, blocks_placed, completed_at, updated_at)
+     VALUES
+       ($1,  0, 'Staging demo',  5,           NULL, NOW()),
+       ($1, -1, 'alice_builder', 38,          NULL, NOW()),
+       ($1, -2, 'reza99',        $2, NOW(), NOW())
+     ON CONFLICT (challenge_date, user_id) DO NOTHING`,
+    [todayStr, targetToday]
+  );
 }
 
 // Seed the leaderboard with 6 fake builders so staging shows a populated panel.
@@ -485,6 +548,25 @@ async function start() {
       username VARCHAR(255) NOT NULL,
       last_seen TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
+  `);
+
+  // Daily challenge progress: one row per (date, user). Public table —
+  // placement counts and usernames are not sensitive.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS daily_challenge_progress (
+      challenge_date DATE NOT NULL,
+      user_id INTEGER NOT NULL,
+      username VARCHAR(255) NOT NULL,
+      blocks_placed INTEGER NOT NULL DEFAULT 0,
+      completed_at TIMESTAMPTZ,
+      updated_at TIMESTAMPTZ DEFAULT NOW(),
+      PRIMARY KEY (challenge_date, user_id)
+    )
+  `);
+  // Index for future leaderboard queries (challenge_date + ranked by blocks_placed).
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS daily_challenge_progress_date_placed_idx
+    ON daily_challenge_progress (challenge_date, blocks_placed DESC)
   `);
 
   if (IS_STAGING) {
