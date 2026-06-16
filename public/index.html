@@ -173,14 +173,18 @@
   <button id="help-btn" title="Controls (h)" aria-label="Toggle controls"
           class="fixed top-3 right-3 z-30 w-9 h-9 rounded-full bg-black/50 hover:bg-black/70 text-zinc-100 text-lg font-bold leading-none flex items-center justify-center transition-colors cursor-pointer">?</button>
 
+  <!-- Leaderboard toggle: sits below the help button. -->
+  <button id="leaderboard-btn" title="Leaderboard (l)" aria-label="Toggle leaderboard"
+          class="fixed top-14 right-3 z-30 w-9 h-9 rounded-full bg-black/50 hover:bg-black/70 text-zinc-100 text-lg leading-none flex items-center justify-center transition-colors cursor-pointer">🏆</button>
+
   <!-- Build/version stamp: always visible, dim, so the running build can be
        confirmed at a glance. Bump BUILD_VERSION (below) on every change.
-       Sits just below the help button so the two don't overlap. -->
-  <div id="build-stamp" class="pointer-events-none fixed top-14 right-3 z-20 text-[11px] text-zinc-300/70 bg-black/40 rounded px-2 py-1 font-mono"></div>
+       Shifted down to make room for the leaderboard button above. -->
+  <div id="build-stamp" class="pointer-events-none fixed top-24 right-3 z-20 text-[11px] text-zinc-300/70 bg-black/40 rounded px-2 py-1 font-mono"></div>
 
   <!-- Controls overlay: a help panel listing every key/mouse binding. Hidden
        by default; toggled by pressing `h` or clicking the "(?)" button. -->
-  <div id="controls" class="hidden fixed top-16 right-3 z-30 w-72 max-w-[90vw] rounded-xl bg-black/70 backdrop-blur p-4 text-sm text-zinc-200 shadow-xl">
+  <div id="controls" class="hidden fixed top-28 right-3 z-30 w-72 max-w-[90vw] rounded-xl bg-black/70 backdrop-blur p-4 text-sm text-zinc-200 shadow-xl">
     <div class="flex items-center justify-between mb-2">
       <h2 class="font-bold text-zinc-100">Controls</h2>
       <button id="controls-close" aria-label="Close controls" class="text-zinc-400 hover:text-zinc-100 cursor-pointer leading-none">✕</button>
@@ -192,9 +196,20 @@
       <li><span class="font-semibold">Right-click</span> or <span class="font-semibold">G</span> — delete a block</li>
       <li><span class="font-semibold">1–9</span> — pick block type</li>
       <li><span class="font-semibold">H</span> or <span class="font-semibold">(?)</span> — toggle this panel</li>
+      <li><span class="font-semibold">L</span> or <span class="font-semibold">🏆</span> — leaderboard</li>
       <li><span class="font-semibold">M</span> or <span class="font-semibold">🔊</span> — mute / unmute audio</li>
-      <li><span class="font-semibold">Esc</span> — release / menu</li>
+      <li><span class="font-semibold">Esc</span> — close panel / release / menu</li>
     </ul>
+  </div>
+
+  <!-- Leaderboard overlay: top 10 builders. Hidden by default; toggled by
+       pressing `l` or clicking the trophy button. -->
+  <div id="leaderboard" class="hidden fixed top-28 right-3 z-30 w-72 max-w-[90vw] rounded-xl bg-black/70 backdrop-blur p-4 text-sm text-zinc-200 shadow-xl">
+    <div class="flex items-center justify-between mb-3">
+      <h2 class="font-bold text-zinc-100">Leaderboard</h2>
+      <button id="leaderboard-close" aria-label="Close leaderboard" class="text-zinc-400 hover:text-zinc-100 cursor-pointer leading-none">✕</button>
+    </div>
+    <div id="leaderboard-content" class="text-zinc-400 text-center py-2 text-xs">Loading…</div>
   </div>
 
   <!-- Touch controls: translucent on-screen overlay shown only on touch devices
@@ -257,7 +272,7 @@
 
     // Build identifier — bump this (to the deploying commit short SHA) on every
     // change so the top-right stamp confirms exactly which code is running.
-    const BUILD_VERSION = 'online-presence+block-attribution+audio-sfx+next-piece-preview';
+    const BUILD_VERSION = 'leaderboard+online-presence+block-attribution+audio-sfx+next-piece-preview';
 
     // Touch capability: drives (a) the on-screen control overlay, (b) skipping
     // mouse-lock in favour of direct touch play, and (c) portrait force-rotation.
@@ -1086,19 +1101,25 @@
       if (e.code === 'KeyF' && playing) placeBlock();
       if (e.code === 'KeyG' && playing) breakBlock();
       if (e.code === 'KeyH') toggleControls();
+      // L toggles the leaderboard panel.
+      if (e.code === 'KeyL') toggleLeaderboard();
       if (e.code === 'KeyM') { muteBtnEl.textContent = audio.toggleMute() ? '🔇' : '🔊'; }
-      // Drag mode has no OS pointer lock to release, so Escape returns to the
-      // overlay manually. In native (locked) mode the browser handles Esc and
-      // fires pointerlockchange, which restores the overlay there.
-      if (e.code === 'Escape' && dragMode && playing) {
-        if (gameMode === 'timeattack') {
-          endTimeAttack();
-        } else {
-          playing = false;
-          resetMove();
-          canvas.style.cursor = '';
-          overlayEl.style.display = 'flex';
-          refreshControlCopy();
+      // Escape: close the leaderboard if open, otherwise handle mode exit.
+      // In native (locked) mode the browser handles Esc and fires
+      // pointerlockchange, which restores the overlay there.
+      if (e.code === 'Escape') {
+        if (!leaderboardEl.classList.contains('hidden')) {
+          closeLeaderboard();
+        } else if (dragMode && playing) {
+          if (gameMode === 'timeattack') {
+            endTimeAttack();
+          } else {
+            playing = false;
+            resetMove();
+            canvas.style.cursor = '';
+            overlayEl.style.display = 'flex';
+            refreshControlCopy();
+          }
         }
       }
     });
@@ -1168,6 +1189,7 @@
         '<li><span class="font-semibold">Up / Down</span> — fly up / down</li>',
         '<li><span class="font-semibold">Add</span> / <span class="font-semibold">Delete</span> — place / remove a block at the crosshair</li>',
         '<li><span class="font-semibold">Palette</span> — tap a swatch to pick a block</li>',
+        '<li><span class="font-semibold">🏆</span> — leaderboard</li>',
         '<li><span class="font-semibold">☰ Menu</span> — back to the start screen</li>',
         '<li><span class="font-semibold">🔊 / 🔇</span> — tap to mute / unmute audio</li>',
       ].join('');
@@ -1181,6 +1203,60 @@
     document.getElementById('controls-close').addEventListener('click', () => {
       controlsEl.classList.add('hidden');
     });
+
+    // ---- Leaderboard overlay ----
+    const leaderboardEl = document.getElementById('leaderboard');
+    const leaderboardContentEl = document.getElementById('leaderboard-content');
+    let leaderboardTimer = null;
+
+    function closeLeaderboard() {
+      leaderboardEl.classList.add('hidden');
+      if (leaderboardTimer !== null) { clearTimeout(leaderboardTimer); leaderboardTimer = null; }
+    }
+    function toggleLeaderboard() {
+      if (leaderboardEl.classList.contains('hidden')) {
+        leaderboardEl.classList.remove('hidden');
+        fetchLeaderboard();
+      } else {
+        closeLeaderboard();
+      }
+    }
+    function escapeHtml(s) {
+      return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+    async function fetchLeaderboard() {
+      clearTimeout(leaderboardTimer);
+      leaderboardTimer = null;
+      try {
+        const res = await fetch('/api/leaderboard', { headers });
+        if (!res.ok) throw new Error('fetch failed');
+        const { entries } = await res.json();
+        if (!entries.length) {
+          leaderboardContentEl.innerHTML = '<p class="py-1">No builders yet — be the first!</p>';
+        } else {
+          leaderboardContentEl.innerHTML =
+            '<table class="w-full text-xs">' +
+            '<thead><tr class="text-zinc-500 uppercase border-b border-zinc-700">' +
+            '<th class="text-left pb-1 w-6">#</th>' +
+            '<th class="text-left pb-1 pl-2">Player</th>' +
+            '<th class="text-right pb-1">Blocks</th></tr></thead><tbody>' +
+            entries.map(e =>
+              '<tr class="border-b border-zinc-800/60 last:border-0">' +
+              '<td class="py-1 text-zinc-500">' + e.rank + '</td>' +
+              '<td class="py-1 pl-2 max-w-[180px] truncate">' + escapeHtml(e.username) + '</td>' +
+              '<td class="py-1 text-right font-mono text-zinc-100">' + e.count + '</td></tr>'
+            ).join('') +
+            '</tbody></table>';
+        }
+      } catch (_) {
+        leaderboardContentEl.innerHTML = '<p class="py-1 text-zinc-500">Couldn\'t load leaderboard.</p>';
+      }
+      if (!leaderboardEl.classList.contains('hidden')) {
+        leaderboardTimer = setTimeout(fetchLeaderboard, 30000);
+      }
+    }
+    document.getElementById('leaderboard-btn').addEventListener('click', toggleLeaderboard);
+    document.getElementById('leaderboard-close').addEventListener('click', closeLeaderboard);
 
     // ---- Palette UI ----
     function selectType(id) {
