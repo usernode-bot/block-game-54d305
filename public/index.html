@@ -192,6 +192,27 @@
       scene.add(mesh);
     }
 
+    // Infinite-looking ground grid: a large reference grid at ground level,
+    // aligned to the 1-unit block cells and centred under the plot, extending
+    // far past the edges so it reads as an endless floor (fog fades the far
+    // lines into the sky). Sits a hair below the terrain and skips depth-write
+    // so it never z-fights with the grass cells. NOT raycastable — it's a pure
+    // visual reference and must not become a placement surface.
+    let groundGrid = null;
+    function buildGroundGrid() {
+      if (groundGrid) { scene.remove(groundGrid); groundGrid = null; }
+      const SIZE = 400; // world units — far beyond the plot and the fly margin
+      const grid = new THREE.GridHelper(SIZE, SIZE, 0x6b7a8d, 0x44505f);
+      // Centre on the plot centre (an integer) so lines land on cell borders.
+      grid.position.set(DIMS.w / 2, -0.01, DIMS.d / 2);
+      grid.material.transparent = true;
+      grid.material.opacity = 0.35;
+      grid.material.depthWrite = false;
+      grid.renderOrder = -1;
+      groundGrid = grid;
+      scene.add(grid);
+    }
+
     // Dynamic (user-placed) blocks: one InstancedMesh per type, rebuilt from
     // the `blocks` map whenever it changes. Plot is small, so a full rebuild
     // is cheap and keeps instanceId -> cell mapping trivial.
@@ -561,6 +582,7 @@
       blocks.clear();
       for (const b of data.blocks) blocks.set(key(b.x, b.y, b.z), b.t);
       buildGround();
+      buildGroundGrid();
       buildPalette();
       rebuildBlockMeshes();
       // Re-aim spawn now that real dims are known so the camera frames the plot.
@@ -596,6 +618,7 @@
 
     let prev = performance.now();
     const fwd = new THREE.Vector3(), right = new THREE.Vector3(), horiz = new THREE.Vector3();
+    const WORLD_UP = new THREE.Vector3(0, 1, 0);
     function loop(now) {
       const dt = Math.min((now - prev) / 1000, 0.1);
       prev = now;
@@ -604,12 +627,19 @@
       // fallback). With the overlay/menu up the camera holds still even if a
       // key is held underneath it. Aiming/rendering still run every frame.
       if (playing && (locked || dragMode)) {
-        // Movement basis is horizontal-only: derive forward/right from yaw so
-        // forward/back keeps a steady altitude (matching strafe) regardless of
-        // pitch. Vertical motion is handled solely by Space/Shift below. Aiming
-        // and raycasting still use the full pitched look direction (updateTarget).
-        fwd.set(-Math.sin(yaw), 0, -Math.cos(yaw));
-        right.set(Math.cos(yaw), 0, -Math.sin(yaw));
+        // Movement basis is taken straight from the camera's real facing, then
+        // flattened to horizontal so forward/back holds a steady altitude
+        // (matching strafe) regardless of pitch. Deriving forward from the live
+        // camera orientation — rather than re-computing trig from yaw —
+        // guarantees W glides exactly where the camera looks and S the opposite,
+        // with no chance of the basis drifting out of sync with the look math.
+        // Right is forward × up (camera's right). Vertical motion is Space/Shift
+        // only; aiming/raycasting still use the full pitched look (updateTarget).
+        camera.getWorldDirection(fwd);
+        fwd.y = 0;
+        if (fwd.lengthSq() < 1e-6) fwd.set(-Math.sin(yaw), 0, -Math.cos(yaw)); // looking straight up/down
+        fwd.normalize();
+        right.crossVectors(fwd, WORLD_UP).normalize();
         const step = SPEED * dt;
         // Sum horizontal contributions and normalize so diagonal travel isn't
         // faster than cardinal.
