@@ -126,6 +126,7 @@
       <p id="overlay-help" class="text-zinc-500 text-sm mb-6">Click to play — move the mouse to look, press Esc to release. If your browser blocks mouse-lock, you can drag to look instead.</p>
       <button id="play-btn" class="px-5 py-2 rounded-lg bg-violet-600 hover:bg-violet-500 font-semibold">Click to play</button>
       <div id="status" class="mt-4 text-sm text-zinc-500"></div>
+      <div id="online-list" class="mt-4 text-sm text-zinc-400"></div>
     </div>
   </div>
 
@@ -249,7 +250,7 @@
 
     // Build identifier — bump this (to the deploying commit short SHA) on every
     // change so the top-right stamp confirms exactly which code is running.
-    const BUILD_VERSION = 'chat+attribution+audio-sfx';
+    const BUILD_VERSION = 'chat+online-presence+block-attribution+audio-sfx+next-piece-preview';
 
     // Touch capability: drives (a) the on-screen control overlay, (b) skipping
     // mouse-lock in favour of direct touch play, and (c) portrait force-rotation.
@@ -561,6 +562,15 @@
     highlight.visible = false;
     scene.add(highlight);
 
+    // Placement preview ghost: a translucent block at target.place showing
+    // where the next block will land before the player commits.
+    const previewMaterial = new THREE.MeshLambertMaterial({
+      transparent: true, opacity: 0.38, depthWrite: false,
+    });
+    const previewMesh = new THREE.Mesh(cube, previewMaterial);
+    previewMesh.visible = false;
+    scene.add(previewMesh);
+
     // ---- Raycast from screen center to find the aimed cell + face ----
     const raycaster = new THREE.Raycaster();
     const centre = new THREE.Vector2(0, 0);
@@ -623,6 +633,7 @@
       const hits = raycaster.intersectObjects(targets, false);
       target = null;
       highlight.visible = false;
+      previewMesh.visible = false;
       if (!hits.length) return;
       const hit = hits[0];
       const cells = hit.object.userData.cells;
@@ -635,6 +646,12 @@
       };
       highlight.position.set(cell.x + 0.5, cell.y + 0.5, cell.z + 0.5);
       highlight.visible = true;
+      // Show ghost at the prospective placement cell if it's empty and in-bounds.
+      const p = target.place;
+      if (inBounds(p.x, p.y, p.z) && !blocks.has(key(p.x, p.y, p.z))) {
+        previewMesh.position.set(p.x + 0.5, p.y + 0.5, p.z + 0.5);
+        previewMesh.visible = true;
+      }
     }
 
     const inBounds = (x, y, z) =>
@@ -1103,6 +1120,14 @@
         el.classList.toggle('ring-2', Number(el.dataset.id) === id);
         el.classList.toggle('ring-white', Number(el.dataset.id) === id);
       }
+      // Sync ghost color/opacity to the newly selected block type.
+      const p = PALETTE.find((q) => q.id === id);
+      if (p) {
+        previewMaterial.color.set(p.color);
+        // Semi-transparent blocks (Glass) would nearly vanish at full ghost
+        // opacity, so scale down proportionally and cap at 0.38.
+        previewMaterial.opacity = Math.min(0.38, (p.opacity ?? 1) * 0.55);
+      }
     }
     function buildPalette() {
       const wrap = document.getElementById('palette');
@@ -1249,6 +1274,34 @@
       return true;
     }
 
+    async function heartbeat() {
+      if (!token) return;
+      try {
+        await fetch('/api/presence/ping', { method: 'POST', headers });
+      } catch (_) { /* fire-and-forget */ }
+    }
+
+    const onlineListEl = document.getElementById('online-list');
+    async function pollPresence() {
+      if (!token) return;
+      try {
+        const res = await fetch('/api/presence/online', { headers });
+        if (!res.ok) return;
+        const { users } = await res.json();
+        if (!users.length) {
+          onlineListEl.textContent = 'Just you right now.';
+          return;
+        }
+        onlineListEl.innerHTML = '<div class="mb-1 text-zinc-500 text-xs font-semibold uppercase tracking-wide">Online now</div>' +
+          users.map((u) =>
+            '<div class="flex items-center gap-1.5 py-0.5">' +
+            '<span class="inline-block w-2 h-2 rounded-full bg-green-400 shrink-0"></span>' +
+            '<span>' + u.username.replace(/&/g, '&amp;').replace(/</g, '&lt;') + '</span>' +
+            '</div>'
+          ).join('');
+      } catch (_) { /* transient */ }
+    }
+
     async function poll() {
       if (document.hidden) return;
 
@@ -1377,6 +1430,10 @@
       await loadChat();
       requestAnimationFrame(loop);
       setInterval(poll, 1500);
+      heartbeat();
+      setInterval(heartbeat, 30000);
+      pollPresence();
+      setInterval(pollPresence, 15000);
     })();
   </script>
 </body>
