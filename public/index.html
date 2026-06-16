@@ -126,7 +126,7 @@
 
     // Build stamp — bump on every movement/look change so a tester can
     // confirm (via the ?debug=1 HUD) the preview is running current code.
-    const BUILD_STAMP = 'move-2026-06-16.7';
+    const BUILD_STAMP = 'move-2026-06-16.8';
     // Always-visible build tag on the play overlay, so a tester can confirm
     // exactly which build is running before judging behavior.
     const buildTagEl = document.getElementById('build-tag');
@@ -346,6 +346,10 @@
       pitch = 0;
       applyLook();
       armLookSettle();
+      // Play-entry can grow the canvas (overlay hide / pointer-lock); re-sync
+      // the renderer/camera to the real displayed size so the optical centre
+      // stays at the visual centre (a stale size tilts the horizon up).
+      resize();
     }
     const DRAG_THRESHOLD = 5;    // px of movement that turns a click into a drag
     const move = { f: false, b: false, l: false, r: false, up: false, down: false };
@@ -642,13 +646,29 @@
     }
 
     // ---- Render loop ----
+    // Size from the ACTUAL displayed canvas, not window.innerHeight. The canvas
+    // can grow taller than the window's reported size at play-entry (overlay
+    // hide / pointer-lock), and if the renderer keeps stale dimensions the
+    // optical centre lands above the visual centre — tilting the horizon up.
     function resize() {
-      const w = window.innerWidth, h = window.innerHeight;
+      const w = canvas.clientWidth || window.innerWidth;
+      const h = canvas.clientHeight || window.innerHeight;
+      if (!w || !h) return;
       renderer.setSize(w, h, false);
       camera.aspect = w / h;
       camera.updateProjectionMatrix();
     }
     window.addEventListener('resize', resize);
+
+    // Re-sync whenever the displayed canvas size drifts from the renderer's
+    // current size (covers play-entry growth and anything 'resize' misses).
+    const _rendSize = new THREE.Vector2();
+    function syncSizeIfChanged() {
+      const w = canvas.clientWidth, h = canvas.clientHeight;
+      if (!w || !h) return;
+      renderer.getSize(_rendSize);
+      if (_rendSize.x !== w || _rendSize.y !== h) resize();
+    }
 
     let prev = performance.now();
     const fwd = new THREE.Vector3(), right = new THREE.Vector3();
@@ -717,6 +737,9 @@
     function loop(now) {
       const dt = Math.min((now - prev) / 1000, 0.1);
       prev = now;
+
+      // Keep the renderer/camera matched to the live canvas size every frame.
+      syncSizeIfChanged();
 
       // Forward must travel exactly toward the screen-center heading, so
       // derive it from the SAME source the crosshair raycaster uses: the
