@@ -118,6 +118,10 @@
        player-placed block. Hidden by default; shown/hidden by JS. -->
   <div id="attribution" class="hidden pointer-events-none fixed left-1/2 z-10 text-xs text-white/90 bg-black/55 rounded px-2 py-1 font-medium whitespace-nowrap" style="top: calc(50% + 20px); transform: translateX(-50%);"></div>
 
+  <!-- Power-up buff HUD: shows active buffs with countdown timers.
+       Positioned bottom-right above the palette. -->
+  <div id="powerup-hud" class="pointer-events-none fixed bottom-24 right-4 z-20 flex flex-col items-end gap-1"></div>
+
   <!-- Click-to-play overlay -->
   <div id="overlay" class="fixed inset-0 z-30 flex items-center justify-center bg-black/60 backdrop-blur-sm">
     <div class="max-w-md p-8 text-center">
@@ -175,6 +179,7 @@
       <li><span class="font-semibold">1–9</span> — pick block type</li>
       <li><span class="font-semibold">H</span> or <span class="font-semibold">(?)</span> — toggle this panel</li>
       <li><span class="font-semibold">Esc</span> — release / menu</li>
+      <li><span class="font-semibold">Power-ups</span> — collect glowing cubes for Speed, Jump, or Rapid Place (hold F/Add)</li>
     </ul>
   </div>
 
@@ -220,7 +225,7 @@
 
     // Build identifier — bump this (to the deploying commit short SHA) on every
     // change so the top-right stamp confirms exactly which code is running.
-    const BUILD_VERSION = 'block-attribution';
+    const BUILD_VERSION = 'power-ups';
 
     // Touch capability: drives (a) the on-screen control overlay, (b) skipping
     // mouse-lock in favour of direct touch play, and (c) portrait force-rotation.
@@ -237,6 +242,12 @@
     let cursor = 0;                  // last seq seen from the server
     let selectedType = 1;
     const key = (x, y, z) => x + ',' + y + ',' + z;
+
+    // ---- Power-up state ----
+    const powerupMap = new Map(); // id -> { type, x, y, z, mesh }
+    const activeBuff = new Map(); // type -> expiresAt (performance.now() ms)
+    let placeHeld = false;        // true while the place key/button is held down
+    let lastRapidPlace = 0;       // ms timestamp of the last rapid-place fire
 
     // ---- Three.js scaffold ----
     const canvas = document.getElementById('scene');
@@ -262,6 +273,22 @@
       if (p.opacity != null && p.opacity < 1) { opts.transparent = true; opts.opacity = p.opacity; }
       return new THREE.MeshLambertMaterial(opts);
     }
+
+    // ---- Power-up geometry, materials, and scene group ----
+    const powerupGeom = new THREE.BoxGeometry(0.5, 0.5, 0.5);
+    const POWERUP_DEFS = {
+      speed_boost: { color: '#FFD700', label: 'Speed Boost' },
+      super_jump:  { color: '#22d3ee', label: 'Super Jump'  },
+      rapid_place: { color: '#fb923c', label: 'Rapid Place' },
+    };
+    const powerupMats = {};
+    for (const [type, def] of Object.entries(POWERUP_DEFS)) {
+      // MeshBasicMaterial is unaffected by lighting so power-ups always glow
+      // bright and stand out from the Lambert-lit world blocks.
+      powerupMats[type] = new THREE.MeshBasicMaterial({ color: new THREE.Color(def.color) });
+    }
+    const powerupGroup = new THREE.Group();
+    scene.add(powerupGroup);
 
     // Ground = immutable grass layer at y = 0 (one InstancedMesh, raycastable
     // so blocks can be placed on top, but never breakable).
@@ -405,6 +432,78 @@
       }
     }
 
+    // ---- Power-up buff HUD ----
+    const powerupHudEl = document.getElementById('powerup-hud');
+    let _lastHudHtml = '';
+    function renderBuffHud() {
+      const now = performance.now();
+      let html = '';
+      for (const [type, expiresAt] of activeBuff) {
+        const remaining = Math.ceil((expiresAt - now) / 1000);
+        if (remaining > 0) {
+          const def = POWERUP_DEFS[type];
+          html += '<div class="px-2 py-1 rounded text-xs font-bold text-black" style="background:' + def.color + '">'
+                + def.label + ' ' + remaining + 's</div>';
+        }
+      }
+      if (html !== _lastHudHtml) { powerupHudEl.innerHTML = html; _lastHudHtml = html; }
+    }
+
+    // ---- Power-up world sync ----
+    async function pollPowerUps() {
+      if (document.hidden) return;
+      try {
+        const res = await fetch('/api/powerups', { headers });
+        if (!res.ok) return;
+        const { powerups } = await res.json();
+        const serverIds = new Set(powerups.map((p) => p.id));
+        // Remove meshes for items that are no longer on the server (claimed).
+        for (const [id, pu] of powerupMap) {
+          if (!serverIds.has(id)) {
+            if (pu.mesh) powerupGroup.remove(pu.mesh);
+            powerupMap.delete(id);
+          }
+        }
+        // Add meshes for items the client doesn't know about yet.
+        for (const p of powerups) {
+          if (!powerupMap.has(p.id)) {
+            const mat = powerupMats[p.type] || powerupMats.speed_boost;
+            const mesh = new THREE.Mesh(powerupGeom, mat);
+            mesh.position.set(p.x + 0.5, p.y + 0.5, p.z + 0.5);
+            mesh.userData.baseY = p.y + 0.5;
+            mesh.userData.phase = (p.id * 1.618) % (Math.PI * 2); // stable per-id phase
+            powerupGroup.add(mesh);
+            powerupMap.set(p.id, { ...p, mesh });
+          }
+        }
+      } catch (e) { /* transient; next tick retries */ }
+    }
+
+    // ---- Collect a power-up (optimistic removal + server claim) ----
+    async function collectPowerUp(id) {
+      const pu = powerupMap.get(id);
+      if (!pu) return;
+      // Optimistic: remove immediately so the player doesn't trigger it again.
+      if (pu.mesh) powerupGroup.remove(pu.mesh);
+      powerupMap.delete(id);
+      try {
+        const res = await fetch('/api/powerups/' + id + '/collect', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...headers },
+        });
+        if (!res.ok) {
+          // 409 = another player got it first; re-sync the world state.
+          if (res.status === 409) pollPowerUps();
+          return;
+        }
+        const { type, duration } = await res.json();
+        activeBuff.set(type, performance.now() + duration * 1000);
+        renderBuffHud();
+        // Fetch the replacement that the server spawned.
+        pollPowerUps();
+      } catch (e) { /* transient */ }
+    }
+
     function updateTarget() {
       raycaster.setFromCamera(centre, camera);
       const targets = [groundMesh, ...blockGroup.children].filter(Boolean);
@@ -543,6 +642,7 @@
     function resetMove() {
       for (const k in move) move[k] = false;
       dragging = false;
+      placeHeld = false;
     }
     window.addEventListener('blur', resetMove);
     document.addEventListener('visibilitychange', () => { if (document.hidden) resetMove(); });
@@ -705,9 +805,13 @@
     canvas.addEventListener('contextmenu', (e) => e.preventDefault());
     canvas.addEventListener('mousedown', (e) => {
       if (locked) {
-        // Native path: immediate build action. Left adds, right deletes.
-        if (e.button === 0) placeBlock();
-        else if (e.button === 2) breakBlock();
+        // Native path: set placeHeld and fire the first block immediately.
+        // The render loop handles continuous firing when Rapid Place is active.
+        if (e.button === 0) {
+          placeHeld = true;
+          placeBlock();
+          lastRapidPlace = performance.now();
+        } else if (e.button === 2) breakBlock();
         return;
       }
       if (!playing) return;
@@ -718,6 +822,7 @@
       canvas.style.cursor = 'grabbing';
     });
     window.addEventListener('mouseup', (e) => {
+      if (e.button === 0) placeHeld = false; // always clear regardless of mode
       if (locked || !playing || !dragging) return;
       dragging = false;
       canvas.style.cursor = 'grab';
@@ -742,8 +847,14 @@
       }
       // Build via keyboard: F adds a block, G deletes one (mirrors the mouse
       // bindings). Only act while actually playing so the keys don't fire from
-      // behind the menu.
-      if (e.code === 'KeyF' && playing) placeBlock();
+      // behind the menu. `!e.repeat` prevents OS key-repeat from stacking
+      // single-fire shots; the render loop handles continuous firing when the
+      // Rapid Place buff is active.
+      if (e.code === 'KeyF' && playing && !e.repeat) {
+        placeHeld = true;
+        placeBlock();
+        lastRapidPlace = performance.now();
+      }
       if (e.code === 'KeyG' && playing) breakBlock();
       // H toggles the controls overlay (same as the "(?)" button), available
       // whether or not the game is currently being played.
@@ -759,7 +870,10 @@
         refreshControlCopy();
       }
     });
-    window.addEventListener('keyup', (e) => { if (codeMap[e.code]) move[codeMap[e.code]] = false; });
+    window.addEventListener('keyup', (e) => {
+      if (codeMap[e.code]) move[codeMap[e.code]] = false;
+      if (e.code === 'KeyF') placeHeld = false;
+    });
 
     // ---- Touch input ----
     // Look-drag: a one-finger drag on open canvas turns/tilts the camera, reusing
@@ -812,11 +926,25 @@
     for (const el of touchControlsEl.querySelectorAll('[data-mv]')) bindHold(el, el.dataset.mv);
     for (const el of touchControlsEl.querySelectorAll('[data-act]')) {
       const act = el.dataset.act;
-      bindTap(el, () => {
-        if (act === 'place' && playing) placeBlock();
-        else if (act === 'break' && playing) breakBlock();
-        else if (act === 'menu') exitToMenu();
-      });
+      if (act === 'place') {
+        // Place needs placeHeld tracking for the Rapid Place buff, so it gets
+        // its own touchstart/touchend instead of the generic bindTap.
+        el.addEventListener('touchstart', (e) => {
+          e.preventDefault();
+          if (!playing) return;
+          placeHeld = true;
+          placeBlock();
+          lastRapidPlace = performance.now();
+        }, { passive: false });
+        const releasePlaceHeld = (e) => { if (e.cancelable) e.preventDefault(); placeHeld = false; };
+        el.addEventListener('touchend', releasePlaceHeld);
+        el.addEventListener('touchcancel', releasePlaceHeld);
+      } else {
+        bindTap(el, () => {
+          if (act === 'break' && playing) breakBlock();
+          else if (act === 'menu') exitToMenu();
+        });
+      }
     }
 
     // ---- Controls overlay toggle ----
@@ -834,6 +962,7 @@
         '<li><span class="font-semibold">Add</span> / <span class="font-semibold">Delete</span> — place / remove a block at the crosshair</li>',
         '<li><span class="font-semibold">Palette</span> — tap a swatch to pick a block</li>',
         '<li><span class="font-semibold">☰ Menu</span> — back to the start screen</li>',
+        '<li><span class="font-semibold">Power-ups</span> — collect glowing cubes for Speed, Jump, or Rapid Place (hold Add)</li>',
       ].join('');
       const playBtn = document.getElementById('play-btn');
       if (playBtn) playBtn.textContent = 'Tap to play';
@@ -956,6 +1085,11 @@
       const dt = Math.min((now - prev) / 1000, 0.1);
       prev = now;
 
+      // Expire old buffs so the HUD and multipliers are always current.
+      for (const [type, expiresAt] of activeBuff) {
+        if (now > expiresAt) activeBuff.delete(type);
+      }
+
       // Only integrate movement while actually playing (native lock or drag
       // fallback). With the overlay/menu up the camera holds still even if a
       // key is held underneath it. Aiming/rendering still run every frame.
@@ -969,7 +1103,13 @@
         // Space/Shift only; aiming/raycasting still use the full pitched look.
         fwd.set(-Math.sin(yaw), 0, -Math.cos(yaw));
         right.set(Math.cos(yaw), 0, -Math.sin(yaw));
-        const step = SPEED * dt;
+
+        // Speed Boost doubles lateral speed; Super Jump triples vertical speed.
+        const speedMult = activeBuff.has('speed_boost') ? 2 : 1;
+        const vertMult  = activeBuff.has('super_jump')  ? 3 : 1;
+        const horizStep = SPEED * speedMult * dt;
+        const vertStep  = SPEED * vertMult  * dt;
+
         // Sum horizontal contributions and normalize so diagonal travel isn't
         // faster than cardinal.
         horiz.set(0, 0, 0);
@@ -978,19 +1118,48 @@
         if (move.r) horiz.add(right);
         if (move.l) horiz.sub(right);
         if (horiz.lengthSq() > 1) horiz.normalize();
-        camera.position.addScaledVector(horiz, step);
-        if (move.up) camera.position.y += step;
-        if (move.down) camera.position.y -= step;
+        camera.position.addScaledVector(horiz, horizStep);
+        if (move.up)   camera.position.y += vertStep;
+        if (move.down) camera.position.y -= vertStep;
 
         // Clamp to the plot (plus a small margin) so you can't fly away.
         const m = 4;
         camera.position.x = Math.max(-m, Math.min(DIMS.w + m, camera.position.x));
         camera.position.z = Math.max(-m, Math.min(DIMS.d + m, camera.position.z));
         camera.position.y = Math.max(1.2, Math.min(DIMS.h + 6, camera.position.y));
+
+        // Rapid Block Placement: while the buff is active and the place
+        // key/button is held, auto-place a block every 150 ms.
+        if (activeBuff.has('rapid_place') && placeHeld && (now - lastRapidPlace > 150)) {
+          placeBlock();
+          lastRapidPlace = now;
+        }
+
+        // Collect nearby power-ups. Break after the first to avoid modifying
+        // the Map while still iterating it in the same frame.
+        for (const [id, pu] of powerupMap) {
+          const dx = camera.position.x - (pu.x + 0.5);
+          const dy = camera.position.y - (pu.y + 0.5);
+          const dz = camera.position.z - (pu.z + 0.5);
+          if (Math.sqrt(dx * dx + dy * dy + dz * dz) < 1.2) {
+            collectPowerUp(id);
+            break;
+          }
+        }
+      }
+
+      // Animate power-up meshes every frame (even when the overlay is showing).
+      for (const [, pu] of powerupMap) {
+        if (pu.mesh) {
+          pu.mesh.position.y = pu.mesh.userData.baseY
+            + Math.sin(now * 0.002 + pu.mesh.userData.phase) * 0.12;
+          pu.mesh.rotation.y += dt;
+        }
       }
 
       updateTarget();
       updateAttribution();
+      renderBuffHud();
       renderer.render(scene, camera);
       requestAnimationFrame(loop);
     }
@@ -1005,6 +1174,8 @@
       if (!ok) return;
       requestAnimationFrame(loop);
       setInterval(poll, 1500);
+      pollPowerUps();
+      setInterval(pollPowerUps, 1500);
     })();
   </script>
 </body>
