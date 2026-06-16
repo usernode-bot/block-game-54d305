@@ -98,6 +98,9 @@
       -webkit-user-select: none;
       -webkit-tap-highlight-color: transparent;
     }
+
+    /* Hold panel swatch transition for locked/unlocked state */
+    #hold-swatch { transition: opacity 0.2s; }
   </style>
 </head>
 <body class="bg-zinc-950 text-zinc-100">
@@ -151,12 +154,12 @@
   <div id="hint" class="pointer-events-none fixed top-3 left-1/2 -translate-x-1/2 z-20 text-center text-xs text-zinc-300/90 bg-black/40 rounded-lg px-3 py-2 transition-opacity duration-700">
     <span class="font-semibold">WASD</span> move · <span class="font-semibold">Space/Shift</span> up·down ·
     <span class="font-semibold">Left-click/F</span> add · <span class="font-semibold">Right-click/G</span> delete ·
-    <span class="font-semibold">1–9</span> pick block · <span class="font-semibold">H</span> controls · <span class="font-semibold">M</span> mute · <span class="font-semibold">Esc</span> release
+    <span class="font-semibold">1–9</span> pick block · <span class="font-semibold">H</span> hold/controls · <span class="font-semibold">Enter</span> chat · <span class="font-semibold">M</span> mute · <span class="font-semibold">Esc</span> release
   </div>
   <div id="hint-fallback" class="hidden pointer-events-none fixed top-3 left-1/2 -translate-x-1/2 z-20 text-center text-xs text-zinc-300/90 bg-black/40 rounded-lg px-3 py-2 transition-opacity duration-700">
     <span class="font-semibold">WASD</span> move · <span class="font-semibold">Space/Shift</span> up·down ·
     <span class="font-semibold">Drag</span> look · <span class="font-semibold">Left-click/F</span> add · <span class="font-semibold">Right-click/G</span> delete ·
-    <span class="font-semibold">1–9</span> pick block · <span class="font-semibold">H</span> controls · <span class="font-semibold">M</span> mute · <span class="font-semibold">Esc</span> menu
+    <span class="font-semibold">1–9</span> pick block · <span class="font-semibold">H</span> hold/controls · <span class="font-semibold">Enter</span> chat · <span class="font-semibold">M</span> mute · <span class="font-semibold">Esc</span> menu
   </div>
 
   <!-- Look-mode control: always-visible, clickable, shows the active look
@@ -164,12 +167,34 @@
        and NOT faded, so it stays interactive after the keys hint fades. -->
   <button id="lookmode" class="hidden fixed top-12 left-1/2 -translate-x-1/2 z-20 text-xs text-zinc-200 bg-black/50 hover:bg-black/70 rounded-lg px-3 py-1.5 transition-colors cursor-pointer"></button>
 
+  <!-- Hold panel: displays the currently held block type (one-slot hold queue).
+       Positioned at the bottom-left, aligned with the palette bar. -->
+  <div id="hold-panel" class="pointer-events-none fixed bottom-4 left-4 z-20 flex flex-col items-center gap-1">
+    <span class="text-[10px] font-bold text-zinc-400 uppercase tracking-wide">Hold</span>
+    <div id="hold-swatch" class="w-10 h-10 rounded-md border-2 border-dashed border-zinc-600 flex items-center justify-center">
+      <span class="text-zinc-600 text-sm font-bold">–</span>
+    </div>
+  </div>
+
   <!-- Block palette -->
   <div id="palette" class="fixed bottom-4 left-1/2 -translate-x-1/2 z-20 flex gap-1.5 p-1.5 rounded-xl bg-black/50 backdrop-blur"></div>
+
+  <!-- Badges toggle: sits to the left of the mute button. -->
+  <button id="badges-btn" title="Badges" aria-label="Toggle badges"
+          class="fixed top-3 z-30 w-9 h-9 rounded-full bg-black/50 hover:bg-black/70 text-zinc-100 text-lg leading-none flex items-center justify-center transition-colors cursor-pointer" style="right: 6.25rem">🏆</button>
 
   <!-- Audio mute toggle: sits to the left of the help button. -->
   <button id="mute-btn" title="Mute/unmute audio (M)" aria-label="Toggle audio"
           class="fixed top-3 right-14 z-30 w-9 h-9 rounded-full bg-black/50 hover:bg-black/70 text-zinc-100 text-lg leading-none flex items-center justify-center transition-colors cursor-pointer">🔊</button>
+
+  <!-- Turntable toggle: sits to the left of the mute button. -->
+  <button id="turntable-btn" title="Toggle turntable camera" aria-label="Toggle turntable camera"
+          class="fixed top-3 right-24 z-30 w-9 h-9 rounded-full bg-black/50 hover:bg-black/70 text-zinc-100 text-lg leading-none flex items-center justify-center transition-colors cursor-pointer">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-5 h-5">
+      <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>
+      <path d="M3 3v5h5"/>
+    </svg>
+  </button>
 
   <!-- Help/controls toggle: circular "(?)" button fixed in the top-right
        corner. Clicking it does exactly what pressing `h` does — show/hide the
@@ -185,6 +210,19 @@
        confirmed at a glance. Bump BUILD_VERSION (below) on every change.
        Shifted down to make room for the leaderboard button above. -->
   <div id="build-stamp" class="pointer-events-none fixed top-24 right-3 z-20 text-[11px] text-zinc-300/70 bg-black/40 rounded px-2 py-1 font-mono"></div>
+
+  <!-- Badges panel: lists all 10 badges with earned/locked state. Hidden by
+       default; toggled by the trophy button. -->
+  <div id="badges-panel" class="hidden fixed top-16 right-3 z-30 w-72 max-w-[90vw] rounded-xl bg-black/70 backdrop-blur p-4 text-sm text-zinc-200 shadow-xl">
+    <div class="flex items-center justify-between mb-3">
+      <h2 class="font-bold text-zinc-100">Badges</h2>
+      <button id="badges-close" aria-label="Close badges" class="text-zinc-400 hover:text-zinc-100 cursor-pointer leading-none">✕</button>
+    </div>
+    <div id="badges-list" class="space-y-1.5 max-h-96 overflow-y-auto pr-0.5"></div>
+  </div>
+
+  <!-- Badge toast container: toasts stack above the palette, bottom-centre. -->
+  <div id="badge-toasts" class="pointer-events-none fixed left-1/2 -translate-x-1/2 z-40 flex flex-col-reverse items-center gap-2" style="bottom: 5.5rem"></div>
 
   <!-- Daily Challenge HUD: bottom position set by JS (touch devices are raised
        to clear the on-screen action cluster). Hidden until init() loads data. -->
@@ -203,7 +241,9 @@
       <li><span class="font-semibold">Left-click</span> or <span class="font-semibold">F</span> — add a block</li>
       <li><span class="font-semibold">Right-click</span> or <span class="font-semibold">G</span> — delete a block</li>
       <li><span class="font-semibold">1–9</span> — pick block type</li>
-      <li><span class="font-semibold">H</span> or <span class="font-semibold">(?)</span> — toggle this panel</li>
+      <li><span class="font-semibold">H</span> (playing) — hold / swap block type</li>
+      <li><span class="font-semibold">H</span> (menu) or <span class="font-semibold">(?)</span> — toggle this panel</li>
+      <li><span class="font-semibold">Enter</span> — open / close chat</li>
       <li><span class="font-semibold">L</span> or <span class="font-semibold">🏆</span> — leaderboard</li>
       <li><span class="font-semibold">M</span> or <span class="font-semibold">🔊</span> — mute / unmute audio</li>
       <li><span class="font-semibold">Esc</span> — close panel / release / menu</li>
@@ -241,6 +281,7 @@
     <!-- Fly + build cluster, bottom-right -->
     <div class="absolute right-4 bottom-4 flex flex-col items-end gap-2">
       <div class="flex gap-2">
+        <button data-act="hold" class="touch-ctrl pointer-events-auto w-14 h-14 rounded-xl bg-violet-700/55 active:bg-violet-500/80 text-xs font-bold text-white flex items-center justify-center">Hold</button>
         <button data-mv="down" class="touch-ctrl pointer-events-auto w-14 h-14 rounded-xl bg-black/40 active:bg-black/70 text-sm font-semibold text-zinc-100 flex items-center justify-center">Down</button>
         <button data-mv="up" class="touch-ctrl pointer-events-auto w-14 h-14 rounded-xl bg-black/40 active:bg-black/70 text-sm font-semibold text-zinc-100 flex items-center justify-center">Up</button>
       </div>
@@ -250,6 +291,29 @@
       </div>
     </div>
   </div>
+
+  <!-- Chat drawer: slides up from the bottom of the game canvas. Hidden by
+       default; toggled by the chat button or the Enter key. -->
+  <div id="chat-drawer" class="hidden fixed bottom-0 left-0 right-0 z-[22] flex flex-col h-64 border-t border-zinc-700/80">
+    <div class="flex items-center justify-between px-3 py-2 bg-zinc-900/95 backdrop-blur-sm shrink-0">
+      <span class="text-sm font-semibold text-zinc-200">Chat</span>
+      <button id="chat-close" class="text-zinc-400 hover:text-zinc-100 text-base leading-none cursor-pointer">✕</button>
+    </div>
+    <div id="chat-messages" class="flex-1 overflow-y-auto px-3 py-2 bg-black/80 backdrop-blur-sm space-y-1 text-sm"></div>
+    <div class="flex gap-2 px-2 py-2 bg-zinc-900/95 backdrop-blur-sm shrink-0">
+      <input id="chat-input" type="text" maxlength="200" autocomplete="off"
+             placeholder="Message…"
+             class="flex-1 min-w-0 bg-zinc-800 text-zinc-100 text-sm rounded-lg px-3 py-2 border border-zinc-700 focus:border-violet-500 outline-none placeholder-zinc-500">
+      <button id="chat-send" class="shrink-0 px-3 py-2 bg-violet-600 hover:bg-violet-500 active:bg-violet-700 text-white text-sm font-semibold rounded-lg cursor-pointer transition-colors">Send</button>
+    </div>
+  </div>
+
+  <!-- Chat toggle button: fixed in the lower-right, above touch controls.
+       Shows an unread badge when new messages arrive while closed. -->
+  <button id="chat-toggle" title="Chat (Enter)"
+          class="fixed bottom-40 right-3 z-[22] w-10 h-10 rounded-full bg-black/50 hover:bg-black/70 text-xl flex items-center justify-center transition-colors cursor-pointer">
+    💬<span id="chat-badge" class="hidden absolute -top-1 -right-1 min-w-[18px] h-[18px] rounded-full bg-violet-500 text-white text-[10px] font-bold flex items-center justify-center leading-none pointer-events-none select-none">0</span>
+  </button>
 
   <!-- Time Attack HUD: timer + score shown only during TA mode -->
   <div id="ta-hud" class="hidden pointer-events-none fixed top-3 left-3 z-20 flex flex-col gap-1">
@@ -269,6 +333,7 @@
     </div>
   </div>
 
+
   </div><!-- /#rotor -->
 
   <script type="module">
@@ -281,7 +346,22 @@
 
     // Build identifier — bump this (to the deploying commit short SHA) on every
     // change so the top-right stamp confirms exactly which code is running.
-    const BUILD_VERSION = 'power-ups+daily-challenge+leaderboard+online-presence+block-attribution+audio-sfx';
+    const BUILD_VERSION = 'power-ups+hold-queue+achievements-badges+chat+daily-challenge+leaderboard+online-presence+block-attribution+audio-sfx';
+
+    // Badge definitions — mirror of the server-side BADGES array, extended with
+    // a `hint` field shown in the panel for unearned badges.
+    const BADGES_DEF = [
+      { id: 'first_block',     name: 'First Block',    icon: '🏗️', flavour: 'Placed your first block!',        hint: 'Place your first block' },
+      { id: 'builder',         name: 'Builder',         icon: '🧱', flavour: 'Placed 10 blocks!',               hint: 'Place 10 blocks total' },
+      { id: 'architect',       name: 'Architect',       icon: '🏰', flavour: 'Placed 100 blocks!',              hint: 'Place 100 blocks total' },
+      { id: 'high_scorer',     name: 'High Scorer',     icon: '⭐', flavour: 'Earned 1,000 score points!',      hint: 'Accumulate 1,000 score points' },
+      { id: 'comboist',        name: 'Comboist',        icon: '⚡', flavour: 'Hit a ×3 combo multiplier!',      hint: 'Achieve a ×3 combo multiplier' },
+      { id: 'rainbow_placer',  name: 'Rainbow Placer',  icon: '🌈', flavour: 'Placed a Rainbow Block!',         hint: 'Place a Rainbow Block' },
+      { id: 'golden_touch',    name: 'Golden Touch',    icon: '✨', flavour: 'Placed a Gold Block!',            hint: 'Place a Gold Block' },
+      { id: 'glowmaster',      name: 'Glowmaster',      icon: '💡', flavour: 'Placed a Glowstone block!',       hint: 'Place a Glowstone block' },
+      { id: 'shadow_sculptor', name: 'Shadow Sculptor', icon: '🌑', flavour: 'Placed an Obsidian block!',       hint: 'Place an Obsidian block' },
+      { id: 'material_artist', name: 'Material Artist', icon: '🎨', flavour: 'Used 8+ different block types!', hint: 'Use 8 or more different block types' },
+    ];
 
     // Touch capability: drives (a) the on-screen control overlay, (b) skipping
     // mouse-lock in favour of direct touch play, and (c) portrait force-rotation.
@@ -486,6 +566,20 @@
     let placeHeld = false;        // true while the place key/button is held down
     let lastRapidPlace = 0;       // ms timestamp of the last rapid-place fire
 
+    // ---- Hold queue state ----
+    let heldType = null;    // block type ID currently in the hold slot, or null
+    let holdLocked = false; // true after a hold swap; cleared on next block placement
+
+    // ---- Badge state ----
+    const earnedBadges = new Map(); // badge_id -> { earned_at }
+    let badgesOpen = false;
+
+    // ---- Chat state ----
+    let chatCursor = 0;    // last chat message id seen
+    let chatUnread = 0;    // messages received while drawer was closed
+    let chatOpen = false;  // whether the chat drawer is visible
+    let chatOpening = false; // true while waiting for pointer lock to release for chat
+
     // ---- Daily Challenge state ----
     let challengeDate = null;        // ISO date string (YYYY-MM-DD) for current progress
     let challengeTarget = 0;         // today's placement goal
@@ -645,6 +739,76 @@
       if (diff < 3600) return Math.floor(diff / 60) + ' min ago';
       if (diff < 86400) return Math.floor(diff / 3600) + ' hr ago';
       return Math.floor(diff / 86400) + ' days ago';
+    }
+
+    // ---- Badge panel rendering ----
+    function renderBadgesPanel() {
+      const listEl = document.getElementById('badges-list');
+      listEl.innerHTML = '';
+      for (const b of BADGES_DEF) {
+        const earned = earnedBadges.get(b.id);
+        const item = document.createElement('div');
+        item.className = 'flex items-start gap-2.5 rounded-lg px-2 py-2 ' + (earned ? 'bg-white/5' : 'opacity-40');
+        const iconEl = document.createElement('span');
+        iconEl.className = 'text-xl leading-none mt-0.5 flex-shrink-0';
+        iconEl.textContent = earned ? b.icon : '🔒';
+        const info = document.createElement('div');
+        info.className = 'min-w-0';
+        const nameEl = document.createElement('div');
+        nameEl.className = 'font-semibold text-zinc-100 leading-tight';
+        nameEl.textContent = b.name;
+        const subEl = document.createElement('div');
+        subEl.className = 'text-zinc-400 text-xs mt-0.5 leading-snug';
+        subEl.textContent = earned
+          ? b.flavour + ' · earned ' + relativeTime(earned.earned_at)
+          : b.hint;
+        info.appendChild(nameEl);
+        info.appendChild(subEl);
+        item.appendChild(iconEl);
+        item.appendChild(info);
+        listEl.appendChild(item);
+      }
+    }
+
+    // ---- Badge toast queue ----
+    const toastQueue = [];
+    let toastShowing = false;
+
+    function showNextToast() {
+      if (!toastQueue.length) { toastShowing = false; return; }
+      toastShowing = true;
+      const badge = toastQueue.shift();
+      const container = document.getElementById('badge-toasts');
+      const toast = document.createElement('div');
+      toast.className = 'flex items-center gap-3 bg-black/85 backdrop-blur rounded-xl px-4 py-2.5 text-sm text-zinc-100 shadow-xl';
+      toast.style.cssText = 'opacity:0;transition:opacity 0.3s;';
+      const iconSpan = document.createElement('span');
+      iconSpan.className = 'text-2xl leading-none flex-shrink-0';
+      iconSpan.textContent = badge.icon;
+      const textDiv = document.createElement('div');
+      const nameDiv = document.createElement('div');
+      nameDiv.className = 'font-semibold';
+      nameDiv.textContent = badge.name;
+      const subDiv = document.createElement('div');
+      subDiv.className = 'text-zinc-400 text-xs mt-0.5';
+      subDiv.textContent = badge.flavour;
+      textDiv.appendChild(nameDiv);
+      textDiv.appendChild(subDiv);
+      toast.appendChild(iconSpan);
+      toast.appendChild(textDiv);
+      container.appendChild(toast);
+      // Trigger opacity transition after insertion.
+      requestAnimationFrame(() => { toast.style.opacity = '1'; });
+      const displayMs = toastQueue.length > 0 ? 3000 : 4000;
+      setTimeout(() => {
+        toast.style.opacity = '0';
+        setTimeout(() => { toast.remove(); showNextToast(); }, 300);
+      }, displayMs);
+    }
+
+    function showBadgeToast(badge) {
+      toastQueue.push(badge);
+      if (!toastShowing) showNextToast();
     }
 
     function clearAttribution() {
@@ -837,6 +1001,13 @@
         if (res.ok) {
           const data = await res.json();
           if (data.seq && data.seq > cursor) cursor = data.seq;
+          if (data.newly_earned_badges && data.newly_earned_badges.length) {
+            for (const badge of data.newly_earned_badges) {
+              earnedBadges.set(badge.id, { earned_at: new Date().toISOString() });
+              showBadgeToast(badge);
+            }
+            if (badgesOpen) renderBadgesPanel();
+          }
           if (data.challenge) syncChallenge(data.challenge);
         }
       } catch (e) { /* poll loop will reconcile */ }
@@ -856,6 +1027,9 @@
       if (blocks.get(key(x, y, z)) === selectedType) return;
       audio.playPlace();
       sendEdit(x, y, z, selectedType);
+      // Unlock hold after each successful placement (Tetris lock rule)
+      holdLocked = false;
+      updateHoldPanel();
     }
 
     function breakBlock() {
@@ -880,6 +1054,8 @@
     let yaw = 0, pitch = 0;
     let locked = false;
     let playing = false;
+    let turntableEnabled = true;
+    let turntableAngle = 0;
     let dragMode = false;
     let lockUnavailable = false;
     let lockTimer = null;
@@ -896,11 +1072,47 @@
     const lookModeEl = document.getElementById('lookmode');
     const touchControlsEl = document.getElementById('touch-controls');
 
+    // ---- Chat DOM refs ----
+    const chatDrawerEl = document.getElementById('chat-drawer');
+    const chatMessagesEl = document.getElementById('chat-messages');
+    const chatInputEl = document.getElementById('chat-input');
+    const chatSendEl = document.getElementById('chat-send');
+    const chatBadgeEl = document.getElementById('chat-badge');
+    const chatToggleEl = document.getElementById('chat-toggle');
+
     // Mute button: sync icon to stored preference immediately on load.
     const muteBtnEl = document.getElementById('mute-btn');
     muteBtnEl.textContent = audio.isMuted() ? '🔇' : '🔊';
     muteBtnEl.addEventListener('click', () => {
       muteBtnEl.textContent = audio.toggleMute() ? '🔇' : '🔊';
+    });
+
+    // Turntable button: toggle auto-rotating camera on the menu screen.
+    const turntableBtnEl = document.getElementById('turntable-btn');
+    function syncTurntableBtn() {
+      turntableBtnEl.style.opacity = turntableEnabled ? '1' : '0.4';
+    }
+    syncTurntableBtn();
+    turntableBtnEl.addEventListener('click', () => {
+      turntableEnabled = !turntableEnabled;
+      syncTurntableBtn();
+    });
+
+    // Badges button: toggle the badges panel.
+    const badgesBtnEl = document.getElementById('badges-btn');
+    const badgesPanelEl = document.getElementById('badges-panel');
+    badgesBtnEl.addEventListener('click', () => {
+      badgesOpen = !badgesOpen;
+      if (badgesOpen) {
+        renderBadgesPanel();
+        badgesPanelEl.classList.remove('hidden');
+      } else {
+        badgesPanelEl.classList.add('hidden');
+      }
+    });
+    document.getElementById('badges-close').addEventListener('click', () => {
+      badgesOpen = false;
+      badgesPanelEl.classList.add('hidden');
     });
 
     // Reusable temporaries + one-shot roll diagnostic state for applyLook().
@@ -1175,6 +1387,13 @@
         canvas.style.cursor = '';
         overlayEl.style.display = 'none';
         onPlayEntered();
+      } else if (chatOpening) {
+        // Lock released specifically so the player can type in chat.
+        // Don't show the overlay — chat drawer is already visible.
+        chatOpening = false;
+        playing = false;
+        dragMode = true;
+        canvas.style.cursor = 'grab';
       } else if (!dragMode) {
         if (gameMode === 'timeattack' && playing) {
           // Esc pressed mid-TA run in native-lock mode — end the game.
@@ -1248,6 +1467,18 @@
       Space: 'up', ShiftLeft: 'down', ShiftRight: 'down',
     };
     window.addEventListener('keydown', (e) => {
+      // While the chat input is focused, only Escape is handled globally
+      // (to close the drawer); all other keys are for typing.
+      if (document.activeElement === chatInputEl) {
+        if (e.key === 'Escape') { e.preventDefault(); closeChat(); }
+        return;
+      }
+      // Escape closes the chat drawer if it is open (before the existing
+      // Escape handler that would otherwise return to the overlay).
+      if (e.key === 'Escape' && chatOpen) { e.preventDefault(); closeChat(); return; }
+      // Enter opens chat while the player is active.
+      if (e.code === 'Enter' && playing && !chatOpen) { e.preventDefault(); openChat(); return; }
+
       if (codeMap[e.code]) { move[codeMap[e.code]] = true; if (e.code === 'Space') e.preventDefault(); }
       if (e.code.startsWith('Digit')) {
         const n = parseInt(e.code.slice(5), 10);
@@ -1264,7 +1495,12 @@
         lastRapidPlace = performance.now();
       }
       if (e.code === 'KeyG' && playing) breakBlock();
-      if (e.code === 'KeyH') toggleControls();
+      // H is context-aware: triggers hold/swap while playing, toggles the
+      // controls overlay when the menu/overlay is up.
+      if (e.code === 'KeyH') {
+        if (playing) holdBlock();
+        else toggleControls();
+      }
       // L toggles the leaderboard panel.
       if (e.code === 'KeyL') toggleLeaderboard();
       if (e.code === 'KeyM') { muteBtnEl.textContent = audio.toggleMute() ? '🔇' : '🔊'; }
@@ -1352,6 +1588,7 @@
       } else {
         bindTap(el, () => {
           if (act === 'break' && playing) breakBlock();
+          else if (act === 'hold' && playing) holdBlock();
           else if (act === 'menu') {
             if (gameMode === 'timeattack' && playing) endTimeAttack();
             else exitToMenu();
@@ -1361,6 +1598,8 @@
     }
 
     // ---- Controls overlay toggle ----
+    // Shared by the `h` key (when not playing) and the top-right "(?)" button —
+    // both show/hide the help panel listing every key/mouse binding.
     const controlsEl = document.getElementById('controls');
     if (isTouch) {
       const ul = controlsEl.querySelector('ul');
@@ -1369,7 +1608,9 @@
         '<li><span class="font-semibold">Move pad</span> — glide forward / back / left / right</li>',
         '<li><span class="font-semibold">Up / Down</span> — fly up / down</li>',
         '<li><span class="font-semibold">Add</span> / <span class="font-semibold">Delete</span> — place / remove a block at the crosshair</li>',
+        '<li><span class="font-semibold">Hold</span> — swap the active block type with the hold slot</li>',
         '<li><span class="font-semibold">Palette</span> — tap a swatch to pick a block</li>',
+        '<li><span class="font-semibold">💬</span> — open / close chat</li>',
         '<li><span class="font-semibold">🏆</span> — leaderboard</li>',
         '<li><span class="font-semibold">☰ Menu</span> — back to the start screen</li>',
         '<li><span class="font-semibold">Power-ups</span> — collect glowing cubes for Speed, Jump, or Rapid Place (hold Add)</li>',
@@ -1476,7 +1717,138 @@
         wrap.appendChild(btn);
       });
       selectType(selectedType);
+      // Reset hold state on world/palette load
+      heldType = null;
+      holdLocked = false;
+      updateHoldPanel();
     }
+
+    // ---- Hold queue ----
+    function updateHoldPanel() {
+      const swatchEl = document.getElementById('hold-swatch');
+      if (!swatchEl) return;
+      const p = heldType !== null ? PALETTE.find((q) => q.id === heldType) : null;
+      if (!p) {
+        swatchEl.style.background = '';
+        swatchEl.style.opacity = '';
+        swatchEl.className = 'w-10 h-10 rounded-md border-2 border-dashed border-zinc-600 flex items-center justify-center';
+        swatchEl.innerHTML = '<span class="text-zinc-600 text-sm font-bold">–</span>';
+      } else {
+        swatchEl.style.background = p.color;
+        swatchEl.style.opacity = holdLocked ? '0.4' : '1';
+        swatchEl.className = 'w-10 h-10 rounded-md';
+        swatchEl.innerHTML = '';
+      }
+    }
+
+    function holdBlock() {
+      if (holdLocked) return;
+      const prev = selectedType;
+      if (heldType !== null) selectType(heldType);
+      heldType = prev;
+      holdLocked = true;
+      updateHoldPanel();
+    }
+
+    // ---- Chat ----
+    function updateChatBadge() {
+      if (chatUnread > 0) {
+        chatBadgeEl.textContent = chatUnread > 9 ? '9+' : String(chatUnread);
+        chatBadgeEl.classList.remove('hidden');
+      } else {
+        chatBadgeEl.classList.add('hidden');
+      }
+    }
+
+    function appendChatMessage(m) {
+      const row = document.createElement('div');
+      row.className = 'leading-relaxed break-words';
+      const name = document.createElement('span');
+      name.className = 'font-semibold text-violet-300 mr-1';
+      name.textContent = m.username + ':';
+      const body = document.createElement('span');
+      body.className = 'text-zinc-200';
+      body.textContent = ' ' + m.body;
+      row.appendChild(name);
+      row.appendChild(body);
+      chatMessagesEl.appendChild(row);
+      // Auto-scroll to latest when the drawer is open.
+      if (chatOpen) chatMessagesEl.scrollTop = chatMessagesEl.scrollHeight;
+    }
+
+    function openChat() {
+      chatOpen = true;
+      chatUnread = 0;
+      chatBadgeEl.classList.add('hidden');
+      chatDrawerEl.classList.remove('hidden');
+      chatMessagesEl.scrollTop = chatMessagesEl.scrollHeight;
+      resetMove();
+      if (locked) {
+        // Release pointer lock so the cursor is visible for typing.
+        // pointerlockchange will fire — chatOpening flag suppresses the overlay.
+        chatOpening = true;
+        document.exitPointerLock();
+      } else {
+        playing = false;
+      }
+      if (isTouch) updateTouchControlsVisibility();
+      // Small delay so the drawer is rendered before the input is focused.
+      setTimeout(() => chatInputEl.focus(), 30);
+    }
+
+    function closeChat() {
+      chatOpen = false;
+      chatDrawerEl.classList.add('hidden');
+      chatInputEl.blur();
+      if (isTouch) {
+        // Re-enter drag play immediately on touch devices.
+        dragMode = true;
+        playing = true;
+        updateTouchControlsVisibility();
+      }
+      // Desktop: player clicks the canvas to re-enter play (either pointer
+      // lock or drag mode, same as the initial entry flow).
+    }
+
+    async function sendChat() {
+      const body = chatInputEl.value.trim();
+      if (!body) return;
+      chatInputEl.value = '';
+      chatInputEl.disabled = true;
+      chatSendEl.disabled = true;
+      try {
+        await fetch('/api/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...headers },
+          body: JSON.stringify({ body }),
+        });
+      } catch (e) { /* transient */ } finally {
+        chatInputEl.disabled = false;
+        chatSendEl.disabled = false;
+        chatInputEl.focus();
+      }
+    }
+
+    async function loadChat() {
+      try {
+        const res = await fetch('/api/chat?since=0', { headers });
+        if (!res.ok) return;
+        const { messages, cursor: cc } = await res.json();
+        for (const m of messages) appendChatMessage(m);
+        if (cc) chatCursor = cc;
+      } catch (e) { /* ignore */ }
+    }
+
+    // ---- Chat event listeners ----
+    chatToggleEl.addEventListener('click', () => {
+      if (chatOpen) closeChat(); else openChat();
+    });
+    document.getElementById('chat-close').addEventListener('click', closeChat);
+    chatSendEl.addEventListener('click', sendChat);
+    chatInputEl.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); sendChat(); }
+      // Escape is handled by the global keydown listener above.
+    });
 
     // ---- Server sync ----
     async function loadWorld() {
@@ -1530,20 +1902,40 @@
 
     async function poll() {
       if (document.hidden) return;
+
+      // World changes
       try {
         const res = await fetch('/api/world/changes?since=' + cursor, { headers });
-        if (!res.ok) return;
-        const { changes, cursor: c } = await res.json();
-        if (changes.length) {
-          for (const ch of changes) {
-            const k = key(ch.x, ch.y, ch.z);
-            if (ch.t === 0) blocks.delete(k); else blocks.set(k, ch.t);
+        if (res.ok) {
+          const { changes, cursor: c } = await res.json();
+          if (changes.length) {
+            for (const ch of changes) {
+              const k = key(ch.x, ch.y, ch.z);
+              if (ch.t === 0) blocks.delete(k); else blocks.set(k, ch.t);
+            }
+            rebuildBlockMeshes();
           }
+          if (c && c > cursor) cursor = c;
           // Only rebuild if we're currently in classic mode showing the shared world.
           if (gameMode !== 'timeattack') rebuildBlockMeshes();
         }
-        if (c && c > cursor) cursor = c;
       } catch (e) { /* transient; next tick retries */ }
+
+      // Chat messages
+      try {
+        const chatRes = await fetch('/api/chat?since=' + chatCursor, { headers });
+        if (chatRes.ok) {
+          const { messages, cursor: cc } = await chatRes.json();
+          if (messages.length) {
+            for (const m of messages) appendChatMessage(m);
+            if (!chatOpen) {
+              chatUnread += messages.length;
+              updateChatBadge();
+            }
+          }
+          if (cc && cc > chatCursor) chatCursor = cc;
+        }
+      } catch (e) { /* transient */ }
     }
 
     // ---- Render loop ----
@@ -1582,10 +1974,12 @@
         if (now > expiresAt) activeBuff.delete(type);
       }
 
-      // Only integrate movement while actually playing (native lock or drag
-      // fallback). With the overlay/menu up the camera holds still even if a
-      // key is held underneath it. Aiming/rendering still run every frame.
-      if (playing && (locked || dragMode)) {
+      if (!playing && turntableEnabled) {
+        turntableAngle += dt * 0.25;
+        const cx = DIMS.w / 2, cz = DIMS.d / 2;
+        camera.position.set(cx + 8 * Math.sin(turntableAngle), 3.5, cz + 8 * Math.cos(turntableAngle));
+        camera.lookAt(cx, 1.5, cz);
+      } else if (playing && (locked || dragMode)) {
         fwd.set(-Math.sin(yaw), 0, -Math.cos(yaw));
         right.set(Math.cos(yaw), 0, -Math.sin(yaw));
 
@@ -1656,12 +2050,24 @@
       refreshControlCopy();
       const ok = await loadWorld();
       if (!ok) return;
+      // Fetch earned badges so the panel renders correctly from the first open.
+      try {
+        const badgesRes = await fetch('/api/badges', { headers });
+        if (badgesRes.ok) {
+          const badgesData = await badgesRes.json();
+          for (const b of badgesData.badges) {
+            earnedBadges.set(b.id, { earned_at: b.earned_at });
+          }
+        }
+      } catch (_) { /* non-critical; panel will populate on first badge earned */ }
+      await loadChat();
 
       // Load today's challenge progress (non-fatal if unavailable).
       try {
         const cr = await fetch('/api/challenge/today', { headers });
         if (cr.ok) syncChallenge(await cr.json());
       } catch (_) {}
+
 
       requestAnimationFrame(loop);
       // Poll is started per-mode in onPlayEntered(), not here.
