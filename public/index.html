@@ -100,12 +100,12 @@
   <div id="hint" class="pointer-events-none fixed top-3 left-1/2 -translate-x-1/2 z-20 text-center text-xs text-zinc-300/90 bg-black/40 rounded-lg px-3 py-2 transition-opacity duration-700">
     <span class="font-semibold">WASD</span> move · <span class="font-semibold">Space/Shift</span> up·down ·
     <span class="font-semibold">Left-click</span> break · <span class="font-semibold">Right-click</span> place ·
-    <span class="font-semibold">1–9</span> pick block · <span class="font-semibold">Esc</span> release
+    <span class="font-semibold">1–9</span> pick block · <span class="font-semibold">`</span> debug HUD · <span class="font-semibold">Esc</span> release
   </div>
   <div id="hint-fallback" class="hidden pointer-events-none fixed top-3 left-1/2 -translate-x-1/2 z-20 text-center text-xs text-zinc-300/90 bg-black/40 rounded-lg px-3 py-2 transition-opacity duration-700">
     <span class="font-semibold">WASD</span> move · <span class="font-semibold">Space/Shift</span> up·down ·
     <span class="font-semibold">Drag</span> look · <span class="font-semibold">Left-click</span> break · <span class="font-semibold">Right-click</span> place ·
-    <span class="font-semibold">1–9</span> pick block · <span class="font-semibold">Esc</span> menu
+    <span class="font-semibold">1–9</span> pick block · <span class="font-semibold">`</span> debug HUD · <span class="font-semibold">Esc</span> menu
   </div>
 
   <!-- Look-mode control: always-visible, clickable, shows the active look
@@ -125,7 +125,7 @@
 
     // Build stamp — bump on every movement/look change so a tester can
     // confirm (via the ?debug=1 HUD) the preview is running current code.
-    const BUILD_STAMP = 'move-2026-06-16.1';
+    const BUILD_STAMP = 'move-2026-06-16.2';
 
     const params = new URLSearchParams(window.location.search);
     const token = params.get('token') || '';
@@ -478,6 +478,14 @@
         const n = parseInt(e.code.slice(5), 10);
         if (n >= 1 && n <= 9 && PALETTE[n - 1]) selectType(PALETTE[n - 1].id);
       }
+      // Toggle the debug HUD without touching the URL. Backquote (`) is the
+      // primary key; G is a fallback for keyboards where ` is awkward.
+      // Neither collides with WASD/Space/Shift, and the window-level listener
+      // fires in both pointer-lock and drag-to-look modes.
+      if (e.code === 'Backquote' || e.code === 'KeyG') {
+        setDebug(!debugOn);
+        showToast('Debug HUD ' + (debugOn ? 'on' : 'off') + '  (` toggles)');
+      }
       // Drag mode has no OS pointer lock to release, so Escape returns to the
       // overlay manually. In native (locked) mode the browser handles Esc and
       // fires pointerlockchange, which restores the overlay there.
@@ -578,7 +586,25 @@
     const debugHudEl = document.getElementById('debug-hud');
     const dbgAim = new THREE.Vector3();       // horizontal of a fresh screen-centre ray
     let dbgMaxAbs = 0, dbgMaxYaw = 0;         // running worst |aim-vs-move| and its yaw
-    if (DEBUG) debugHudEl.classList.remove('hidden');
+    // The URL flag forces it on at load; the in-game key (`) toggles it after.
+    let debugOn = DEBUG;
+    function setDebug(on) {
+      debugOn = on;
+      debugHudEl.classList.toggle('hidden', !on);
+    }
+    setDebug(DEBUG);
+
+    // Brief, self-dismissing on-screen message (used for the debug toggle).
+    let toastTimer = null;
+    const toastEl = document.createElement('div');
+    toastEl.className = 'pointer-events-none fixed bottom-20 left-1/2 -translate-x-1/2 z-40 text-xs text-zinc-100 bg-black/70 rounded-lg px-3 py-1.5 opacity-0 transition-opacity duration-300';
+    document.body.appendChild(toastEl);
+    function showToast(msg) {
+      toastEl.textContent = msg;
+      toastEl.style.opacity = '1';
+      if (toastTimer) clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => { toastEl.style.opacity = '0'; }, 1600);
+    }
     const deg = (r) => (r * 180 / Math.PI);
     // Smallest signed difference between two headings, in degrees (-180..180].
     const headingDiffDeg = (a, b) => {
@@ -645,7 +671,7 @@
       camera.position.y = Math.max(1.2, Math.min(DIMS.h + 6, camera.position.y));
 
       updateTarget();
-      if (DEBUG) updateDebugHud();
+      if (debugOn) updateDebugHud();
       renderer.render(scene, camera);
       requestAnimationFrame(loop);
     }
