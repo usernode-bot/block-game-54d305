@@ -182,6 +182,10 @@
        Shifted down to make room for the leaderboard button above. -->
   <div id="build-stamp" class="pointer-events-none fixed top-24 right-3 z-20 text-[11px] text-zinc-300/70 bg-black/40 rounded px-2 py-1 font-mono"></div>
 
+  <!-- Daily Challenge HUD: bottom position set by JS (touch devices are raised
+       to clear the on-screen action cluster). Hidden until init() loads data. -->
+  <div id="challenge-hud" class="hidden pointer-events-none fixed right-3 z-20 w-36 rounded-lg bg-black/55 px-2 py-1.5 text-xs text-white/90"></div>
+
   <!-- Controls overlay: a help panel listing every key/mouse binding. Hidden
        by default; toggled by pressing `h` or clicking the "(?)" button. -->
   <div id="controls" class="hidden fixed top-28 right-3 z-30 w-72 max-w-[90vw] rounded-xl bg-black/70 backdrop-blur p-4 text-sm text-zinc-200 shadow-xl">
@@ -272,7 +276,7 @@
 
     // Build identifier — bump this (to the deploying commit short SHA) on every
     // change so the top-right stamp confirms exactly which code is running.
-    const BUILD_VERSION = 'leaderboard+online-presence+block-attribution+audio-sfx+next-piece-preview';
+    const BUILD_VERSION = 'daily-challenge+leaderboard+online-presence+block-attribution+audio-sfx+next-piece-preview';
 
     // Touch capability: drives (a) the on-screen control overlay, (b) skipping
     // mouse-lock in favour of direct touch play, and (c) portrait force-rotation.
@@ -458,6 +462,11 @@
     const buildStampEl = document.getElementById('build-stamp');
     buildStampEl.textContent = 'build ' + BUILD_VERSION;
 
+    // Daily Challenge HUD element — bottom position raised on touch to clear
+    // the on-screen fly/build action cluster that lives at bottom-right.
+    const challengeHudEl = document.getElementById('challenge-hud');
+    challengeHudEl.style.bottom = isTouch ? '10rem' : '1rem';
+
     // ---- World/runtime state ----
     let DIMS = { w: 32, d: 32, h: 24 };
     let PALETTE = [];
@@ -465,6 +474,12 @@
     let cursor = 0;                  // last seq seen from the server
     let selectedType = 1;
     const key = (x, y, z) => x + ',' + y + ',' + z;
+
+    // ---- Daily Challenge state ----
+    let challengeDate = null;        // ISO date string (YYYY-MM-DD) for current progress
+    let challengeTarget = 0;         // today's placement goal
+    let challengePlaced = 0;         // blocks placed today by this user
+    let challengeCompleted = false;  // true once placed >= target
 
     // ---- Game mode state ----
     let gameMode = null;           // null | 'classic' | 'timeattack'
@@ -679,8 +694,41 @@
       rebuildBlockMeshes();
       clearAttribution(); // label is stale after any block change; loop will re-fetch
     }
+    // ---- Daily Challenge rendering ----
+    function renderChallenge() {
+      if (!challengeDate) return;
+      const pct = Math.min(100, Math.round((challengePlaced / challengeTarget) * 100));
+      const barColor = challengeCompleted ? '#22c55e' : '#7c3aed';
+      challengeHudEl.innerHTML =
+        '<div style="font-weight:600;color:rgba(255,255,255,0.45);margin-bottom:2px;line-height:1.2">Daily Challenge</div>' +
+        '<div style="margin-bottom:3px;line-height:1.2">Place ' + challengeTarget + ' blocks</div>' +
+        (challengeCompleted
+          ? '<div style="font-weight:600;color:#4ade80">✓ Complete!</div>'
+          : '<div style="font-variant-numeric:tabular-nums">' + challengePlaced + ' / ' + challengeTarget + '</div>'
+        ) +
+        '<div style="margin-top:5px;height:3px;border-radius:9999px;background:rgba(255,255,255,0.18);overflow:hidden">' +
+          '<div style="width:' + pct + '%;height:100%;border-radius:9999px;background:' + barColor + ';transition:width 0.3s"></div>' +
+        '</div>';
+    }
+
+    function syncChallenge(data) {
+      if (!data) return;
+      challengeDate = data.date;
+      challengeTarget = data.target;
+      challengePlaced = data.placed;
+      challengeCompleted = !!data.completed_at;
+      renderChallenge();
+      challengeHudEl.classList.remove('hidden');
+    }
+
     async function sendEdit(x, y, z, t) {
       applyLocal(x, y, z, t);
+      // Optimistic challenge increment for placements (not breaks).
+      if (t !== 0 && challengeDate && !challengeCompleted) {
+        challengePlaced++;
+        if (challengePlaced >= challengeTarget) challengeCompleted = true;
+        renderChallenge();
+      }
       try {
         const res = await fetch('/api/block', {
           method: 'POST',
@@ -688,8 +736,9 @@
           body: JSON.stringify({ x, y, z, block_type: t }),
         });
         if (res.ok) {
-          const { seq } = await res.json();
-          if (seq && seq > cursor) cursor = seq;
+          const data = await res.json();
+          if (data.seq && data.seq > cursor) cursor = data.seq;
+          if (data.challenge) syncChallenge(data.challenge);
         }
       } catch (e) { /* poll loop will reconcile */ }
     }
@@ -1429,12 +1478,27 @@
       refreshControlCopy();
       const ok = await loadWorld();
       if (!ok) return;
+
+      // Load today's challenge progress (non-fatal if unavailable).
+      try {
+        const cr = await fetch('/api/challenge/today', { headers });
+        if (cr.ok) syncChallenge(await cr.json());
+      } catch (_) {}
+
       requestAnimationFrame(loop);
       // Poll is started per-mode in onPlayEntered(), not here.
       heartbeat();
       setInterval(heartbeat, 30000);
       pollPresence();
       setInterval(pollPresence, 15000);
+      // Re-fetch challenge every 30s to catch midnight UTC rollover and
+      // progress made in other tabs.
+      setInterval(async () => {
+        try {
+          const cr = await fetch('/api/challenge/today', { headers });
+          if (cr.ok) syncChallenge(await cr.json());
+        } catch (_) {}
+      }, 30000);
     })();
   </script>
 </body>
