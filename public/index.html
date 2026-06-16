@@ -93,6 +93,7 @@
       <p id="overlay-help" class="text-zinc-500 text-sm mb-6">Click to play — move the mouse to look, press Esc to release. If your browser blocks mouse-lock, you can drag to look instead.</p>
       <button id="play-btn" class="px-5 py-2 rounded-lg bg-violet-600 hover:bg-violet-500 font-semibold">Click to play</button>
       <div id="status" class="mt-4 text-sm text-zinc-500"></div>
+      <div id="build-tag" class="mt-6 text-[11px] text-zinc-600 font-mono"></div>
     </div>
   </div>
 
@@ -125,7 +126,11 @@
 
     // Build stamp — bump on every movement/look change so a tester can
     // confirm (via the ?debug=1 HUD) the preview is running current code.
-    const BUILD_STAMP = 'move-2026-06-16.4';
+    const BUILD_STAMP = 'move-2026-06-16.5';
+    // Always-visible build tag on the play overlay, so a tester can confirm
+    // exactly which build is running before judging behavior.
+    const buildTagEl = document.getElementById('build-tag');
+    if (buildTagEl) buildTagEl.textContent = 'build ' + BUILD_STAMP;
 
     const params = new URLSearchParams(window.location.search);
     const token = params.get('token') || '';
@@ -307,8 +312,23 @@
     let lockTimer = null;        // pending silent-denial watchdog (cleared per try)
     let dragging = false;        // fallback: a look-drag is in progress
     let pressX = 0, pressY = 0;  // fallback: where the press started
-    let swallowNextLook = false; // drop the first mousemove after a capture
-                                 // entry (pointer-lock warp / drag baseline)
+    // Entering a capture (pointer lock or a drag) makes the browser deliver an
+    // "entry warp" — a burst of large synthetic mousemoves. Ignore look deltas
+    // until this timestamp to absorb the whole burst, however many events it
+    // spans. A single-shot skip missed warps split across events.
+    let lookSettleUntil = 0;
+    let lookEventsSinceEntry = 0; // mousemoves seen since the last entry (HUD)
+    function armLookSettle() {
+      lookSettleUntil = performance.now() + 250;
+      lookEventsSinceEntry = 0;
+    }
+    // Deterministically level the resting view at the start of a play session
+    // and absorb the entry warp, so spawn is always pitch 0 (horizon-level).
+    function relevelAndSettle() {
+      pitch = 0;
+      applyLook();
+      armLookSettle();
+    }
     const DRAG_THRESHOLD = 5;    // px of movement that turns a click into a drag
     const move = { f: false, b: false, l: false, r: false, up: false, down: false };
     const SPEED = 9, SENS = 0.0022;
@@ -325,11 +345,10 @@
     }
     applyLook();
 
-    // Backstop: a single real mouse-move is never this large; anything above
-    // this is a pointer-lock entry warp or a glitch, so drop that component
-    // rather than letting it jolt the view. High enough to never clip a real
-    // fast flick.
-    const MAX_LOOK_DELTA = 180;
+    // Secondary backstop (the settle window is primary): drop any single
+    // mouse-move component this large — a warp/glitch, never real motion.
+    // Kept generous so genuine fast flicks are never clipped.
+    const MAX_LOOK_DELTA = 250;
     function applyLookDelta(dx, dy) {
       if (Math.abs(dx) > MAX_LOOK_DELTA) dx = 0;
       if (Math.abs(dy) > MAX_LOOK_DELTA) dy = 0;
@@ -383,6 +402,7 @@
       dragMode = true;
       playing = true;
       dragging = false;
+      relevelAndSettle(); // drag-fallback play entry: spawn level
       canvas.style.cursor = 'grab';
       overlayEl.style.display = 'none';
       refreshControlCopy();
@@ -414,10 +434,10 @@
     canvas.addEventListener('mousemove', (e) => {
       const active = locked || (playing && dragging);
       if (!active) return;
-      // Consume (don't apply) the first move after entering a capture: pointer
-      // lock delivers a synthetic warp delta here, and a drag's first event
-      // carries a stale baseline. Either would jolt the view on entry.
-      if (swallowNextLook) { swallowNextLook = false; return; }
+      lookEventsSinceEntry++;
+      // Absorb the entry-warp burst: ignore look deltas during the settle
+      // window after each capture entry. Applies to both lock and drag.
+      if (performance.now() < lookSettleUntil) return;
       applyLookDelta(e.movementX, e.movementY);
       if (!locked) canvas.style.cursor = 'grabbing';
     });
@@ -431,7 +451,7 @@
         playing = true;
         dragMode = false;
         lockUnavailable = false;
-        swallowNextLook = true; // ignore the synthetic entry-warp mousemove
+        relevelAndSettle(); // spawn level + ignore the entry-warp burst
         canvas.style.cursor = '';
         overlayEl.style.display = 'none';
       } else if (!dragMode) {
@@ -468,7 +488,7 @@
       if (!playing) return;
       // Fallback path: begin a potential look-drag; decide click vs drag on up.
       dragging = true;
-      swallowNextLook = true; // ignore the drag's stale first-move baseline
+      armLookSettle(); // absorb the drag's stale first-move baseline
       pressX = e.clientX;
       pressY = e.clientY;
       canvas.style.cursor = 'grabbing';
@@ -635,6 +655,10 @@
       // the exact direction the crosshair points, independent of `fwd`.
       raycaster.setFromCamera(centre, camera);
       dbgAim.copy(raycaster.ray.direction);
+      // Camera's ACTUAL pitch from its true world facing (before flattening) —
+      // should match the `pitch` variable; a mismatch means something outside
+      // applyLook is rotating the camera.
+      const camPitch = Math.asin(Math.max(-1, Math.min(1, dbgAim.y)));
       dbgAim.y = 0;
       const aimHeading = dbgAim.lengthSq() < 1e-8 ? yaw : Math.atan2(-dbgAim.x, -dbgAim.z);
       const moveHeading = Math.atan2(-fwd.x, -fwd.z);
@@ -647,6 +671,7 @@
         `build   ${BUILD_STAMP}\n` +
         `mode    ${locked ? 'pointer-lock' : (dragMode ? 'drag' : 'idle')}\n` +
         `yaw     ${deg(yaw).toFixed(1)}°   pitch ${deg(pitch).toFixed(1)}°\n` +
+        `camPitch ${deg(camPitch).toFixed(1)}°   evts/entry ${lookEventsSinceEntry}\n` +
         `aim→move ${aimVsMove >= 0 ? '+' : ''}${aimVsMove.toFixed(2)}°   (0 = aligned)\n` +
         `max|Δ|   ${dbgMaxAbs.toFixed(2)}°  @ yaw ${deg(dbgMaxYaw).toFixed(1)}°\n` +
         `fwd·right ${fwdRightDot.toFixed(4)} (≈0 = perp)\n` +
