@@ -349,6 +349,15 @@
     highlight.visible = false;
     scene.add(highlight);
 
+    // Ghost piece: semi-transparent preview block shown at the placement position.
+    const ghost = new THREE.Mesh(
+      cube,
+      new THREE.MeshLambertMaterial({ transparent: true, opacity: 0.35, depthWrite: false })
+    );
+    ghost.userData.ghost = true;
+    ghost.visible = false;
+    scene.add(ghost);
+
     // ---- Raycast from screen center to find the aimed cell + face ----
     const raycaster = new THREE.Raycaster();
     const centre = new THREE.Vector2(0, 0);
@@ -411,6 +420,7 @@
       const hits = raycaster.intersectObjects(targets, false);
       target = null;
       highlight.visible = false;
+      ghost.visible = false;
       if (!hits.length) return;
       const hit = hits[0];
       const cells = hit.object.userData.cells;
@@ -423,6 +433,12 @@
       };
       highlight.position.set(cell.x + 0.5, cell.y + 0.5, cell.z + 0.5);
       highlight.visible = true;
+      // Show ghost at placement position if playing, in bounds, and unoccupied.
+      const p = target.place;
+      if (playing && inBounds(p.x, p.y, p.z) && !blocks.has(key(p.x, p.y, p.z))) {
+        ghost.position.set(p.x + 0.5, p.y + 0.5, p.z + 0.5);
+        ghost.visible = true;
+      }
     }
 
     const inBounds = (x, y, z) =>
@@ -851,6 +867,8 @@
         el.classList.toggle('ring-2', Number(el.dataset.id) === id);
         el.classList.toggle('ring-white', Number(el.dataset.id) === id);
       }
+      const p = PALETTE.find((q) => q.id === id);
+      if (p) ghost.material = new THREE.MeshLambertMaterial({ color: new THREE.Color(p.color), transparent: true, opacity: 0.35, depthWrite: false });
     }
     function buildPalette() {
       const wrap = document.getElementById('palette');
