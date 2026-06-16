@@ -90,7 +90,7 @@
     <div class="max-w-md p-8 text-center">
       <h1 class="text-2xl font-bold mb-2">block-game</h1>
       <p class="text-zinc-300 mb-1">A shared 3D world everyone builds together.</p>
-      <p id="overlay-help" class="text-zinc-500 text-sm mb-6">Click to play — move the mouse to look, press Esc to release.</p>
+      <p id="overlay-help" class="text-zinc-500 text-sm mb-6">Click to play — move the mouse to look, press Esc to release. If your browser blocks mouse-lock, you can drag to look instead.</p>
       <button id="play-btn" class="px-5 py-2 rounded-lg bg-violet-600 hover:bg-violet-500 font-semibold">Click to play</button>
       <div id="status" class="mt-4 text-sm text-zinc-500"></div>
     </div>
@@ -107,6 +107,11 @@
     <span class="font-semibold">Drag</span> look · <span class="font-semibold">Left-click</span> break · <span class="font-semibold">Right-click</span> place ·
     <span class="font-semibold">1–9</span> pick block · <span class="font-semibold">Esc</span> menu
   </div>
+
+  <!-- Look-mode control: always-visible, clickable, shows the active look
+       scheme and lets the player (re)try mouse-lock. NOT pointer-events-none
+       and NOT faded, so it stays interactive after the keys hint fades. -->
+  <button id="lookmode" class="hidden fixed top-12 left-1/2 -translate-x-1/2 z-20 text-xs text-zinc-200 bg-black/50 hover:bg-black/70 rounded-lg px-3 py-1.5 transition-colors cursor-pointer"></button>
 
   <!-- Block palette -->
   <div id="palette" class="fixed bottom-4 left-1/2 -translate-x-1/2 z-20 flex gap-1.5 p-1.5 rounded-xl bg-black/50 backdrop-blur"></div>
@@ -283,7 +288,9 @@
     let yaw = Math.PI, pitch = -0.15;
     let locked = false;          // true OS pointer lock is held (native path)
     let playing = false;         // game is active / overlay hidden
-    let pointerLockBlocked = false; // a requestPointerLock() attempt has failed
+    let dragMode = false;        // fallback: playing without OS pointer lock
+    let lockUnavailable = false; // a *retry* was denied — stop inviting retries
+    let lockTimer = null;        // pending silent-denial watchdog (cleared per try)
     let dragging = false;        // fallback: a look-drag is in progress
     let pressX = 0, pressY = 0;  // fallback: where the press started
     const DRAG_THRESHOLD = 5;    // px of movement that turns a click into a drag
@@ -294,6 +301,7 @@
     const overlayHelpEl = document.getElementById('overlay-help');
     const hintEl = document.getElementById('hint');
     const hintFallbackEl = document.getElementById('hint-fallback');
+    const lookModeEl = document.getElementById('lookmode');
 
     function applyLook() {
       const e = new THREE.Euler(pitch, yaw, 0, 'YXZ');
@@ -309,44 +317,74 @@
       applyLook();
     }
 
-    // Reflect the active control scheme in the overlay copy + controls hint.
+    // Reflect the active control scheme in the overlay copy, keys hint, and the
+    // always-visible look-mode control.
     function refreshControlCopy() {
-      if (pointerLockBlocked) {
-        overlayHelpEl.textContent = 'Click to play — drag to look, click to build, press Esc for this menu.';
+      if (locked) {
+        lookModeEl.textContent = 'Look: Mouse-lock (Esc to release)';
+        hintEl.classList.remove('hidden');
+        hintFallbackEl.classList.add('hidden');
+      } else if (dragMode) {
+        // In drag fallback: invite a retry unless a retry already failed.
+        lookModeEl.textContent = lockUnavailable
+          ? 'Mouse-lock unavailable here'
+          : 'Look: Drag — click for mouse-lock';
         hintEl.classList.add('hidden');
         hintFallbackEl.classList.remove('hidden');
       } else {
-        overlayHelpEl.textContent = 'Click to play — move the mouse to look, press Esc to release.';
+        lookModeEl.textContent = 'Look: Drag — click for mouse-lock';
         hintEl.classList.remove('hidden');
         hintFallbackEl.classList.add('hidden');
       }
+      // Overlay entry copy stays honest about whether mouse-lock has proven
+      // unavailable this session.
+      overlayHelpEl.textContent = lockUnavailable
+        ? 'Click to play — drag to look, click to build, press Esc for this menu.'
+        : 'Click to play — move the mouse to look, press Esc to release. If your browser blocks mouse-lock, you can drag to look instead.';
+      // The interactive control is only meaningful while the game is running.
+      lookModeEl.classList.toggle('hidden', !playing);
     }
 
-    // Start the game in drag-to-look fallback mode (no OS pointer lock).
+    function clearLockTimer() {
+      if (lockTimer !== null) { clearTimeout(lockTimer); lockTimer = null; }
+    }
+
+    // A pointer-lock attempt was denied — start (or stay in) drag-to-look.
+    // Never permanently blocks future attempts; retries are always allowed.
     function onLockFail() {
-      pointerLockBlocked = true;
+      clearLockTimer();
+      if (locked) return;           // a real lock won the race; ignore stale denial
+      // If we were already playing in drag mode, this denial came from an
+      // explicit retry that also failed — stop inviting further retries.
+      if (dragMode && playing) lockUnavailable = true;
+      dragMode = true;
       playing = true;
       dragging = false;
       canvas.style.cursor = 'grab';
-      refreshControlCopy();
       overlayEl.style.display = 'none';
+      refreshControlCopy();
     }
 
+    // Always attempt a native lock on an explicit user gesture (play button or
+    // the look-mode control), regardless of any prior failure.
     function tryPointerLock() {
-      if (pointerLockBlocked) { onLockFail(); return; }
+      clearLockTimer();
       try {
         Promise.resolve(canvas.requestPointerLock()).catch(onLockFail);
       } catch (e) {
         onLockFail();
+        return;
       }
       // Safety net for the "silent no-op" denial mode: some browsers neither
       // reject the promise nor fire pointerlockerror — requestPointerLock()
-      // just returns undefined and does nothing. If we haven't locked or
-      // otherwise started shortly after, assume denial and fall back. The
-      // !locked && !playing guard keeps a legitimately-slow native lock
-      // (which sets both via pointerlockchange) from being clobbered.
-      setTimeout(() => {
-        if (!locked && !playing) onLockFail();
+      // just returns undefined and does nothing. If we haven't locked shortly
+      // after, assume denial and fall back. Guard on !locked only (not
+      // !playing) so a retry from drag mode — where playing is already true —
+      // still detects a silent failure; pointerlockchange clears this timer on
+      // a real lock so a slow-but-genuine lock isn't clobbered.
+      lockTimer = setTimeout(() => {
+        lockTimer = null;
+        if (!locked) onLockFail();
       }, 400);
     }
 
@@ -361,10 +399,22 @@
 
     document.addEventListener('pointerlockchange', () => {
       locked = document.pointerLockElement === canvas;
-      if (locked) { playing = true; pointerLockBlocked = false; refreshControlCopy(); }
-      // Only the native path drives the overlay here; fallback mode manages it
-      // itself (Esc / play-button) since there is no pointer lock to release.
-      if (!pointerLockBlocked) overlayEl.style.display = locked ? 'none' : 'flex';
+      if (locked) {
+        // Native lock acquired — exit drag fallback and clear any "blocked"
+        // state, since mouse-lock just demonstrably works.
+        clearLockTimer();
+        playing = true;
+        dragMode = false;
+        lockUnavailable = false;
+        canvas.style.cursor = '';
+        overlayEl.style.display = 'none';
+      } else if (!dragMode) {
+        // Lost a native lock (Esc in native mode) and we're not in drag
+        // fallback — return to the overlay menu.
+        playing = false;
+        overlayEl.style.display = 'flex';
+      }
+      refreshControlCopy();
     });
     // Iframe Permissions-Policy denials commonly surface here (not as a
     // rejected promise), so this is the primary failure path in production.
@@ -372,8 +422,13 @@
     document.getElementById('play-btn').addEventListener('click', tryPointerLock);
     canvas.addEventListener('click', () => {
       // Native path only: re-acquire the lock on a bare canvas click. In
-      // fallback mode clicks are handled by the drag/click logic below.
-      if (!locked && !playing && !pointerLockBlocked) tryPointerLock();
+      // drag fallback mode clicks are handled by the drag/click logic below.
+      if (!locked && !playing) tryPointerLock();
+    });
+    // The look-mode control re-attempts native mouse-lock when clicked from
+    // drag mode (a fresh user gesture, which pointer lock requires).
+    lookModeEl.addEventListener('click', () => {
+      if (!locked) tryPointerLock();
     });
 
     canvas.addEventListener('contextmenu', (e) => e.preventDefault());
@@ -413,14 +468,16 @@
         const n = parseInt(e.code.slice(5), 10);
         if (n >= 1 && n <= 9 && PALETTE[n - 1]) selectType(PALETTE[n - 1].id);
       }
-      // Fallback mode has no OS pointer lock to release, so Escape returns to
-      // the overlay manually. In native mode the browser handles Esc itself.
-      if (e.code === 'Escape' && pointerLockBlocked && playing) {
+      // Drag mode has no OS pointer lock to release, so Escape returns to the
+      // overlay manually. In native (locked) mode the browser handles Esc and
+      // fires pointerlockchange, which restores the overlay there.
+      if (e.code === 'Escape' && dragMode && playing) {
         playing = false;
         dragging = false;
         for (const k in move) move[k] = false;
         canvas.style.cursor = '';
         overlayEl.style.display = 'flex';
+        refreshControlCopy();
       }
     });
     window.addEventListener('keyup', (e) => { if (codeMap[e.code]) move[codeMap[e.code]] = false; });
