@@ -116,6 +116,10 @@
   <!-- Block palette -->
   <div id="palette" class="fixed bottom-4 left-1/2 -translate-x-1/2 z-20 flex gap-1.5 p-1.5 rounded-xl bg-black/50 backdrop-blur"></div>
 
+  <!-- Build/version stamp: always visible, dim, so the running build can be
+       confirmed at a glance. Bump BUILD_VERSION (below) on every change. -->
+  <div id="build-stamp" class="pointer-events-none fixed top-3 right-3 z-20 text-[11px] text-zinc-300/70 bg-black/40 rounded px-2 py-1 font-mono"></div>
+
   <script type="module">
     import * as THREE from 'three';
 
@@ -123,6 +127,12 @@
     const token = params.get('token') || '';
     const headers = token ? { 'x-usernode-token': token } : {};
     const statusEl = document.getElementById('status');
+
+    // Build identifier — bump this (to the deploying commit short SHA) on every
+    // change so the top-right stamp confirms exactly which code is running.
+    const BUILD_VERSION = '4f1d510';
+    const buildStampEl = document.getElementById('build-stamp');
+    buildStampEl.textContent = 'build ' + BUILD_VERSION;
 
     // ---- World/runtime state ----
     let DIMS = { w: 32, d: 32, h: 24 };
@@ -141,6 +151,7 @@
     scene.fog = new THREE.Fog('#8ec7ff', 40, 90);
 
     const camera = new THREE.PerspectiveCamera(70, 1, 0.1, 500);
+    camera.up.set(0, 1, 0); // pin world up so the horizon can never roll
     camera.position.set(DIMS.w / 2, 3.5, DIMS.d / 2 + 8);
 
     scene.add(new THREE.AmbientLight(0xffffff, 0.65));
@@ -180,6 +191,27 @@
       mesh.userData.ground = true;
       groundMesh = mesh;
       scene.add(mesh);
+    }
+
+    // Infinite-looking ground grid: a large reference grid at ground level,
+    // aligned to the 1-unit block cells and centred under the plot, extending
+    // far past the edges so it reads as an endless floor (fog fades the far
+    // lines into the sky). Sits a hair below the terrain and skips depth-write
+    // so it never z-fights with the grass cells. NOT raycastable — it's a pure
+    // visual reference and must not become a placement surface.
+    let groundGrid = null;
+    function buildGroundGrid() {
+      if (groundGrid) { scene.remove(groundGrid); groundGrid = null; }
+      const SIZE = 400; // world units — far beyond the plot and the fly margin
+      const grid = new THREE.GridHelper(SIZE, SIZE, 0x6b7a8d, 0x44505f);
+      // Centre on the plot centre (an integer) so lines land on cell borders.
+      grid.position.set(DIMS.w / 2, -0.01, DIMS.d / 2);
+      grid.material.transparent = true;
+      grid.material.opacity = 0.35;
+      grid.material.depthWrite = false;
+      grid.renderOrder = -1;
+      groundGrid = grid;
+      scene.add(grid);
     }
 
     // Dynamic (user-placed) blocks: one InstancedMesh per type, rebuilt from
@@ -303,11 +335,49 @@
     const hintFallbackEl = document.getElementById('hint-fallback');
     const lookModeEl = document.getElementById('lookmode');
 
+    // Reusable temporaries + one-shot roll diagnostic state for applyLook().
+    const _lookFwd = new THREE.Vector3();
+    const _lookTarget = new THREE.Vector3();
+    const _camRight = new THREE.Vector3();
+    let _rollWarned = false;
     function applyLook() {
-      const e = new THREE.Euler(pitch, yaw, 0, 'YXZ');
-      camera.quaternion.setFromEuler(e);
+      // Build orientation from yaw+pitch and aim the camera with a FIXED world
+      // up-vector. lookAt() with up = (0,1,0) constructs the camera's right axis
+      // as up × viewDir, which is always horizontal (right.y == 0) — i.e. zero
+      // roll, dead-level horizon — at every yaw/pitch (pitch is clamped away
+      // from straight up/down, so the basis never degenerates).
+      const cp = Math.cos(pitch);
+      _lookFwd.set(-Math.sin(yaw) * cp, Math.sin(pitch), -Math.cos(yaw) * cp);
+      _lookTarget.copy(camera.position).add(_lookFwd);
+      camera.up.set(0, 1, 0);
+      camera.lookAt(_lookTarget);
+      // Runtime self-check: the rendered horizon is level iff the camera's world
+      // right vector has no vertical component. If a real roll ever appears,
+      // surface its actual magnitude once (forwarded to the platform dev
+      // console) instead of guessing from the static source.
+      if (!_rollWarned) {
+        _camRight.set(1, 0, 0).applyQuaternion(camera.quaternion);
+        if (Math.abs(_camRight.y) > 1e-3) {
+          _rollWarned = true;
+          console.warn('[block-game] camera roll detected — right.y =', _camRight.y.toFixed(5),
+            '(yaw', yaw.toFixed(3), 'pitch', pitch.toFixed(3) + ')');
+        }
+      }
     }
-    applyLook();
+
+    // Place the camera at a comfortable spawn and aim it at the build-plot
+    // centre so the ground and any structures fill the lower screen instead of
+    // open sky. yaw/pitch are derived from the look direction so the (yaw-only)
+    // movement basis stays consistent with where the camera faces.
+    function spawnCamera() {
+      camera.position.set(DIMS.w / 2, 6, DIMS.d / 2 + 10);
+      const target = new THREE.Vector3(DIMS.w / 2, 3, DIMS.d / 2);
+      const dir = target.sub(camera.position).normalize();
+      pitch = Math.asin(Math.max(-1, Math.min(1, dir.y)));
+      yaw = Math.atan2(-dir.x, -dir.z);
+      applyLook();
+    }
+    spawnCamera();
 
     function applyLookDelta(dx, dy) {
       yaw -= dx * SENS;
@@ -316,6 +386,16 @@
       pitch = Math.max(-lim, Math.min(lim, pitch));
       applyLook();
     }
+
+    // Clear all held-movement state. Called whenever the game loses input
+    // focus (tab/window blur, page hidden) or play is released, so a key whose
+    // `keyup` never arrives can't leave the camera drifting forever.
+    function resetMove() {
+      for (const k in move) move[k] = false;
+      dragging = false;
+    }
+    window.addEventListener('blur', resetMove);
+    document.addEventListener('visibilitychange', () => { if (document.hidden) resetMove(); });
 
     // Reflect the active control scheme in the overlay copy, keys hint, and the
     // always-visible look-mode control.
@@ -410,8 +490,10 @@
         overlayEl.style.display = 'none';
       } else if (!dragMode) {
         // Lost a native lock (Esc in native mode) and we're not in drag
-        // fallback — return to the overlay menu.
+        // fallback — return to the overlay menu. Clear held keys so the
+        // camera doesn't keep drifting behind the overlay.
         playing = false;
+        resetMove();
         overlayEl.style.display = 'flex';
       }
       refreshControlCopy();
@@ -473,8 +555,7 @@
       // fires pointerlockchange, which restores the overlay there.
       if (e.code === 'Escape' && dragMode && playing) {
         playing = false;
-        dragging = false;
-        for (const k in move) move[k] = false;
+        resetMove();
         canvas.style.cursor = '';
         overlayEl.style.display = 'flex';
         refreshControlCopy();
@@ -527,10 +608,11 @@
       blocks.clear();
       for (const b of data.blocks) blocks.set(key(b.x, b.y, b.z), b.t);
       buildGround();
+      buildGroundGrid();
       buildPalette();
       rebuildBlockMeshes();
-      // Re-centre spawn now that real dims are known.
-      camera.position.set(DIMS.w / 2, 3.5, DIMS.d / 2 + 8);
+      // Re-aim spawn now that real dims are known so the camera frames the plot.
+      spawnCamera();
       return true;
     }
 
@@ -561,30 +643,43 @@
     window.addEventListener('resize', resize);
 
     let prev = performance.now();
-    const fwd = new THREE.Vector3(), right = new THREE.Vector3();
+    const fwd = new THREE.Vector3(), right = new THREE.Vector3(), horiz = new THREE.Vector3();
     function loop(now) {
       const dt = Math.min((now - prev) / 1000, 0.1);
       prev = now;
 
-      // Movement basis is horizontal-only: derive forward/right from yaw so
-      // forward/back keeps a steady altitude (matching strafe) regardless of
-      // pitch. Vertical motion is handled solely by Space/Shift below. Aiming
-      // and raycasting still use the full pitched look direction (updateTarget).
-      fwd.set(-Math.sin(yaw), 0, -Math.cos(yaw));
-      right.set(Math.cos(yaw), 0, -Math.sin(yaw));
-      const step = SPEED * dt;
-      if (move.f) camera.position.addScaledVector(fwd, step);
-      if (move.b) camera.position.addScaledVector(fwd, -step);
-      if (move.r) camera.position.addScaledVector(right, step);
-      if (move.l) camera.position.addScaledVector(right, -step);
-      if (move.up) camera.position.y += step;
-      if (move.down) camera.position.y -= step;
+      // Only integrate movement while actually playing (native lock or drag
+      // fallback). With the overlay/menu up the camera holds still even if a
+      // key is held underneath it. Aiming/rendering still run every frame.
+      if (playing && (locked || dragMode)) {
+        // Movement basis is derived from `yaw` ALONE — a single scalar that
+        // cannot encode roll or pitch and never depends on the camera's
+        // world-matrix being current. fwd is the camera's horizontal facing and
+        // right is 90° clockwise from it, both unit-length and dead horizontal,
+        // so W/S glide toward/away from the gaze and A/D strafe correctly no
+        // matter what the camera orientation or render timing does. Vertical is
+        // Space/Shift only; aiming/raycasting still use the full pitched look.
+        fwd.set(-Math.sin(yaw), 0, -Math.cos(yaw));
+        right.set(Math.cos(yaw), 0, -Math.sin(yaw));
+        const step = SPEED * dt;
+        // Sum horizontal contributions and normalize so diagonal travel isn't
+        // faster than cardinal.
+        horiz.set(0, 0, 0);
+        if (move.f) horiz.add(fwd);
+        if (move.b) horiz.sub(fwd);
+        if (move.r) horiz.add(right);
+        if (move.l) horiz.sub(right);
+        if (horiz.lengthSq() > 1) horiz.normalize();
+        camera.position.addScaledVector(horiz, step);
+        if (move.up) camera.position.y += step;
+        if (move.down) camera.position.y -= step;
 
-      // Clamp to the plot (plus a small margin) so you can't fly away.
-      const m = 4;
-      camera.position.x = Math.max(-m, Math.min(DIMS.w + m, camera.position.x));
-      camera.position.z = Math.max(-m, Math.min(DIMS.d + m, camera.position.z));
-      camera.position.y = Math.max(1.2, Math.min(DIMS.h + 6, camera.position.y));
+        // Clamp to the plot (plus a small margin) so you can't fly away.
+        const m = 4;
+        camera.position.x = Math.max(-m, Math.min(DIMS.w + m, camera.position.x));
+        camera.position.z = Math.max(-m, Math.min(DIMS.d + m, camera.position.z));
+        camera.position.y = Math.max(1.2, Math.min(DIMS.h + 6, camera.position.y));
+      }
 
       updateTarget();
       renderer.render(scene, camera);

@@ -143,7 +143,14 @@ app.get('/api/world/changes', async (req, res) => {
   }
 });
 
-app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.static(path.join(__dirname, 'public'), {
+  setHeaders(res, filePath) {
+    // The entire game is inline in index.html, so a cached shell hides a
+    // deploy wholesale. Force the HTML to revalidate every load (304 when
+    // unchanged); other static assets keep Express defaults.
+    if (filePath.endsWith('.html')) res.setHeader('Cache-Control', 'no-cache');
+  },
+}));
 
 // HTML shell: serve the app if authenticated, otherwise an "open in Usernode"
 // landing page so stray visits to the staging URL don't reveal the app.
@@ -158,6 +165,7 @@ app.get('*', (req, res) => {
   </div>
 </body>`);
   }
+  res.set('Cache-Control', 'no-cache');
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
