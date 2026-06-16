@@ -126,7 +126,7 @@
 
     // Build stamp — bump on every movement/look change so a tester can
     // confirm (via the ?debug=1 HUD) the preview is running current code.
-    const BUILD_STAMP = 'move-2026-06-16.6';
+    const BUILD_STAMP = 'move-2026-06-16.7';
     // Always-visible build tag on the play overlay, so a tester can confirm
     // exactly which build is running before judging behavior.
     const buildTagEl = document.getElementById('build-tag');
@@ -210,8 +210,12 @@
     // can never become a placement/break surface (editing stays on the 32×32
     // groundMesh + blockGroup). Recentred on the player each frame.
     const horizonGround = new THREE.Mesh(
-      new THREE.PlaneGeometry(600, 600),
-      new THREE.MeshLambertMaterial({ color: 0x6f9e57 })
+      new THREE.PlaneGeometry(4000, 4000),
+      // fog:false so the backdrop keeps its solid ground color all the way to
+      // the horizon instead of blending into the (same-colored) sky fog —
+      // giving a crisp ground/sky line at eye level. scene.fog still applies
+      // to the build plot + placed blocks for depth.
+      new THREE.MeshLambertMaterial({ color: 0x6f9e57, fog: false })
     );
     horizonGround.rotation.x = -Math.PI / 2; // lie flat in the XZ plane
     horizonGround.position.y = -0.02;         // a hair below the plot: no z-fight
