@@ -125,7 +125,7 @@
 
     // Build stamp — bump on every movement/look change so a tester can
     // confirm (via the ?debug=1 HUD) the preview is running current code.
-    const BUILD_STAMP = 'move-2026-06-16.3';
+    const BUILD_STAMP = 'move-2026-06-16.4';
 
     const params = new URLSearchParams(window.location.search);
     const token = params.get('token') || '';
@@ -307,6 +307,8 @@
     let lockTimer = null;        // pending silent-denial watchdog (cleared per try)
     let dragging = false;        // fallback: a look-drag is in progress
     let pressX = 0, pressY = 0;  // fallback: where the press started
+    let swallowNextLook = false; // drop the first mousemove after a capture
+                                 // entry (pointer-lock warp / drag baseline)
     const DRAG_THRESHOLD = 5;    // px of movement that turns a click into a drag
     const move = { f: false, b: false, l: false, r: false, up: false, down: false };
     const SPEED = 9, SENS = 0.0022;
@@ -323,7 +325,14 @@
     }
     applyLook();
 
+    // Backstop: a single real mouse-move is never this large; anything above
+    // this is a pointer-lock entry warp or a glitch, so drop that component
+    // rather than letting it jolt the view. High enough to never clip a real
+    // fast flick.
+    const MAX_LOOK_DELTA = 180;
     function applyLookDelta(dx, dy) {
+      if (Math.abs(dx) > MAX_LOOK_DELTA) dx = 0;
+      if (Math.abs(dy) > MAX_LOOK_DELTA) dy = 0;
       yaw -= dx * SENS;
       pitch -= dy * SENS;
       const lim = Math.PI / 2 - 0.01;
@@ -403,12 +412,14 @@
     }
 
     canvas.addEventListener('mousemove', (e) => {
-      if (locked) {
-        applyLookDelta(e.movementX, e.movementY);
-      } else if (playing && dragging) {
-        applyLookDelta(e.movementX, e.movementY);
-        canvas.style.cursor = 'grabbing';
-      }
+      const active = locked || (playing && dragging);
+      if (!active) return;
+      // Consume (don't apply) the first move after entering a capture: pointer
+      // lock delivers a synthetic warp delta here, and a drag's first event
+      // carries a stale baseline. Either would jolt the view on entry.
+      if (swallowNextLook) { swallowNextLook = false; return; }
+      applyLookDelta(e.movementX, e.movementY);
+      if (!locked) canvas.style.cursor = 'grabbing';
     });
 
     document.addEventListener('pointerlockchange', () => {
@@ -420,6 +431,7 @@
         playing = true;
         dragMode = false;
         lockUnavailable = false;
+        swallowNextLook = true; // ignore the synthetic entry-warp mousemove
         canvas.style.cursor = '';
         overlayEl.style.display = 'none';
       } else if (!dragMode) {
@@ -456,6 +468,7 @@
       if (!playing) return;
       // Fallback path: begin a potential look-drag; decide click vs drag on up.
       dragging = true;
+      swallowNextLook = true; // ignore the drag's stale first-move baseline
       pressX = e.clientX;
       pressY = e.clientY;
       canvas.style.cursor = 'grabbing';
