@@ -121,14 +121,28 @@
        player-placed block. Hidden by default; shown/hidden by JS. -->
   <div id="attribution" class="hidden pointer-events-none fixed left-1/2 z-10 text-xs text-white/90 bg-black/55 rounded px-2 py-1 font-medium whitespace-nowrap" style="top: calc(50% + 20px); transform: translateX(-50%);"></div>
 
-  <!-- Click-to-play overlay -->
+  <!-- Mode-select / start overlay -->
   <div id="overlay" class="fixed inset-0 z-30 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-    <div class="max-w-md p-8 text-center">
-      <h1 class="text-2xl font-bold mb-2">block-game</h1>
-      <p class="text-zinc-300 mb-1">A shared 3D world everyone builds together.</p>
-      <p id="overlay-help" class="text-zinc-500 text-sm mb-6">Click to play — move the mouse to look, press Esc to release. If your browser blocks mouse-lock, you can drag to look instead.</p>
-      <button id="play-btn" class="px-5 py-2 rounded-lg bg-violet-600 hover:bg-violet-500 font-semibold">Click to play</button>
-      <div id="status" class="mt-4 text-sm text-zinc-500"></div>
+    <div class="max-w-lg w-full px-4">
+      <div class="text-center mb-5">
+        <h1 class="text-2xl font-bold mb-1">block-game</h1>
+        <p class="text-zinc-300 text-sm">A shared 3D world — or a solo challenge.</p>
+        <p id="overlay-help" class="text-zinc-500 text-xs mt-1">Choose a mode to start.</p>
+      </div>
+      <div class="flex flex-col sm:flex-row gap-4">
+        <div class="flex-1 bg-zinc-900/80 rounded-xl p-5">
+          <h2 class="font-semibold text-zinc-100 mb-1">Classic Mode</h2>
+          <p class="text-zinc-400 text-xs mb-4">Fly around a shared 3D world. Place and break blocks with other players. No timer, no score.</p>
+          <button id="play-classic-btn" class="w-full px-4 py-2 rounded-lg bg-violet-600 hover:bg-violet-500 font-semibold text-sm transition-colors">Play Classic</button>
+        </div>
+        <div class="flex-1 bg-zinc-900/80 rounded-xl p-5">
+          <h2 class="font-semibold text-zinc-100 mb-1">Time Attack</h2>
+          <p class="text-zinc-400 text-xs mb-4">Break as many blocks as you can in 60 seconds. Solo challenge, fresh layout every run.</p>
+          <button id="play-ta-btn" class="w-full px-4 py-2 rounded-lg bg-amber-600 hover:bg-amber-500 font-semibold text-sm transition-colors">Play Time Attack</button>
+        </div>
+      </div>
+      <div id="status" class="mt-3 text-xs text-zinc-500 text-center"></div>
+      <div id="online-list" class="mt-3 text-sm text-zinc-400 text-center"></div>
     </div>
   </div>
 
@@ -136,12 +150,12 @@
   <div id="hint" class="pointer-events-none fixed top-3 left-1/2 -translate-x-1/2 z-20 text-center text-xs text-zinc-300/90 bg-black/40 rounded-lg px-3 py-2 transition-opacity duration-700">
     <span class="font-semibold">WASD</span> move · <span class="font-semibold">Space/Shift</span> up·down ·
     <span class="font-semibold">Left-click/F</span> add · <span class="font-semibold">Right-click/G</span> delete ·
-    <span class="font-semibold">1–9</span> pick block · <span class="font-semibold">H</span> hold/help · <span class="font-semibold">Esc</span> release
+    <span class="font-semibold">1–9</span> pick block · <span class="font-semibold">H</span> hold/controls · <span class="font-semibold">M</span> mute · <span class="font-semibold">Esc</span> release
   </div>
   <div id="hint-fallback" class="hidden pointer-events-none fixed top-3 left-1/2 -translate-x-1/2 z-20 text-center text-xs text-zinc-300/90 bg-black/40 rounded-lg px-3 py-2 transition-opacity duration-700">
     <span class="font-semibold">WASD</span> move · <span class="font-semibold">Space/Shift</span> up·down ·
     <span class="font-semibold">Drag</span> look · <span class="font-semibold">Left-click/F</span> add · <span class="font-semibold">Right-click/G</span> delete ·
-    <span class="font-semibold">1–9</span> pick block · <span class="font-semibold">H</span> hold/help · <span class="font-semibold">Esc</span> menu
+    <span class="font-semibold">1–9</span> pick block · <span class="font-semibold">H</span> hold/controls · <span class="font-semibold">M</span> mute · <span class="font-semibold">Esc</span> menu
   </div>
 
   <!-- Look-mode control: always-visible, clickable, shows the active look
@@ -161,20 +175,28 @@
   <!-- Block palette -->
   <div id="palette" class="fixed bottom-4 left-1/2 -translate-x-1/2 z-20 flex gap-1.5 p-1.5 rounded-xl bg-black/50 backdrop-blur"></div>
 
+  <!-- Audio mute toggle: sits to the left of the help button. -->
+  <button id="mute-btn" title="Mute/unmute audio (M)" aria-label="Toggle audio"
+          class="fixed top-3 right-14 z-30 w-9 h-9 rounded-full bg-black/50 hover:bg-black/70 text-zinc-100 text-lg leading-none flex items-center justify-center transition-colors cursor-pointer">🔊</button>
+
   <!-- Help/controls toggle: circular "(?)" button fixed in the top-right
        corner. Clicking it does exactly what pressing `h` does — show/hide the
        controls overlay below. -->
   <button id="help-btn" title="Controls (h)" aria-label="Toggle controls"
           class="fixed top-3 right-3 z-30 w-9 h-9 rounded-full bg-black/50 hover:bg-black/70 text-zinc-100 text-lg font-bold leading-none flex items-center justify-center transition-colors cursor-pointer">?</button>
 
+  <!-- Leaderboard toggle: sits below the help button. -->
+  <button id="leaderboard-btn" title="Leaderboard (l)" aria-label="Toggle leaderboard"
+          class="fixed top-14 right-3 z-30 w-9 h-9 rounded-full bg-black/50 hover:bg-black/70 text-zinc-100 text-lg leading-none flex items-center justify-center transition-colors cursor-pointer">🏆</button>
+
   <!-- Build/version stamp: always visible, dim, so the running build can be
        confirmed at a glance. Bump BUILD_VERSION (below) on every change.
-       Sits just below the help button so the two don't overlap. -->
-  <div id="build-stamp" class="pointer-events-none fixed top-14 right-3 z-20 text-[11px] text-zinc-300/70 bg-black/40 rounded px-2 py-1 font-mono"></div>
+       Shifted down to make room for the leaderboard button above. -->
+  <div id="build-stamp" class="pointer-events-none fixed top-24 right-3 z-20 text-[11px] text-zinc-300/70 bg-black/40 rounded px-2 py-1 font-mono"></div>
 
   <!-- Controls overlay: a help panel listing every key/mouse binding. Hidden
        by default; toggled by pressing `h` or clicking the "(?)" button. -->
-  <div id="controls" class="hidden fixed top-16 right-3 z-30 w-72 max-w-[90vw] rounded-xl bg-black/70 backdrop-blur p-4 text-sm text-zinc-200 shadow-xl">
+  <div id="controls" class="hidden fixed top-28 right-3 z-30 w-72 max-w-[90vw] rounded-xl bg-black/70 backdrop-blur p-4 text-sm text-zinc-200 shadow-xl">
     <div class="flex items-center justify-between mb-2">
       <h2 class="font-bold text-zinc-100">Controls</h2>
       <button id="controls-close" aria-label="Close controls" class="text-zinc-400 hover:text-zinc-100 cursor-pointer leading-none">✕</button>
@@ -187,8 +209,20 @@
       <li><span class="font-semibold">1–9</span> — pick block type</li>
       <li><span class="font-semibold">H</span> (playing) — hold / swap block type</li>
       <li><span class="font-semibold">H</span> (menu) or <span class="font-semibold">(?)</span> — toggle this panel</li>
-      <li><span class="font-semibold">Esc</span> — release / menu</li>
+      <li><span class="font-semibold">L</span> or <span class="font-semibold">🏆</span> — leaderboard</li>
+      <li><span class="font-semibold">M</span> or <span class="font-semibold">🔊</span> — mute / unmute audio</li>
+      <li><span class="font-semibold">Esc</span> — close panel / release / menu</li>
     </ul>
+  </div>
+
+  <!-- Leaderboard overlay: top 10 builders. Hidden by default; toggled by
+       pressing `l` or clicking the trophy button. -->
+  <div id="leaderboard" class="hidden fixed top-28 right-3 z-30 w-72 max-w-[90vw] rounded-xl bg-black/70 backdrop-blur p-4 text-sm text-zinc-200 shadow-xl">
+    <div class="flex items-center justify-between mb-3">
+      <h2 class="font-bold text-zinc-100">Leaderboard</h2>
+      <button id="leaderboard-close" aria-label="Close leaderboard" class="text-zinc-400 hover:text-zinc-100 cursor-pointer leading-none">✕</button>
+    </div>
+    <div id="leaderboard-content" class="text-zinc-400 text-center py-2 text-xs">Loading…</div>
   </div>
 
   <!-- Touch controls: translucent on-screen overlay shown only on touch devices
@@ -222,6 +256,24 @@
     </div>
   </div>
 
+  <!-- Time Attack HUD: timer + score shown only during TA mode -->
+  <div id="ta-hud" class="hidden pointer-events-none fixed top-3 left-3 z-20 flex flex-col gap-1">
+    <div id="ta-timer" class="text-3xl font-mono font-bold text-white bg-black/50 rounded-xl px-4 py-2 tabular-nums leading-none">1:00</div>
+    <div id="ta-score" class="text-sm font-semibold text-zinc-200 bg-black/50 rounded-xl px-4 py-1.5 text-center">0 blocks</div>
+  </div>
+
+  <!-- Time Attack game-over overlay -->
+  <div id="ta-gameover" class="hidden fixed inset-0 z-30 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+    <div class="max-w-sm w-full mx-4 bg-zinc-900/95 rounded-2xl p-8 text-center shadow-xl">
+      <h2 class="text-2xl font-bold mb-2">Time's up!</h2>
+      <p id="ta-final-score" class="text-zinc-300 text-lg mb-6">You cleared 0 blocks</p>
+      <div class="flex gap-3 justify-center">
+        <button id="ta-play-again" class="px-5 py-2 rounded-lg bg-amber-600 hover:bg-amber-500 font-semibold transition-colors">Play Again</button>
+        <button id="ta-back-menu" class="px-5 py-2 rounded-lg bg-zinc-700 hover:bg-zinc-600 font-semibold transition-colors">Back to Menu</button>
+      </div>
+    </div>
+  </div>
+
   </div><!-- /#rotor -->
 
   <script type="module">
@@ -234,20 +286,196 @@
 
     // Build identifier — bump this (to the deploying commit short SHA) on every
     // change so the top-right stamp confirms exactly which code is running.
-    const BUILD_VERSION = 'hold-queue';
+    const BUILD_VERSION = 'hold-queue+leaderboard+online-presence+block-attribution+audio-sfx';
 
     // Touch capability: drives (a) the on-screen control overlay, (b) skipping
     // mouse-lock in favour of direct touch play, and (c) portrait force-rotation.
-    // Desktop (isTouch === false) keeps every existing mouse/keyboard path.
     const isTouch = (window.matchMedia && window.matchMedia('(pointer: coarse)').matches)
       || ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
+
+    // ---- Audio system ----
+    // All audio generated with Web Audio API — no external files.
+    // AudioContext is created lazily on first user gesture (browser autoplay policy).
+    const audio = (() => {
+      let ctx = null;
+      let masterGain = null;
+      let muted = localStorage.getItem('blockgame-muted') === 'true';
+
+      // Music: 72 BPM, 8-beat looping phrase (C – Am – F – G)
+      const BEAT_SEC = 60 / 72;
+      const PHRASE_BEATS = 8;
+      const PHRASE_SEC = PHRASE_BEATS * BEAT_SEC;
+
+      // Bass notes: [beatInPhrase, rootFreqHz, durationBeats]
+      const BASS = [
+        [0, 65.4, 1.9],   // C2
+        [2, 55.0, 1.9],   // A1
+        [4, 87.3, 1.9],   // F2
+        [6, 98.0, 1.9],   // G2
+      ];
+      // Melody arpeggios: eighth-note runs over each chord
+      const MELODY = [
+        [0.0, 261.6, 0.7], [0.5, 329.6, 0.7], [1.0, 392.0, 0.7], [1.5, 329.6, 0.7],
+        [2.0, 220.0, 0.7], [2.5, 261.6, 0.7], [3.0, 329.6, 0.7], [3.5, 261.6, 0.7],
+        [4.0, 349.2, 0.7], [4.5, 440.0, 0.7], [5.0, 523.3, 0.7], [5.5, 440.0, 0.7],
+        [6.0, 392.0, 0.7], [6.5, 493.9, 0.7], [7.0, 392.0, 0.7], [7.5, 329.6, 0.7],
+      ];
+
+      let musicTimerId = null;
+      let nextPhraseTime = 0;
+
+      function scheduleNote(freq, type, gainPeak, startT, durSec, useLpf) {
+        const osc = ctx.createOscillator();
+        const g = ctx.createGain();
+        osc.type = type;
+        osc.frequency.value = freq;
+        // Start at near-zero so exponential ramps work; linear attack, exp decay.
+        g.gain.setValueAtTime(0.0001, startT);
+        g.gain.linearRampToValueAtTime(gainPeak, startT + 0.015);
+        g.gain.exponentialRampToValueAtTime(0.0001, startT + durSec);
+        if (useLpf) {
+          const lpf = ctx.createBiquadFilter();
+          lpf.type = 'lowpass';
+          lpf.frequency.value = 250;
+          lpf.Q.value = 0.7;
+          osc.connect(lpf);
+          lpf.connect(g);
+          osc.addEventListener('ended', () => { osc.disconnect(); lpf.disconnect(); g.disconnect(); });
+        } else {
+          osc.connect(g);
+          osc.addEventListener('ended', () => { osc.disconnect(); g.disconnect(); });
+        }
+        g.connect(masterGain);
+        osc.start(startT);
+        osc.stop(startT + durSec + 0.05);
+      }
+
+      function schedulePhrase(t0) {
+        for (const [beat, freq, dur] of BASS) {
+          scheduleNote(freq, 'sawtooth', 0.06, t0 + beat * BEAT_SEC, dur * BEAT_SEC, true);
+        }
+        for (const [beat, freq, dur] of MELODY) {
+          scheduleNote(freq, 'triangle', 0.035, t0 + beat * BEAT_SEC, dur * BEAT_SEC, false);
+        }
+      }
+
+      function musicTick() {
+        if (!ctx) return;
+        // Keep two full phrases buffered ahead at all times.
+        const until = ctx.currentTime + PHRASE_SEC * 2;
+        while (nextPhraseTime < until) {
+          schedulePhrase(nextPhraseTime);
+          nextPhraseTime += PHRASE_SEC;
+        }
+      }
+
+      function startMusic() {
+        if (musicTimerId !== null) return;
+        nextPhraseTime = ctx.currentTime + 0.1;
+        musicTick();
+        // Re-run every ~3s (well within one phrase duration) to pre-schedule ahead.
+        musicTimerId = setInterval(musicTick, 3000);
+      }
+
+      function playPlace() {
+        if (!ctx) return;
+        const t = ctx.currentTime;
+        const osc = ctx.createOscillator();
+        const g = ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(180, t);
+        osc.frequency.linearRampToValueAtTime(140, t + 0.1);
+        g.gain.setValueAtTime(0, t);
+        g.gain.linearRampToValueAtTime(0.4, t + 0.005);
+        g.gain.exponentialRampToValueAtTime(0.0001, t + 0.15);
+        osc.connect(g);
+        g.connect(masterGain);
+        osc.addEventListener('ended', () => { osc.disconnect(); g.disconnect(); });
+        osc.start(t);
+        osc.stop(t + 0.16);
+      }
+
+      function playBreak() {
+        if (!ctx) return;
+        const t = ctx.currentTime;
+        const bufSize = Math.floor(ctx.sampleRate * 0.08);
+        const buf = ctx.createBuffer(1, bufSize, ctx.sampleRate);
+        const data = buf.getChannelData(0);
+        for (let i = 0; i < bufSize; i++) data[i] = Math.random() * 2 - 1;
+        const src = ctx.createBufferSource();
+        src.buffer = buf;
+        const filter = ctx.createBiquadFilter();
+        filter.type = 'bandpass';
+        filter.frequency.value = 400;
+        filter.Q.value = 2;
+        const g = ctx.createGain();
+        g.gain.setValueAtTime(0.35, t);
+        g.gain.exponentialRampToValueAtTime(0.0001, t + 0.08);
+        src.connect(filter);
+        filter.connect(g);
+        g.connect(masterGain);
+        src.addEventListener('ended', () => { src.disconnect(); filter.disconnect(); g.disconnect(); });
+        src.start(t);
+        src.stop(t + 0.09);
+      }
+
+      function playJoin() {
+        if (!ctx) return;
+        const t = ctx.currentTime;
+        // Arpeggiated C major chord
+        [[261.6, 0], [329.6, 0.12], [392.0, 0.24]].forEach(([freq, delay]) => {
+          const osc = ctx.createOscillator();
+          const g = ctx.createGain();
+          osc.type = 'triangle';
+          osc.frequency.value = freq;
+          const ts = t + delay;
+          g.gain.setValueAtTime(0, ts);
+          g.gain.linearRampToValueAtTime(0.2, ts + 0.4);
+          g.gain.exponentialRampToValueAtTime(0.0001, ts + 1.2);
+          osc.connect(g);
+          g.connect(masterGain);
+          osc.addEventListener('ended', () => { osc.disconnect(); g.disconnect(); });
+          osc.start(ts);
+          osc.stop(ts + 1.3);
+        });
+      }
+
+      function toggleMute() {
+        muted = !muted;
+        localStorage.setItem('blockgame-muted', String(muted));
+        if (masterGain) {
+          const t = ctx.currentTime;
+          masterGain.gain.cancelScheduledValues(t);
+          masterGain.gain.setValueAtTime(masterGain.gain.value, t);
+          masterGain.gain.linearRampToValueAtTime(muted ? 0 : 1, t + 0.05);
+        }
+        return muted;
+      }
+
+      function isMuted() { return muted; }
+
+      function init() {
+        if (!ctx) {
+          ctx = new (window.AudioContext || window.webkitAudioContext)();
+          masterGain = ctx.createGain();
+          masterGain.gain.setValueAtTime(muted ? 0 : 1, ctx.currentTime);
+          masterGain.connect(ctx.destination);
+        }
+        if (ctx.state === 'suspended') ctx.resume();
+        playJoin();
+        startMusic();
+      }
+
+      return { init, playPlace, playBreak, toggleMute, isMuted };
+    })();
+
     const buildStampEl = document.getElementById('build-stamp');
     buildStampEl.textContent = 'build ' + BUILD_VERSION;
 
     // ---- World/runtime state ----
     let DIMS = { w: 32, d: 32, h: 24 };
     let PALETTE = [];
-    const blocks = new Map();        // "x,y,z" -> block_type (non-zero only)
+    const blocks = new Map();        // "x,y,z" -> block_type (non-zero only) — classic world
     let cursor = 0;                  // last seq seen from the server
     let selectedType = 1;
     const key = (x, y, z) => x + ',' + y + ',' + z;
@@ -255,6 +483,15 @@
     // ---- Hold queue state ----
     let heldType = null;    // block type ID currently in the hold slot, or null
     let holdLocked = false; // true after a hold swap; cleared on next block placement
+
+    // ---- Game mode state ----
+    let gameMode = null;           // null | 'classic' | 'timeattack'
+    const taBlocks = new Map();    // TA layout: client-only, never written to server
+    let taScore = 0;
+    let taTimeLeft = 60;
+    let taTimerHandle = null;
+    let pollHandle = null;         // classic-mode server poll interval
+    let pendingTaInit = false;     // true while waiting for play-entry to fire initTimeAttack
 
     // ---- Three.js scaffold ----
     const canvas = document.getElementById('scene');
@@ -265,7 +502,7 @@
     scene.fog = new THREE.Fog('#8ec7ff', 40, 90);
 
     const camera = new THREE.PerspectiveCamera(70, 1, 0.1, 500);
-    camera.up.set(0, 1, 0); // pin world up so the horizon can never roll
+    camera.up.set(0, 1, 0);
     camera.position.set(DIMS.w / 2, 3.5, DIMS.d / 2 + 8);
 
     scene.add(new THREE.AmbientLight(0xffffff, 0.65));
@@ -274,15 +511,14 @@
     scene.add(sun);
 
     const cube = new THREE.BoxGeometry(1, 1, 1);
-    const materials = new Map();     // block_type -> Material
+    const materials = new Map();
     function materialFor(p) {
       const opts = { color: new THREE.Color(p.color) };
       if (p.opacity != null && p.opacity < 1) { opts.transparent = true; opts.opacity = p.opacity; }
       return new THREE.MeshLambertMaterial(opts);
     }
 
-    // Ground = immutable grass layer at y = 0 (one InstancedMesh, raycastable
-    // so blocks can be placed on top, but never breakable).
+    // Ground = immutable grass layer at y = 0.
     let groundMesh = null;
     function buildGround() {
       const grass = PALETTE.find((p) => p.name === 'Grass') || PALETTE[0];
@@ -307,18 +543,11 @@
       scene.add(mesh);
     }
 
-    // Infinite-looking ground grid: a large reference grid at ground level,
-    // aligned to the 1-unit block cells and centred under the plot, extending
-    // far past the edges so it reads as an endless floor (fog fades the far
-    // lines into the sky). Sits a hair below the terrain and skips depth-write
-    // so it never z-fights with the grass cells. NOT raycastable — it's a pure
-    // visual reference and must not become a placement surface.
     let groundGrid = null;
     function buildGroundGrid() {
       if (groundGrid) { scene.remove(groundGrid); groundGrid = null; }
-      const SIZE = 400; // world units — far beyond the plot and the fly margin
+      const SIZE = 400;
       const grid = new THREE.GridHelper(SIZE, SIZE, 0x6b7a8d, 0x44505f);
-      // Centre on the plot centre (an integer) so lines land on cell borders.
       grid.position.set(DIMS.w / 2, -0.01, DIMS.d / 2);
       grid.material.transparent = true;
       grid.material.opacity = 0.35;
@@ -328,17 +557,15 @@
       scene.add(grid);
     }
 
-    // Dynamic (user-placed) blocks: one InstancedMesh per type, rebuilt from
-    // the `blocks` map whenever it changes. Plot is small, so a full rebuild
-    // is cheap and keeps instanceId -> cell mapping trivial.
+    // Dynamic blocks: one InstancedMesh per type, rebuilt from the active map.
+    // In TA mode uses taBlocks; otherwise uses the shared blocks map.
     const blockGroup = new THREE.Group();
     scene.add(blockGroup);
     function rebuildBlockMeshes() {
-      // InstancedMeshes share the cached `cube` geometry and palette materials,
-      // so disposing them here would break other meshes — just drop the refs.
       blockGroup.clear();
+      const source = gameMode === 'timeattack' ? taBlocks : blocks;
       const byType = new Map();
-      for (const [k, t] of blocks) {
+      for (const [k, t] of source) {
         if (!byType.has(t)) byType.set(t, []);
         const [x, y, z] = k.split(',').map(Number);
         byType.get(t).push({ x, y, z });
@@ -359,13 +586,22 @@
       }
     }
 
-    // Targeting highlight (thin wireframe box on the aimed cell).
+    // Targeting highlight.
     const highlight = new THREE.LineSegments(
       new THREE.EdgesGeometry(cube),
       new THREE.LineBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.6 })
     );
     highlight.visible = false;
     scene.add(highlight);
+
+    // Placement preview ghost: a translucent block at target.place showing
+    // where the next block will land before the player commits.
+    const previewMaterial = new THREE.MeshLambertMaterial({
+      transparent: true, opacity: 0.38, depthWrite: false,
+    });
+    const previewMesh = new THREE.Mesh(cube, previewMaterial);
+    previewMesh.visible = false;
+    scene.add(previewMesh);
 
     // ---- Raycast from screen center to find the aimed cell + face ----
     const raycaster = new THREE.Raycaster();
@@ -423,12 +659,14 @@
       }
     }
 
+
     function updateTarget() {
       raycaster.setFromCamera(centre, camera);
       const targets = [groundMesh, ...blockGroup.children].filter(Boolean);
       const hits = raycaster.intersectObjects(targets, false);
       target = null;
       highlight.visible = false;
+      previewMesh.visible = false;
       if (!hits.length) return;
       const hit = hits[0];
       const cells = hit.object.userData.cells;
@@ -441,6 +679,12 @@
       };
       highlight.position.set(cell.x + 0.5, cell.y + 0.5, cell.z + 0.5);
       highlight.visible = true;
+      // Show ghost at the prospective placement cell if playing, in bounds, and unoccupied.
+      const p = target.place;
+      if (playing && inBounds(p.x, p.y, p.z) && !blocks.has(key(p.x, p.y, p.z))) {
+        previewMesh.position.set(p.x + 0.5, p.y + 0.5, p.z + 0.5);
+        previewMesh.visible = true;
+      }
     }
 
     const inBounds = (x, y, z) =>
@@ -472,30 +716,49 @@
       if (!target) return;
       const { x, y, z } = target.place;
       if (!inBounds(x, y, z)) return;
+      if (gameMode === 'timeattack') {
+        const k = key(x, y, z);
+        if (taBlocks.get(k) === selectedType) return;
+        taBlocks.set(k, selectedType);
+        rebuildBlockMeshes();
+        return;
+      }
       if (blocks.get(key(x, y, z)) === selectedType) return;
+      audio.playPlace();
       sendEdit(x, y, z, selectedType);
       // Unlock hold after each successful placement (Tetris lock rule)
       holdLocked = false;
       updateHoldPanel();
     }
+
     function breakBlock() {
       if (!target) return;
       const { x, y, z } = target.cell;
-      if (y < 1) return; // ground layer is immutable
+      if (y < 1) return;
+      if (gameMode === 'timeattack') {
+        const k = key(x, y, z);
+        if (!taBlocks.has(k)) return;
+        taBlocks.delete(k);
+        taScore++;
+        rebuildBlockMeshes();
+        updateTaScoreDisplay();
+        return;
+      }
       if (!blocks.has(key(x, y, z))) return;
+      audio.playBreak();
       sendEdit(x, y, z, 0);
     }
 
     // ---- Pointer-lock fly camera ----
     let yaw = 0, pitch = 0;
-    let locked = false;          // true OS pointer lock is held (native path)
-    let playing = false;         // game is active / overlay hidden
-    let dragMode = false;        // fallback: playing without OS pointer lock
-    let lockUnavailable = false; // a *retry* was denied — stop inviting retries
-    let lockTimer = null;        // pending silent-denial watchdog (cleared per try)
-    let dragging = false;        // fallback: a look-drag is in progress
-    let pressX = 0, pressY = 0;  // fallback: where the press started
-    const DRAG_THRESHOLD = 5;    // px of movement that turns a click into a drag
+    let locked = false;
+    let playing = false;
+    let dragMode = false;
+    let lockUnavailable = false;
+    let lockTimer = null;
+    let dragging = false;
+    let pressX = 0, pressY = 0;
+    const DRAG_THRESHOLD = 5;
     const move = { f: false, b: false, l: false, r: false, up: false, down: false };
     const SPEED = 9, SENS = 0.0022;
 
@@ -506,26 +769,24 @@
     const lookModeEl = document.getElementById('lookmode');
     const touchControlsEl = document.getElementById('touch-controls');
 
+    // Mute button: sync icon to stored preference immediately on load.
+    const muteBtnEl = document.getElementById('mute-btn');
+    muteBtnEl.textContent = audio.isMuted() ? '🔇' : '🔊';
+    muteBtnEl.addEventListener('click', () => {
+      muteBtnEl.textContent = audio.toggleMute() ? '🔇' : '🔊';
+    });
+
     // Reusable temporaries + one-shot roll diagnostic state for applyLook().
     const _lookFwd = new THREE.Vector3();
     const _lookTarget = new THREE.Vector3();
     const _camRight = new THREE.Vector3();
     let _rollWarned = false;
     function applyLook() {
-      // Build orientation from yaw+pitch and aim the camera with a FIXED world
-      // up-vector. lookAt() with up = (0,1,0) constructs the camera's right axis
-      // as up × viewDir, which is always horizontal (right.y == 0) — i.e. zero
-      // roll, dead-level horizon — at every yaw/pitch (pitch is clamped away
-      // from straight up/down, so the basis never degenerates).
       const cp = Math.cos(pitch);
       _lookFwd.set(-Math.sin(yaw) * cp, Math.sin(pitch), -Math.cos(yaw) * cp);
       _lookTarget.copy(camera.position).add(_lookFwd);
       camera.up.set(0, 1, 0);
       camera.lookAt(_lookTarget);
-      // Runtime self-check: the rendered horizon is level iff the camera's world
-      // right vector has no vertical component. If a real roll ever appears,
-      // surface its actual magnitude once (forwarded to the platform dev
-      // console) instead of guessing from the static source.
       if (!_rollWarned) {
         _camRight.set(1, 0, 0).applyQuaternion(camera.quaternion);
         if (Math.abs(_camRight.y) > 1e-3) {
@@ -536,10 +797,6 @@
       }
     }
 
-    // Place the camera at a comfortable spawn and aim it at the build-plot
-    // centre so the ground and any structures fill the lower screen instead of
-    // open sky. yaw/pitch are derived from the look direction so the (yaw-only)
-    // movement basis stays consistent with where the camera faces.
     function spawnCamera() {
       camera.position.set(DIMS.w / 2, 6, DIMS.d / 2 + 10);
       const target = new THREE.Vector3(DIMS.w / 2, 3, DIMS.d / 2);
@@ -558,9 +815,6 @@
       applyLook();
     }
 
-    // Clear all held-movement state. Called whenever the game loses input
-    // focus (tab/window blur, page hidden) or play is released, so a key whose
-    // `keyup` never arrives can't leave the camera drifting forever.
     function resetMove() {
       for (const k in move) move[k] = false;
       dragging = false;
@@ -568,16 +822,112 @@
     window.addEventListener('blur', resetMove);
     document.addEventListener('visibilitychange', () => { if (document.hidden) resetMove(); });
 
-    // Reflect the active control scheme in the overlay copy, keys hint, and the
-    // always-visible look-mode control.
+    // ---- Time Attack logic ----
+
+    function updateTaTimerDisplay() {
+      const el = document.getElementById('ta-timer');
+      const mins = Math.floor(taTimeLeft / 60);
+      const secs = taTimeLeft % 60;
+      el.textContent = mins + ':' + String(secs).padStart(2, '0');
+      el.classList.toggle('text-red-400', taTimeLeft <= 10);
+      el.classList.toggle('text-white', taTimeLeft > 10);
+    }
+
+    function updateTaScoreDisplay() {
+      document.getElementById('ta-score').textContent =
+        taScore + ' block' + (taScore === 1 ? '' : 's');
+    }
+
+    function tickTimer() {
+      taTimeLeft--;
+      updateTaTimerDisplay();
+      if (taTimeLeft <= 0) {
+        clearInterval(taTimerHandle);
+        taTimerHandle = null;
+        endTimeAttack();
+      }
+    }
+
+    function initTimeAttack() {
+      taBlocks.clear();
+      taScore = 0;
+      taTimeLeft = 60;
+      if (taTimerHandle) { clearInterval(taTimerHandle); taTimerHandle = null; }
+
+      // Scatter ~150 blocks across the plot using vivid colors
+      const taTypes = [9, 10, 11, 7, 6, 3]; // Red, Blue, Yellow, Brick, Sand, Stone
+      let count = 0;
+      let attempts = 0;
+      while (count < 150 && attempts < 3000) {
+        attempts++;
+        const x = Math.floor(Math.random() * DIMS.w);
+        const z = Math.floor(Math.random() * DIMS.d);
+        const y = 1 + Math.floor(Math.random() * 4); // y 1..4
+        const k = key(x, y, z);
+        if (!taBlocks.has(k)) {
+          taBlocks.set(k, taTypes[count % taTypes.length]);
+          count++;
+        }
+      }
+
+      rebuildBlockMeshes();
+      spawnCamera();
+
+      document.getElementById('ta-hud').classList.remove('hidden');
+      document.getElementById('palette').classList.add('hidden');
+      updateTaTimerDisplay();
+      updateTaScoreDisplay();
+
+      taTimerHandle = setInterval(tickTimer, 1000);
+    }
+
+    function endTimeAttack() {
+      if (taTimerHandle) { clearInterval(taTimerHandle); taTimerHandle = null; }
+      // Set playing=false BEFORE exitPointerLock so pointerlockchange won't
+      // re-trigger endTimeAttack when it sees !playing.
+      playing = false;
+      dragMode = false;
+      resetMove();
+      canvas.style.cursor = '';
+      if (locked) { try { document.exitPointerLock(); } catch (_) {} }
+
+      document.getElementById('ta-hud').classList.add('hidden');
+      const fs = document.getElementById('ta-final-score');
+      fs.textContent = 'You cleared ' + taScore + ' block' + (taScore === 1 ? '' : 's');
+      document.getElementById('ta-gameover').classList.remove('hidden');
+
+      refreshControlCopy();
+      updateTouchControlsVisibility();
+    }
+
+    // ---- Mode entry ----
+
+    // Called once play is actually entered (lock acquired or drag/touch started).
+    // Handles per-mode initialization so it runs at the right moment regardless
+    // of whether play was entered via pointer lock, drag fallback, or touch.
+    function onPlayEntered() {
+      if (pendingTaInit) {
+        pendingTaInit = false;
+        initTimeAttack();
+      } else if (gameMode === 'classic') {
+        if (!pollHandle) pollHandle = setInterval(poll, 1500);
+      }
+    }
+
+    function startMode(mode) {
+      gameMode = mode;
+      if (mode === 'timeattack') pendingTaInit = true;
+      tryPointerLock();
+    }
+
+    // ---- Control scheme helpers ----
+
     function refreshControlCopy() {
       if (isTouch) {
-        // Touch devices use the on-screen overlay; the keyboard/mouse hints and
-        // the look-mode control don't apply.
         hintEl.classList.add('hidden');
         hintFallbackEl.classList.add('hidden');
         lookModeEl.classList.add('hidden');
-        overlayHelpEl.textContent = 'Tap to play — drag to look, use the on-screen buttons to move and build.';
+        overlayHelpEl.textContent = 'Tap a mode to start — drag to look, use the on-screen buttons to move and build.';
         return;
       }
       if (locked) {
@@ -585,7 +935,6 @@
         hintEl.classList.remove('hidden');
         hintFallbackEl.classList.add('hidden');
       } else if (dragMode) {
-        // In drag fallback: invite a retry unless a retry already failed.
         lookModeEl.textContent = lockUnavailable
           ? 'Mouse-lock unavailable here'
           : 'Look: Drag — click for mouse-lock';
@@ -596,12 +945,9 @@
         hintEl.classList.remove('hidden');
         hintFallbackEl.classList.add('hidden');
       }
-      // Overlay entry copy stays honest about whether mouse-lock has proven
-      // unavailable this session.
       overlayHelpEl.textContent = lockUnavailable
-        ? 'Click to play — drag to look, click to build, press Esc for this menu.'
-        : 'Click to play — move the mouse to look, press Esc to release. If your browser blocks mouse-lock, you can drag to look instead.';
-      // The interactive control is only meaningful while the game is running.
+        ? 'Click a mode — drag to look, click to build, press Esc for this menu.'
+        : 'Click a mode — move the mouse to look, press Esc to release. If your browser blocks mouse-lock, you can drag to look instead.';
       lookModeEl.classList.toggle('hidden', !playing);
     }
 
@@ -609,25 +955,20 @@
       if (lockTimer !== null) { clearTimeout(lockTimer); lockTimer = null; }
     }
 
-    // A pointer-lock attempt was denied — start (or stay in) drag-to-look.
-    // Never permanently blocks future attempts; retries are always allowed.
     function onLockFail() {
       clearLockTimer();
-      if (locked) return;           // a real lock won the race; ignore stale denial
-      // If we were already playing in drag mode, this denial came from an
-      // explicit retry that also failed — stop inviting further retries.
-      if (dragMode && playing) lockUnavailable = true;
+      if (locked) return;
+      const wasAlreadyPlaying = dragMode && playing;
+      if (wasAlreadyPlaying) lockUnavailable = true;
       dragMode = true;
       playing = true;
       dragging = false;
       canvas.style.cursor = 'grab';
       overlayEl.style.display = 'none';
       refreshControlCopy();
+      if (!wasAlreadyPlaying) onPlayEntered();
     }
 
-    // Touch devices can't use OS pointer lock — enter play directly using the
-    // existing drag-mode path (which loop() already integrates movement under),
-    // and reveal the on-screen controls.
     function enterTouchPlay() {
       clearLockTimer();
       dragMode = true;
@@ -636,13 +977,33 @@
       overlayEl.style.display = 'none';
       refreshControlCopy();
       updateTouchControlsVisibility();
+      onPlayEntered();
     }
 
-    // Return to the start overlay from touch play (the Esc / "pause" equivalent).
     function exitToMenu() {
+      // In TA mode, if still actively playing, end the run first (shows game-over).
+      if (gameMode === 'timeattack' && playing) {
+        endTimeAttack();
+        return;
+      }
+      // Stop any lingering TA timer.
+      if (taTimerHandle) { clearInterval(taTimerHandle); taTimerHandle = null; }
+      // Stop classic poll.
+      if (pollHandle) { clearInterval(pollHandle); pollHandle = null; }
+
+      gameMode = null;
       playing = false;
+      dragMode = false;
       resetMove();
       canvas.style.cursor = '';
+
+      taBlocks.clear();
+      rebuildBlockMeshes(); // gameMode is now null → renders classic blocks
+
+      document.getElementById('ta-hud').classList.add('hidden');
+      document.getElementById('ta-gameover').classList.add('hidden');
+      document.getElementById('palette').classList.remove('hidden');
+
       overlayEl.style.display = 'flex';
       refreshControlCopy();
       updateTouchControlsVisibility();
@@ -652,8 +1013,6 @@
       touchControlsEl.classList.toggle('hidden', !(isTouch && playing));
     }
 
-    // Always attempt a native lock on an explicit user gesture (play button or
-    // the look-mode control), regardless of any prior failure.
     function tryPointerLock() {
       if (isTouch) { enterTouchPlay(); return; }
       clearLockTimer();
@@ -663,13 +1022,6 @@
         onLockFail();
         return;
       }
-      // Safety net for the "silent no-op" denial mode: some browsers neither
-      // reject the promise nor fire pointerlockerror — requestPointerLock()
-      // just returns undefined and does nothing. If we haven't locked shortly
-      // after, assume denial and fall back. Guard on !locked only (not
-      // !playing) so a retry from drag mode — where playing is already true —
-      // still detects a silent failure; pointerlockchange clears this timer on
-      // a real lock so a slow-but-genuine lock isn't clobbered.
       lockTimer = setTimeout(() => {
         lockTimer = null;
         if (!locked) onLockFail();
@@ -688,37 +1040,46 @@
     document.addEventListener('pointerlockchange', () => {
       locked = document.pointerLockElement === canvas;
       if (locked) {
-        // Native lock acquired — exit drag fallback and clear any "blocked"
-        // state, since mouse-lock just demonstrably works.
         clearLockTimer();
         playing = true;
         dragMode = false;
         lockUnavailable = false;
         canvas.style.cursor = '';
         overlayEl.style.display = 'none';
+        onPlayEntered();
       } else if (!dragMode) {
-        // Lost a native lock (Esc in native mode) and we're not in drag
-        // fallback — return to the overlay menu. Clear held keys so the
-        // camera doesn't keep drifting behind the overlay.
-        playing = false;
-        resetMove();
-        overlayEl.style.display = 'flex';
+        if (gameMode === 'timeattack' && playing) {
+          // Esc pressed mid-TA run in native-lock mode — end the game.
+          endTimeAttack();
+          return; // endTimeAttack calls refreshControlCopy
+        } else if (gameMode !== 'timeattack') {
+          playing = false;
+          resetMove();
+          overlayEl.style.display = 'flex';
+        }
+        // gameMode === 'timeattack' && !playing: endTimeAttack already ran, nothing to do.
       }
       refreshControlCopy();
     });
-    // Iframe Permissions-Policy denials commonly surface here (not as a
-    // rejected promise), so this is the primary failure path in production.
     document.addEventListener('pointerlockerror', onLockFail);
-    document.getElementById('play-btn').addEventListener('click', tryPointerLock);
+
+    document.getElementById('play-classic-btn').addEventListener('click', () => { audio.init(); startMode('classic'); });
+    document.getElementById('play-ta-btn').addEventListener('click', () => { audio.init(); startMode('timeattack'); });
+
+    document.getElementById('ta-play-again').addEventListener('click', () => {
+      document.getElementById('ta-gameover').classList.add('hidden');
+      startMode('timeattack');
+    });
+    document.getElementById('ta-back-menu').addEventListener('click', () => {
+      document.getElementById('ta-gameover').classList.add('hidden');
+      exitToMenu();
+    });
+
+
     canvas.addEventListener('click', () => {
-      // Native path only: re-acquire the lock on a bare canvas click. In
-      // drag fallback mode clicks are handled by the drag/click logic below.
-      // Touch devices drive play via the overlay buttons / touch handlers.
       if (isTouch) return;
       if (!locked && !playing) tryPointerLock();
     });
-    // The look-mode control re-attempts native mouse-lock when clicked from
-    // drag mode (a fresh user gesture, which pointer lock requires).
     lookModeEl.addEventListener('click', () => {
       if (!locked) tryPointerLock();
     });
@@ -726,13 +1087,11 @@
     canvas.addEventListener('contextmenu', (e) => e.preventDefault());
     canvas.addEventListener('mousedown', (e) => {
       if (locked) {
-        // Native path: immediate build action. Left adds, right deletes.
         if (e.button === 0) placeBlock();
         else if (e.button === 2) breakBlock();
         return;
       }
       if (!playing) return;
-      // Fallback path: begin a potential look-drag; decide click vs drag on up.
       dragging = true;
       pressX = e.clientX;
       pressY = e.clientY;
@@ -744,7 +1103,6 @@
       canvas.style.cursor = 'grab';
       const moved = Math.hypot(e.clientX - pressX, e.clientY - pressY);
       if (moved < DRAG_THRESHOLD) {
-        // Left adds, right deletes.
         if (e.button === 0) placeBlock();
         else if (e.button === 2) breakBlock();
       }
@@ -761,9 +1119,6 @@
         const n = parseInt(e.code.slice(5), 10);
         if (n >= 1 && n <= 9 && PALETTE[n - 1]) selectType(PALETTE[n - 1].id);
       }
-      // Build via keyboard: F adds a block, G deletes one (mirrors the mouse
-      // bindings). Only act while actually playing so the keys don't fire from
-      // behind the menu.
       if (e.code === 'KeyF' && playing) placeBlock();
       if (e.code === 'KeyG' && playing) breakBlock();
       // H is context-aware: triggers hold/swap while playing, toggles the
@@ -772,25 +1127,31 @@
         if (playing) holdBlock();
         else toggleControls();
       }
-      // Drag mode has no OS pointer lock to release, so Escape returns to the
-      // overlay manually. In native (locked) mode the browser handles Esc and
-      // fires pointerlockchange, which restores the overlay there.
-      if (e.code === 'Escape' && dragMode && playing) {
-        playing = false;
-        resetMove();
-        canvas.style.cursor = '';
-        overlayEl.style.display = 'flex';
-        refreshControlCopy();
+      // L toggles the leaderboard panel.
+      if (e.code === 'KeyL') toggleLeaderboard();
+      if (e.code === 'KeyM') { muteBtnEl.textContent = audio.toggleMute() ? '🔇' : '🔊'; }
+      // Escape: close the leaderboard if open, otherwise handle mode exit.
+      // In native (locked) mode the browser handles Esc and fires
+      // pointerlockchange, which restores the overlay there.
+      if (e.code === 'Escape') {
+        if (!leaderboardEl.classList.contains('hidden')) {
+          closeLeaderboard();
+        } else if (dragMode && playing) {
+          if (gameMode === 'timeattack') {
+            endTimeAttack();
+          } else {
+            playing = false;
+            resetMove();
+            canvas.style.cursor = '';
+            overlayEl.style.display = 'flex';
+            refreshControlCopy();
+          }
+        }
       }
     });
     window.addEventListener('keyup', (e) => { if (codeMap[e.code]) move[codeMap[e.code]] = false; });
 
     // ---- Touch input ----
-    // Look-drag: a one-finger drag on open canvas turns/tilts the camera, reusing
-    // applyLookDelta (the same path the mouse uses). A single touch is tracked by
-    // identifier so a second finger held on a move/build button never hijacks it.
-    // When force-rotated to landscape, raw screen deltas are remapped into the
-    // rotated frame: a 90° CW rotor means local-x = screen-y and local-y = -screen-x.
     let lookTouchId = null, lookLastX = 0, lookLastY = 0;
     canvas.addEventListener('touchstart', (e) => {
       if (!isTouch || !playing || lookTouchId !== null) return;
@@ -822,8 +1183,6 @@
     window.addEventListener('touchend', endLookTouch);
     window.addEventListener('touchcancel', endLookTouch);
 
-    // Held movement buttons (forward/back/left/right/up/down) flip the same
-    // `move` flags the keyboard uses; tap-action buttons fire once on press.
     function bindHold(el, flag) {
       el.addEventListener('touchstart', (e) => { e.preventDefault(); move[flag] = true; }, { passive: false });
       const release = (e) => { if (e.cancelable) e.preventDefault(); move[flag] = false; };
@@ -840,7 +1199,10 @@
         if (act === 'place' && playing) placeBlock();
         else if (act === 'break' && playing) breakBlock();
         else if (act === 'hold' && playing) holdBlock();
-        else if (act === 'menu') exitToMenu();
+        else if (act === 'menu') {
+          if (gameMode === 'timeattack' && playing) endTimeAttack();
+          else exitToMenu();
+        }
       });
     }
 
@@ -848,8 +1210,6 @@
     // Shared by the `h` key (when not playing) and the top-right "(?)" button —
     // both show/hide the help panel listing every key/mouse binding.
     const controlsEl = document.getElementById('controls');
-    // On touch devices, rewrite the help panel + start-overlay copy to describe
-    // the on-screen controls instead of keyboard/mouse bindings.
     if (isTouch) {
       const ul = controlsEl.querySelector('ul');
       if (ul) ul.innerHTML = [
@@ -859,10 +1219,14 @@
         '<li><span class="font-semibold">Add</span> / <span class="font-semibold">Delete</span> — place / remove a block at the crosshair</li>',
         '<li><span class="font-semibold">Hold</span> — swap the active block type with the hold slot</li>',
         '<li><span class="font-semibold">Palette</span> — tap a swatch to pick a block</li>',
+        '<li><span class="font-semibold">🏆</span> — leaderboard</li>',
         '<li><span class="font-semibold">☰ Menu</span> — back to the start screen</li>',
+        '<li><span class="font-semibold">🔊 / 🔇</span> — tap to mute / unmute audio</li>',
       ].join('');
-      const playBtn = document.getElementById('play-btn');
-      if (playBtn) playBtn.textContent = 'Tap to play';
+      const classicBtn = document.getElementById('play-classic-btn');
+      if (classicBtn) classicBtn.textContent = 'Tap to play';
+      const taBtn = document.getElementById('play-ta-btn');
+      if (taBtn) taBtn.textContent = 'Tap to play';
     }
     function toggleControls() { controlsEl.classList.toggle('hidden'); }
     document.getElementById('help-btn').addEventListener('click', toggleControls);
@@ -870,12 +1234,74 @@
       controlsEl.classList.add('hidden');
     });
 
+    // ---- Leaderboard overlay ----
+    const leaderboardEl = document.getElementById('leaderboard');
+    const leaderboardContentEl = document.getElementById('leaderboard-content');
+    let leaderboardTimer = null;
+
+    function closeLeaderboard() {
+      leaderboardEl.classList.add('hidden');
+      if (leaderboardTimer !== null) { clearTimeout(leaderboardTimer); leaderboardTimer = null; }
+    }
+    function toggleLeaderboard() {
+      if (leaderboardEl.classList.contains('hidden')) {
+        leaderboardEl.classList.remove('hidden');
+        fetchLeaderboard();
+      } else {
+        closeLeaderboard();
+      }
+    }
+    function escapeHtml(s) {
+      return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+    async function fetchLeaderboard() {
+      clearTimeout(leaderboardTimer);
+      leaderboardTimer = null;
+      try {
+        const res = await fetch('/api/leaderboard', { headers });
+        if (!res.ok) throw new Error('fetch failed');
+        const { entries } = await res.json();
+        if (!entries.length) {
+          leaderboardContentEl.innerHTML = '<p class="py-1">No builders yet — be the first!</p>';
+        } else {
+          leaderboardContentEl.innerHTML =
+            '<table class="w-full text-xs">' +
+            '<thead><tr class="text-zinc-500 uppercase border-b border-zinc-700">' +
+            '<th class="text-left pb-1 w-6">#</th>' +
+            '<th class="text-left pb-1 pl-2">Player</th>' +
+            '<th class="text-right pb-1">Blocks</th></tr></thead><tbody>' +
+            entries.map(e =>
+              '<tr class="border-b border-zinc-800/60 last:border-0">' +
+              '<td class="py-1 text-zinc-500">' + e.rank + '</td>' +
+              '<td class="py-1 pl-2 max-w-[180px] truncate">' + escapeHtml(e.username) + '</td>' +
+              '<td class="py-1 text-right font-mono text-zinc-100">' + e.count + '</td></tr>'
+            ).join('') +
+            '</tbody></table>';
+        }
+      } catch (_) {
+        leaderboardContentEl.innerHTML = '<p class="py-1 text-zinc-500">Couldn\'t load leaderboard.</p>';
+      }
+      if (!leaderboardEl.classList.contains('hidden')) {
+        leaderboardTimer = setTimeout(fetchLeaderboard, 30000);
+      }
+    }
+    document.getElementById('leaderboard-btn').addEventListener('click', toggleLeaderboard);
+    document.getElementById('leaderboard-close').addEventListener('click', closeLeaderboard);
+
     // ---- Palette UI ----
     function selectType(id) {
       selectedType = id;
       for (const el of document.querySelectorAll('#palette [data-id]')) {
         el.classList.toggle('ring-2', Number(el.dataset.id) === id);
         el.classList.toggle('ring-white', Number(el.dataset.id) === id);
+      }
+      // Sync ghost color/opacity to the newly selected block type.
+      const p = PALETTE.find((q) => q.id === id);
+      if (p) {
+        previewMaterial.color.set(p.color);
+        // Semi-transparent blocks (Glass) would nearly vanish at full ghost
+        // opacity, so scale down proportionally and cap at 0.38.
+        previewMaterial.opacity = Math.min(0.38, (p.opacity ?? 1) * 0.55);
       }
     }
     function buildPalette() {
@@ -949,9 +1375,36 @@
       buildGroundGrid();
       buildPalette();
       rebuildBlockMeshes();
-      // Re-aim spawn now that real dims are known so the camera frames the plot.
       spawnCamera();
       return true;
+    }
+
+    async function heartbeat() {
+      if (!token) return;
+      try {
+        await fetch('/api/presence/ping', { method: 'POST', headers });
+      } catch (_) { /* fire-and-forget */ }
+    }
+
+    const onlineListEl = document.getElementById('online-list');
+    async function pollPresence() {
+      if (!token) return;
+      try {
+        const res = await fetch('/api/presence/online', { headers });
+        if (!res.ok) return;
+        const { users } = await res.json();
+        if (!users.length) {
+          onlineListEl.textContent = 'Just you right now.';
+          return;
+        }
+        onlineListEl.innerHTML = '<div class="mb-1 text-zinc-500 text-xs font-semibold uppercase tracking-wide">Online now</div>' +
+          users.map((u) =>
+            '<div class="flex items-center gap-1.5 py-0.5">' +
+            '<span class="inline-block w-2 h-2 rounded-full bg-green-400 shrink-0"></span>' +
+            '<span>' + u.username.replace(/&/g, '&amp;').replace(/</g, '&lt;') + '</span>' +
+            '</div>'
+          ).join('');
+      } catch (_) { /* transient */ }
     }
 
     async function poll() {
@@ -965,16 +1418,14 @@
             const k = key(ch.x, ch.y, ch.z);
             if (ch.t === 0) blocks.delete(k); else blocks.set(k, ch.t);
           }
-          rebuildBlockMeshes();
+          // Only rebuild if we're currently in classic mode showing the shared world.
+          if (gameMode !== 'timeattack') rebuildBlockMeshes();
         }
         if (c && c > cursor) cursor = c;
       } catch (e) { /* transient; next tick retries */ }
     }
 
     // ---- Render loop ----
-    // forceRotated: true only when a touch device is held in portrait. The rotor
-    // is CSS-rotated 90° (see <style>), so the renderer/camera must use the
-    // SWAPPED (landscape) viewport dimensions to match the rotated box.
     let forceRotated = false;
     const rotorEl = document.getElementById('rotor');
     function updateOrientation() {
@@ -984,16 +1435,8 @@
       resize();
     }
     function resize() {
-      // When force-rotated, the visible game area is the viewport with width/height
-      // swapped (the rotor is 100vh × 100vw spun 90°).
       const w = forceRotated ? window.innerHeight : window.innerWidth;
       const h = forceRotated ? window.innerWidth : window.innerHeight;
-      // updateStyle MUST stay true (the default): a fixed-position <canvas>
-      // with width:auto is a replaced element that falls back to its intrinsic
-      // (drawing-buffer) size and ignores `inset:0`, so passing false here let
-      // the canvas display at w·devicePixelRatio — 2× the viewport on HiDPI,
-      // breaking aim and making the world appear to "tilt". Let three.js set the
-      // inline CSS size to the viewport while keeping the 2× buffer for sharpness.
       renderer.setSize(w, h);
       camera.aspect = w / h;
       camera.updateProjectionMatrix();
@@ -1013,22 +1456,10 @@
       const dt = Math.min((now - prev) / 1000, 0.1);
       prev = now;
 
-      // Only integrate movement while actually playing (native lock or drag
-      // fallback). With the overlay/menu up the camera holds still even if a
-      // key is held underneath it. Aiming/rendering still run every frame.
       if (playing && (locked || dragMode)) {
-        // Movement basis is derived from `yaw` ALONE — a single scalar that
-        // cannot encode roll or pitch and never depends on the camera's
-        // world-matrix being current. fwd is the camera's horizontal facing and
-        // right is 90° clockwise from it, both unit-length and dead horizontal,
-        // so W/S glide toward/away from the gaze and A/D strafe correctly no
-        // matter what the camera orientation or render timing does. Vertical is
-        // Space/Shift only; aiming/raycasting still use the full pitched look.
         fwd.set(-Math.sin(yaw), 0, -Math.cos(yaw));
         right.set(Math.cos(yaw), 0, -Math.sin(yaw));
         const step = SPEED * dt;
-        // Sum horizontal contributions and normalize so diagonal travel isn't
-        // faster than cardinal.
         horiz.set(0, 0, 0);
         if (move.f) horiz.add(fwd);
         if (move.b) horiz.sub(fwd);
@@ -1039,7 +1470,6 @@
         if (move.up) camera.position.y += step;
         if (move.down) camera.position.y -= step;
 
-        // Clamp to the plot (plus a small margin) so you can't fly away.
         const m = 4;
         camera.position.x = Math.max(-m, Math.min(DIMS.w + m, camera.position.x));
         camera.position.z = Math.max(-m, Math.min(DIMS.d + m, camera.position.z));
@@ -1061,7 +1491,11 @@
       const ok = await loadWorld();
       if (!ok) return;
       requestAnimationFrame(loop);
-      setInterval(poll, 1500);
+      // Poll is started per-mode in onPlayEntered(), not here.
+      heartbeat();
+      setInterval(heartbeat, 30000);
+      pollPresence();
+      setInterval(pollPresence, 15000);
     })();
   </script>
 </body>
