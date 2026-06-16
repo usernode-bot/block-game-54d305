@@ -143,7 +143,15 @@ app.get('/api/world/changes', async (req, res) => {
   }
 });
 
-app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.static(path.join(__dirname, 'public'), {
+  setHeaders: (res, filePath) => {
+    // The HTML shell must never be cached, so redeploys (e.g. movement
+    // fixes) are picked up on the next load without a hard refresh.
+    if (filePath.endsWith('index.html')) {
+      res.set('Cache-Control', 'no-cache, must-revalidate');
+    }
+  },
+}));
 
 // HTML shell: serve the app if authenticated, otherwise an "open in Usernode"
 // landing page so stray visits to the staging URL don't reveal the app.
@@ -158,6 +166,8 @@ app.get('*', (req, res) => {
   </div>
 </body>`);
   }
+  // Never cache the shell — a redeploy must reach testers on next load.
+  res.set('Cache-Control', 'no-cache, must-revalidate');
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 

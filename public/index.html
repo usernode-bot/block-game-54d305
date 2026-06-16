@@ -116,13 +116,22 @@
   <!-- Block palette -->
   <div id="palette" class="fixed bottom-4 left-1/2 -translate-x-1/2 z-20 flex gap-1.5 p-1.5 rounded-xl bg-black/50 backdrop-blur"></div>
 
+  <!-- Debug HUD: only shown when the URL has ?debug=1. Diagnoses any
+       yaw-dependent split between where you aim and where you move. -->
+  <pre id="debug-hud" class="hidden pointer-events-none fixed top-3 left-3 z-40 m-0 text-[11px] leading-snug text-lime-300 bg-black/70 rounded-lg px-3 py-2 whitespace-pre font-mono"></pre>
+
   <script type="module">
     import * as THREE from 'three';
+
+    // Build stamp — bump on every movement/look change so a tester can
+    // confirm (via the ?debug=1 HUD) the preview is running current code.
+    const BUILD_STAMP = 'move-2026-06-16.1';
 
     const params = new URLSearchParams(window.location.search);
     const token = params.get('token') || '';
     const headers = token ? { 'x-usernode-token': token } : {};
     const statusEl = document.getElementById('status');
+    const DEBUG = params.get('debug') === '1';
 
     // ---- World/runtime state ----
     let DIMS = { w: 32, d: 32, h: 24 };
@@ -563,6 +572,44 @@
     let prev = performance.now();
     const fwd = new THREE.Vector3(), right = new THREE.Vector3();
     const WORLD_UP = new THREE.Vector3(0, 1, 0);
+
+    // ---- Debug HUD (?debug=1): live aim-vs-move diagnosis ----
+    const debugHudEl = document.getElementById('debug-hud');
+    const dbgAim = new THREE.Vector3();       // horizontal of a fresh screen-centre ray
+    let dbgMaxAbs = 0, dbgMaxYaw = 0;         // running worst |aim-vs-move| and its yaw
+    if (DEBUG) debugHudEl.classList.remove('hidden');
+    const deg = (r) => (r * 180 / Math.PI);
+    // Smallest signed difference between two headings, in degrees (-180..180].
+    const headingDiffDeg = (a, b) => {
+      let d = deg(a - b) % 360;
+      if (d > 180) d -= 360;
+      if (d < -180) d += 360;
+      return d;
+    };
+    function updateDebugHud() {
+      // Aim heading: horizontal projection of a FRESH screen-centre ray —
+      // the exact direction the crosshair points, independent of `fwd`.
+      raycaster.setFromCamera(centre, camera);
+      dbgAim.copy(raycaster.ray.direction);
+      dbgAim.y = 0;
+      const aimHeading = dbgAim.lengthSq() < 1e-8 ? yaw : Math.atan2(-dbgAim.x, -dbgAim.z);
+      const moveHeading = Math.atan2(-fwd.x, -fwd.z);
+      const aimVsMove = headingDiffDeg(moveHeading, aimHeading);
+      if (Math.abs(aimVsMove) > dbgMaxAbs) { dbgMaxAbs = Math.abs(aimVsMove); dbgMaxYaw = yaw; }
+      // Perpendicularity check for strafe (should stay ~90°).
+      const fwdRightDot = fwd.x * right.x + fwd.z * right.z;
+      const v3 = (v) => `(${v.x.toFixed(3)}, ${v.y.toFixed(3)}, ${v.z.toFixed(3)})`;
+      debugHudEl.textContent =
+        `build   ${BUILD_STAMP}\n` +
+        `mode    ${locked ? 'pointer-lock' : (dragMode ? 'drag' : 'idle')}\n` +
+        `yaw     ${deg(yaw).toFixed(1)}°   pitch ${deg(pitch).toFixed(1)}°\n` +
+        `aim→move ${aimVsMove >= 0 ? '+' : ''}${aimVsMove.toFixed(2)}°   (0 = aligned)\n` +
+        `max|Δ|   ${dbgMaxAbs.toFixed(2)}°  @ yaw ${deg(dbgMaxYaw).toFixed(1)}°\n` +
+        `fwd·right ${fwdRightDot.toFixed(4)} (≈0 = perp)\n` +
+        `move fwd ${v3(fwd)}\n` +
+        `getWorld ${v3(dbgAim.clone().normalize())}`;
+    }
+
     function loop(now) {
       const dt = Math.min((now - prev) / 1000, 0.1);
       prev = now;
@@ -597,6 +644,7 @@
       camera.position.y = Math.max(1.2, Math.min(DIMS.h + 6, camera.position.y));
 
       updateTarget();
+      if (DEBUG) updateDebugHud();
       renderer.render(scene, camera);
       requestAnimationFrame(loop);
     }
