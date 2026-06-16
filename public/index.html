@@ -98,6 +98,21 @@
       -webkit-user-select: none;
       -webkit-tap-highlight-color: transparent;
     }
+
+    /* Theme system: CSS custom properties for colors */
+    :root {
+      --sky-color: #8ec7ff;
+      --fog-color: #8ec7ff;
+      --ground-grid-line: #6b7a8d;
+      --ground-grid-dark: #44505f;
+    }
+
+    html.theme-fifa-world-cup {
+      --sky-color: #1a7f3d;
+      --fog-color: #1a7f3d;
+      --ground-grid-line: #4a9f5f;
+      --ground-grid-dark: #2d6b40;
+    }
   </style>
 </head>
 <body class="bg-zinc-950 text-zinc-100">
@@ -117,8 +132,8 @@
   <!-- Click-to-play overlay -->
   <div id="overlay" class="fixed inset-0 z-30 flex items-center justify-center bg-black/60 backdrop-blur-sm">
     <div class="max-w-md p-8 text-center">
-      <h1 class="text-2xl font-bold mb-2">block-game</h1>
-      <p class="text-zinc-300 mb-1">A shared 3D world everyone builds together.</p>
+      <h1 id="overlay-title" class="text-2xl font-bold mb-2">block-game</h1>
+      <p id="overlay-subtitle" class="text-zinc-300 mb-1">A shared 3D world everyone builds together.</p>
       <p id="overlay-help" class="text-zinc-500 text-sm mb-6">Click to play — move the mouse to look, press Esc to release. If your browser blocks mouse-lock, you can drag to look instead.</p>
       <button id="play-btn" class="px-5 py-2 rounded-lg bg-violet-600 hover:bg-violet-500 font-semibold">Click to play</button>
       <div id="status" class="mt-4 text-sm text-zinc-500"></div>
@@ -145,6 +160,10 @@
   <!-- Block palette -->
   <div id="palette" class="fixed bottom-4 left-1/2 -translate-x-1/2 z-20 flex gap-1.5 p-1.5 rounded-xl bg-black/50 backdrop-blur"></div>
 
+  <!-- Theme toggle button -->
+  <button id="theme-btn" title="Theme" aria-label="Toggle theme"
+          class="fixed top-3 right-14 z-30 w-9 h-9 rounded-full bg-black/50 hover:bg-black/70 text-zinc-100 text-lg font-bold leading-none flex items-center justify-center transition-colors cursor-pointer">⚽</button>
+
   <!-- Help/controls toggle: circular "(?)" button fixed in the top-right
        corner. Clicking it does exactly what pressing `h` does — show/hide the
        controls overlay below. -->
@@ -155,6 +174,21 @@
        confirmed at a glance. Bump BUILD_VERSION (below) on every change.
        Sits just below the help button so the two don't overlap. -->
   <div id="build-stamp" class="pointer-events-none fixed top-14 right-3 z-20 text-[11px] text-zinc-300/70 bg-black/40 rounded px-2 py-1 font-mono"></div>
+
+  <!-- Theme settings panel: slide-out panel for theme toggle -->
+  <div id="theme-panel" class="hidden fixed top-16 right-14 z-30 w-72 max-w-[90vw] rounded-xl bg-black/70 backdrop-blur p-4 text-sm text-zinc-200 shadow-xl">
+    <div class="flex items-center justify-between mb-4">
+      <h2 class="font-bold text-zinc-100">Theme</h2>
+      <button id="theme-panel-close" aria-label="Close theme" class="text-zinc-400 hover:text-zinc-100 cursor-pointer leading-none">✕</button>
+    </div>
+    <div class="flex items-center justify-between">
+      <label for="fifa-toggle" class="font-semibold text-zinc-200 cursor-pointer">FIFA World Cup</label>
+      <button id="fifa-toggle" class="relative inline-flex h-6 w-11 items-center rounded-full transition-colors bg-zinc-700 hover:bg-zinc-600"
+              role="switch" aria-checked="false">
+        <span class="inline-block h-4 w-4 transform rounded-full bg-white transition-transform" style="margin-left: 0.25rem;"></span>
+      </button>
+    </div>
+  </div>
 
   <!-- Controls overlay: a help panel listing every key/mouse binding. Hidden
        by default; toggled by pressing `h` or clicking the "(?)" button. -->
@@ -218,6 +252,41 @@
     // change so the top-right stamp confirms exactly which code is running.
     const BUILD_VERSION = 'mobile-touch';
 
+    // Theme system
+    const THEME_KEY = 'block-game-theme';
+    let themeActive = false;
+    const themeNames = {
+      1: { default: 'Grass', fifa: 'Pitch' },
+      2: { default: 'Dirt', fifa: 'Clay' },
+      3: { default: 'Stone', fifa: 'Barrier' },
+      4: { default: 'Wood', fifa: 'Goal Post' },
+      5: { default: 'Leaves', fifa: 'Flag' },
+      6: { default: 'Sand', fifa: 'Sand' },
+      7: { default: 'Brick', fifa: 'Red Card' },
+      8: { default: 'Glass', fifa: 'Glass' },
+      9: { default: 'Red', fifa: 'Red Jersey' },
+      10: { default: 'Blue', fifa: 'Blue Jersey' },
+      11: { default: 'Yellow', fifa: 'Yellow Card' },
+      12: { default: 'White', fifa: 'Soccer Ball' },
+    };
+
+    const themeColors = {
+      fifa: {
+        1: '#3db34d',
+        2: '#8b6914',
+        3: '#a8a8a8',
+        4: '#d4a574',
+        5: '#2d9f4a',
+        6: '#ddca8a',
+        7: '#c85a52',
+        8: '#9fd4e8',
+        9: '#e74c3c',
+        10: '#3498db',
+        11: '#f4d03f',
+        12: '#f5f5f5',
+      }
+    };
+
     // Touch capability: drives (a) the on-screen control overlay, (b) skipping
     // mouse-lock in favour of direct touch play, and (c) portrait force-rotation.
     // Desktop (isTouch === false) keeps every existing mouse/keyboard path.
@@ -239,9 +308,15 @@
     const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color('#8ec7ff');
-    scene.fog = new THREE.Fog('#8ec7ff', 40, 90);
 
+    function updateSceneColors() {
+      const skyColor = getComputedStyle(document.documentElement).getPropertyValue('--sky-color').trim();
+      const fogColor = getComputedStyle(document.documentElement).getPropertyValue('--fog-color').trim();
+      scene.background = new THREE.Color(skyColor);
+      scene.fog = new THREE.Fog(fogColor, 40, 90);
+    }
+
+    updateSceneColors();
     const camera = new THREE.PerspectiveCamera(70, 1, 0.1, 500);
     camera.up.set(0, 1, 0); // pin world up so the horizon can never roll
     camera.position.set(DIMS.w / 2, 3.5, DIMS.d / 2 + 8);
@@ -254,7 +329,11 @@
     const cube = new THREE.BoxGeometry(1, 1, 1);
     const materials = new Map();     // block_type -> Material
     function materialFor(p) {
-      const opts = { color: new THREE.Color(p.color) };
+      let color = p.color;
+      if (themeActive && themeColors.fifa[p.id]) {
+        color = themeColors.fifa[p.id];
+      }
+      const opts = { color: new THREE.Color(color) };
       if (p.opacity != null && p.opacity < 1) { opts.transparent = true; opts.opacity = p.opacity; }
       return new THREE.MeshLambertMaterial(opts);
     }
@@ -295,7 +374,12 @@
     function buildGroundGrid() {
       if (groundGrid) { scene.remove(groundGrid); groundGrid = null; }
       const SIZE = 400; // world units — far beyond the plot and the fly margin
-      const grid = new THREE.GridHelper(SIZE, SIZE, 0x6b7a8d, 0x44505f);
+      let gridColor = 0x6b7a8d, darkColor = 0x44505f;
+      if (themeActive) {
+        gridColor = 0x4a9f5f;
+        darkColor = 0x2d6b40;
+      }
+      const grid = new THREE.GridHelper(SIZE, SIZE, gridColor, darkColor);
       // Centre on the plot centre (an integer) so lines land on cell borders.
       grid.position.set(DIMS.w / 2, -0.01, DIMS.d / 2);
       grid.material.transparent = true;
@@ -422,6 +506,8 @@
     const SPEED = 9, SENS = 0.0022;
 
     const overlayEl = document.getElementById('overlay');
+    const overlayTitleEl = document.getElementById('overlay-title');
+    const overlaySubtitleEl = document.getElementById('overlay-subtitle');
     const overlayHelpEl = document.getElementById('overlay-help');
     const hintEl = document.getElementById('hint');
     const hintFallbackEl = document.getElementById('hint-fallback');
@@ -762,6 +848,76 @@
       });
     }
 
+    // ---- Theme system ----
+    function applyTheme(active) {
+      themeActive = active;
+      const html = document.documentElement;
+      if (active) {
+        html.classList.add('theme-fifa-world-cup');
+      } else {
+        html.classList.remove('theme-fifa-world-cup');
+      }
+      try {
+        localStorage.setItem(THEME_KEY, JSON.stringify({ active }));
+      } catch (e) { /* localStorage might be disabled */ }
+      updateSceneColors();
+      buildGround();
+      buildGroundGrid();
+      rebuildBlockMeshes();
+      buildPalette();
+      updateOverlayText();
+      const stamp = 'build ' + BUILD_VERSION + (active ? ' (FIFA)' : '');
+      buildStampEl.textContent = stamp;
+    }
+
+    function updateOverlayText() {
+      if (themeActive) {
+        overlayTitleEl.textContent = 'FIFA World Cup Builder';
+        overlaySubtitleEl.textContent = 'Build the ultimate stadium together.';
+      } else {
+        overlayTitleEl.textContent = 'block-game';
+        overlaySubtitleEl.textContent = 'A shared 3D world everyone builds together.';
+      }
+    }
+
+    function loadThemePref() {
+      try {
+        const saved = localStorage.getItem(THEME_KEY);
+        if (saved) {
+          const { active } = JSON.parse(saved);
+          return !!active;
+        }
+      } catch (e) { /* localStorage might be disabled */ }
+      return false;
+    }
+
+    const themePanelEl = document.getElementById('theme-panel');
+    const themeBtnEl = document.getElementById('theme-btn');
+    const themePanelCloseEl = document.getElementById('theme-panel-close');
+    const fifaToggleEl = document.getElementById('fifa-toggle');
+
+    themeBtnEl.addEventListener('click', () => {
+      themePanelEl.classList.toggle('hidden');
+      if (!themePanelEl.classList.contains('hidden')) {
+        controlsEl.classList.add('hidden');
+      }
+    });
+
+    themePanelCloseEl.addEventListener('click', () => {
+      themePanelEl.classList.add('hidden');
+    });
+
+    fifaToggleEl.addEventListener('click', () => {
+      applyTheme(!themeActive);
+      fifaToggleEl.setAttribute('aria-checked', String(themeActive));
+      const span = fifaToggleEl.querySelector('span');
+      if (themeActive) {
+        span.style.marginLeft = '1.5rem';
+      } else {
+        span.style.marginLeft = '0.25rem';
+      }
+    });
+
     // ---- Controls overlay toggle ----
     // Shared by the `h` key and the top-right "(?)" button — both show/hide the
     // help panel listing every key/mouse binding.
@@ -781,7 +937,10 @@
       const playBtn = document.getElementById('play-btn');
       if (playBtn) playBtn.textContent = 'Tap to play';
     }
-    function toggleControls() { controlsEl.classList.toggle('hidden'); }
+    function toggleControls() {
+      controlsEl.classList.toggle('hidden');
+      themePanelEl.classList.add('hidden');
+    }
     document.getElementById('help-btn').addEventListener('click', toggleControls);
     document.getElementById('controls-close').addEventListener('click', () => {
       controlsEl.classList.add('hidden');
@@ -801,9 +960,14 @@
       PALETTE.forEach((p, i) => {
         const btn = document.createElement('button');
         btn.dataset.id = p.id;
-        btn.title = p.name + (i < 9 ? ' (' + (i + 1) + ')' : '');
+        const themeName = themeActive ? themeNames[p.id].fifa : themeNames[p.id].default;
+        btn.title = themeName + (i < 9 ? ' (' + (i + 1) + ')' : '');
         btn.className = 'relative w-10 h-10 rounded-md ring-offset-1 ring-offset-black/0 transition';
-        btn.style.background = p.color;
+        let color = p.color;
+        if (themeActive && themeColors.fifa[p.id]) {
+          color = themeColors.fifa[p.id];
+        }
+        btn.style.background = color;
         if (p.opacity != null && p.opacity < 1) btn.style.opacity = '0.7';
         if (i < 9) {
           const num = document.createElement('span');
@@ -943,8 +1107,17 @@
     (async function init() {
       updateOrientation();
       refreshControlCopy();
+      const savedTheme = loadThemePref();
+      themeActive = savedTheme;
+      if (savedTheme) {
+        document.documentElement.classList.add('theme-fifa-world-cup');
+        fifaToggleEl.setAttribute('aria-checked', 'true');
+        const span = fifaToggleEl.querySelector('span');
+        span.style.marginLeft = '1.5rem';
+      }
       const ok = await loadWorld();
       if (!ok) return;
+      updateSceneColors();
       requestAnimationFrame(loop);
       setInterval(poll, 1500);
     })();
