@@ -129,12 +129,12 @@
   <div id="hint" class="pointer-events-none fixed top-3 left-1/2 -translate-x-1/2 z-20 text-center text-xs text-zinc-300/90 bg-black/40 rounded-lg px-3 py-2 transition-opacity duration-700">
     <span class="font-semibold">WASD</span> move · <span class="font-semibold">Space/Shift</span> up·down ·
     <span class="font-semibold">Left-click/F</span> add · <span class="font-semibold">Right-click/G</span> delete ·
-    <span class="font-semibold">1–9</span> pick block · <span class="font-semibold">H</span> controls · <span class="font-semibold">Esc</span> release
+    <span class="font-semibold">1–9</span> pick block · <span class="font-semibold">H</span> controls · <span class="font-semibold">M</span> mute · <span class="font-semibold">Esc</span> release
   </div>
   <div id="hint-fallback" class="hidden pointer-events-none fixed top-3 left-1/2 -translate-x-1/2 z-20 text-center text-xs text-zinc-300/90 bg-black/40 rounded-lg px-3 py-2 transition-opacity duration-700">
     <span class="font-semibold">WASD</span> move · <span class="font-semibold">Space/Shift</span> up·down ·
     <span class="font-semibold">Drag</span> look · <span class="font-semibold">Left-click/F</span> add · <span class="font-semibold">Right-click/G</span> delete ·
-    <span class="font-semibold">1–9</span> pick block · <span class="font-semibold">H</span> controls · <span class="font-semibold">Esc</span> menu
+    <span class="font-semibold">1–9</span> pick block · <span class="font-semibold">H</span> controls · <span class="font-semibold">M</span> mute · <span class="font-semibold">Esc</span> menu
   </div>
 
   <!-- Look-mode control: always-visible, clickable, shows the active look
@@ -144,6 +144,10 @@
 
   <!-- Block palette -->
   <div id="palette" class="fixed bottom-4 left-1/2 -translate-x-1/2 z-20 flex gap-1.5 p-1.5 rounded-xl bg-black/50 backdrop-blur"></div>
+
+  <!-- Audio mute toggle: sits to the left of the help button. -->
+  <button id="mute-btn" title="Mute/unmute audio (M)" aria-label="Toggle audio"
+          class="fixed top-3 right-14 z-30 w-9 h-9 rounded-full bg-black/50 hover:bg-black/70 text-zinc-100 text-lg leading-none flex items-center justify-center transition-colors cursor-pointer">🔊</button>
 
   <!-- Help/controls toggle: circular "(?)" button fixed in the top-right
        corner. Clicking it does exactly what pressing `h` does — show/hide the
@@ -170,6 +174,7 @@
       <li><span class="font-semibold">Right-click</span> or <span class="font-semibold">G</span> — delete a block</li>
       <li><span class="font-semibold">1–9</span> — pick block type</li>
       <li><span class="font-semibold">H</span> or <span class="font-semibold">(?)</span> — toggle this panel</li>
+      <li><span class="font-semibold">M</span> or <span class="font-semibold">🔊</span> — mute / unmute audio</li>
       <li><span class="font-semibold">Esc</span> — release / menu</li>
     </ul>
   </div>
@@ -216,13 +221,190 @@
 
     // Build identifier — bump this (to the deploying commit short SHA) on every
     // change so the top-right stamp confirms exactly which code is running.
-    const BUILD_VERSION = 'mobile-touch';
+    const BUILD_VERSION = 'audio-sfx';
 
     // Touch capability: drives (a) the on-screen control overlay, (b) skipping
     // mouse-lock in favour of direct touch play, and (c) portrait force-rotation.
     // Desktop (isTouch === false) keeps every existing mouse/keyboard path.
     const isTouch = (window.matchMedia && window.matchMedia('(pointer: coarse)').matches)
       || ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
+
+    // ---- Audio system ----
+    // All audio generated with Web Audio API — no external files.
+    // AudioContext is created lazily on first user gesture (browser autoplay policy).
+    const audio = (() => {
+      let ctx = null;
+      let masterGain = null;
+      let muted = localStorage.getItem('blockgame-muted') === 'true';
+
+      // Music: 72 BPM, 8-beat looping phrase (C – Am – F – G)
+      const BEAT_SEC = 60 / 72;
+      const PHRASE_BEATS = 8;
+      const PHRASE_SEC = PHRASE_BEATS * BEAT_SEC;
+
+      // Bass notes: [beatInPhrase, rootFreqHz, durationBeats]
+      const BASS = [
+        [0, 65.4, 1.9],   // C2
+        [2, 55.0, 1.9],   // A1
+        [4, 87.3, 1.9],   // F2
+        [6, 98.0, 1.9],   // G2
+      ];
+      // Melody arpeggios: eighth-note runs over each chord
+      const MELODY = [
+        [0.0, 261.6, 0.7], [0.5, 329.6, 0.7], [1.0, 392.0, 0.7], [1.5, 329.6, 0.7],
+        [2.0, 220.0, 0.7], [2.5, 261.6, 0.7], [3.0, 329.6, 0.7], [3.5, 261.6, 0.7],
+        [4.0, 349.2, 0.7], [4.5, 440.0, 0.7], [5.0, 523.3, 0.7], [5.5, 440.0, 0.7],
+        [6.0, 392.0, 0.7], [6.5, 493.9, 0.7], [7.0, 392.0, 0.7], [7.5, 329.6, 0.7],
+      ];
+
+      let musicTimerId = null;
+      let nextPhraseTime = 0;
+
+      function scheduleNote(freq, type, gainPeak, startT, durSec, useLpf) {
+        const osc = ctx.createOscillator();
+        const g = ctx.createGain();
+        osc.type = type;
+        osc.frequency.value = freq;
+        // Start at near-zero so exponential ramps work; linear attack, exp decay.
+        g.gain.setValueAtTime(0.0001, startT);
+        g.gain.linearRampToValueAtTime(gainPeak, startT + 0.015);
+        g.gain.exponentialRampToValueAtTime(0.0001, startT + durSec);
+        if (useLpf) {
+          const lpf = ctx.createBiquadFilter();
+          lpf.type = 'lowpass';
+          lpf.frequency.value = 250;
+          lpf.Q.value = 0.7;
+          osc.connect(lpf);
+          lpf.connect(g);
+          osc.addEventListener('ended', () => { osc.disconnect(); lpf.disconnect(); g.disconnect(); });
+        } else {
+          osc.connect(g);
+          osc.addEventListener('ended', () => { osc.disconnect(); g.disconnect(); });
+        }
+        g.connect(masterGain);
+        osc.start(startT);
+        osc.stop(startT + durSec + 0.05);
+      }
+
+      function schedulePhrase(t0) {
+        for (const [beat, freq, dur] of BASS) {
+          scheduleNote(freq, 'sawtooth', 0.06, t0 + beat * BEAT_SEC, dur * BEAT_SEC, true);
+        }
+        for (const [beat, freq, dur] of MELODY) {
+          scheduleNote(freq, 'triangle', 0.035, t0 + beat * BEAT_SEC, dur * BEAT_SEC, false);
+        }
+      }
+
+      function musicTick() {
+        if (!ctx) return;
+        // Keep two full phrases buffered ahead at all times.
+        const until = ctx.currentTime + PHRASE_SEC * 2;
+        while (nextPhraseTime < until) {
+          schedulePhrase(nextPhraseTime);
+          nextPhraseTime += PHRASE_SEC;
+        }
+      }
+
+      function startMusic() {
+        if (musicTimerId !== null) return;
+        nextPhraseTime = ctx.currentTime + 0.1;
+        musicTick();
+        // Re-run every ~3s (well within one phrase duration) to pre-schedule ahead.
+        musicTimerId = setInterval(musicTick, 3000);
+      }
+
+      function playPlace() {
+        if (!ctx) return;
+        const t = ctx.currentTime;
+        const osc = ctx.createOscillator();
+        const g = ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(180, t);
+        osc.frequency.linearRampToValueAtTime(140, t + 0.1);
+        g.gain.setValueAtTime(0, t);
+        g.gain.linearRampToValueAtTime(0.4, t + 0.005);
+        g.gain.exponentialRampToValueAtTime(0.0001, t + 0.15);
+        osc.connect(g);
+        g.connect(masterGain);
+        osc.addEventListener('ended', () => { osc.disconnect(); g.disconnect(); });
+        osc.start(t);
+        osc.stop(t + 0.16);
+      }
+
+      function playBreak() {
+        if (!ctx) return;
+        const t = ctx.currentTime;
+        const bufSize = Math.floor(ctx.sampleRate * 0.08);
+        const buf = ctx.createBuffer(1, bufSize, ctx.sampleRate);
+        const data = buf.getChannelData(0);
+        for (let i = 0; i < bufSize; i++) data[i] = Math.random() * 2 - 1;
+        const src = ctx.createBufferSource();
+        src.buffer = buf;
+        const filter = ctx.createBiquadFilter();
+        filter.type = 'bandpass';
+        filter.frequency.value = 400;
+        filter.Q.value = 2;
+        const g = ctx.createGain();
+        g.gain.setValueAtTime(0.35, t);
+        g.gain.exponentialRampToValueAtTime(0.0001, t + 0.08);
+        src.connect(filter);
+        filter.connect(g);
+        g.connect(masterGain);
+        src.addEventListener('ended', () => { src.disconnect(); filter.disconnect(); g.disconnect(); });
+        src.start(t);
+        src.stop(t + 0.09);
+      }
+
+      function playJoin() {
+        if (!ctx) return;
+        const t = ctx.currentTime;
+        // Arpeggiated C major chord
+        [[261.6, 0], [329.6, 0.12], [392.0, 0.24]].forEach(([freq, delay]) => {
+          const osc = ctx.createOscillator();
+          const g = ctx.createGain();
+          osc.type = 'triangle';
+          osc.frequency.value = freq;
+          const ts = t + delay;
+          g.gain.setValueAtTime(0, ts);
+          g.gain.linearRampToValueAtTime(0.2, ts + 0.4);
+          g.gain.exponentialRampToValueAtTime(0.0001, ts + 1.2);
+          osc.connect(g);
+          g.connect(masterGain);
+          osc.addEventListener('ended', () => { osc.disconnect(); g.disconnect(); });
+          osc.start(ts);
+          osc.stop(ts + 1.3);
+        });
+      }
+
+      function toggleMute() {
+        muted = !muted;
+        localStorage.setItem('blockgame-muted', String(muted));
+        if (masterGain) {
+          const t = ctx.currentTime;
+          masterGain.gain.cancelScheduledValues(t);
+          masterGain.gain.setValueAtTime(masterGain.gain.value, t);
+          masterGain.gain.linearRampToValueAtTime(muted ? 0 : 1, t + 0.05);
+        }
+        return muted;
+      }
+
+      function isMuted() { return muted; }
+
+      function init() {
+        if (!ctx) {
+          ctx = new (window.AudioContext || window.webkitAudioContext)();
+          masterGain = ctx.createGain();
+          masterGain.gain.setValueAtTime(muted ? 0 : 1, ctx.currentTime);
+          masterGain.connect(ctx.destination);
+        }
+        if (ctx.state === 'suspended') ctx.resume();
+        playJoin();
+        startMusic();
+      }
+
+      return { init, playPlace, playBreak, toggleMute, isMuted };
+    })();
+
     const buildStampEl = document.getElementById('build-stamp');
     buildStampEl.textContent = 'build ' + BUILD_VERSION;
 
@@ -398,6 +580,7 @@
       const { x, y, z } = target.place;
       if (!inBounds(x, y, z)) return;
       if (blocks.get(key(x, y, z)) === selectedType) return;
+      audio.playPlace();
       sendEdit(x, y, z, selectedType);
     }
     function breakBlock() {
@@ -405,6 +588,7 @@
       const { x, y, z } = target.cell;
       if (y < 1) return; // ground layer is immutable
       if (!blocks.has(key(x, y, z))) return;
+      audio.playBreak();
       sendEdit(x, y, z, 0);
     }
 
@@ -427,6 +611,13 @@
     const hintFallbackEl = document.getElementById('hint-fallback');
     const lookModeEl = document.getElementById('lookmode');
     const touchControlsEl = document.getElementById('touch-controls');
+
+    // Mute button: sync icon to stored preference immediately on load.
+    const muteBtnEl = document.getElementById('mute-btn');
+    muteBtnEl.textContent = audio.isMuted() ? '🔇' : '🔊';
+    muteBtnEl.addEventListener('click', () => {
+      muteBtnEl.textContent = audio.toggleMute() ? '🔇' : '🔊';
+    });
 
     // Reusable temporaries + one-shot roll diagnostic state for applyLook().
     const _lookFwd = new THREE.Vector3();
@@ -632,6 +823,7 @@
     // rejected promise), so this is the primary failure path in production.
     document.addEventListener('pointerlockerror', onLockFail);
     document.getElementById('play-btn').addEventListener('click', tryPointerLock);
+    document.getElementById('play-btn').addEventListener('click', () => audio.init());
     canvas.addEventListener('click', () => {
       // Native path only: re-acquire the lock on a bare canvas click. In
       // drag fallback mode clicks are handled by the drag/click logic below.
@@ -691,6 +883,7 @@
       // H toggles the controls overlay (same as the "(?)" button), available
       // whether or not the game is currently being played.
       if (e.code === 'KeyH') toggleControls();
+      if (e.code === 'KeyM') { muteBtnEl.textContent = audio.toggleMute() ? '🔇' : '🔊'; }
       // Drag mode has no OS pointer lock to release, so Escape returns to the
       // overlay manually. In native (locked) mode the browser handles Esc and
       // fires pointerlockchange, which restores the overlay there.
@@ -777,6 +970,7 @@
         '<li><span class="font-semibold">Add</span> / <span class="font-semibold">Delete</span> — place / remove a block at the crosshair</li>',
         '<li><span class="font-semibold">Palette</span> — tap a swatch to pick a block</li>',
         '<li><span class="font-semibold">☰ Menu</span> — back to the start screen</li>',
+        '<li><span class="font-semibold">🔊 / 🔇</span> — tap to mute / unmute audio</li>',
       ].join('');
       const playBtn = document.getElementById('play-btn');
       if (playBtn) playBtn.textContent = 'Tap to play';
