@@ -16,21 +16,39 @@ const DIMS = { w: 32, d: 32, h: 24 }; // x in [0,w-1], z in [0,d-1], y in [0,h-1
 
 // Block palette (authoritative). id 0 is reserved for "air" (a broken cell).
 // `opacity` < 1 renders semi-transparent (glass). Colors are hex strings.
+// `material` 'standard' uses MeshStandardMaterial (PBR); default is Lambert.
+// `emissive` / `emissiveIntensity` add a glow. `powerup` marks animated blocks.
 const PALETTE = [
-  { id: 1,  name: 'Grass',  color: '#5fae3a' },
-  { id: 2,  name: 'Dirt',   color: '#8a5a32' },
-  { id: 3,  name: 'Stone',  color: '#8d8d92' },
-  { id: 4,  name: 'Wood',   color: '#a9763f' },
-  { id: 5,  name: 'Leaves', color: '#3f8f33' },
-  { id: 6,  name: 'Sand',   color: '#ddca8a' },
-  { id: 7,  name: 'Brick',  color: '#9c4a3c' },
-  { id: 8,  name: 'Glass',  color: '#9fd4e8', opacity: 0.45 },
-  { id: 9,  name: 'Red',    color: '#d23b3b' },
-  { id: 10, name: 'Blue',   color: '#3b6dd2' },
-  { id: 11, name: 'Yellow', color: '#e3c93b' },
-  { id: 12, name: 'White',  color: '#ededed' },
+  { id: 1,  name: 'Grass',         color: '#5fae3a' },
+  { id: 2,  name: 'Dirt',          color: '#8a5a32' },
+  { id: 3,  name: 'Stone',         color: '#8d8d92' },
+  { id: 4,  name: 'Wood',          color: '#a9763f' },
+  { id: 5,  name: 'Leaves',        color: '#3f8f33' },
+  { id: 6,  name: 'Sand',          color: '#ddca8a' },
+  { id: 7,  name: 'Brick',         color: '#9c4a3c' },
+  { id: 8,  name: 'Glass',         color: '#9fd4e8', opacity: 0.45 },
+  { id: 9,  name: 'Red',           color: '#d23b3b' },
+  { id: 10, name: 'Blue',          color: '#3b6dd2' },
+  { id: 11, name: 'Yellow',        color: '#e3c93b' },
+  { id: 12, name: 'White',         color: '#ededed' },
+  { id: 13, name: 'Snow',          color: '#d8eeff' },
+  { id: 14, name: 'Gold Block',    color: '#f5c842', material: 'standard', metalness: 0.85, roughness: 0.2 },
+  { id: 15, name: 'Glowstone',     color: '#ffb040', emissive: '#ff8800', emissiveIntensity: 0.6 },
+  { id: 16, name: 'Obsidian',      color: '#18082a', material: 'standard', metalness: 0.3, roughness: 0.1 },
+  { id: 17, name: 'Rainbow Block', color: '#ff4488', powerup: true },
 ];
 const VALID_TYPES = new Set(PALETTE.map((p) => p.id)); // does NOT include 0
+
+// Points awarded per block placed (type 0 = break = 0 points).
+const BLOCK_POINTS = {
+  1: 1, 2: 1, 3: 1, 4: 1, 5: 1, 6: 1,   // Grass, Dirt, Stone, Wood, Leaves, Sand
+  7: 2, 8: 2, 9: 2, 10: 2, 11: 2, 12: 2, // Brick, Glass, Red, Blue, Yellow, White
+  13: 2,  // Snow
+  14: 5,  // Gold Block
+  15: 3,  // Glowstone
+  16: 4,  // Obsidian
+  17: 5,  // Rainbow Block
+};
 
 // Sentinel "user" id for staging seed rows so they never reference a real user.
 const SEED_USER_ID = 0;
@@ -133,6 +151,8 @@ app.post('/api/block', async (req, res) => {
 
     // Track challenge progress for placements only (breaks don't count).
     let challenge = null;
+    // ---- Scoring (placements only; breaks earn 0) ----
+    let earned = 0, combo_multiplier = 1, rainbow_multiplier = 1, combo_tier = 1;
     if (t !== 0) {
       const now = new Date();
       const dateStr = now.toISOString().slice(0, 10);
@@ -159,9 +179,53 @@ app.post('/api/block', async (req, res) => {
       );
       const cr0 = cr.rows[0];
       challenge = { placed: cr0.blocks_placed, target, completed_at: cr0.completed_at };
+
+      const base = BLOCK_POINTS[t] || 1;
+
+      // Combo: count placements this user made in the last 10 seconds
+      // (exclude the just-inserted cell to avoid double-counting).
+      const comboRes = await pool.query(
+        `SELECT COUNT(*)::int AS recent
+         FROM blocks
+         WHERE updated_by_user_id = $1
+           AND block_type <> 0
+           AND updated_at > NOW() - INTERVAL '10 seconds'
+           AND NOT (x = $2 AND y = $3 AND z = $4)`,
+        [req.user.id, x, y, z]
+      );
+      const recent = comboRes.rows[0].recent;
+      if (recent >= 10) { combo_multiplier = 3; combo_tier = 3; }
+      else if (recent >= 6) { combo_multiplier = 2; combo_tier = 2; }
+      else if (recent >= 3) { combo_multiplier = 1.5; combo_tier = 2; }
+
+      // Rainbow power-up: did this user place a Rainbow Block in the last 30s?
+      const rainbowRes = await pool.query(
+        `SELECT 1 FROM blocks
+         WHERE updated_by_user_id = $1
+           AND block_type = 17
+           AND updated_at > NOW() - INTERVAL '30 seconds'
+         LIMIT 1`,
+        [req.user.id]
+      );
+      if (rainbowRes.rows.length > 0) rainbow_multiplier = 2;
+
+      earned = Math.round(base * combo_multiplier * rainbow_multiplier);
+
+      // Upsert leaderboard
+      await pool.query(
+        `INSERT INTO leaderboard (user_id, username, total_score, blocks_placed, best_combo, updated_at)
+         VALUES ($1, $2, $3, 1, $4, NOW())
+         ON CONFLICT (user_id) DO UPDATE SET
+           total_score   = leaderboard.total_score + EXCLUDED.total_score,
+           blocks_placed = leaderboard.blocks_placed + 1,
+           best_combo    = GREATEST(leaderboard.best_combo, EXCLUDED.best_combo),
+           username      = EXCLUDED.username,
+           updated_at    = NOW()`,
+        [req.user.id, req.user.username, earned, combo_tier]
+      );
     }
 
-    res.json({ ok: true, seq, ...(challenge ? { challenge } : {}) });
+    res.json({ ok: true, seq, ...(challenge ? { challenge } : {}), earned, combo_multiplier, rainbow_multiplier });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -180,6 +244,78 @@ app.get('/api/world/changes', async (req, res) => {
     res.json({
       changes: rows.map((r) => ({ x: r.x, y: r.y, z: r.z, t: r.block_type })),
       cursor,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- Presence: heartbeat ping ----
+app.post('/api/presence/ping', async (req, res) => {
+  try {
+    await pool.query(
+      `INSERT INTO user_presence (user_id, username, last_seen)
+       VALUES ($1, $2, NOW())
+       ON CONFLICT (user_id) DO UPDATE SET username = EXCLUDED.username, last_seen = NOW()`,
+      [req.user.id, req.user.username]
+    );
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- Presence: who is online (seen in the last 60s) ----
+const STAGING_DEMO_USERS = [
+  { username: 'Staging Builder A' },
+  { username: 'Staging Builder B' },
+  { username: 'Staging Builder C' },
+  { username: 'Staging Builder D' },
+];
+app.get('/api/presence/online', async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT username FROM user_presence
+       WHERE last_seen > NOW() - INTERVAL '60 seconds'
+       ORDER BY username`
+    );
+    const users = rows.map((r) => ({ username: r.username }));
+    if (IS_STAGING) users.push(...STAGING_DEMO_USERS);
+    res.json({ users });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- Leaderboard: top 10 + caller's own row ----
+app.get('/api/leaderboard', async (req, res) => {
+  try {
+    const topRes = await pool.query(
+      `SELECT rank() OVER (ORDER BY total_score DESC) AS rank,
+              user_id, username, total_score, blocks_placed, best_combo
+       FROM leaderboard
+       ORDER BY total_score DESC
+       LIMIT 10`
+    );
+    const selfRes = await pool.query(
+      `SELECT rank() OVER (ORDER BY total_score DESC) AS rank,
+              user_id, username, total_score, blocks_placed, best_combo
+       FROM leaderboard
+       WHERE user_id = $1`,
+      [req.user.id]
+    );
+    const toRow = (r) => ({
+      rank: Number(r.rank),
+      user_id: r.user_id,
+      username: r.username,
+      total_score: Number(r.total_score),
+      blocks_placed: Number(r.blocks_placed),
+      best_combo: r.best_combo,
+      count: Number(r.blocks_placed),
+    });
+    res.json({
+      entries: topRes.rows.map(toRow),
+      self: selfRes.rows.length ? toRow(selfRes.rows[0]) : null,
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -264,6 +400,15 @@ app.get('*', (req, res) => {
 // has something to render, target, break, and sync. Uses three distinct fake
 // usernames so the "Who built this?" attribution tooltip shows variety.
 // No-op in production. ----
+
+// Helper: return all {x,z} pairs in a w×d rectangle starting at (x0,z0).
+function makeRect(x0, z0, w, d) {
+  const cells = [];
+  for (let x = x0; x < x0 + w; x++)
+    for (let z = z0; z < z0 + d; z++)
+      cells.push({ x, z });
+  return cells;
+}
 function buildSeedCells() {
   const cells = [];
   const DEMO  = { userId: SEED_USER_ID, username: 'Staging demo' };
@@ -306,6 +451,12 @@ function buildSeedCells() {
   // A short sand path leading to the door — Staging demo.
   set(16, 1, 13, 6);
   set(16, 1, 12, 6);
+  // A few new block types to showcase them.
+  set(20, 1, 10, 14); // Gold Block
+  set(21, 1, 10, 15); // Glowstone
+  set(22, 1, 10, 16); // Obsidian
+  set(23, 1, 10, 17); // Rainbow Block
+  set(20, 1, 11, 13); // Snow
   return cells;
 }
 
@@ -337,6 +488,31 @@ async function seedStaging() {
   );
 }
 
+// Seed the leaderboard with 6 fake builders so staging shows a populated panel.
+// Blocks are placed at y=1 in x=1..9, z=1..12 — clear of the stone hut (x 14..18,
+// z 14..18), tree (x 23, z 23), and path (x 16, z 12..13).
+// Negative user_id sentinels (-1..-6) avoid collisions with real user IDs.
+async function seedLeaderboard() {
+  const patches = [
+    { userId: -1, username: 'Staging demo Alice',   type: 1,  cells: makeRect(1, 1, 8, 5) },  // 40
+    { userId: -2, username: 'Staging demo Bob',     type: 2,  cells: makeRect(1, 6, 5, 5) },  // 25
+    { userId: -3, username: 'Staging demo Charlie', type: 7,  cells: makeRect(6, 1, 3, 5) },  // 15
+    { userId: -4, username: 'Staging demo Dana',    type: 9,  cells: makeRect(6, 6, 3, 3) },  //  9
+    { userId: -5, username: 'Staging demo Eli',     type: 10, cells: makeRect(1, 11, 5, 1) }, //  5
+    { userId: -6, username: 'Staging demo Faye',    type: 11, cells: makeRect(1, 12, 2, 1) }, //  2
+  ];
+  for (const p of patches) {
+    for (const c of p.cells) {
+      await pool.query(
+        `INSERT INTO blocks (x, y, z, block_type, seq, updated_by_user_id, updated_by_username, updated_at)
+         VALUES ($1, 1, $2, $3, nextval('block_seq'), $4, $5, NOW())
+         ON CONFLICT (x, y, z) DO NOTHING`,
+        [c.x, c.z, p.type, p.userId, p.username]
+      );
+    }
+  }
+}
+
 async function start() {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS blocks (
@@ -353,6 +529,26 @@ async function start() {
   `);
   await pool.query(`CREATE SEQUENCE IF NOT EXISTS block_seq`);
   await pool.query(`CREATE INDEX IF NOT EXISTS blocks_seq_idx ON blocks (seq)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS blocks_user_time_idx ON blocks (updated_by_user_id, updated_at)`);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS leaderboard (
+      user_id       INTEGER PRIMARY KEY,
+      username      VARCHAR(255) NOT NULL,
+      total_score   BIGINT NOT NULL DEFAULT 0,
+      blocks_placed BIGINT NOT NULL DEFAULT 0,
+      best_combo    SMALLINT NOT NULL DEFAULT 1,
+      updated_at    TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS user_presence (
+      user_id  INTEGER PRIMARY KEY,
+      username VARCHAR(255) NOT NULL,
+      last_seen TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
 
   // Daily challenge progress: one row per (date, user). Public table —
   // placement counts and usernames are not sensitive.
@@ -376,6 +572,8 @@ async function start() {
   if (IS_STAGING) {
     try { await seedStaging(); }
     catch (err) { console.error('staging seed failed', err); }
+    try { await seedLeaderboard(); }
+    catch (err) { console.error('leaderboard seed failed', err); }
   }
 
   app.listen(port, () => console.log(`Listening on :${port}`));
