@@ -90,7 +90,7 @@
     <div class="max-w-md p-8 text-center">
       <h1 class="text-2xl font-bold mb-2">block-game</h1>
       <p class="text-zinc-300 mb-1">A shared 3D world everyone builds together.</p>
-      <p class="text-zinc-500 text-sm mb-6">Click to play — move the mouse to look, press Esc to release.</p>
+      <p id="overlay-help" class="text-zinc-500 text-sm mb-6">Click to play — move the mouse to look, press Esc to release.</p>
       <button id="play-btn" class="px-5 py-2 rounded-lg bg-violet-600 hover:bg-violet-500 font-semibold">Click to play</button>
       <div id="status" class="mt-4 text-sm text-zinc-500"></div>
     </div>
@@ -101,6 +101,11 @@
     <span class="font-semibold">WASD</span> move · <span class="font-semibold">Space/Shift</span> up·down ·
     <span class="font-semibold">Left-click</span> break · <span class="font-semibold">Right-click</span> place ·
     <span class="font-semibold">1–9</span> pick block · <span class="font-semibold">Esc</span> release
+  </div>
+  <div id="hint-fallback" class="hidden pointer-events-none fixed top-3 left-1/2 -translate-x-1/2 z-20 text-center text-xs text-zinc-300/90 bg-black/40 rounded-lg px-3 py-2 transition-opacity duration-700">
+    <span class="font-semibold">WASD</span> move · <span class="font-semibold">Space/Shift</span> up·down ·
+    <span class="font-semibold">Drag</span> look · <span class="font-semibold">Left-click</span> break · <span class="font-semibold">Right-click</span> place ·
+    <span class="font-semibold">1–9</span> pick block · <span class="font-semibold">Esc</span> menu
   </div>
 
   <!-- Block palette -->
@@ -276,9 +281,19 @@
 
     // ---- Pointer-lock fly camera ----
     let yaw = Math.PI, pitch = -0.15;
-    let locked = false;
+    let locked = false;          // true OS pointer lock is held (native path)
+    let playing = false;         // game is active / overlay hidden
+    let pointerLockBlocked = false; // a requestPointerLock() attempt has failed
+    let dragging = false;        // fallback: a look-drag is in progress
+    let pressX = 0, pressY = 0;  // fallback: where the press started
+    const DRAG_THRESHOLD = 5;    // px of movement that turns a click into a drag
     const move = { f: false, b: false, l: false, r: false, up: false, down: false };
     const SPEED = 9, SENS = 0.0022;
+
+    const overlayEl = document.getElementById('overlay');
+    const overlayHelpEl = document.getElementById('overlay-help');
+    const hintEl = document.getElementById('hint');
+    const hintFallbackEl = document.getElementById('hint-fallback');
 
     function applyLook() {
       const e = new THREE.Euler(pitch, yaw, 0, 'YXZ');
@@ -286,27 +301,93 @@
     }
     applyLook();
 
-    canvas.addEventListener('mousemove', (e) => {
-      if (!locked) return;
-      yaw -= e.movementX * SENS;
-      pitch -= e.movementY * SENS;
+    function applyLookDelta(dx, dy) {
+      yaw -= dx * SENS;
+      pitch -= dy * SENS;
       const lim = Math.PI / 2 - 0.01;
       pitch = Math.max(-lim, Math.min(lim, pitch));
       applyLook();
+    }
+
+    // Reflect the active control scheme in the overlay copy + controls hint.
+    function refreshControlCopy() {
+      if (pointerLockBlocked) {
+        overlayHelpEl.textContent = 'Click to play — drag to look, click to build, press Esc for this menu.';
+        hintEl.classList.add('hidden');
+        hintFallbackEl.classList.remove('hidden');
+      } else {
+        overlayHelpEl.textContent = 'Click to play — move the mouse to look, press Esc to release.';
+        hintEl.classList.remove('hidden');
+        hintFallbackEl.classList.add('hidden');
+      }
+    }
+
+    // Start the game in drag-to-look fallback mode (no OS pointer lock).
+    function onLockFail() {
+      pointerLockBlocked = true;
+      playing = true;
+      dragging = false;
+      canvas.style.cursor = 'grab';
+      refreshControlCopy();
+      overlayEl.style.display = 'none';
+    }
+
+    function tryPointerLock() {
+      if (pointerLockBlocked) { onLockFail(); return; }
+      try {
+        Promise.resolve(canvas.requestPointerLock()).catch(onLockFail);
+      } catch (e) {
+        onLockFail();
+      }
+    }
+
+    canvas.addEventListener('mousemove', (e) => {
+      if (locked) {
+        applyLookDelta(e.movementX, e.movementY);
+      } else if (playing && dragging) {
+        applyLookDelta(e.movementX, e.movementY);
+        canvas.style.cursor = 'grabbing';
+      }
     });
 
     document.addEventListener('pointerlockchange', () => {
       locked = document.pointerLockElement === canvas;
-      document.getElementById('overlay').style.display = locked ? 'none' : 'flex';
+      if (locked) { playing = true; pointerLockBlocked = false; refreshControlCopy(); }
+      // Only the native path drives the overlay here; fallback mode manages it
+      // itself (Esc / play-button) since there is no pointer lock to release.
+      if (!pointerLockBlocked) overlayEl.style.display = locked ? 'none' : 'flex';
     });
-    document.getElementById('play-btn').addEventListener('click', () => canvas.requestPointerLock());
-    canvas.addEventListener('click', () => { if (!locked) canvas.requestPointerLock(); });
+    document.getElementById('play-btn').addEventListener('click', tryPointerLock);
+    canvas.addEventListener('click', () => {
+      // Native path only: re-acquire the lock on a bare canvas click. In
+      // fallback mode clicks are handled by the drag/click logic below.
+      if (!locked && !playing && !pointerLockBlocked) tryPointerLock();
+    });
 
     canvas.addEventListener('contextmenu', (e) => e.preventDefault());
     canvas.addEventListener('mousedown', (e) => {
-      if (!locked) return;
-      if (e.button === 0) breakBlock();
-      else if (e.button === 2) placeBlock();
+      if (locked) {
+        // Native path: immediate build action, unchanged.
+        if (e.button === 0) breakBlock();
+        else if (e.button === 2) placeBlock();
+        return;
+      }
+      if (!playing) return;
+      // Fallback path: begin a potential look-drag; decide click vs drag on up.
+      dragging = true;
+      pressX = e.clientX;
+      pressY = e.clientY;
+      canvas.style.cursor = 'grabbing';
+    });
+    window.addEventListener('mouseup', (e) => {
+      if (locked || !playing || !dragging) return;
+      dragging = false;
+      canvas.style.cursor = 'grab';
+      const moved = Math.hypot(e.clientX - pressX, e.clientY - pressY);
+      if (moved < DRAG_THRESHOLD) {
+        if (e.button === 0) breakBlock();
+        else if (e.button === 2) placeBlock();
+      }
     });
 
     const codeMap = {
@@ -319,6 +400,15 @@
       if (e.code.startsWith('Digit')) {
         const n = parseInt(e.code.slice(5), 10);
         if (n >= 1 && n <= 9 && PALETTE[n - 1]) selectType(PALETTE[n - 1].id);
+      }
+      // Fallback mode has no OS pointer lock to release, so Escape returns to
+      // the overlay manually. In native mode the browser handles Esc itself.
+      if (e.code === 'Escape' && pointerLockBlocked && playing) {
+        playing = false;
+        dragging = false;
+        for (const k in move) move[k] = false;
+        canvas.style.cursor = '';
+        overlayEl.style.display = 'flex';
       }
     });
     window.addEventListener('keyup', (e) => { if (codeMap[e.code]) move[codeMap[e.code]] = false; });
@@ -429,7 +519,7 @@
     }
 
     // Fade the controls hint after a few seconds.
-    setTimeout(() => { document.getElementById('hint').style.opacity = '0'; }, 6000);
+    setTimeout(() => { hintEl.style.opacity = '0'; hintFallbackEl.style.opacity = '0'; }, 6000);
 
     (async function init() {
       resize();
