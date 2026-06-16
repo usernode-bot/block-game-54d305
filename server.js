@@ -143,6 +143,30 @@ app.get('/api/world/changes', async (req, res) => {
   }
 });
 
+// ---- Leaderboard: top 10 builders by blocks currently standing ----
+app.get('/api/leaderboard', async (_req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT updated_by_user_id,
+              MAX(updated_by_username) AS username,
+              COUNT(*) AS block_count
+       FROM blocks
+       WHERE block_type != 0 AND updated_by_username IS NOT NULL
+       GROUP BY updated_by_user_id
+       ORDER BY block_count DESC
+       LIMIT 10`
+    );
+    const entries = rows.map((r, i) => ({
+      rank: i + 1,
+      username: r.username,
+      count: Number(r.block_count),
+    }));
+    res.json({ entries });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.use(express.static(path.join(__dirname, 'public'), {
   setHeaders(res, filePath) {
     // The entire game is inline in index.html, so a cached shell hides a
@@ -172,6 +196,16 @@ app.get('*', (req, res) => {
 // ---- Staging seed: an obviously-fake "Staging demo" starter build so a
 // fresh staging DB (the blocks table is created empty by the migration)
 // has something to render, target, break, and sync. No-op in production. ----
+
+// Helper: return all {x,z} pairs in a w×d rectangle starting at (x0,z0).
+function makeRect(x0, z0, w, d) {
+  const cells = [];
+  for (let x = x0; x < x0 + w; x++)
+    for (let z = z0; z < z0 + d; z++)
+      cells.push({ x, z });
+  return cells;
+}
+
 function buildSeedCells() {
   const cells = [];
   const set = (x, y, z, t) => cells.push({ x, y, z, t });
@@ -222,6 +256,31 @@ async function seedStaging() {
   }
 }
 
+// Seed the leaderboard with 6 fake builders so staging shows a populated panel.
+// Blocks are placed at y=1 in x=1..9, z=1..12 — clear of the stone hut (x 14..18,
+// z 14..18), tree (x 23, z 23), and path (x 16, z 12..13).
+// Negative user_id sentinels (-1..-6) avoid collisions with real user IDs.
+async function seedLeaderboard() {
+  const patches = [
+    { userId: -1, username: 'Staging demo Alice',   type: 1,  cells: makeRect(1, 1, 8, 5) },  // 40
+    { userId: -2, username: 'Staging demo Bob',     type: 2,  cells: makeRect(1, 6, 5, 5) },  // 25
+    { userId: -3, username: 'Staging demo Charlie', type: 7,  cells: makeRect(6, 1, 3, 5) },  // 15
+    { userId: -4, username: 'Staging demo Dana',    type: 9,  cells: makeRect(6, 6, 3, 3) },  //  9
+    { userId: -5, username: 'Staging demo Eli',     type: 10, cells: makeRect(1, 11, 5, 1) }, //  5
+    { userId: -6, username: 'Staging demo Faye',    type: 11, cells: makeRect(1, 12, 2, 1) }, //  2
+  ];
+  for (const p of patches) {
+    for (const c of p.cells) {
+      await pool.query(
+        `INSERT INTO blocks (x, y, z, block_type, seq, updated_by_user_id, updated_by_username, updated_at)
+         VALUES ($1, 1, $2, $3, nextval('block_seq'), $4, $5, NOW())
+         ON CONFLICT (x, y, z) DO NOTHING`,
+        [c.x, c.z, p.type, p.userId, p.username]
+      );
+    }
+  }
+}
+
 async function start() {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS blocks (
@@ -242,6 +301,8 @@ async function start() {
   if (IS_STAGING) {
     try { await seedStaging(); }
     catch (err) { console.error('staging seed failed', err); }
+    try { await seedLeaderboard(); }
+    catch (err) { console.error('leaderboard seed failed', err); }
   }
 
   app.listen(port, () => console.log(`Listening on :${port}`));
