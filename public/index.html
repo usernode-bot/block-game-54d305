@@ -147,12 +147,12 @@
   <div id="hint" class="pointer-events-none fixed top-3 left-1/2 -translate-x-1/2 z-20 text-center text-xs text-zinc-300/90 bg-black/40 rounded-lg px-3 py-2 transition-opacity duration-700">
     <span class="font-semibold">WASD</span> move · <span class="font-semibold">Space/Shift</span> up·down ·
     <span class="font-semibold">Left-click/F</span> add · <span class="font-semibold">Right-click/G</span> delete ·
-    <span class="font-semibold">1–9</span> pick block · <span class="font-semibold">H</span> controls · <span class="font-semibold">M</span> mute · <span class="font-semibold">Esc</span> release
+    <span class="font-semibold">1–9</span> pick block · <span class="font-semibold">H</span> controls · <span class="font-semibold">Enter</span> chat · <span class="font-semibold">M</span> mute · <span class="font-semibold">Esc</span> release
   </div>
   <div id="hint-fallback" class="hidden pointer-events-none fixed top-3 left-1/2 -translate-x-1/2 z-20 text-center text-xs text-zinc-300/90 bg-black/40 rounded-lg px-3 py-2 transition-opacity duration-700">
     <span class="font-semibold">WASD</span> move · <span class="font-semibold">Space/Shift</span> up·down ·
     <span class="font-semibold">Drag</span> look · <span class="font-semibold">Left-click/F</span> add · <span class="font-semibold">Right-click/G</span> delete ·
-    <span class="font-semibold">1–9</span> pick block · <span class="font-semibold">H</span> controls · <span class="font-semibold">M</span> mute · <span class="font-semibold">Esc</span> menu
+    <span class="font-semibold">1–9</span> pick block · <span class="font-semibold">H</span> controls · <span class="font-semibold">Enter</span> chat · <span class="font-semibold">M</span> mute · <span class="font-semibold">Esc</span> menu
   </div>
 
   <!-- Look-mode control: always-visible, clickable, shows the active look
@@ -217,6 +217,7 @@
       <li><span class="font-semibold">Right-click</span> or <span class="font-semibold">G</span> — delete a block</li>
       <li><span class="font-semibold">1–9</span> — pick block type</li>
       <li><span class="font-semibold">H</span> or <span class="font-semibold">(?)</span> — toggle this panel</li>
+      <li><span class="font-semibold">Enter</span> — open / close chat</li>
       <li><span class="font-semibold">L</span> or <span class="font-semibold">🏆</span> — leaderboard</li>
       <li><span class="font-semibold">M</span> or <span class="font-semibold">🔊</span> — mute / unmute audio</li>
       <li><span class="font-semibold">Esc</span> — close panel / release / menu</li>
@@ -263,6 +264,29 @@
     </div>
   </div>
 
+  <!-- Chat drawer: slides up from the bottom of the game canvas. Hidden by
+       default; toggled by the chat button or the Enter key. -->
+  <div id="chat-drawer" class="hidden fixed bottom-0 left-0 right-0 z-[22] flex flex-col h-64 border-t border-zinc-700/80">
+    <div class="flex items-center justify-between px-3 py-2 bg-zinc-900/95 backdrop-blur-sm shrink-0">
+      <span class="text-sm font-semibold text-zinc-200">Chat</span>
+      <button id="chat-close" class="text-zinc-400 hover:text-zinc-100 text-base leading-none cursor-pointer">✕</button>
+    </div>
+    <div id="chat-messages" class="flex-1 overflow-y-auto px-3 py-2 bg-black/80 backdrop-blur-sm space-y-1 text-sm"></div>
+    <div class="flex gap-2 px-2 py-2 bg-zinc-900/95 backdrop-blur-sm shrink-0">
+      <input id="chat-input" type="text" maxlength="200" autocomplete="off"
+             placeholder="Message…"
+             class="flex-1 min-w-0 bg-zinc-800 text-zinc-100 text-sm rounded-lg px-3 py-2 border border-zinc-700 focus:border-violet-500 outline-none placeholder-zinc-500">
+      <button id="chat-send" class="shrink-0 px-3 py-2 bg-violet-600 hover:bg-violet-500 active:bg-violet-700 text-white text-sm font-semibold rounded-lg cursor-pointer transition-colors">Send</button>
+    </div>
+  </div>
+
+  <!-- Chat toggle button: fixed in the lower-right, above touch controls.
+       Shows an unread badge when new messages arrive while closed. -->
+  <button id="chat-toggle" title="Chat (Enter)"
+          class="fixed bottom-40 right-3 z-[22] w-10 h-10 rounded-full bg-black/50 hover:bg-black/70 text-xl flex items-center justify-center transition-colors cursor-pointer">
+    💬<span id="chat-badge" class="hidden absolute -top-1 -right-1 min-w-[18px] h-[18px] rounded-full bg-violet-500 text-white text-[10px] font-bold flex items-center justify-center leading-none pointer-events-none select-none">0</span>
+  </button>
+
   <!-- Time Attack HUD: timer + score shown only during TA mode -->
   <div id="ta-hud" class="hidden pointer-events-none fixed top-3 left-3 z-20 flex flex-col gap-1">
     <div id="ta-timer" class="text-3xl font-mono font-bold text-white bg-black/50 rounded-xl px-4 py-2 tabular-nums leading-none">1:00</div>
@@ -281,6 +305,7 @@
     </div>
   </div>
 
+
   </div><!-- /#rotor -->
 
   <script type="module">
@@ -293,7 +318,7 @@
 
     // Build identifier — bump this (to the deploying commit short SHA) on every
     // change so the top-right stamp confirms exactly which code is running.
-    const BUILD_VERSION = 'achievements-badges+daily-challenge+leaderboard+online-presence+block-attribution+audio-sfx';
+    const BUILD_VERSION = 'achievements-badges+chat+daily-challenge+leaderboard+online-presence+block-attribution+audio-sfx+next-piece-preview';
 
     // Badge definitions — mirror of the server-side BADGES array, extended with
     // a `hint` field shown in the panel for unearned badges.
@@ -510,6 +535,12 @@
     // ---- Badge state ----
     const earnedBadges = new Map(); // badge_id -> { earned_at }
     let badgesOpen = false;
+
+    // ---- Chat state ----
+    let chatCursor = 0;    // last chat message id seen
+    let chatUnread = 0;    // messages received while drawer was closed
+    let chatOpen = false;  // whether the chat drawer is visible
+    let chatOpening = false; // true while waiting for pointer lock to release for chat
 
     // ---- Daily Challenge state ----
     let challengeDate = null;        // ISO date string (YYYY-MM-DD) for current progress
@@ -910,6 +941,14 @@
     const lookModeEl = document.getElementById('lookmode');
     const touchControlsEl = document.getElementById('touch-controls');
 
+    // ---- Chat DOM refs ----
+    const chatDrawerEl = document.getElementById('chat-drawer');
+    const chatMessagesEl = document.getElementById('chat-messages');
+    const chatInputEl = document.getElementById('chat-input');
+    const chatSendEl = document.getElementById('chat-send');
+    const chatBadgeEl = document.getElementById('chat-badge');
+    const chatToggleEl = document.getElementById('chat-toggle');
+
     // Mute button: sync icon to stored preference immediately on load.
     const muteBtnEl = document.getElementById('mute-btn');
     muteBtnEl.textContent = audio.isMuted() ? '🔇' : '🔊';
@@ -1205,6 +1244,13 @@
         canvas.style.cursor = '';
         overlayEl.style.display = 'none';
         onPlayEntered();
+      } else if (chatOpening) {
+        // Lock released specifically so the player can type in chat.
+        // Don't show the overlay — chat drawer is already visible.
+        chatOpening = false;
+        playing = false;
+        dragMode = true;
+        canvas.style.cursor = 'grab';
       } else if (!dragMode) {
         if (gameMode === 'timeattack' && playing) {
           // Esc pressed mid-TA run in native-lock mode — end the game.
@@ -1272,6 +1318,18 @@
       Space: 'up', ShiftLeft: 'down', ShiftRight: 'down',
     };
     window.addEventListener('keydown', (e) => {
+      // While the chat input is focused, only Escape is handled globally
+      // (to close the drawer); all other keys are for typing.
+      if (document.activeElement === chatInputEl) {
+        if (e.key === 'Escape') { e.preventDefault(); closeChat(); }
+        return;
+      }
+      // Escape closes the chat drawer if it is open (before the existing
+      // Escape handler that would otherwise return to the overlay).
+      if (e.key === 'Escape' && chatOpen) { e.preventDefault(); closeChat(); return; }
+      // Enter opens chat while the player is active.
+      if (e.code === 'Enter' && playing && !chatOpen) { e.preventDefault(); openChat(); return; }
+
       if (codeMap[e.code]) { move[codeMap[e.code]] = true; if (e.code === 'Space') e.preventDefault(); }
       if (e.code.startsWith('Digit')) {
         const n = parseInt(e.code.slice(5), 10);
@@ -1368,6 +1426,7 @@
         '<li><span class="font-semibold">Up / Down</span> — fly up / down</li>',
         '<li><span class="font-semibold">Add</span> / <span class="font-semibold">Delete</span> — place / remove a block at the crosshair</li>',
         '<li><span class="font-semibold">Palette</span> — tap a swatch to pick a block</li>',
+        '<li><span class="font-semibold">💬</span> — open / close chat</li>',
         '<li><span class="font-semibold">🏆</span> — leaderboard</li>',
         '<li><span class="font-semibold">☰ Menu</span> — back to the start screen</li>',
         '<li><span class="font-semibold">🔊 / 🔇</span> — tap to mute / unmute audio</li>',
@@ -1475,6 +1534,106 @@
       selectType(selectedType);
     }
 
+    // ---- Chat ----
+    function updateChatBadge() {
+      if (chatUnread > 0) {
+        chatBadgeEl.textContent = chatUnread > 9 ? '9+' : String(chatUnread);
+        chatBadgeEl.classList.remove('hidden');
+      } else {
+        chatBadgeEl.classList.add('hidden');
+      }
+    }
+
+    function appendChatMessage(m) {
+      const row = document.createElement('div');
+      row.className = 'leading-relaxed break-words';
+      const name = document.createElement('span');
+      name.className = 'font-semibold text-violet-300 mr-1';
+      name.textContent = m.username + ':';
+      const body = document.createElement('span');
+      body.className = 'text-zinc-200';
+      body.textContent = ' ' + m.body;
+      row.appendChild(name);
+      row.appendChild(body);
+      chatMessagesEl.appendChild(row);
+      // Auto-scroll to latest when the drawer is open.
+      if (chatOpen) chatMessagesEl.scrollTop = chatMessagesEl.scrollHeight;
+    }
+
+    function openChat() {
+      chatOpen = true;
+      chatUnread = 0;
+      chatBadgeEl.classList.add('hidden');
+      chatDrawerEl.classList.remove('hidden');
+      chatMessagesEl.scrollTop = chatMessagesEl.scrollHeight;
+      resetMove();
+      if (locked) {
+        // Release pointer lock so the cursor is visible for typing.
+        // pointerlockchange will fire — chatOpening flag suppresses the overlay.
+        chatOpening = true;
+        document.exitPointerLock();
+      } else {
+        playing = false;
+      }
+      if (isTouch) updateTouchControlsVisibility();
+      // Small delay so the drawer is rendered before the input is focused.
+      setTimeout(() => chatInputEl.focus(), 30);
+    }
+
+    function closeChat() {
+      chatOpen = false;
+      chatDrawerEl.classList.add('hidden');
+      chatInputEl.blur();
+      if (isTouch) {
+        // Re-enter drag play immediately on touch devices.
+        dragMode = true;
+        playing = true;
+        updateTouchControlsVisibility();
+      }
+      // Desktop: player clicks the canvas to re-enter play (either pointer
+      // lock or drag mode, same as the initial entry flow).
+    }
+
+    async function sendChat() {
+      const body = chatInputEl.value.trim();
+      if (!body) return;
+      chatInputEl.value = '';
+      chatInputEl.disabled = true;
+      chatSendEl.disabled = true;
+      try {
+        await fetch('/api/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...headers },
+          body: JSON.stringify({ body }),
+        });
+      } catch (e) { /* transient */ } finally {
+        chatInputEl.disabled = false;
+        chatSendEl.disabled = false;
+        chatInputEl.focus();
+      }
+    }
+
+    async function loadChat() {
+      try {
+        const res = await fetch('/api/chat?since=0', { headers });
+        if (!res.ok) return;
+        const { messages, cursor: cc } = await res.json();
+        for (const m of messages) appendChatMessage(m);
+        if (cc) chatCursor = cc;
+      } catch (e) { /* ignore */ }
+    }
+
+    // ---- Chat event listeners ----
+    chatToggleEl.addEventListener('click', () => {
+      if (chatOpen) closeChat(); else openChat();
+    });
+    document.getElementById('chat-close').addEventListener('click', closeChat);
+    chatSendEl.addEventListener('click', sendChat);
+    chatInputEl.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); sendChat(); }
+      // Escape is handled by the global keydown listener above.
+    });
+
     // ---- Server sync ----
     async function loadWorld() {
       const res = await fetch('/api/world', { headers });
@@ -1527,20 +1686,40 @@
 
     async function poll() {
       if (document.hidden) return;
+
+      // World changes
       try {
         const res = await fetch('/api/world/changes?since=' + cursor, { headers });
-        if (!res.ok) return;
-        const { changes, cursor: c } = await res.json();
-        if (changes.length) {
-          for (const ch of changes) {
-            const k = key(ch.x, ch.y, ch.z);
-            if (ch.t === 0) blocks.delete(k); else blocks.set(k, ch.t);
+        if (res.ok) {
+          const { changes, cursor: c } = await res.json();
+          if (changes.length) {
+            for (const ch of changes) {
+              const k = key(ch.x, ch.y, ch.z);
+              if (ch.t === 0) blocks.delete(k); else blocks.set(k, ch.t);
+            }
+            rebuildBlockMeshes();
           }
+          if (c && c > cursor) cursor = c;
           // Only rebuild if we're currently in classic mode showing the shared world.
           if (gameMode !== 'timeattack') rebuildBlockMeshes();
         }
-        if (c && c > cursor) cursor = c;
       } catch (e) { /* transient; next tick retries */ }
+
+      // Chat messages
+      try {
+        const chatRes = await fetch('/api/chat?since=' + chatCursor, { headers });
+        if (chatRes.ok) {
+          const { messages, cursor: cc } = await chatRes.json();
+          if (messages.length) {
+            for (const m of messages) appendChatMessage(m);
+            if (!chatOpen) {
+              chatUnread += messages.length;
+              updateChatBadge();
+            }
+          }
+          if (cc && cc > chatCursor) chatCursor = cc;
+        }
+      } catch (e) { /* transient */ }
     }
 
     // ---- Render loop ----
@@ -1618,6 +1797,7 @@
           }
         }
       } catch (_) { /* non-critical; panel will populate on first badge earned */ }
+      await loadChat();
 
       // Load today's challenge progress (non-fatal if unavailable).
       try {
