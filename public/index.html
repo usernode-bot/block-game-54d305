@@ -183,6 +183,15 @@
   <button id="mute-btn" title="Mute/unmute audio (M)" aria-label="Toggle audio"
           class="fixed top-3 right-14 z-30 w-9 h-9 rounded-full bg-black/50 hover:bg-black/70 text-zinc-100 text-lg leading-none flex items-center justify-center transition-colors cursor-pointer">🔊</button>
 
+  <!-- Turntable toggle: sits to the left of the mute button. -->
+  <button id="turntable-btn" title="Toggle turntable camera" aria-label="Toggle turntable camera"
+          class="fixed top-3 right-24 z-30 w-9 h-9 rounded-full bg-black/50 hover:bg-black/70 text-zinc-100 text-lg leading-none flex items-center justify-center transition-colors cursor-pointer">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-5 h-5">
+      <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>
+      <path d="M3 3v5h5"/>
+    </svg>
+  </button>
+
   <!-- Help/controls toggle: circular "(?)" button fixed in the top-right
        corner. Clicking it does exactly what pressing `h` does — show/hide the
        controls overlay below. -->
@@ -946,6 +955,8 @@
     let yaw = 0, pitch = 0;
     let locked = false;
     let playing = false;
+    let turntableEnabled = true;
+    let turntableAngle = 0;
     let dragMode = false;
     let lockUnavailable = false;
     let lockTimer = null;
@@ -975,6 +986,17 @@
     muteBtnEl.textContent = audio.isMuted() ? '🔇' : '🔊';
     muteBtnEl.addEventListener('click', () => {
       muteBtnEl.textContent = audio.toggleMute() ? '🔇' : '🔊';
+    });
+
+    // Turntable button: toggle auto-rotating camera on the menu screen.
+    const turntableBtnEl = document.getElementById('turntable-btn');
+    function syncTurntableBtn() {
+      turntableBtnEl.style.opacity = turntableEnabled ? '1' : '0.4';
+    }
+    syncTurntableBtn();
+    turntableBtnEl.addEventListener('click', () => {
+      turntableEnabled = !turntableEnabled;
+      syncTurntableBtn();
     });
 
     // Badges button: toggle the badges panel.
@@ -1814,7 +1836,12 @@
       const dt = Math.min((now - prev) / 1000, 0.1);
       prev = now;
 
-      if (playing && (locked || dragMode)) {
+      if (!playing && turntableEnabled) {
+        turntableAngle += dt * 0.25;
+        const cx = DIMS.w / 2, cz = DIMS.d / 2;
+        camera.position.set(cx + 8 * Math.sin(turntableAngle), 3.5, cz + 8 * Math.cos(turntableAngle));
+        camera.lookAt(cx, 1.5, cz);
+      } else if (playing && (locked || dragMode)) {
         fwd.set(-Math.sin(yaw), 0, -Math.cos(yaw));
         right.set(Math.cos(yaw), 0, -Math.sin(yaw));
         const step = SPEED * dt;
