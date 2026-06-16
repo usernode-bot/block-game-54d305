@@ -65,6 +65,17 @@ const BADGES = [
   { id: 'glowmaster',      name: 'Glowmaster',      icon: '💡', flavour: 'Placed a Glowstone block!' },
   { id: 'shadow_sculptor', name: 'Shadow Sculptor', icon: '🌑', flavour: 'Placed an Obsidian block!' },
   { id: 'material_artist', name: 'Material Artist', icon: '🎨', flavour: 'Used 8+ different block types!' },
+  { id: 'streak_3',        name: 'Hot Start',       icon: '🔥', flavour: 'Logged in 3 days in a row!' },
+  { id: 'streak_7',        name: 'Week Warrior',     icon: '🗓️', flavour: 'A full week of building!' },
+  { id: 'streak_14',       name: 'Fortnight Pro',    icon: '🏆', flavour: 'Two weeks of daily play!' },
+  { id: 'streak_30',       name: 'Monthly Master',   icon: '👑', flavour: 'A full month on the block!' },
+];
+
+const STREAK_BADGE_MILESTONES = [
+  { days: 3,  id: 'streak_3' },
+  { days: 7,  id: 'streak_7' },
+  { days: 14, id: 'streak_14' },
+  { days: 30, id: 'streak_30' },
 ];
 
 // Returns badges from BADGES that are newly earned given updated leaderboard
@@ -361,7 +372,80 @@ app.post('/api/presence/ping', async (req, res) => {
        ON CONFLICT (user_id) DO UPDATE SET username = EXCLUDED.username, last_seen = NOW()`,
       [req.user.id, req.user.username]
     );
-    res.json({ ok: true });
+
+    // Upsert login streak. Idempotent for the same UTC day.
+    const streakRes = await pool.query(
+      `INSERT INTO login_streaks (user_id, username, last_login_date, current_streak, longest_streak)
+       VALUES ($1, $2, CURRENT_DATE, 1, 1)
+       ON CONFLICT (user_id) DO UPDATE SET
+         username        = EXCLUDED.username,
+         current_streak  = CASE
+           WHEN login_streaks.last_login_date = CURRENT_DATE     THEN login_streaks.current_streak
+           WHEN login_streaks.last_login_date = CURRENT_DATE - 1 THEN login_streaks.current_streak + 1
+           ELSE 1
+         END,
+         longest_streak  = GREATEST(login_streaks.longest_streak, CASE
+           WHEN login_streaks.last_login_date = CURRENT_DATE     THEN login_streaks.current_streak
+           WHEN login_streaks.last_login_date = CURRENT_DATE - 1 THEN login_streaks.current_streak + 1
+           ELSE 1
+         END),
+         last_login_date = CASE
+           WHEN login_streaks.last_login_date = CURRENT_DATE THEN login_streaks.last_login_date
+           ELSE CURRENT_DATE
+         END,
+         updated_at = NOW()
+       RETURNING current_streak, longest_streak`,
+      [req.user.id, req.user.username]
+    );
+    const { current_streak, longest_streak } = streakRes.rows[0];
+
+    // Check which streak milestone badges the user already has.
+    const earnedRes = await pool.query(
+      `SELECT badge_id FROM player_badges WHERE user_id = $1 AND badge_id LIKE 'streak_%'`,
+      [req.user.id]
+    );
+    const earnedStreakIds = new Set(earnedRes.rows.map((r) => r.badge_id));
+
+    // Award any newly crossed milestone badges.
+    const newlyEarnedBadges = [];
+    for (const { days, id } of STREAK_BADGE_MILESTONES) {
+      if (current_streak >= days && !earnedStreakIds.has(id)) {
+        const ins = await pool.query(
+          `INSERT INTO player_badges (user_id, badge_id, earned_at)
+           VALUES ($1, $2, NOW())
+           ON CONFLICT DO NOTHING
+           RETURNING badge_id`,
+          [req.user.id, id]
+        );
+        if (ins.rows.length > 0) {
+          const def = BADGES.find((b) => b.id === id);
+          if (def) newlyEarnedBadges.push({ ...def, earned_at: new Date().toISOString() });
+        }
+      }
+    }
+
+    res.json({
+      ok: true,
+      streak: { current: current_streak, longest: longest_streak },
+      newly_earned_badges: newlyEarnedBadges,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- Streak: current user's login streak ----
+app.get('/api/streak', async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT current_streak, longest_streak FROM login_streaks WHERE user_id = $1`,
+      [req.user.id]
+    );
+    if (!rows.length) return res.json({ current_streak: 0, longest_streak: 0 });
+    res.json({
+      current_streak: rows[0].current_streak,
+      longest_streak: rows[0].longest_streak,
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -735,6 +819,39 @@ async function seedChat() {
   );
 }
 
+async function seedStreaks() {
+  // Negative user IDs so they never collide with real platform user IDs (positive integers).
+  const rows = [
+    { user_id: -1, username: 'Staging demo builder A', current_streak: 3,  longest_streak: 7 },
+    { user_id: -2, username: 'Staging demo builder B', current_streak: 7,  longest_streak: 14 },
+    { user_id: -3, username: 'Staging demo builder C', current_streak: 14, longest_streak: 30 },
+    { user_id: -4, username: 'Staging demo builder D', current_streak: 1,  longest_streak: 3 },
+  ];
+  for (const r of rows) {
+    await pool.query(
+      `INSERT INTO login_streaks (user_id, username, last_login_date, current_streak, longest_streak)
+       VALUES ($1, $2, CURRENT_DATE, $3, $4)
+       ON CONFLICT (user_id) DO NOTHING`,
+      [r.user_id, r.username, r.current_streak, r.longest_streak]
+    );
+  }
+  // Seed streak milestone badges for the demo users so the badge panel shows mixed states.
+  const milestoneSeeds = [
+    { user_id: -1, badge_id: 'streak_3' },
+    { user_id: -2, badge_id: 'streak_3' },
+    { user_id: -2, badge_id: 'streak_7' },
+    { user_id: -3, badge_id: 'streak_3' },
+    { user_id: -3, badge_id: 'streak_7' },
+    { user_id: -3, badge_id: 'streak_14' },
+  ];
+  for (const s of milestoneSeeds) {
+    await pool.query(
+      `INSERT INTO player_badges (user_id, badge_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+      [s.user_id, s.badge_id]
+    );
+  }
+}
+
 async function start() {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS blocks (
@@ -823,6 +940,18 @@ async function start() {
     ON daily_challenge_progress (challenge_date, blocks_placed DESC)
   `);
 
+  // Login streak tracking: one row per user, updated on each daily first visit.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS login_streaks (
+      user_id        INTEGER PRIMARY KEY,
+      username       VARCHAR(255) NOT NULL,
+      last_login_date DATE NOT NULL,
+      current_streak INTEGER NOT NULL DEFAULT 1,
+      longest_streak INTEGER NOT NULL DEFAULT 1,
+      updated_at     TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+
   if (IS_STAGING) {
     try { await seedStaging(); }
     catch (err) { console.error('staging blocks seed failed', err); }
@@ -830,6 +959,8 @@ async function start() {
     catch (err) { console.error('staging chat seed failed', err); }
     try { await seedLeaderboard(); }
     catch (err) { console.error('leaderboard seed failed', err); }
+    try { await seedStreaks(); }
+    catch (err) { console.error('streak seed failed', err); }
   }
 
   app.listen(port, () => console.log(`Listening on :${port}`));

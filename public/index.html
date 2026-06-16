@@ -225,6 +225,9 @@
   <!-- Badge toast container: toasts stack above the palette, bottom-centre. -->
   <div id="badge-toasts" class="pointer-events-none fixed left-1/2 -translate-x-1/2 z-40 flex flex-col-reverse items-center gap-2" style="bottom: 5.5rem"></div>
 
+  <!-- Login Streak HUD: compact pill above the daily challenge bar. Bottom set by JS. -->
+  <div id="streak-hud" class="hidden pointer-events-none fixed right-3 z-20 rounded-lg bg-black/55 px-2 py-1.5 text-xs text-white/90 font-semibold whitespace-nowrap"></div>
+
   <!-- Daily Challenge HUD: bottom position set by JS (touch devices are raised
        to clear the on-screen action cluster). Hidden until init() loads data. -->
   <div id="challenge-hud" class="hidden pointer-events-none fixed right-3 z-20 w-36 rounded-lg bg-black/55 px-2 py-1.5 text-xs text-white/90"></div>
@@ -366,6 +369,10 @@
       { id: 'glowmaster',      name: 'Glowmaster',      icon: '💡', flavour: 'Placed a Glowstone block!',       hint: 'Place a Glowstone block' },
       { id: 'shadow_sculptor', name: 'Shadow Sculptor', icon: '🌑', flavour: 'Placed an Obsidian block!',       hint: 'Place an Obsidian block' },
       { id: 'material_artist', name: 'Material Artist', icon: '🎨', flavour: 'Used 8+ different block types!', hint: 'Use 8 or more different block types' },
+      { id: 'streak_3',        name: 'Hot Start',       icon: '🔥', flavour: 'Logged in 3 days in a row!',     hint: 'Log in 3 days in a row' },
+      { id: 'streak_7',        name: 'Week Warrior',    icon: '🗓️', flavour: 'A full week of building!',       hint: 'Log in 7 days in a row' },
+      { id: 'streak_14',       name: 'Fortnight Pro',   icon: '🏆', flavour: 'Two weeks of daily play!',       hint: 'Log in 14 days in a row' },
+      { id: 'streak_30',       name: 'Monthly Master',  icon: '👑', flavour: 'A full month on the block!',     hint: 'Log in 30 days in a row' },
     ];
 
     // Touch capability: drives (a) the on-screen control overlay, (b) skipping
@@ -556,6 +563,19 @@
     // the on-screen fly/build action cluster that lives at bottom-right.
     const challengeHudEl = document.getElementById('challenge-hud');
     challengeHudEl.style.bottom = isTouch ? '10rem' : '1rem';
+
+    // Streak HUD pill sits above the challenge HUD.
+    const streakHudEl = document.getElementById('streak-hud');
+    const CHALLENGE_HUD_HEIGHT_PX = 54; // approx rendered height (px) of challenge pill
+    const STREAK_GAP_PX = 6;
+    const challengeHudBottomPx = isTouch ? 160 : 16; // 10rem=160px, 1rem=16px
+    streakHudEl.style.bottom = (challengeHudBottomPx + CHALLENGE_HUD_HEIGHT_PX + STREAK_GAP_PX) + 'px';
+
+    function updateStreakHud(current) {
+      if (current <= 0) return;
+      streakHudEl.textContent = current === 1 ? '🔥 Day 1' : '🔥 ' + current + ' day streak';
+      streakHudEl.classList.remove('hidden');
+    }
 
     // ---- World/runtime state ----
     let DIMS = { w: 32, d: 32, h: 24 };
@@ -1793,8 +1813,18 @@
     async function heartbeat() {
       if (!token) return;
       try {
-        await fetch('/api/presence/ping', { method: 'POST', headers });
-      } catch (_) { /* fire-and-forget */ }
+        const res = await fetch('/api/presence/ping', { method: 'POST', headers });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (data.streak) updateStreakHud(data.streak.current);
+        if (data.newly_earned_badges && data.newly_earned_badges.length) {
+          for (const badge of data.newly_earned_badges) {
+            earnedBadges.set(badge.id, { earned_at: badge.earned_at });
+            showBadgeToast(badge);
+          }
+          renderBadgesPanel();
+        }
+      } catch (_) { /* transient */ }
     }
 
     const onlineListEl = document.getElementById('online-list');
@@ -1942,6 +1972,15 @@
       try {
         const cr = await fetch('/api/challenge/today', { headers });
         if (cr.ok) syncChallenge(await cr.json());
+      } catch (_) {}
+
+      // Load login streak so the HUD shows immediately without waiting for heartbeat.
+      try {
+        const sr = await fetch('/api/streak', { headers });
+        if (sr.ok) {
+          const sd = await sr.json();
+          if (sd.current_streak > 0) updateStreakHud(sd.current_streak);
+        }
       } catch (_) {}
 
 
