@@ -562,16 +562,26 @@
 
     let prev = performance.now();
     const fwd = new THREE.Vector3(), right = new THREE.Vector3();
+    const WORLD_UP = new THREE.Vector3(0, 1, 0);
     function loop(now) {
       const dt = Math.min((now - prev) / 1000, 0.1);
       prev = now;
 
-      // Derive forward/right purely from yaw so W/S/A/D stay on the
-      // horizontal plane with no vertical drift (from pitch) and no
-      // lateral drift. Both are already unit-length, so no normalize.
-      const sy = Math.sin(yaw), cy = Math.cos(yaw);
-      fwd.set(-sy, 0, -cy);   // camera's horizontal look direction
-      right.set(cy, 0, -sy);  // strictly perpendicular, to the right
+      // Forward must travel exactly toward the screen-center heading, so
+      // derive it from the SAME source the crosshair raycaster uses: the
+      // camera's true world facing. Flatten onto the XZ plane (drop the
+      // pitch component) and normalize — this is the horizontal heading
+      // with no vertical drift and zero lateral offset relative to aim.
+      camera.getWorldDirection(fwd);
+      fwd.y = 0;
+      if (fwd.lengthSq() < 1e-8) {
+        // Looking straight up/down: fall back to the yaw heading.
+        fwd.set(-Math.sin(yaw), 0, -Math.cos(yaw));
+      }
+      fwd.normalize();
+      // Right = forward × world-up: perpendicular, horizontal, and on the
+      // correct (right-hand) side for D / A strafing.
+      right.crossVectors(fwd, WORLD_UP).normalize();
       const step = SPEED * dt;
       if (move.f) camera.position.addScaledVector(fwd, step);
       if (move.b) camera.position.addScaledVector(fwd, -step);
