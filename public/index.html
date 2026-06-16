@@ -561,18 +561,17 @@
     window.addEventListener('resize', resize);
 
     let prev = performance.now();
-    const fwd = new THREE.Vector3(), right = new THREE.Vector3(), up = new THREE.Vector3(0, 1, 0);
+    const fwd = new THREE.Vector3(), right = new THREE.Vector3();
     function loop(now) {
       const dt = Math.min((now - prev) / 1000, 0.1);
       prev = now;
 
-      camera.getWorldDirection(fwd);
-      // Flatten the look direction onto the horizontal plane so W/S move
-      // straight along the yaw, never drifting up/down with the pitch.
-      fwd.y = 0;
-      if (fwd.lengthSq() < 1e-6) fwd.set(0, 0, -1); // looking straight up/down
-      fwd.normalize();
-      right.crossVectors(fwd, up).normalize();
+      // Derive forward/right purely from yaw so W/S/A/D stay on the
+      // horizontal plane with no vertical drift (from pitch) and no
+      // lateral drift. Both are already unit-length, so no normalize.
+      const sy = Math.sin(yaw), cy = Math.cos(yaw);
+      fwd.set(-sy, 0, -cy);   // camera's horizontal look direction
+      right.set(cy, 0, -sy);  // strictly perpendicular, to the right
       const step = SPEED * dt;
       if (move.f) camera.position.addScaledVector(fwd, step);
       if (move.b) camera.position.addScaledVector(fwd, -step);
