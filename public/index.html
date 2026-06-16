@@ -149,6 +149,10 @@
   <!-- Block palette -->
   <div id="palette" class="fixed bottom-4 left-1/2 -translate-x-1/2 z-20 flex gap-1.5 p-1.5 rounded-xl bg-black/50 backdrop-blur"></div>
 
+  <!-- Badges toggle: sits to the left of the mute button. -->
+  <button id="badges-btn" title="Badges" aria-label="Toggle badges"
+          class="fixed top-3 z-30 w-9 h-9 rounded-full bg-black/50 hover:bg-black/70 text-zinc-100 text-lg leading-none flex items-center justify-center transition-colors cursor-pointer" style="right: 6.25rem">🏆</button>
+
   <!-- Audio mute toggle: sits to the left of the help button. -->
   <button id="mute-btn" title="Mute/unmute audio (M)" aria-label="Toggle audio"
           class="fixed top-3 right-14 z-30 w-9 h-9 rounded-full bg-black/50 hover:bg-black/70 text-zinc-100 text-lg leading-none flex items-center justify-center transition-colors cursor-pointer">🔊</button>
@@ -163,6 +167,19 @@
        confirmed at a glance. Bump BUILD_VERSION (below) on every change.
        Sits just below the help button so the two don't overlap. -->
   <div id="build-stamp" class="pointer-events-none fixed top-14 right-3 z-20 text-[11px] text-zinc-300/70 bg-black/40 rounded px-2 py-1 font-mono"></div>
+
+  <!-- Badges panel: lists all 10 badges with earned/locked state. Hidden by
+       default; toggled by the trophy button. -->
+  <div id="badges-panel" class="hidden fixed top-16 right-3 z-30 w-72 max-w-[90vw] rounded-xl bg-black/70 backdrop-blur p-4 text-sm text-zinc-200 shadow-xl">
+    <div class="flex items-center justify-between mb-3">
+      <h2 class="font-bold text-zinc-100">Badges</h2>
+      <button id="badges-close" aria-label="Close badges" class="text-zinc-400 hover:text-zinc-100 cursor-pointer leading-none">✕</button>
+    </div>
+    <div id="badges-list" class="space-y-1.5 max-h-96 overflow-y-auto pr-0.5"></div>
+  </div>
+
+  <!-- Badge toast container: toasts stack above the palette, bottom-centre. -->
+  <div id="badge-toasts" class="pointer-events-none fixed left-1/2 -translate-x-1/2 z-40 flex flex-col-reverse items-center gap-2" style="bottom: 5.5rem"></div>
 
   <!-- Controls overlay: a help panel listing every key/mouse binding. Hidden
        by default; toggled by pressing `h` or clicking the "(?)" button. -->
@@ -225,7 +242,22 @@
 
     // Build identifier — bump this (to the deploying commit short SHA) on every
     // change so the top-right stamp confirms exactly which code is running.
-    const BUILD_VERSION = 'block-attribution+audio-sfx';
+    const BUILD_VERSION = 'achievements-badges';
+
+    // Badge definitions — mirror of the server-side BADGES array, extended with
+    // a `hint` field shown in the panel for unearned badges.
+    const BADGES_DEF = [
+      { id: 'first_block',     name: 'First Block',    icon: '🏗️', flavour: 'Placed your first block!',        hint: 'Place your first block' },
+      { id: 'builder',         name: 'Builder',         icon: '🧱', flavour: 'Placed 10 blocks!',               hint: 'Place 10 blocks total' },
+      { id: 'architect',       name: 'Architect',       icon: '🏰', flavour: 'Placed 100 blocks!',              hint: 'Place 100 blocks total' },
+      { id: 'high_scorer',     name: 'High Scorer',     icon: '⭐', flavour: 'Earned 1,000 score points!',      hint: 'Accumulate 1,000 score points' },
+      { id: 'comboist',        name: 'Comboist',        icon: '⚡', flavour: 'Hit a ×3 combo multiplier!',      hint: 'Achieve a ×3 combo multiplier' },
+      { id: 'rainbow_placer',  name: 'Rainbow Placer',  icon: '🌈', flavour: 'Placed a Rainbow Block!',         hint: 'Place a Rainbow Block' },
+      { id: 'golden_touch',    name: 'Golden Touch',    icon: '✨', flavour: 'Placed a Gold Block!',            hint: 'Place a Gold Block' },
+      { id: 'glowmaster',      name: 'Glowmaster',      icon: '💡', flavour: 'Placed a Glowstone block!',       hint: 'Place a Glowstone block' },
+      { id: 'shadow_sculptor', name: 'Shadow Sculptor', icon: '🌑', flavour: 'Placed an Obsidian block!',       hint: 'Place an Obsidian block' },
+      { id: 'material_artist', name: 'Material Artist', icon: '🎨', flavour: 'Used 8+ different block types!', hint: 'Use 8 or more different block types' },
+    ];
 
     // Touch capability: drives (a) the on-screen control overlay, (b) skipping
     // mouse-lock in favour of direct touch play, and (c) portrait force-rotation.
@@ -420,6 +452,10 @@
     let selectedType = 1;
     const key = (x, y, z) => x + ',' + y + ',' + z;
 
+    // ---- Badge state ----
+    const earnedBadges = new Map(); // badge_id -> { earned_at }
+    let badgesOpen = false;
+
     // ---- Three.js scaffold ----
     const canvas = document.getElementById('scene');
     const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
@@ -550,6 +586,76 @@
       return Math.floor(diff / 86400) + ' days ago';
     }
 
+    // ---- Badge panel rendering ----
+    function renderBadgesPanel() {
+      const listEl = document.getElementById('badges-list');
+      listEl.innerHTML = '';
+      for (const b of BADGES_DEF) {
+        const earned = earnedBadges.get(b.id);
+        const item = document.createElement('div');
+        item.className = 'flex items-start gap-2.5 rounded-lg px-2 py-2 ' + (earned ? 'bg-white/5' : 'opacity-40');
+        const iconEl = document.createElement('span');
+        iconEl.className = 'text-xl leading-none mt-0.5 flex-shrink-0';
+        iconEl.textContent = earned ? b.icon : '🔒';
+        const info = document.createElement('div');
+        info.className = 'min-w-0';
+        const nameEl = document.createElement('div');
+        nameEl.className = 'font-semibold text-zinc-100 leading-tight';
+        nameEl.textContent = b.name;
+        const subEl = document.createElement('div');
+        subEl.className = 'text-zinc-400 text-xs mt-0.5 leading-snug';
+        subEl.textContent = earned
+          ? b.flavour + ' · earned ' + relativeTime(earned.earned_at)
+          : b.hint;
+        info.appendChild(nameEl);
+        info.appendChild(subEl);
+        item.appendChild(iconEl);
+        item.appendChild(info);
+        listEl.appendChild(item);
+      }
+    }
+
+    // ---- Badge toast queue ----
+    const toastQueue = [];
+    let toastShowing = false;
+
+    function showNextToast() {
+      if (!toastQueue.length) { toastShowing = false; return; }
+      toastShowing = true;
+      const badge = toastQueue.shift();
+      const container = document.getElementById('badge-toasts');
+      const toast = document.createElement('div');
+      toast.className = 'flex items-center gap-3 bg-black/85 backdrop-blur rounded-xl px-4 py-2.5 text-sm text-zinc-100 shadow-xl';
+      toast.style.cssText = 'opacity:0;transition:opacity 0.3s;';
+      const iconSpan = document.createElement('span');
+      iconSpan.className = 'text-2xl leading-none flex-shrink-0';
+      iconSpan.textContent = badge.icon;
+      const textDiv = document.createElement('div');
+      const nameDiv = document.createElement('div');
+      nameDiv.className = 'font-semibold';
+      nameDiv.textContent = badge.name;
+      const subDiv = document.createElement('div');
+      subDiv.className = 'text-zinc-400 text-xs mt-0.5';
+      subDiv.textContent = badge.flavour;
+      textDiv.appendChild(nameDiv);
+      textDiv.appendChild(subDiv);
+      toast.appendChild(iconSpan);
+      toast.appendChild(textDiv);
+      container.appendChild(toast);
+      // Trigger opacity transition after insertion.
+      requestAnimationFrame(() => { toast.style.opacity = '1'; });
+      const displayMs = toastQueue.length > 0 ? 3000 : 4000;
+      setTimeout(() => {
+        toast.style.opacity = '0';
+        setTimeout(() => { toast.remove(); showNextToast(); }, 300);
+      }, displayMs);
+    }
+
+    function showBadgeToast(badge) {
+      toastQueue.push(badge);
+      if (!toastShowing) showNextToast();
+    }
+
     function clearAttribution() {
       if (_attrTimer !== null) { clearTimeout(_attrTimer); _attrTimer = null; }
       if (_attrAbort !== null) { _attrAbort.abort(); _attrAbort = null; }
@@ -626,8 +732,15 @@
           body: JSON.stringify({ x, y, z, block_type: t }),
         });
         if (res.ok) {
-          const { seq } = await res.json();
-          if (seq && seq > cursor) cursor = seq;
+          const data = await res.json();
+          if (data.seq && data.seq > cursor) cursor = data.seq;
+          if (data.newly_earned_badges && data.newly_earned_badges.length) {
+            for (const badge of data.newly_earned_badges) {
+              earnedBadges.set(badge.id, { earned_at: new Date().toISOString() });
+              showBadgeToast(badge);
+            }
+            if (badgesOpen) renderBadgesPanel();
+          }
         }
       } catch (e) { /* poll loop will reconcile */ }
     }
@@ -674,6 +787,23 @@
     muteBtnEl.textContent = audio.isMuted() ? '🔇' : '🔊';
     muteBtnEl.addEventListener('click', () => {
       muteBtnEl.textContent = audio.toggleMute() ? '🔇' : '🔊';
+    });
+
+    // Badges button: toggle the badges panel.
+    const badgesBtnEl = document.getElementById('badges-btn');
+    const badgesPanelEl = document.getElementById('badges-panel');
+    badgesBtnEl.addEventListener('click', () => {
+      badgesOpen = !badgesOpen;
+      if (badgesOpen) {
+        renderBadgesPanel();
+        badgesPanelEl.classList.remove('hidden');
+      } else {
+        badgesPanelEl.classList.add('hidden');
+      }
+    });
+    document.getElementById('badges-close').addEventListener('click', () => {
+      badgesOpen = false;
+      badgesPanelEl.classList.add('hidden');
     });
 
     // Reusable temporaries + one-shot roll diagnostic state for applyLook().
@@ -1197,6 +1327,16 @@
       refreshControlCopy();
       const ok = await loadWorld();
       if (!ok) return;
+      // Fetch earned badges so the panel renders correctly from the first open.
+      try {
+        const badgesRes = await fetch('/api/badges', { headers });
+        if (badgesRes.ok) {
+          const badgesData = await badgesRes.json();
+          for (const b of badgesData.badges) {
+            earnedBadges.set(b.id, { earned_at: b.earned_at });
+          }
+        }
+      } catch (_) { /* non-critical; panel will populate on first badge earned */ }
       requestAnimationFrame(loop);
       setInterval(poll, 1500);
     })();
