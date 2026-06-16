@@ -98,6 +98,9 @@
       -webkit-user-select: none;
       -webkit-tap-highlight-color: transparent;
     }
+
+    /* Hold panel swatch transition for locked/unlocked state */
+    #hold-swatch { transition: opacity 0.2s; }
   </style>
 </head>
 <body class="bg-zinc-950 text-zinc-100">
@@ -133,18 +136,27 @@
   <div id="hint" class="pointer-events-none fixed top-3 left-1/2 -translate-x-1/2 z-20 text-center text-xs text-zinc-300/90 bg-black/40 rounded-lg px-3 py-2 transition-opacity duration-700">
     <span class="font-semibold">WASD</span> move · <span class="font-semibold">Space/Shift</span> up·down ·
     <span class="font-semibold">Left-click/F</span> add · <span class="font-semibold">Right-click/G</span> delete ·
-    <span class="font-semibold">1–9</span> pick block · <span class="font-semibold">H</span> controls · <span class="font-semibold">Esc</span> release
+    <span class="font-semibold">1–9</span> pick block · <span class="font-semibold">H</span> hold/help · <span class="font-semibold">Esc</span> release
   </div>
   <div id="hint-fallback" class="hidden pointer-events-none fixed top-3 left-1/2 -translate-x-1/2 z-20 text-center text-xs text-zinc-300/90 bg-black/40 rounded-lg px-3 py-2 transition-opacity duration-700">
     <span class="font-semibold">WASD</span> move · <span class="font-semibold">Space/Shift</span> up·down ·
     <span class="font-semibold">Drag</span> look · <span class="font-semibold">Left-click/F</span> add · <span class="font-semibold">Right-click/G</span> delete ·
-    <span class="font-semibold">1–9</span> pick block · <span class="font-semibold">H</span> controls · <span class="font-semibold">Esc</span> menu
+    <span class="font-semibold">1–9</span> pick block · <span class="font-semibold">H</span> hold/help · <span class="font-semibold">Esc</span> menu
   </div>
 
   <!-- Look-mode control: always-visible, clickable, shows the active look
        scheme and lets the player (re)try mouse-lock. NOT pointer-events-none
        and NOT faded, so it stays interactive after the keys hint fades. -->
   <button id="lookmode" class="hidden fixed top-12 left-1/2 -translate-x-1/2 z-20 text-xs text-zinc-200 bg-black/50 hover:bg-black/70 rounded-lg px-3 py-1.5 transition-colors cursor-pointer"></button>
+
+  <!-- Hold panel: displays the currently held block type (one-slot hold queue).
+       Positioned at the bottom-left, aligned with the palette bar. -->
+  <div id="hold-panel" class="pointer-events-none fixed bottom-4 left-4 z-20 flex flex-col items-center gap-1">
+    <span class="text-[10px] font-bold text-zinc-400 uppercase tracking-wide">Hold</span>
+    <div id="hold-swatch" class="w-10 h-10 rounded-md border-2 border-dashed border-zinc-600 flex items-center justify-center">
+      <span class="text-zinc-600 text-sm font-bold">–</span>
+    </div>
+  </div>
 
   <!-- Block palette -->
   <div id="palette" class="fixed bottom-4 left-1/2 -translate-x-1/2 z-20 flex gap-1.5 p-1.5 rounded-xl bg-black/50 backdrop-blur"></div>
@@ -173,7 +185,8 @@
       <li><span class="font-semibold">Left-click</span> or <span class="font-semibold">F</span> — add a block</li>
       <li><span class="font-semibold">Right-click</span> or <span class="font-semibold">G</span> — delete a block</li>
       <li><span class="font-semibold">1–9</span> — pick block type</li>
-      <li><span class="font-semibold">H</span> or <span class="font-semibold">(?)</span> — toggle this panel</li>
+      <li><span class="font-semibold">H</span> (playing) — hold / swap block type</li>
+      <li><span class="font-semibold">H</span> (menu) or <span class="font-semibold">(?)</span> — toggle this panel</li>
       <li><span class="font-semibold">Esc</span> — release / menu</li>
     </ul>
   </div>
@@ -198,6 +211,7 @@
     <!-- Fly + build cluster, bottom-right -->
     <div class="absolute right-4 bottom-4 flex flex-col items-end gap-2">
       <div class="flex gap-2">
+        <button data-act="hold" class="touch-ctrl pointer-events-auto w-14 h-14 rounded-xl bg-violet-700/55 active:bg-violet-500/80 text-xs font-bold text-white flex items-center justify-center">Hold</button>
         <button data-mv="down" class="touch-ctrl pointer-events-auto w-14 h-14 rounded-xl bg-black/40 active:bg-black/70 text-sm font-semibold text-zinc-100 flex items-center justify-center">Down</button>
         <button data-mv="up" class="touch-ctrl pointer-events-auto w-14 h-14 rounded-xl bg-black/40 active:bg-black/70 text-sm font-semibold text-zinc-100 flex items-center justify-center">Up</button>
       </div>
@@ -220,7 +234,7 @@
 
     // Build identifier — bump this (to the deploying commit short SHA) on every
     // change so the top-right stamp confirms exactly which code is running.
-    const BUILD_VERSION = 'block-attribution';
+    const BUILD_VERSION = 'hold-queue';
 
     // Touch capability: drives (a) the on-screen control overlay, (b) skipping
     // mouse-lock in favour of direct touch play, and (c) portrait force-rotation.
@@ -237,6 +251,10 @@
     let cursor = 0;                  // last seq seen from the server
     let selectedType = 1;
     const key = (x, y, z) => x + ',' + y + ',' + z;
+
+    // ---- Hold queue state ----
+    let heldType = null;    // block type ID currently in the hold slot, or null
+    let holdLocked = false; // true after a hold swap; cleared on next block placement
 
     // ---- Three.js scaffold ----
     const canvas = document.getElementById('scene');
@@ -456,6 +474,9 @@
       if (!inBounds(x, y, z)) return;
       if (blocks.get(key(x, y, z)) === selectedType) return;
       sendEdit(x, y, z, selectedType);
+      // Unlock hold after each successful placement (Tetris lock rule)
+      holdLocked = false;
+      updateHoldPanel();
     }
     function breakBlock() {
       if (!target) return;
@@ -745,9 +766,12 @@
       // behind the menu.
       if (e.code === 'KeyF' && playing) placeBlock();
       if (e.code === 'KeyG' && playing) breakBlock();
-      // H toggles the controls overlay (same as the "(?)" button), available
-      // whether or not the game is currently being played.
-      if (e.code === 'KeyH') toggleControls();
+      // H is context-aware: triggers hold/swap while playing, toggles the
+      // controls overlay when the menu/overlay is up.
+      if (e.code === 'KeyH') {
+        if (playing) holdBlock();
+        else toggleControls();
+      }
       // Drag mode has no OS pointer lock to release, so Escape returns to the
       // overlay manually. In native (locked) mode the browser handles Esc and
       // fires pointerlockchange, which restores the overlay there.
@@ -815,13 +839,14 @@
       bindTap(el, () => {
         if (act === 'place' && playing) placeBlock();
         else if (act === 'break' && playing) breakBlock();
+        else if (act === 'hold' && playing) holdBlock();
         else if (act === 'menu') exitToMenu();
       });
     }
 
     // ---- Controls overlay toggle ----
-    // Shared by the `h` key and the top-right "(?)" button — both show/hide the
-    // help panel listing every key/mouse binding.
+    // Shared by the `h` key (when not playing) and the top-right "(?)" button —
+    // both show/hide the help panel listing every key/mouse binding.
     const controlsEl = document.getElementById('controls');
     // On touch devices, rewrite the help panel + start-overlay copy to describe
     // the on-screen controls instead of keyboard/mouse bindings.
@@ -832,6 +857,7 @@
         '<li><span class="font-semibold">Move pad</span> — glide forward / back / left / right</li>',
         '<li><span class="font-semibold">Up / Down</span> — fly up / down</li>',
         '<li><span class="font-semibold">Add</span> / <span class="font-semibold">Delete</span> — place / remove a block at the crosshair</li>',
+        '<li><span class="font-semibold">Hold</span> — swap the active block type with the hold slot</li>',
         '<li><span class="font-semibold">Palette</span> — tap a swatch to pick a block</li>',
         '<li><span class="font-semibold">☰ Menu</span> — back to the start screen</li>',
       ].join('');
@@ -872,6 +898,37 @@
         wrap.appendChild(btn);
       });
       selectType(selectedType);
+      // Reset hold state on world/palette load
+      heldType = null;
+      holdLocked = false;
+      updateHoldPanel();
+    }
+
+    // ---- Hold queue ----
+    function updateHoldPanel() {
+      const swatchEl = document.getElementById('hold-swatch');
+      if (!swatchEl) return;
+      const p = heldType !== null ? PALETTE.find((q) => q.id === heldType) : null;
+      if (!p) {
+        swatchEl.style.background = '';
+        swatchEl.style.opacity = '';
+        swatchEl.className = 'w-10 h-10 rounded-md border-2 border-dashed border-zinc-600 flex items-center justify-center';
+        swatchEl.innerHTML = '<span class="text-zinc-600 text-sm font-bold">–</span>';
+      } else {
+        swatchEl.style.background = p.color;
+        swatchEl.style.opacity = holdLocked ? '0.4' : '1';
+        swatchEl.className = 'w-10 h-10 rounded-md';
+        swatchEl.innerHTML = '';
+      }
+    }
+
+    function holdBlock() {
+      if (holdLocked) return;
+      const prev = selectedType;
+      if (heldType !== null) selectType(heldType);
+      heldType = prev;
+      holdLocked = true;
+      updateHoldPanel();
     }
 
     // ---- Server sync ----
