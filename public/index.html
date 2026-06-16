@@ -151,6 +151,7 @@
     scene.fog = new THREE.Fog('#8ec7ff', 40, 90);
 
     const camera = new THREE.PerspectiveCamera(70, 1, 0.1, 500);
+    camera.up.set(0, 1, 0); // pin world up so the horizon can never roll
     camera.position.set(DIMS.w / 2, 3.5, DIMS.d / 2 + 8);
 
     scene.add(new THREE.AmbientLight(0xffffff, 0.65));
@@ -334,9 +335,34 @@
     const hintFallbackEl = document.getElementById('hint-fallback');
     const lookModeEl = document.getElementById('lookmode');
 
+    // Reusable temporaries + one-shot roll diagnostic state for applyLook().
+    const _lookFwd = new THREE.Vector3();
+    const _lookTarget = new THREE.Vector3();
+    const _camRight = new THREE.Vector3();
+    let _rollWarned = false;
     function applyLook() {
-      const e = new THREE.Euler(pitch, yaw, 0, 'YXZ');
-      camera.quaternion.setFromEuler(e);
+      // Build orientation from yaw+pitch and aim the camera with a FIXED world
+      // up-vector. lookAt() with up = (0,1,0) constructs the camera's right axis
+      // as up × viewDir, which is always horizontal (right.y == 0) — i.e. zero
+      // roll, dead-level horizon — at every yaw/pitch (pitch is clamped away
+      // from straight up/down, so the basis never degenerates).
+      const cp = Math.cos(pitch);
+      _lookFwd.set(-Math.sin(yaw) * cp, Math.sin(pitch), -Math.cos(yaw) * cp);
+      _lookTarget.copy(camera.position).add(_lookFwd);
+      camera.up.set(0, 1, 0);
+      camera.lookAt(_lookTarget);
+      // Runtime self-check: the rendered horizon is level iff the camera's world
+      // right vector has no vertical component. If a real roll ever appears,
+      // surface its actual magnitude once (forwarded to the platform dev
+      // console) instead of guessing from the static source.
+      if (!_rollWarned) {
+        _camRight.set(1, 0, 0).applyQuaternion(camera.quaternion);
+        if (Math.abs(_camRight.y) > 1e-3) {
+          _rollWarned = true;
+          console.warn('[block-game] camera roll detected — right.y =', _camRight.y.toFixed(5),
+            '(yaw', yaw.toFixed(3), 'pitch', pitch.toFixed(3) + ')');
+        }
+      }
     }
 
     // Place the camera at a comfortable spawn and aim it at the build-plot
@@ -618,7 +644,6 @@
 
     let prev = performance.now();
     const fwd = new THREE.Vector3(), right = new THREE.Vector3(), horiz = new THREE.Vector3();
-    const WORLD_UP = new THREE.Vector3(0, 1, 0);
     function loop(now) {
       const dt = Math.min((now - prev) / 1000, 0.1);
       prev = now;
@@ -627,19 +652,15 @@
       // fallback). With the overlay/menu up the camera holds still even if a
       // key is held underneath it. Aiming/rendering still run every frame.
       if (playing && (locked || dragMode)) {
-        // Movement basis is taken straight from the camera's real facing, then
-        // flattened to horizontal so forward/back holds a steady altitude
-        // (matching strafe) regardless of pitch. Deriving forward from the live
-        // camera orientation — rather than re-computing trig from yaw —
-        // guarantees W glides exactly where the camera looks and S the opposite,
-        // with no chance of the basis drifting out of sync with the look math.
-        // Right is forward × up (camera's right). Vertical motion is Space/Shift
-        // only; aiming/raycasting still use the full pitched look (updateTarget).
-        camera.getWorldDirection(fwd);
-        fwd.y = 0;
-        if (fwd.lengthSq() < 1e-6) fwd.set(-Math.sin(yaw), 0, -Math.cos(yaw)); // looking straight up/down
-        fwd.normalize();
-        right.crossVectors(fwd, WORLD_UP).normalize();
+        // Movement basis is derived from `yaw` ALONE — a single scalar that
+        // cannot encode roll or pitch and never depends on the camera's
+        // world-matrix being current. fwd is the camera's horizontal facing and
+        // right is 90° clockwise from it, both unit-length and dead horizontal,
+        // so W/S glide toward/away from the gaze and A/D strafe correctly no
+        // matter what the camera orientation or render timing does. Vertical is
+        // Space/Shift only; aiming/raycasting still use the full pitched look.
+        fwd.set(-Math.sin(yaw), 0, -Math.cos(yaw));
+        right.set(Math.cos(yaw), 0, -Math.sin(yaw));
         const step = SPEED * dt;
         // Sum horizontal contributions and normalize so diagonal travel isn't
         // faster than cardinal.
