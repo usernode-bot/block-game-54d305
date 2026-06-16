@@ -250,6 +250,33 @@ app.get('/api/world/changes', async (req, res) => {
   }
 });
 
+// ---- Chat: fetch messages since a cursor (message id) ----
+// On initial load (since=0), returns the 50 most recent messages so the
+// history doesn't dump the entire table. Delta polls are unbounded since
+// the cursor bounds them naturally.
+app.get('/api/chat', async (req, res) => {
+  try {
+    const since = Number(req.query.since) || 0;
+    const limit = since === 0 ? 50 : 500;
+    const { rows } = await pool.query(
+      `SELECT id, username, body, created_at FROM chat_messages WHERE id > $1 ORDER BY id LIMIT $2`,
+      [since, limit]
+    );
+    const cursor = rows.length ? Number(rows[rows.length - 1].id) : since;
+    res.json({
+      messages: rows.map((r) => ({
+        id: Number(r.id),
+        username: r.username,
+        body: r.body,
+        created_at: r.created_at,
+      })),
+      cursor,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ---- Presence: heartbeat ping ----
 app.post('/api/presence/ping', async (req, res) => {
   try {
@@ -321,6 +348,24 @@ app.get('/api/leaderboard', async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
+// ---- Chat: post a new message ----
+app.post('/api/chat', async (req, res) => {
+  try {
+    const body = (typeof req.body.body === 'string' ? req.body.body : '').trim();
+    if (!body) return res.status(400).json({ error: 'message body is required' });
+    if (body.length > 200) return res.status(400).json({ error: 'message exceeds 200 characters' });
+
+    const { rows } = await pool.query(
+      `INSERT INTO chat_messages (user_id, username, body) VALUES ($1, $2, $3) RETURNING id`,
+      [req.user.id, req.user.username, body]
+    );
+    res.json({ ok: true, id: Number(rows[0].id) });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 
 // ---- Block attribution: who placed the block at (x, y, z) and when. ----
 // Returns { username, updated_at } for a placed block, or null for empty /
@@ -513,6 +558,30 @@ async function seedLeaderboard() {
   }
 }
 
+// ---- Staging seed: a few obviously-fake chat messages so the chat drawer
+// has visible content when a reviewer first opens it. Uses explicit IDs with
+// ON CONFLICT DO NOTHING for idempotency across reboots. ----
+async function seedChat() {
+  const msgs = [
+    { id: 1, body: 'Hello from staging! Chat is now live.' },
+    { id: 2, body: 'Try placing a glass block on top of the hut.' },
+    { id: 3, body: 'Chat messages appear here in real time.' },
+  ];
+  for (const m of msgs) {
+    await pool.query(
+      `INSERT INTO chat_messages (id, user_id, username, body)
+       OVERRIDING SYSTEM VALUE
+       VALUES ($1, $2, 'Staging demo', $3)
+       ON CONFLICT (id) DO NOTHING`,
+      [m.id, SEED_USER_ID, m.body]
+    );
+  }
+  // Advance the sequence past the seed IDs so real messages start at ID 4+.
+  await pool.query(
+    `SELECT setval('chat_messages_id_seq', GREATEST((SELECT MAX(id) FROM chat_messages), 3))`
+  );
+}
+
 async function start() {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS blocks (
@@ -543,6 +612,17 @@ async function start() {
   `);
 
   await pool.query(`
+    CREATE TABLE IF NOT EXISTS chat_messages (
+      id         BIGSERIAL PRIMARY KEY,
+      user_id    INTEGER      NOT NULL,
+      username   VARCHAR(255) NOT NULL,
+      body       VARCHAR(200) NOT NULL,
+      created_at TIMESTAMPTZ  DEFAULT NOW()
+    )
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS chat_messages_id_idx ON chat_messages (id)`);
+
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS user_presence (
       user_id  INTEGER PRIMARY KEY,
       username VARCHAR(255) NOT NULL,
@@ -571,7 +651,9 @@ async function start() {
 
   if (IS_STAGING) {
     try { await seedStaging(); }
-    catch (err) { console.error('staging seed failed', err); }
+    catch (err) { console.error('staging blocks seed failed', err); }
+    try { await seedChat(); }
+    catch (err) { console.error('staging chat seed failed', err); }
     try { await seedLeaderboard(); }
     catch (err) { console.error('leaderboard seed failed', err); }
   }
