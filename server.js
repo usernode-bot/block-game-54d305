@@ -211,6 +211,43 @@ app.get('/api/world/changes', async (req, res) => {
   }
 });
 
+// ---- Presence: heartbeat ping ----
+app.post('/api/presence/ping', async (req, res) => {
+  try {
+    await pool.query(
+      `INSERT INTO user_presence (user_id, username, last_seen)
+       VALUES ($1, $2, NOW())
+       ON CONFLICT (user_id) DO UPDATE SET username = EXCLUDED.username, last_seen = NOW()`,
+      [req.user.id, req.user.username]
+    );
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- Presence: who is online (seen in the last 60s) ----
+const STAGING_DEMO_USERS = [
+  { username: 'Staging Builder A' },
+  { username: 'Staging Builder B' },
+  { username: 'Staging Builder C' },
+  { username: 'Staging Builder D' },
+];
+app.get('/api/presence/online', async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT username FROM user_presence
+       WHERE last_seen > NOW() - INTERVAL '60 seconds'
+       ORDER BY username`
+    );
+    const users = rows.map((r) => ({ username: r.username }));
+    if (IS_STAGING) users.push(...STAGING_DEMO_USERS);
+    res.json({ users });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ---- Leaderboard: top 10 + caller's own row ----
 app.get('/api/leaderboard', async (req, res) => {
   try {
@@ -404,6 +441,14 @@ async function start() {
       blocks_placed BIGINT NOT NULL DEFAULT 0,
       best_combo    SMALLINT NOT NULL DEFAULT 1,
       updated_at    TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS user_presence (
+      user_id  INTEGER PRIMARY KEY,
+      username VARCHAR(255) NOT NULL,
+      last_seen TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
   `);
 

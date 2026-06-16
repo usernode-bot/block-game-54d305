@@ -126,6 +126,7 @@
       <p id="overlay-help" class="text-zinc-500 text-sm mb-6">Click to play — move the mouse to look, press Esc to release. If your browser blocks mouse-lock, you can drag to look instead.</p>
       <button id="play-btn" class="px-5 py-2 rounded-lg bg-violet-600 hover:bg-violet-500 font-semibold">Click to play</button>
       <div id="status" class="mt-4 text-sm text-zinc-500"></div>
+      <div id="online-list" class="mt-4 text-sm text-zinc-400"></div>
     </div>
   </div>
 
@@ -225,7 +226,7 @@
 
     // Build identifier — bump this (to the deploying commit short SHA) on every
     // change so the top-right stamp confirms exactly which code is running.
-    const BUILD_VERSION = 'block-attribution+audio-sfx';
+    const BUILD_VERSION = 'online-presence+block-attribution+audio-sfx';
 
     // Touch capability: drives (a) the on-screen control overlay, (b) skipping
     // mouse-lock in favour of direct touch play, and (c) portrait force-rotation.
@@ -1091,6 +1092,34 @@
       return true;
     }
 
+    async function heartbeat() {
+      if (!token) return;
+      try {
+        await fetch('/api/presence/ping', { method: 'POST', headers });
+      } catch (_) { /* fire-and-forget */ }
+    }
+
+    const onlineListEl = document.getElementById('online-list');
+    async function pollPresence() {
+      if (!token) return;
+      try {
+        const res = await fetch('/api/presence/online', { headers });
+        if (!res.ok) return;
+        const { users } = await res.json();
+        if (!users.length) {
+          onlineListEl.textContent = 'Just you right now.';
+          return;
+        }
+        onlineListEl.innerHTML = '<div class="mb-1 text-zinc-500 text-xs font-semibold uppercase tracking-wide">Online now</div>' +
+          users.map((u) =>
+            '<div class="flex items-center gap-1.5 py-0.5">' +
+            '<span class="inline-block w-2 h-2 rounded-full bg-green-400 shrink-0"></span>' +
+            '<span>' + u.username.replace(/&/g, '&amp;').replace(/</g, '&lt;') + '</span>' +
+            '</div>'
+          ).join('');
+      } catch (_) { /* transient */ }
+    }
+
     async function poll() {
       if (document.hidden) return;
       try {
@@ -1199,6 +1228,10 @@
       if (!ok) return;
       requestAnimationFrame(loop);
       setInterval(poll, 1500);
+      heartbeat();
+      setInterval(heartbeat, 30000);
+      pollPresence();
+      setInterval(pollPresence, 15000);
     })();
   </script>
 </body>
