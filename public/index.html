@@ -131,7 +131,8 @@
     const token = params.get('token') || '';
     const headers = token ? { 'x-usernode-token': token } : {};
     const statusEl = document.getElementById('status');
-    const DEBUG = params.get('debug') === '1';
+    // Enable the debug HUD for ?debug (bare), ?debug=1, ?debug=true, etc.
+    const DEBUG = params.has('debug') && params.get('debug') !== '0' && params.get('debug') !== 'false';
 
     // ---- World/runtime state ----
     let DIMS = { w: 32, d: 32, h: 24 };
