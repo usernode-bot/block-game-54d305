@@ -2634,8 +2634,6 @@
             rebuildBlockMeshes();
           }
           if (c && c > cursor) cursor = c;
-          // Only rebuild if we're currently in classic mode showing the shared world.
-          if (gameMode !== 'timeattack') rebuildBlockMeshes();
         }
       } catch (e) { /* transient; next tick retries */ }
 

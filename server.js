@@ -9,6 +9,16 @@ const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 const JWT_SECRET = process.env.JWT_SECRET;
 const IS_STAGING = process.env.USERNODE_ENV === 'staging';
 
+// Hardcoded demo presence entries for staging so the online list is always
+// populated regardless of whether the seeded user_presence rows are still
+// within their 60-second expiry window.
+const STAGING_DEMO_USERS = [
+  { username: 'Staging demo Alice', mode: 'classic' },
+  { username: 'Staging demo Bob',   mode: 'classic' },
+  { username: 'Staging demo spectator — Alice', mode: 'spectate' },
+  { username: 'Staging demo spectator — Bob',   mode: 'spectate' },
+];
+
 // ---- Fixed shared-world parameters (authoritative; mirrored to client) ----
 // Coordinates are integer cell indices. y is up. y = 0 is the immutable
 // ground/base layer and is NOT stored as rows — buildable cells are y >= 1.
@@ -1419,15 +1429,8 @@ async function start() {
     catch (err) { console.error('tournament seed failed', err); }
     try { await seedStreaks(); }
     catch (err) { console.error('streak seed failed', err); }
-    try {
-      // Two fake spectators so the eye-icon path is exercisable in staging.
-      await pool.query(
-        `INSERT INTO user_presence (user_id, username, last_seen, mode)
-         VALUES (-9001, 'Staging demo spectator — Alice', NOW(), 'spectate'),
-                (-9002, 'Staging demo spectator — Bob',   NOW(), 'spectate')
-         ON CONFLICT (user_id) DO UPDATE SET last_seen = NOW(), mode = EXCLUDED.mode`
-      );
-    } catch (err) { console.error('staging spectator seed failed', err); }
+    // Staging spectators are now surfaced via the STAGING_DEMO_USERS constant
+    // appended in GET /api/presence/online, so no DB seed is needed here.
   }
 
   await ensurePowerUps();
