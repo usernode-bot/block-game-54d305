@@ -1085,7 +1085,7 @@
 
   <!-- Daily Challenge HUD: bottom position set by JS (touch devices are raised
        to clear the on-screen action cluster). Hidden until init() loads data. -->
-  <div id="challenge-hud" class="hidden pointer-events-none fixed right-3 z-20 w-36 rounded-lg bg-black/55 px-2 py-1.5 text-xs text-white/90"></div>
+  <div id="challenge-hud" class="hidden pointer-events-none fixed right-3 z-20 w-44 rounded-lg bg-black/55 px-2 py-1.5 text-xs text-white/90"></div>
 
   <!-- Chaos Mode indicator pill: shown when chaos mode is active. -->
   <div id="chaos-indicator" class="hidden pointer-events-none fixed left-3 z-20 rounded-lg bg-amber-500/80 px-2 py-1 text-xs font-bold text-white whitespace-nowrap">🎲 CHAOS</div>
@@ -1603,6 +1603,10 @@
       { id: 'legendary_builder',name: 'Legendary Builder',icon: '🌟', flavour: 'Placed 500 blocks!',           hint: 'Place 500 blocks total' },
       { id: 'daily_regular',    name: 'Daily Regular',    icon: '📅', flavour: 'Completed 5 daily challenges!',hint: 'Complete 5 daily challenges' },
       { id: 'speed_demon',      name: 'Speed Demon',      icon: '⚡', flavour: 'Cleared 30+ blocks in Time Attack!', hint: 'Clear 30+ blocks in a single Time Attack run' },
+      { id: 'mission_complete',  name: 'Mission Complete', icon: '🎯', flavour: 'Completed your first daily mission!', hint: 'Complete your first daily mission' },
+      { id: 'mission_streak_3',  name: 'Mission Regular',  icon: '📋', flavour: 'Completed missions 3 days in a row!', hint: 'Complete daily missions 3 days in a row' },
+      { id: 'mission_streak_7',  name: 'Mission Pro',      icon: '📊', flavour: 'Completed missions 7 days in a row!', hint: 'Complete daily missions 7 days in a row' },
+      { id: 'mission_streak_30', name: 'Mission Master',   icon: '🏅', flavour: 'Completed missions 30 days in a row!', hint: 'Complete daily missions 30 days in a row' },
       { id: 'theme_winner',     name: 'Theme Champion',   icon: '🥇', flavour: 'First place in the daily build theme vote!', hint: 'Win the daily build theme vote' },
       { id: 'daily_devotee',    name: 'Daily Devotee',    icon: '🌟', flavour: 'Completed the daily challenge 7 days in a row!', hint: 'Complete the daily challenge 7 days in a row' },
       { id: 'daily_champion',   name: 'Daily Champion',   icon: '👑', flavour: 'Won the Daily Challenge!',     hint: 'Rank #1 on the daily challenge leaderboard' },
@@ -2315,7 +2319,7 @@
 
     // Streak HUD pill sits above the challenge HUD.
     const streakHudEl = document.getElementById('streak-hud');
-    const CHALLENGE_HUD_HEIGHT_PX = 54; // approx rendered height (px) of challenge pill
+    const CHALLENGE_HUD_HEIGHT_PX = 102; // approx rendered height (px) of challenge+mission pill
     const STREAK_GAP_PX = 6;
     streakHudEl.style.bottom = (challengeBaseBottomPx + saBottomPx + CHALLENGE_HUD_HEIGHT_PX + STREAK_GAP_PX) + 'px';
 
@@ -2430,6 +2434,15 @@
     let challengeCompleted = false;  // true once placed >= target
     let dailyChallengeStreak = 0;    // current consecutive completion streak
     let dailyChallengeReward = 0;    // coins earned today from challenge completion
+
+    // ---- Daily Mission state ----
+    let missionDate = null;          // ISO date string for current mission
+    let missionType = null;          // 'place_type' | 'reach_height' | 'break_blocks'
+    let missionLabel = '';           // human-readable description
+    let missionTarget = 0;           // numeric goal
+    let missionBlockType = null;     // block type ID (place_type missions only)
+    let missionProgress = 0;         // current progress count
+    let missionCompleted = false;    // true once progress >= target
 
     // ---- AI Coach state ----
     let lastTipAt = 0;               // ms timestamp of last tip shown
@@ -3943,22 +3956,45 @@
       rebuildBlockMeshes();
       clearAttribution(); // label is stale after any block change; loop will re-fetch
     }
-    // ---- Daily Challenge rendering ----
-    function renderChallenge() {
-      if (!challengeDate) return;
-      const pct = Math.min(100, Math.round((challengePlaced / challengeTarget) * 100));
-      const barColor = challengeCompleted ? '#22c55e' : '#7c3aed';
-      const streakText = dailyChallengeStreak > 0 ? ' • 🔥 ' + dailyChallengeStreak + ' day streak' : '';
-      challengeHudEl.innerHTML =
-        '<div style="font-weight:600;color:rgba(95,87,114,0.85);margin-bottom:2px;line-height:1.2">Daily Challenge' + streakText + '</div>' +
-        '<div style="margin-bottom:3px;line-height:1.2">Place ' + challengeTarget + ' blocks</div>' +
-        (challengeCompleted
-          ? '<div style="font-weight:600;color:#2f9e54">✓ Complete!</div>'
-          : '<div style="font-variant-numeric:tabular-nums">' + challengePlaced + ' / ' + challengeTarget + '</div>'
+    // ---- Daily Challenge + Mission rendering ----
+    function renderMissionSection() {
+      if (!missionDate) return '';
+      const pct = Math.min(100, Math.round((missionProgress / missionTarget) * 100));
+      const barColor = missionCompleted ? '#22c55e' : '#7c3aed';
+      const label = missionLabel.length > 28 ? missionLabel.slice(0, 27) + '…' : missionLabel;
+      return '<div style="margin-top:6px;padding-top:5px;border-top:1px solid rgba(255,255,255,0.12)">' +
+        '<div style="font-weight:600;color:rgba(255,255,255,0.45);margin-bottom:2px;line-height:1.2">Daily Mission</div>' +
+        '<div style="margin-bottom:3px;line-height:1.2">' + label + '</div>' +
+        (missionCompleted
+          ? '<div style="font-weight:600;color:#4ade80">✓ Complete! +50 pts</div>'
+          : '<div style="font-variant-numeric:tabular-nums">' + missionProgress + ' / ' + missionTarget + '</div>'
         ) +
         '<div style="margin-top:5px;height:3px;border-radius:9999px;background:rgba(120,108,150,0.22);overflow:hidden">' +
           '<div style="width:' + pct + '%;height:100%;border-radius:9999px;background:' + barColor + ';transition:width 0.3s"></div>' +
+        '</div>' +
         '</div>';
+    }
+
+    function renderChallenge() {
+      if (!challengeDate && !missionDate) return;
+      let html = '';
+      if (challengeDate) {
+        const pct = Math.min(100, Math.round((challengePlaced / challengeTarget) * 100));
+        const barColor = challengeCompleted ? '#22c55e' : '#7c3aed';
+        const streakText = dailyChallengeStreak > 0 ? ' • 🔥 ' + dailyChallengeStreak + ' day streak' : '';
+        html +=
+          '<div style="font-weight:600;color:rgba(255,255,255,0.45);margin-bottom:2px;line-height:1.2">Daily Challenge' + streakText + '</div>' +
+          '<div style="margin-bottom:3px;line-height:1.2">Place ' + challengeTarget + ' blocks</div>' +
+          (challengeCompleted
+            ? '<div style="font-weight:600;color:#4ade80">✓ Complete!</div>'
+            : '<div style="font-variant-numeric:tabular-nums">' + challengePlaced + ' / ' + challengeTarget + '</div>'
+          ) +
+          '<div style="margin-top:5px;height:3px;border-radius:9999px;background:rgba(255,255,255,0.18);overflow:hidden">' +
+            '<div style="width:' + pct + '%;height:100%;border-radius:9999px;background:' + barColor + ';transition:width 0.3s"></div>' +
+          '</div>';
+      }
+      html += renderMissionSection();
+      challengeHudEl.innerHTML = html;
     }
 
     function syncChallenge(data) {
@@ -3968,6 +4004,19 @@
       challengePlaced = data.placed;
       challengeCompleted = !!data.completed_at;
       if (data.streak !== undefined) dailyChallengeStreak = data.streak;
+      renderChallenge();
+      if (gameMode !== 'spectate') challengeHudEl.classList.remove('hidden');
+    }
+
+    function syncMission(data) {
+      if (!data) return;
+      missionDate = data.date;
+      missionType = data.type;
+      missionLabel = data.label;
+      missionTarget = data.target;
+      missionBlockType = data.blockType || null;
+      missionProgress = data.progress;
+      missionCompleted = !!data.completed_at;
       renderChallenge();
       if (gameMode !== 'spectate') challengeHudEl.classList.remove('hidden');
     }
@@ -3982,7 +4031,8 @@
       }
       // Optimistic skin: use active skin for placements, none for breaks.
       applyLocal(x, y, z, t, t !== 0 ? myActiveSkinId : null);
-      // Optimistic challenge increment for placements (not breaks).
+      // Optimistic challenge and mission updates.
+      let goalsChanged = false;
       if (t !== 0 && challengeDate && !challengeCompleted) {
         challengePlaced++;
         if (challengePlaced >= challengeTarget) {
@@ -3991,8 +4041,24 @@
           // Show daily challenge completion modal
           showDailyChallengeGameOver();
         }
-        renderChallenge();
+        goalsChanged = true;
       }
+      if (missionDate && !missionCompleted) {
+        if (missionType === 'place_type' && t === missionBlockType && t !== 0) {
+          missionProgress++;
+          if (missionProgress >= missionTarget) missionCompleted = true;
+          goalsChanged = true;
+        } else if (missionType === 'reach_height' && t !== 0 && y >= missionTarget) {
+          missionProgress = missionTarget;
+          missionCompleted = true;
+          goalsChanged = true;
+        } else if (missionType === 'break_blocks' && t === 0) {
+          missionProgress++;
+          if (missionProgress >= missionTarget) missionCompleted = true;
+          goalsChanged = true;
+        }
+      }
+      if (goalsChanged) renderChallenge();
       // Session tracking for coach milestone trigger.
       if (t !== 0) {
         sessionBlocksPlaced++;
@@ -4070,6 +4136,24 @@
             }
           }
           if (data.challenge) syncChallenge(data.challenge);
+          if (data.mission) {
+            syncMission({
+              date: missionDate,
+              type: missionType,
+              label: missionLabel,
+              target: data.mission.target,
+              blockType: missionBlockType,
+              progress: data.mission.progress,
+              completed_at: data.mission.completed_at,
+            });
+            if (data.mission.newly_earned_mission_badges && data.mission.newly_earned_mission_badges.length) {
+              for (const badge of data.mission.newly_earned_mission_badges) {
+                earnedBadges.set(badge.id, { earned_at: new Date().toISOString() });
+                showBadgeToast(badge);
+              }
+              if (badgesOpen) renderBadgesPanel();
+            }
+          }
           // Reconcile block skin with server-confirmed value (handles cases
           // where the server's stored skin differs from the client's optimistic one).
           if (t !== 0) {
@@ -9776,6 +9860,12 @@
         if (cr.ok) syncChallenge(await cr.json());
       } catch (_) {}
 
+      // Load today's mission progress (non-fatal if unavailable).
+      try {
+        const mr = await fetch('/api/mission/today', { headers });
+        if (mr.ok) syncMission(await mr.json());
+      } catch (_) {}
+
       loadTournamentTeaser();
       loadPromptTeaser();
 
@@ -9808,12 +9898,16 @@
       setInterval(pollPowerUps, 1500);
       pollMobs();
       setInterval(pollMobs, 2000);
-      // Re-fetch challenge every 30s to catch midnight UTC rollover and
-      // progress made in other tabs.
+      // Re-fetch challenge and mission every 30s to catch midnight UTC rollover
+      // and progress made in other tabs.
       setInterval(async () => {
         try {
           const cr = await fetch('/api/challenge/today', { headers });
           if (cr.ok) syncChallenge(await cr.json());
+        } catch (_) {}
+        try {
+          const mr = await fetch('/api/mission/today', { headers });
+          if (mr.ok) syncMission(await mr.json());
         } catch (_) {}
       }, 30000);
     })();
