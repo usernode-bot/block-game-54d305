@@ -614,6 +614,7 @@
         </div>
       </div>
       <div id="tournament-teaser" class="hidden mt-3 rounded-xl bg-zinc-900/60 px-4 py-2.5 text-xs text-zinc-300"></div>
+      <div id="prompt-teaser" class="hidden mt-2 rounded-xl bg-zinc-900/60 px-4 py-2.5 text-xs text-zinc-300"></div>
       <div id="status" class="mt-3 text-xs text-zinc-500 text-center"></div>
       <div class="mt-2 text-center">
         <button id="accessibility-link" class="text-xs text-zinc-400 hover:text-zinc-100 underline underline-offset-2 cursor-pointer transition-colors">♿ Accessibility</button>
@@ -891,6 +892,9 @@
   <!-- Badge toast container: toasts stack above the palette, bottom-centre. -->
   <div id="badge-toasts" class="pointer-events-none fixed left-1/2 -translate-x-1/2 z-40 flex flex-col-reverse items-center gap-2" style="bottom: 5.5rem"></div>
 
+  <!-- Daily Prompt HUD: compact pill above the streak HUD. Bottom set by JS. -->
+  <div id="prompt-hud" class="hidden pointer-events-none fixed right-3 z-20 w-36 rounded-lg bg-black/55 px-2 py-1.5 text-xs text-white/90"></div>
+
   <!-- Login Streak HUD: compact pill above the daily challenge bar. Bottom set by JS. -->
   <div id="streak-hud" class="hidden pointer-events-none fixed right-3 z-20 rounded-lg bg-black/55 px-2 py-1.5 text-xs text-white/90 font-semibold whitespace-nowrap"></div>
 
@@ -1022,6 +1026,7 @@
         <button id="tab-daily-challenge" class="px-2 py-0.5 rounded text-xs font-semibold text-zinc-400 hover:text-zinc-200 cursor-pointer transition-colors whitespace-nowrap" data-tab="daily">Daily</button>
         <button id="tab-endless" class="px-2 py-0.5 rounded text-xs font-semibold text-zinc-400 hover:text-zinc-200 cursor-pointer transition-colors whitespace-nowrap" data-tab="endless">Endless</button>
         <button id="tab-puzzle" class="px-2 py-0.5 rounded text-xs font-semibold text-zinc-400 hover:text-zinc-200 cursor-pointer transition-colors whitespace-nowrap" data-tab="puzzle">Puzzle</button>
+        <button id="tab-prompt" class="px-2 py-0.5 rounded text-xs font-semibold text-zinc-400 hover:text-zinc-200 cursor-pointer transition-colors whitespace-nowrap" data-tab="prompt">Prompt</button>
       </div>
       <button id="leaderboard-close" aria-label="Close leaderboard" class="text-zinc-400 hover:text-zinc-100 cursor-pointer leading-none transition-colors">✕</button>
     </div>
@@ -1936,6 +1941,11 @@
     const CHALLENGE_HUD_HEIGHT_PX = 54; // approx rendered height (px) of challenge pill
     const STREAK_GAP_PX = 6;
     streakHudEl.style.bottom = (challengeBaseBottomPx + saBottomPx + CHALLENGE_HUD_HEIGHT_PX + STREAK_GAP_PX) + 'px';
+
+    // Prompt HUD pill sits above the streak HUD.
+    const promptHudEl = document.getElementById('prompt-hud');
+    const STREAK_HUD_HEIGHT_PX = 28; // approx rendered height (px) of streak pill
+    promptHudEl.style.bottom = (challengeHudBottomPx + CHALLENGE_HUD_HEIGHT_PX + STREAK_GAP_PX + STREAK_HUD_HEIGHT_PX + STREAK_GAP_PX) + 'px';
 
     // Apply touch-device layout overrides once at startup.
     if (isTouch) {
@@ -4793,9 +4803,10 @@
         document.getElementById('history-panel').classList.add('hidden');
         challengeHudEl.classList.add('hidden');
         document.getElementById('crosshair').style.opacity = '0.3';
-        // Hide coach in spectate mode — player isn't building.
+        // Hide coach and prompt HUD in spectate mode — player isn't building.
         coachBtnEl.classList.add('hidden');
         coachBubbleEl.classList.add('hidden');
+        promptHudEl.classList.add('hidden');
         // Immediately ping presence as a spectator so the online list updates fast.
         heartbeat();
       }
@@ -5545,7 +5556,10 @@
     const leaderboardEl = document.getElementById('leaderboard');
     const leaderboardContentEl = document.getElementById('leaderboard-content');
     let leaderboardTimer = null;
-    let leaderboardTab = 'alltime'; // 'alltime' | 'tournament' | 'ta' | 'ta-60' | 'endless'
+    let leaderboardTab = 'alltime'; // 'alltime' | 'tournament' | 'ta' | 'ta-60' | 'daily-challenge' | 'endless' | 'puzzle' | 'prompt'
+    let promptCache = null;
+    let promptCacheTime = 0;
+    let currentPromptText = null;
 
     function closeLeaderboard() {
       leaderboardEl.classList.add('hidden');
@@ -5903,7 +5917,7 @@
 
     function setLeaderboardTab(tab) {
       leaderboardTab = tab;
-      const tabs = { alltime: 'tab-alltime', tournament: 'tab-tournament', monuments: 'tab-monuments', ta: 'tab-ta', 'ta-60': 'tab-ta-60', 'daily-challenge': 'tab-daily-challenge', endless: 'tab-endless', puzzle: 'tab-puzzle' };
+      const tabs = { alltime: 'tab-alltime', tournament: 'tab-tournament', monuments: 'tab-monuments', ta: 'tab-ta', 'ta-60': 'tab-ta-60', 'daily-challenge': 'tab-daily-challenge', endless: 'tab-endless', puzzle: 'tab-puzzle', prompt: 'tab-prompt' };
       for (const [key2, id] of Object.entries(tabs)) {
         const el = document.getElementById(id);
         if (!el) continue;
@@ -6081,6 +6095,94 @@
       } catch (_) { /* non-fatal */ }
     }
 
+    function syncPromptHud() {
+      if (!currentPromptText) return;
+      promptHudEl.innerHTML = '<div class="text-zinc-400 text-[10px] uppercase tracking-wide">Today\'s prompt</div>' +
+        '<div class="font-semibold leading-snug mt-0.5">' + escapeHtml(currentPromptText) + '</div>';
+      promptHudEl.classList.remove('hidden');
+    }
+
+    function renderPromptTab(data) {
+      currentPromptText = data.prompt;
+      syncPromptHud();
+      let html = '<div class="text-zinc-400 text-xs mb-2">Today\'s prompt: <span class="text-zinc-100 font-semibold">' + escapeHtml(data.prompt) + '</span></div>';
+
+      if (data.yesterday_winner) {
+        html += '<div class="mb-3 px-2 py-1.5 rounded-lg bg-zinc-800/70 text-xs">' +
+          '<span class="text-zinc-500">Yesterday\'s winner: </span>' +
+          '<span class="text-amber-300 font-semibold">' + escapeHtml(data.yesterday_winner.username) + '</span>' +
+          ' <span class="text-zinc-500">(' + data.yesterday_winner.vote_count + ' vote' + (data.yesterday_winner.vote_count !== 1 ? 's' : '') + ')</span>' +
+          '</div>';
+      }
+
+      if (!data.eligible_builders.length) {
+        html += '<p class="py-1 text-center text-zinc-400 text-xs">No builders yet — be the first!</p>';
+      } else {
+        html += '<div class="text-zinc-500 text-[10px] uppercase tracking-wide mb-1">Vote for best builder</div>';
+        html += data.eligible_builders.map(b => {
+          const isVoted = data.my_vote && data.my_vote.voted_for_user_id === b.user_id;
+          const btnHtml = b.is_self
+            ? ''
+            : isVoted
+              ? '<span class="ml-auto text-xs text-emerald-400">✓ Voted</span>'
+              : '<button onclick="castPromptVote(' + b.user_id + ', \'' + escapeHtml(b.username).replace(/'/g, '&#39;') + '\')" ' +
+                'class="ml-auto text-xs px-2 py-0.5 rounded bg-violet-700 hover:bg-violet-600 text-white cursor-pointer">Vote</button>';
+          return '<div class="flex items-center gap-1 py-1 border-b border-zinc-800/60 last:border-0' + (isVoted ? ' bg-zinc-800/40 rounded px-1' : '') + '">' +
+            '<span class="flex-1 truncate text-xs text-zinc-200">' + escapeHtml(b.username) + (b.is_self ? ' <span class="text-zinc-500">(you)</span>' : '') + '</span>' +
+            '<span class="text-zinc-500 text-xs font-mono">' + b.vote_count + '</span>' +
+            btnHtml +
+            '</div>';
+        }).join('');
+      }
+      leaderboardContentEl.innerHTML = html;
+    }
+
+    async function castPromptVote(userId, username) {
+      try {
+        const res = await fetch('/api/prompt/vote', {
+          method: 'POST',
+          headers: { ...headers, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ voted_for_user_id: userId, voted_for_username: username }),
+        });
+        if (!res.ok) return;
+        promptCache = null;
+        promptCacheTime = 0;
+        await fetchPromptTab();
+      } catch (_) { /* non-fatal */ }
+    }
+
+    async function fetchPromptTab() {
+      try {
+        const now = Date.now();
+        if (!promptCache || now - promptCacheTime > 30000) {
+          const res = await fetch('/api/prompt/today', { headers });
+          if (!res.ok) throw new Error('fetch failed');
+          promptCache = await res.json();
+          promptCacheTime = now;
+        }
+        renderPromptTab(promptCache);
+      } catch (_) {
+        leaderboardContentEl.innerHTML = '<p class="py-1 text-zinc-500">Couldn\'t load prompt.</p>';
+      }
+    }
+
+    async function loadPromptTeaser() {
+      const teaserEl = document.getElementById('prompt-teaser');
+      if (!teaserEl) return;
+      try {
+        const res = await fetch('/api/prompt/today', { headers });
+        if (!res.ok) return;
+        const data = await res.json();
+        promptCache = data;
+        promptCacheTime = Date.now();
+        currentPromptText = data.prompt;
+        teaserEl.innerHTML = '<span class="text-zinc-400">Today\'s prompt: </span>' +
+          '<span class="text-zinc-100 font-semibold">' + escapeHtml(data.prompt) + '</span>';
+        teaserEl.classList.remove('hidden');
+        syncPromptHud();
+      } catch (_) { /* non-fatal */ }
+    }
+
     function renderMonuments({ monuments }) {
       if (!monuments || !monuments.length) {
         leaderboardContentEl.innerHTML = '<p class="py-1 text-center text-zinc-400">No monuments yet — build together to create one!</p>';
@@ -6106,7 +6208,9 @@
     async function fetchLeaderboard() {
       clearTimeout(leaderboardTimer);
       leaderboardTimer = null;
-      if (leaderboardTab === 'tournament') {
+      if (leaderboardTab === 'prompt') {
+        await fetchPromptTab();
+      } else if (leaderboardTab === 'tournament') {
         try {
           const res = await fetch('/api/tournament', { headers });
           if (!res.ok) throw new Error('fetch failed');
@@ -6340,6 +6444,7 @@
     document.getElementById('tab-alltime').addEventListener('click', () => setLeaderboardTab('alltime'));
     document.getElementById('tab-tournament').addEventListener('click', () => setLeaderboardTab('tournament'));
     document.getElementById('tab-monuments').addEventListener('click', () => setLeaderboardTab('monuments'));
+    document.getElementById('tab-prompt').addEventListener('click', () => setLeaderboardTab('prompt'));
     document.getElementById('tab-ta').addEventListener('click', () => setLeaderboardTab('ta'));
     document.getElementById('tab-ta-60').addEventListener('click', () => setLeaderboardTab('ta-60'));
     document.getElementById('tab-daily-challenge').addEventListener('click', () => setLeaderboardTab('daily-challenge'));
@@ -7803,6 +7908,7 @@
       } catch (_) {}
 
       loadTournamentTeaser();
+      loadPromptTeaser();
 
       // Load login streak so the HUD shows immediately without waiting for heartbeat.
       try {

@@ -203,6 +203,41 @@ const STREAK_BADGE_MILESTONES = [
   { days: 30, id: 'streak_30' },
 ];
 
+// Creative prompts shown to players each day. Rotated deterministically by date
+// (same UTC approach as dailyTarget). Add more entries freely — modulo adjusts.
+const DAILY_PROMPTS = [
+  'Build a lighthouse',
+  'Build a bridge',
+  'Make a cosy cottage',
+  'Sculpt a tower',
+  'Design a market stall',
+  'Build a fountain',
+  'Create a castle gate',
+  'Make a garden',
+  'Build a treehouse',
+  'Design a windmill',
+  'Sculpt a pyramid',
+  'Build a ship',
+  'Create a campsite',
+  'Make a clock tower',
+  'Build a greenhouse',
+  'Design a cave entrance',
+  'Create an arch',
+  'Build an observatory',
+  'Make a barn',
+  'Design a waterfall',
+  'Build a fortress wall',
+  'Create a monument',
+  'Make a mine entrance',
+  'Build a dock',
+  'Design a shrine',
+  'Create a maze',
+  'Build an amphitheater',
+  'Make a snowfort',
+  'Design a portal',
+  'Build a volcano',
+];
+
 // ---- Daily Build Theme Voting ----
 const DAILY_THEMES = ['Castle', 'Ocean', 'Space', 'Forest', 'City', 'Cave', 'Desert', 'Snow', 'Sky Tower', 'Mountain', 'Dungeon', 'Crystal Palace'];
 
@@ -319,6 +354,16 @@ function dailyTarget(dateObj) {
   const m = dateObj.getUTCMonth() + 1;
   const d = dateObj.getUTCDate();
   return 20 + ((y * 31 + m * 7 + d) % 81);
+}
+
+// Returns today's creative building prompt, derived deterministically from the
+// UTC date using a different multiplier from dailyTarget to avoid correlation.
+function dailyPrompt(dateObj) {
+  const y = dateObj.getUTCFullYear();
+  const m = dateObj.getUTCMonth() + 1;
+  const d = dateObj.getUTCDate();
+  const idx = ((y * 31 + m * 7 + d) * 13) % DAILY_PROMPTS.length;
+  return DAILY_PROMPTS[idx];
 }
 
 // Returns the ISO date string (YYYY-MM-DD) for the Monday that starts the
@@ -2816,6 +2861,77 @@ app.post('/api/coach/tip', async (req, res) => {
   }
 });
 
+// ---- Daily Prompt: today's prompt + eligible builders + vote state ----
+app.get('/api/prompt/today', async (req, res) => {
+  try {
+    const now = new Date();
+    const dateStr = now.toISOString().slice(0, 10);
+    const prompt = dailyPrompt(now);
+
+    const yesterday = new Date(Date.UTC(
+      now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - 1
+    ));
+    const yesterdayStr = yesterday.toISOString().slice(0, 10);
+
+    const [yesterdayRes, myVoteRes, buildersRes] = await Promise.all([
+      pool.query(
+        `SELECT voted_for_username, COUNT(*)::int AS vote_count
+         FROM daily_prompt_votes
+         WHERE vote_date = $1
+         GROUP BY voted_for_user_id, voted_for_username
+         ORDER BY vote_count DESC
+         LIMIT 1`,
+        [yesterdayStr]
+      ),
+      pool.query(
+        `SELECT voted_for_user_id, voted_for_username
+         FROM daily_prompt_votes
+         WHERE vote_date = $1 AND voter_user_id = $2`,
+        [dateStr, req.user.id]
+      ),
+      pool.query(
+        `SELECT dcp.user_id, dcp.username,
+                COALESCE(v.vote_count, 0) AS vote_count
+         FROM daily_challenge_progress dcp
+         LEFT JOIN (
+           SELECT voted_for_user_id, COUNT(*)::int AS vote_count
+           FROM daily_prompt_votes
+           WHERE vote_date = $1
+           GROUP BY voted_for_user_id
+         ) v ON dcp.user_id = v.voted_for_user_id
+         WHERE dcp.challenge_date = $1
+           AND dcp.blocks_placed >= 1
+           AND dcp.user_id <> $2
+         ORDER BY vote_count DESC, dcp.username ASC`,
+        [dateStr, SEED_USER_ID]
+      ),
+    ]);
+
+    const yesterdayWinner = yesterdayRes.rows.length
+      ? { username: yesterdayRes.rows[0].voted_for_username, vote_count: yesterdayRes.rows[0].vote_count }
+      : null;
+
+    const myVote = myVoteRes.rows.length
+      ? { voted_for_user_id: myVoteRes.rows[0].voted_for_user_id, voted_for_username: myVoteRes.rows[0].voted_for_username }
+      : null;
+
+    res.json({
+      date: dateStr,
+      prompt,
+      my_vote: myVote,
+      eligible_builders: buildersRes.rows.map((r) => ({
+        user_id: r.user_id,
+        username: r.username,
+        vote_count: Number(r.vote_count),
+        is_self: r.user_id === req.user.id,
+      })),
+      yesterday_winner: yesterdayWinner,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ---- Share Score API ----
 app.post('/api/share-score', async (req, res) => {
   try {
@@ -2985,6 +3101,48 @@ app.get('/api/theme/today', async (req, res) => {
         anchor: yesterdayAnchor || null,
       } : null,
     });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- Daily Prompt: cast or change a vote ----
+app.post('/api/prompt/vote', async (req, res) => {
+  try {
+    const voted_for_user_id = Number(req.body.voted_for_user_id);
+    const voted_for_username = (typeof req.body.voted_for_username === 'string'
+      ? req.body.voted_for_username : '').trim();
+
+    if (!voted_for_user_id || !voted_for_username) {
+      return res.status(400).json({ error: 'voted_for_user_id and voted_for_username are required' });
+    }
+    if (voted_for_user_id === req.user.id) {
+      return res.status(400).json({ error: 'Cannot vote for yourself' });
+    }
+
+    const now = new Date();
+    const dateStr = now.toISOString().slice(0, 10);
+
+    const eligRes = await pool.query(
+      `SELECT 1 FROM daily_challenge_progress
+       WHERE challenge_date = $1 AND user_id = $2 AND blocks_placed >= 1`,
+      [dateStr, voted_for_user_id]
+    );
+    if (!eligRes.rows.length) {
+      return res.status(400).json({ error: 'That player has not built anything today' });
+    }
+
+    await pool.query(
+      `INSERT INTO daily_prompt_votes
+         (vote_date, voter_user_id, voter_username, voted_for_user_id, voted_for_username, created_at)
+       VALUES ($1, $2, $3, $4, $5, NOW())
+       ON CONFLICT (vote_date, voter_user_id) DO UPDATE SET
+         voted_for_user_id   = EXCLUDED.voted_for_user_id,
+         voted_for_username  = EXCLUDED.voted_for_username,
+         created_at          = NOW()`,
+      [dateStr, req.user.id, req.user.username, voted_for_user_id, voted_for_username]
+    );
+    res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -3554,6 +3712,33 @@ async function seedStreaks() {
     await pool.query(
       `INSERT INTO player_badges (user_id, badge_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
       [s.user_id, s.badge_id]
+    );
+  }
+}
+
+async function seedPromptVotes() {
+  const now = new Date();
+  const todayStr = now.toISOString().slice(0, 10);
+  const yesterday = new Date(Date.UTC(
+    now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - 1
+  ));
+  const yesterdayStr = yesterday.toISOString().slice(0, 10);
+
+  // Today: alice gets 2 votes (from bob and charlie), bob gets 1 (from alice).
+  // Yesterday: alice wins (1 vote from bob) — surfaces as "Yesterday's winner".
+  const votes = [
+    { vote_date: todayStr,     voter_id: -2, voter_username: 'Staging demo Bob',     voted_for_id: -1, voted_for_username: 'Staging demo Alice'   },
+    { vote_date: todayStr,     voter_id: -3, voter_username: 'Staging demo Charlie', voted_for_id: -1, voted_for_username: 'Staging demo Alice'   },
+    { vote_date: todayStr,     voter_id: -1, voter_username: 'Staging demo Alice',   voted_for_id: -2, voted_for_username: 'Staging demo Bob'     },
+    { vote_date: yesterdayStr, voter_id: -2, voter_username: 'Staging demo Bob',     voted_for_id: -1, voted_for_username: 'Staging demo Alice'   },
+  ];
+  for (const v of votes) {
+    await pool.query(
+      `INSERT INTO daily_prompt_votes
+         (vote_date, voter_user_id, voter_username, voted_for_user_id, voted_for_username)
+       VALUES ($1, $2, $3, $4, $5)
+       ON CONFLICT (vote_date, voter_user_id) DO NOTHING`,
+      [v.vote_date, v.voter_id, v.voter_username, v.voted_for_id, v.voted_for_username]
     );
   }
 }
@@ -4145,6 +4330,24 @@ async function start() {
     )
   `);
 
+  // Daily prompt votes: one row per (date, voter). Public — vote counts and
+  // usernames for a given day are not sensitive.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS daily_prompt_votes (
+      vote_date             DATE          NOT NULL,
+      voter_user_id         INTEGER       NOT NULL,
+      voter_username        VARCHAR(255)  NOT NULL,
+      voted_for_user_id     INTEGER       NOT NULL,
+      voted_for_username    VARCHAR(255)  NOT NULL,
+      created_at            TIMESTAMPTZ   DEFAULT NOW(),
+      PRIMARY KEY (vote_date, voter_user_id)
+    )
+  `);
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS daily_prompt_votes_voted_for_idx
+    ON daily_prompt_votes (vote_date, voted_for_user_id)
+  `);
+
   // Daily login rewards: tracks which players have claimed their daily reward and the date.
   await pool.query(`
     CREATE TABLE IF NOT EXISTS login_rewards (
@@ -4370,6 +4573,8 @@ async function start() {
     catch (err) { console.error('endless-scores seed failed', err); }
     try { await seedStreaks(); }
     catch (err) { console.error('streak seed failed', err); }
+    try { await seedPromptVotes(); }
+    catch (err) { console.error('prompt votes seed failed', err); }
     try { await seedBlockMessages(); }
     catch (err) { console.error('block messages seed failed', err); }
     try { await seedTheme(); }
