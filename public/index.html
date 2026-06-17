@@ -439,6 +439,12 @@
           <button id="play-ta-60-btn" class="w-full px-4 py-3 rounded-lg bg-cyan-600 hover:bg-cyan-500 font-semibold text-sm sm:text-sm lg:text-base transition hover:scale-[1.02] active:scale-[0.98]">Play Time Attack (60s)</button>
         </div>
         <div class="bg-zinc-900/80 rounded-xl p-5 sm:p-6 lg:p-7 transition hover:bg-zinc-800/80">
+          <canvas id="preview-daily-challenge" class="w-full rounded-lg mb-4" height="140"></canvas>
+          <h2 class="font-semibold text-lg sm:text-base lg:text-lg text-zinc-100 mb-2">Daily Challenge</h2>
+          <p class="text-zinc-400 text-sm sm:text-sm lg:text-sm mb-5">Same objective for all players. Resets every 24 hours. Compete on the leaderboard.</p>
+          <button id="play-daily-challenge-btn" class="w-full px-4 py-3 rounded-lg bg-fuchsia-600 hover:bg-fuchsia-500 font-semibold text-sm sm:text-sm lg:text-base transition hover:scale-[1.02] active:scale-[0.98]">Play Daily Challenge</button>
+        </div>
+        <div class="bg-zinc-900/80 rounded-xl p-5 sm:p-6 lg:p-7 transition hover:bg-zinc-800/80">
           <canvas id="preview-endless" class="w-full rounded-lg mb-4" height="140"></canvas>
           <h2 class="font-semibold text-lg sm:text-base lg:text-lg text-zinc-100 mb-2">Endless Mode</h2>
           <p class="text-zinc-400 text-sm sm:text-sm lg:text-sm mb-5">Build forever on an endless grid. No timer, no score multiplier—just how long until you run out of valid moves?</p>
@@ -692,12 +698,13 @@
        pressing `l` or clicking the trophy button. -->
   <div id="leaderboard" class="hidden fixed top-28 right-3 z-30 w-full sm:w-72 max-w-[90vw] rounded-xl bg-black/70 backdrop-blur px-3 py-4 sm:p-4 text-base sm:text-sm text-zinc-200 shadow-xl">
     <div class="flex items-center justify-between mb-2">
-      <div class="flex gap-1">
-        <button id="tab-alltime" class="px-2 py-0.5 rounded text-xs font-semibold bg-zinc-700 text-zinc-100 cursor-pointer transition-colors">All-time</button>
-        <button id="tab-tournament" class="px-2 py-0.5 rounded text-xs font-semibold text-zinc-400 hover:text-zinc-200 cursor-pointer transition-colors">This Week</button>
-        <button id="tab-ta" class="px-2 py-0.5 rounded text-xs font-semibold text-zinc-400 hover:text-zinc-200 cursor-pointer transition-colors">Time Attack</button>
-        <button id="tab-ta-60" class="px-2 py-0.5 rounded text-xs font-semibold text-zinc-400 hover:text-zinc-200 cursor-pointer transition-colors">TA (60s)</button>
-        <button id="tab-endless" class="px-2 py-0.5 rounded text-xs font-semibold text-zinc-400 hover:text-zinc-200 cursor-pointer transition-colors">Endless</button>
+      <div class="flex gap-1 overflow-x-auto">
+        <button id="tab-alltime" class="px-2 py-0.5 rounded text-xs font-semibold bg-zinc-700 text-zinc-100 cursor-pointer transition-colors whitespace-nowrap">All-time</button>
+        <button id="tab-tournament" class="px-2 py-0.5 rounded text-xs font-semibold text-zinc-400 hover:text-zinc-200 cursor-pointer transition-colors whitespace-nowrap">This Week</button>
+        <button id="tab-ta" class="px-2 py-0.5 rounded text-xs font-semibold text-zinc-400 hover:text-zinc-200 cursor-pointer transition-colors whitespace-nowrap">Time Attack</button>
+        <button id="tab-ta-60" class="px-2 py-0.5 rounded text-xs font-semibold text-zinc-400 hover:text-zinc-200 cursor-pointer transition-colors whitespace-nowrap">TA (60s)</button>
+        <button id="tab-daily-challenge" class="px-2 py-0.5 rounded text-xs font-semibold text-zinc-400 hover:text-zinc-200 cursor-pointer transition-colors whitespace-nowrap">Daily</button>
+        <button id="tab-endless" class="px-2 py-0.5 rounded text-xs font-semibold text-zinc-400 hover:text-zinc-200 cursor-pointer transition-colors whitespace-nowrap">Endless</button>
       </div>
       <button id="leaderboard-close" aria-label="Close leaderboard" class="text-zinc-400 hover:text-zinc-100 cursor-pointer leading-none transition-colors">✕</button>
     </div>
@@ -1236,6 +1243,8 @@
     let challengeTarget = 0;         // today's placement goal
     let challengePlaced = 0;         // blocks placed today by this user
     let challengeCompleted = false;  // true once placed >= target
+    let dailyChallengeStreak = 0;    // current consecutive completion streak
+    let dailyChallengeReward = 0;    // coins earned today from challenge completion
 
     // ---- AI Coach state ----
     let lastTipAt = 0;               // ms timestamp of last tip shown
@@ -2176,8 +2185,9 @@
       if (!challengeDate) return;
       const pct = Math.min(100, Math.round((challengePlaced / challengeTarget) * 100));
       const barColor = challengeCompleted ? '#22c55e' : '#7c3aed';
+      const streakText = dailyChallengeStreak > 0 ? ' • 🔥 ' + dailyChallengeStreak + ' day streak' : '';
       challengeHudEl.innerHTML =
-        '<div style="font-weight:600;color:rgba(95,87,114,0.85);margin-bottom:2px;line-height:1.2">Daily Challenge</div>' +
+        '<div style="font-weight:600;color:rgba(95,87,114,0.85);margin-bottom:2px;line-height:1.2">Daily Challenge' + streakText + '</div>' +
         '<div style="margin-bottom:3px;line-height:1.2">Place ' + challengeTarget + ' blocks</div>' +
         (challengeCompleted
           ? '<div style="font-weight:600;color:#2f9e54">✓ Complete!</div>'
@@ -2194,6 +2204,7 @@
       challengeTarget = data.target;
       challengePlaced = data.placed;
       challengeCompleted = !!data.completed_at;
+      if (data.streak !== undefined) dailyChallengeStreak = data.streak;
       renderChallenge();
       if (gameMode !== 'spectate') challengeHudEl.classList.remove('hidden');
     }
@@ -3310,6 +3321,7 @@
     document.getElementById('play-classic-btn').addEventListener('click', () => { audio.init(); startMode('classic'); });
     document.getElementById('play-ta-btn').addEventListener('click', () => { audio.init(); startMode('timeattack'); });
     document.getElementById('play-ta-60-btn').addEventListener('click', () => { audio.init(); startMode('time-attack-60'); });
+    document.getElementById('play-daily-challenge-btn').addEventListener('click', () => { audio.init(); startMode('daily-challenge'); });
     document.getElementById('play-endless-btn').addEventListener('click', () => { audio.init(); startMode('endless'); });
     document.getElementById('play-learn-btn').addEventListener('click', () => { audio.init(); startMode('learn'); });
     document.getElementById('play-spectate-btn').addEventListener('click', () => { audio.init(); startMode('spectate'); });
@@ -3653,7 +3665,7 @@
 
     function setLeaderboardTab(tab) {
       leaderboardTab = tab;
-      const tabs = { alltime: 'tab-alltime', tournament: 'tab-tournament', ta: 'tab-ta', 'ta-60': 'tab-ta-60', endless: 'tab-endless' };
+      const tabs = { alltime: 'tab-alltime', tournament: 'tab-tournament', ta: 'tab-ta', 'ta-60': 'tab-ta-60', 'daily-challenge': 'tab-daily-challenge', endless: 'tab-endless' };
       for (const [key2, id] of Object.entries(tabs)) {
         const el = document.getElementById(id);
         if (!el) continue;
@@ -3846,6 +3858,14 @@
         } catch (_) {
           leaderboardContentEl.innerHTML = '<p class="py-1 text-zinc-500">Couldn\'t load Time Attack (60s) scores.</p>';
         }
+      } else if (leaderboardTab === 'daily-challenge') {
+        try {
+          const res = await fetch('/api/challenge/leaderboard', { headers });
+          if (!res.ok) throw new Error('fetch failed');
+          renderDailyChallengeLeaderboard(await res.json());
+        } catch (_) {
+          leaderboardContentEl.innerHTML = '<p class="py-1 text-zinc-500">Couldn\'t load Daily Challenge scores.</p>';
+        }
       } else if (leaderboardTab === 'endless') {
         try {
           const res = await fetch('/api/endless-leaderboard', { headers });
@@ -3883,6 +3903,59 @@
       if (!leaderboardEl.classList.contains('hidden')) {
         leaderboardTimer = setTimeout(fetchLeaderboard, 30000);
       }
+    }
+
+    function renderDailyChallengeLeaderboard(data) {
+      const medals = ['🥇', '🥈', '🥉'];
+      const today = new Date().toISOString().slice(0, 10);
+      const displayDate = data.date === today ? 'Today' : data.date;
+
+      if (!data.entries.length) {
+        leaderboardContentEl.innerHTML =
+          '<div class="text-zinc-400 text-xs mb-2">' + escapeHtml(displayDate) + ' · Goal: Place ' + data.target + ' blocks</div>' +
+          '<p class="py-1 text-center text-zinc-400">No completions yet — be first!</p>';
+        return;
+      }
+      let html = '<div class="text-zinc-400 text-xs mb-2">' + escapeHtml(displayDate) + ' · Goal: Place ' + data.target + ' blocks</div>' +
+        '<table class="w-full text-xs">' +
+        '<thead><tr class="text-zinc-500 uppercase border-b border-zinc-700">' +
+        '<th class="text-left pb-1 w-8">#</th>' +
+        '<th class="text-left pb-1 pl-2">Player</th>' +
+        '<th class="text-right pb-1">Blocks</th>' +
+        '<th class="text-right pb-1 pl-1">Time</th></tr></thead><tbody>' +
+        data.entries.map(e => {
+          let timeStr = '—';
+          if (e.completed_at) {
+            const completed = new Date(e.completed_at);
+            const mins = Math.floor(completed.getTime() / 60000) % 60;
+            const secs = Math.floor(completed.getTime() / 1000) % 60;
+            timeStr = mins + 'm ' + secs + 's';
+          }
+          return '<tr class="border-b border-zinc-800/60 last:border-0">' +
+            '<td class="py-1">' + (medals[e.rank - 1] || e.rank) + '</td>' +
+            '<td class="py-1 pl-2 max-w-[120px] truncate">' + escapeHtml(e.username) + '</td>' +
+            '<td class="py-1 text-right font-mono text-zinc-100">' + e.blocks_placed + '</td>' +
+            '<td class="py-1 text-right pl-1 text-fuchsia-400">' + timeStr + '</td></tr>';
+        }).join('') +
+        '</tbody></table>';
+
+      if (data.self && !data.entries.find(e => e.user_id === data.self.user_id)) {
+        let timeStr = '—';
+        if (data.self.completed_at) {
+          const completed = new Date(data.self.completed_at);
+          const mins = Math.floor(completed.getTime() / 60000) % 60;
+          const secs = Math.floor(completed.getTime() / 1000) % 60;
+          timeStr = mins + 'm ' + secs + 's';
+        }
+        html += '<div class="mt-2 pt-2 border-t border-zinc-700 text-xs">' +
+          '<table class="w-full"><tbody><tr class="text-fuchsia-300">' +
+          '<td class="w-8">' + (medals[data.self.rank - 1] || data.self.rank) + '</td>' +
+          '<td class="pl-2 max-w-[100px] truncate">' + escapeHtml(data.self.username) + ' (you)</td>' +
+          '<td class="text-right font-mono">' + data.self.blocks_placed + '</td>' +
+          '<td class="text-right pl-1">' + timeStr + '</td>' +
+          '</tr></tbody></table></div>';
+      }
+      leaderboardContentEl.innerHTML = html;
     }
 
     function renderEndlessLeaderboard(data) {
@@ -3923,6 +3996,7 @@
     document.getElementById('tab-tournament').addEventListener('click', () => setLeaderboardTab('tournament'));
     document.getElementById('tab-ta').addEventListener('click', () => setLeaderboardTab('ta'));
     document.getElementById('tab-ta-60').addEventListener('click', () => setLeaderboardTab('ta-60'));
+    document.getElementById('tab-daily-challenge').addEventListener('click', () => setLeaderboardTab('daily-challenge'));
     document.getElementById('tab-endless').addEventListener('click', () => setLeaderboardTab('endless'));
 
     // ---- Friends panel ----
