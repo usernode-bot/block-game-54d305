@@ -112,6 +112,15 @@
     /* Spinner animation */
     @keyframes spin { to { transform: rotate(360deg); } }
     .spin { animation: spin 0.8s linear infinite; }
+
+    @keyframes combo-pulse {
+      0%, 100% { transform: scale(1); }
+      50% { transform: scale(1.05); }
+    }
+    .combo-pulse { animation: combo-pulse 0.8s ease-in-out infinite; }
+
+    /* Hold panel swatch transition for locked/unlocked state */
+    #hold-swatch { transition: opacity 0.2s; }
   </style>
 </head>
 <body class="bg-zinc-950 text-zinc-100">
@@ -126,17 +135,46 @@
     </div>
   </div>
 
-  <!-- Click-to-play overlay -->
+  <!-- Block attribution label: appears below the crosshair when aiming at a
+       player-placed block. Hidden by default; shown/hidden by JS. -->
+  <div id="attribution" class="hidden pointer-events-none fixed left-1/2 z-10 text-xs text-white/90 bg-black/55 rounded px-2 py-1 font-medium whitespace-nowrap" style="top: calc(50% + 20px); transform: translateX(-50%);"></div>
+
+  <!-- Power-up buff HUD: shows active buffs with countdown timers.
+       Positioned bottom-right above the palette. -->
+  <div id="powerup-hud" class="pointer-events-none fixed bottom-24 right-4 z-20 flex flex-col items-end gap-1"></div>
+
+  <!-- Mode-select / start overlay -->
   <div id="overlay" class="fixed inset-0 z-30 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-    <div class="max-w-md p-8 text-center">
-      <h1 class="text-2xl font-bold mb-2">block-game</h1>
-      <p class="text-zinc-300 mb-1">A shared 3D world everyone builds together.</p>
-      <p id="overlay-help" class="text-zinc-500 text-sm mb-6">Click to play — move the mouse to look, press Esc to release. If your browser blocks mouse-lock, you can drag to look instead.</p>
-      <div class="flex gap-3 justify-center flex-wrap">
-        <button id="play-btn" class="px-5 py-2 rounded-lg bg-violet-600 hover:bg-violet-500 font-semibold">Click to play</button>
-        <button id="battle-btn" class="px-5 py-2 rounded-lg bg-emerald-700 hover:bg-emerald-600 font-semibold">⚔ Battle</button>
+    <div class="max-w-lg w-full px-4">
+      <div class="text-center mb-5">
+        <h1 class="text-2xl font-bold mb-1">block-game</h1>
+        <p class="text-zinc-300 text-sm">A shared 3D world — build, challenge, or just watch.</p>
+        <p id="overlay-help" class="text-zinc-500 text-xs mt-1">Choose a mode to start.</p>
       </div>
-      <div id="status" class="mt-4 text-sm text-zinc-500"></div>
+      <div class="flex flex-col sm:flex-row gap-4">
+        <div class="flex-1 bg-zinc-900/80 rounded-xl p-5">
+          <h2 class="font-semibold text-zinc-100 mb-1">Classic Mode</h2>
+          <p class="text-zinc-400 text-xs mb-4">Fly around a shared 3D world. Place and break blocks with other players. No timer, no score.</p>
+          <button id="play-classic-btn" class="w-full px-4 py-2 rounded-lg bg-violet-600 hover:bg-violet-500 font-semibold text-sm transition-colors">Play Classic</button>
+        </div>
+        <div class="flex-1 bg-zinc-900/80 rounded-xl p-5">
+          <h2 class="font-semibold text-zinc-100 mb-1">Time Attack</h2>
+          <p class="text-zinc-400 text-xs mb-4">Break as many blocks as you can in 60 seconds. Solo challenge, fresh layout every run.</p>
+          <button id="play-ta-btn" class="w-full px-4 py-2 rounded-lg bg-amber-600 hover:bg-amber-500 font-semibold text-sm transition-colors">Play Time Attack</button>
+        </div>
+        <div class="flex-1 bg-zinc-900/80 rounded-xl p-5">
+          <h2 class="font-semibold text-zinc-100 mb-1">Watch</h2>
+          <p class="text-zinc-400 text-xs mb-4">Fly through the world as a spectator. No building required — just explore and chat.</p>
+          <button id="play-spectate-btn" class="w-full px-4 py-2 rounded-lg bg-teal-600 hover:bg-teal-500 font-semibold text-sm transition-colors">Watch World</button>
+        </div>
+        <div class="flex-1 bg-zinc-900/80 rounded-xl p-5">
+          <h2 class="font-semibold text-zinc-100 mb-1">Battle Mode</h2>
+          <p class="text-zinc-400 text-xs mb-4">Race to outlast your opponent on your own Tetris board.</p>
+          <button id="battle-btn" class="w-full px-4 py-2 rounded-lg bg-emerald-700 hover:bg-emerald-600 font-semibold text-sm transition-colors">⚔ Battle</button>
+        </div>
+      </div>
+      <div id="status" class="mt-3 text-xs text-zinc-500 text-center"></div>
+      <div id="online-list" class="mt-3 text-sm text-zinc-400 text-center"></div>
     </div>
   </div>
 
@@ -144,25 +182,87 @@
   <div id="hint" class="pointer-events-none fixed top-3 left-1/2 -translate-x-1/2 z-20 text-center text-xs text-zinc-300/90 bg-black/40 rounded-lg px-3 py-2 transition-opacity duration-700">
     <span class="font-semibold">WASD</span> move · <span class="font-semibold">Space/Shift</span> up·down ·
     <span class="font-semibold">Left-click/F</span> add · <span class="font-semibold">Right-click/G</span> delete ·
-    <span class="font-semibold">1–9</span> pick block · <span class="font-semibold">H</span> controls · <span class="font-semibold">Esc</span> release
+    <span class="font-semibold">1–9</span> pick block · <span class="font-semibold">H</span> hold/controls · <span class="font-semibold">Enter</span> chat · <span class="font-semibold">M</span> mute · <span class="font-semibold">Esc</span> release
   </div>
   <div id="hint-fallback" class="hidden pointer-events-none fixed top-3 left-1/2 -translate-x-1/2 z-20 text-center text-xs text-zinc-300/90 bg-black/40 rounded-lg px-3 py-2 transition-opacity duration-700">
     <span class="font-semibold">WASD</span> move · <span class="font-semibold">Space/Shift</span> up·down ·
     <span class="font-semibold">Drag</span> look · <span class="font-semibold">Left-click/F</span> add · <span class="font-semibold">Right-click/G</span> delete ·
-    <span class="font-semibold">1–9</span> pick block · <span class="font-semibold">H</span> controls · <span class="font-semibold">Esc</span> menu
+    <span class="font-semibold">1–9</span> pick block · <span class="font-semibold">H</span> hold/controls · <span class="font-semibold">Enter</span> chat · <span class="font-semibold">M</span> mute · <span class="font-semibold">Esc</span> menu
   </div>
 
   <button id="lookmode" class="hidden fixed top-12 left-1/2 -translate-x-1/2 z-20 text-xs text-zinc-200 bg-black/50 hover:bg-black/70 rounded-lg px-3 py-1.5 transition-colors cursor-pointer"></button>
 
+  <!-- Hold panel: displays the currently held block type (one-slot hold queue).
+       Positioned at the bottom-left, aligned with the palette bar. -->
+  <div id="hold-panel" class="pointer-events-none fixed bottom-4 left-4 z-20 flex flex-col items-center gap-1">
+    <span class="text-[10px] font-bold text-zinc-400 uppercase tracking-wide">Hold</span>
+    <div id="hold-swatch" class="w-10 h-10 rounded-md border-2 border-dashed border-zinc-600 flex items-center justify-center">
+      <span class="text-zinc-600 text-sm font-bold">–</span>
+    </div>
+  </div>
+
   <!-- Block palette -->
   <div id="palette" class="fixed bottom-4 left-1/2 -translate-x-1/2 z-20 flex gap-1.5 p-1.5 rounded-xl bg-black/50 backdrop-blur"></div>
 
+  <!-- Badges toggle: sits to the left of the mute button. -->
+  <button id="badges-btn" title="Badges" aria-label="Toggle badges"
+          class="fixed top-3 z-30 w-9 h-9 rounded-full bg-black/50 hover:bg-black/70 text-zinc-100 text-lg leading-none flex items-center justify-center transition-colors cursor-pointer" style="right: 6.25rem">🏆</button>
+
+  <!-- Audio mute toggle: sits to the left of the help button. -->
+  <button id="mute-btn" title="Mute/unmute audio (M)" aria-label="Toggle audio"
+          class="fixed top-3 right-14 z-30 w-9 h-9 rounded-full bg-black/50 hover:bg-black/70 text-zinc-100 text-lg leading-none flex items-center justify-center transition-colors cursor-pointer">🔊</button>
+
+  <!-- Turntable toggle: sits to the left of the mute button. -->
+  <button id="turntable-btn" title="Toggle turntable camera" aria-label="Toggle turntable camera"
+          class="fixed top-3 right-24 z-30 w-9 h-9 rounded-full bg-black/50 hover:bg-black/70 text-zinc-100 text-lg leading-none flex items-center justify-center transition-colors cursor-pointer">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-5 h-5">
+      <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>
+      <path d="M3 3v5h5"/>
+    </svg>
+  </button>
+
+  <!-- Help/controls toggle: circular "(?)" button fixed in the top-right
+       corner. Clicking it does exactly what pressing `h` does — show/hide the
+       controls overlay below. -->
   <button id="help-btn" title="Controls (h)" aria-label="Toggle controls"
           class="fixed top-3 right-3 z-30 w-9 h-9 rounded-full bg-black/50 hover:bg-black/70 text-zinc-100 text-lg font-bold leading-none flex items-center justify-center transition-colors cursor-pointer">?</button>
 
-  <div id="build-stamp" class="pointer-events-none fixed top-14 right-3 z-20 text-[11px] text-zinc-300/70 bg-black/40 rounded px-2 py-1 font-mono"></div>
+  <!-- Leaderboard toggle: sits below the help button. -->
+  <button id="leaderboard-btn" title="Leaderboard (l)" aria-label="Toggle leaderboard"
+          class="fixed top-14 right-3 z-30 w-9 h-9 rounded-full bg-black/50 hover:bg-black/70 text-zinc-100 text-lg leading-none flex items-center justify-center transition-colors cursor-pointer">🏆</button>
 
-  <div id="controls" class="hidden fixed top-16 right-3 z-30 w-72 max-w-[90vw] rounded-xl bg-black/70 backdrop-blur p-4 text-sm text-zinc-200 shadow-xl">
+  <!-- Friends toggle: sits below the leaderboard button. -->
+  <button id="friends-btn" title="Friends" aria-label="Toggle friends"
+          class="fixed top-[6.25rem] right-3 z-30 w-9 h-9 rounded-full bg-black/50 hover:bg-black/70 text-zinc-100 text-lg leading-none flex items-center justify-center transition-colors cursor-pointer relative">👥<span id="friends-badge" class="hidden absolute -top-1 -right-1 w-3 h-3 rounded-full bg-red-500 pointer-events-none"></span></button>
+
+  <!-- Build/version stamp: always visible, dim, so the running build can be
+       confirmed at a glance. Bump BUILD_VERSION (below) on every change.
+       Shifted down to make room for the leaderboard and friends buttons above. -->
+  <div id="build-stamp" class="pointer-events-none fixed top-36 right-3 z-20 text-[11px] text-zinc-300/70 bg-black/40 rounded px-2 py-1 font-mono"></div>
+
+  <!-- Badges panel: lists all 10 badges with earned/locked state. Hidden by
+       default; toggled by the trophy button. -->
+  <div id="badges-panel" class="hidden fixed top-16 right-3 z-30 w-72 max-w-[90vw] rounded-xl bg-black/70 backdrop-blur p-4 text-sm text-zinc-200 shadow-xl">
+    <div class="flex items-center justify-between mb-3">
+      <h2 class="font-bold text-zinc-100">Badges</h2>
+      <button id="badges-close" aria-label="Close badges" class="text-zinc-400 hover:text-zinc-100 cursor-pointer leading-none">✕</button>
+    </div>
+    <div id="badges-list" class="space-y-1.5 max-h-96 overflow-y-auto pr-0.5"></div>
+  </div>
+
+  <!-- Badge toast container: toasts stack above the palette, bottom-centre. -->
+  <div id="badge-toasts" class="pointer-events-none fixed left-1/2 -translate-x-1/2 z-40 flex flex-col-reverse items-center gap-2" style="bottom: 5.5rem"></div>
+
+  <!-- Login Streak HUD: compact pill above the daily challenge bar. Bottom set by JS. -->
+  <div id="streak-hud" class="hidden pointer-events-none fixed right-3 z-20 rounded-lg bg-black/55 px-2 py-1.5 text-xs text-white/90 font-semibold whitespace-nowrap"></div>
+
+  <!-- Daily Challenge HUD: bottom position set by JS (touch devices are raised
+       to clear the on-screen action cluster). Hidden until init() loads data. -->
+  <div id="challenge-hud" class="hidden pointer-events-none fixed right-3 z-20 w-36 rounded-lg bg-black/55 px-2 py-1.5 text-xs text-white/90"></div>
+
+  <!-- Controls overlay: a help panel listing every key/mouse binding. Hidden
+       by default; toggled by pressing `h` or clicking the "(?)" button. -->
+  <div id="controls" class="hidden fixed top-28 right-3 z-30 w-72 max-w-[90vw] rounded-xl bg-black/70 backdrop-blur p-4 text-sm text-zinc-200 shadow-xl">
     <div class="flex items-center justify-between mb-2">
       <h2 class="font-bold text-zinc-100">Controls</h2>
       <button id="controls-close" aria-label="Close controls" class="text-zinc-400 hover:text-zinc-100 cursor-pointer leading-none">✕</button>
@@ -173,11 +273,47 @@
       <li><span class="font-semibold">Left-click</span> or <span class="font-semibold">F</span> — add a block</li>
       <li><span class="font-semibold">Right-click</span> or <span class="font-semibold">G</span> — delete a block</li>
       <li><span class="font-semibold">1–9</span> — pick block type</li>
-      <li><span class="font-semibold">H</span> or <span class="font-semibold">(?)</span> — toggle this panel</li>
-      <li><span class="font-semibold">Esc</span> — release / menu</li>
+      <li><span class="font-semibold">H</span> (playing) — hold / swap block type</li>
+      <li><span class="font-semibold">H</span> (menu) or <span class="font-semibold">(?)</span> — toggle this panel</li>
+      <li><span class="font-semibold">Enter</span> — open / close chat</li>
+      <li><span class="font-semibold">L</span> or <span class="font-semibold">🏆</span> — leaderboard</li>
+      <li><span class="font-semibold">M</span> or <span class="font-semibold">🔊</span> — mute / unmute audio</li>
+      <li><span class="font-semibold">Esc</span> — close panel / release / menu</li>
+      <li><span class="font-semibold">Power-ups</span> — collect glowing cubes for Speed, Jump, or Rapid Place (hold F/Add)</li>
     </ul>
   </div>
 
+  <!-- Leaderboard overlay: top 10 builders. Hidden by default; toggled by
+       pressing `l` or clicking the trophy button. -->
+  <div id="leaderboard" class="hidden fixed top-28 right-3 z-30 w-72 max-w-[90vw] rounded-xl bg-black/70 backdrop-blur p-4 text-sm text-zinc-200 shadow-xl">
+    <div class="flex items-center justify-between mb-3">
+      <h2 class="font-bold text-zinc-100">Leaderboard</h2>
+      <button id="leaderboard-close" aria-label="Close leaderboard" class="text-zinc-400 hover:text-zinc-100 cursor-pointer leading-none">✕</button>
+    </div>
+    <div id="leaderboard-content" class="text-zinc-400 text-center py-2 text-xs">Loading…</div>
+  </div>
+
+  <!-- Friends panel: friend list with online/offline sections and pending requests.
+       Hidden by default; toggled by the 👥 button. -->
+  <div id="friends-panel" class="hidden fixed top-28 right-3 z-30 w-72 max-w-[90vw] rounded-xl bg-black/70 backdrop-blur p-4 text-sm text-zinc-200 shadow-xl">
+    <div class="flex items-center justify-between mb-3">
+      <h2 class="font-bold text-zinc-100">Friends</h2>
+      <button id="friends-close" aria-label="Close friends" class="text-zinc-400 hover:text-zinc-100 cursor-pointer leading-none">✕</button>
+    </div>
+    <div id="friends-content" class="text-zinc-400 text-center py-2 text-xs">Loading…</div>
+    <div class="mt-3 pt-3 border-t border-zinc-700/60 flex gap-2">
+      <input id="friends-input" type="text" placeholder="Add by username…" maxlength="100" autocomplete="off"
+             class="flex-1 min-w-0 bg-zinc-800 text-zinc-100 text-xs rounded px-2 py-1.5 border border-zinc-700 focus:border-violet-500 outline-none placeholder-zinc-500">
+      <button id="friends-add-btn" class="shrink-0 px-3 py-1.5 bg-violet-600 hover:bg-violet-500 active:bg-violet-700 text-white text-xs font-semibold rounded cursor-pointer transition-colors">Add</button>
+    </div>
+    <div id="friends-add-status" class="mt-1 text-xs text-center min-h-[1.2em]"></div>
+  </div>
+
+  <!-- Touch controls: translucent on-screen overlay shown only on touch devices
+       while playing. The container is pointer-events-none so empty gaps fall
+       through to the canvas (look-drag); each button re-enables pointer events.
+       data-mv buttons are HELD (set/clear a move flag); data-act buttons fire
+       once on press. Hidden until JS reveals it on a touch device. -->
   <div id="touch-controls" class="hidden absolute inset-0 z-20 pointer-events-none select-none">
     <button data-act="menu" class="touch-ctrl pointer-events-auto absolute top-3 left-3 px-3 h-9 rounded-lg bg-black/45 active:bg-black/70 text-zinc-100 text-sm font-semibold flex items-center justify-center">☰ Menu</button>
     <div class="absolute left-4 bottom-4 grid grid-cols-3 grid-rows-3 gap-1.5 opacity-90">
@@ -188,6 +324,7 @@
     </div>
     <div class="absolute right-4 bottom-4 flex flex-col items-end gap-2">
       <div class="flex gap-2">
+        <button data-act="hold" class="touch-ctrl pointer-events-auto w-14 h-14 rounded-xl bg-violet-700/55 active:bg-violet-500/80 text-xs font-bold text-white flex items-center justify-center">Hold</button>
         <button data-mv="down" class="touch-ctrl pointer-events-auto w-14 h-14 rounded-xl bg-black/40 active:bg-black/70 text-sm font-semibold text-zinc-100 flex items-center justify-center">Down</button>
         <button data-mv="up" class="touch-ctrl pointer-events-auto w-14 h-14 rounded-xl bg-black/40 active:bg-black/70 text-sm font-semibold text-zinc-100 flex items-center justify-center">Up</button>
       </div>
@@ -307,6 +444,53 @@
 
   </div><!-- /#battle-overlay -->
 
+  <!-- Chat drawer: slides up from the bottom of the game canvas. Hidden by
+       default; toggled by the chat button or the Enter key. -->
+  <div id="chat-drawer" class="hidden fixed bottom-0 left-0 right-0 z-[22] flex flex-col h-64 border-t border-zinc-700/80">
+    <div class="flex items-center justify-between px-3 py-2 bg-zinc-900/95 backdrop-blur-sm shrink-0">
+      <span class="text-sm font-semibold text-zinc-200">Chat</span>
+      <button id="chat-close" class="text-zinc-400 hover:text-zinc-100 text-base leading-none cursor-pointer">✕</button>
+    </div>
+    <div id="chat-messages" class="flex-1 overflow-y-auto px-3 py-2 bg-black/80 backdrop-blur-sm space-y-1 text-sm"></div>
+    <div class="flex gap-2 px-2 py-2 bg-zinc-900/95 backdrop-blur-sm shrink-0">
+      <input id="chat-input" type="text" maxlength="200" autocomplete="off"
+             placeholder="Message…"
+             class="flex-1 min-w-0 bg-zinc-800 text-zinc-100 text-sm rounded-lg px-3 py-2 border border-zinc-700 focus:border-violet-500 outline-none placeholder-zinc-500">
+      <button id="chat-send" class="shrink-0 px-3 py-2 bg-violet-600 hover:bg-violet-500 active:bg-violet-700 text-white text-sm font-semibold rounded-lg cursor-pointer transition-colors">Send</button>
+    </div>
+  </div>
+
+  <!-- Chat toggle button: fixed in the lower-right, above touch controls.
+       Shows an unread badge when new messages arrive while closed. -->
+  <button id="chat-toggle" title="Chat (Enter)"
+          class="fixed bottom-40 right-3 z-[22] w-10 h-10 rounded-full bg-black/50 hover:bg-black/70 text-xl flex items-center justify-center transition-colors cursor-pointer">
+    💬<span id="chat-badge" class="hidden absolute -top-1 -right-1 min-w-[18px] h-[18px] rounded-full bg-violet-500 text-white text-[10px] font-bold flex items-center justify-center leading-none pointer-events-none select-none">0</span>
+  </button>
+
+  <!-- Time Attack HUD: timer + score shown only during TA mode -->
+  <div id="ta-hud" class="hidden pointer-events-none fixed top-3 left-3 z-20 flex flex-col gap-1">
+    <div id="ta-timer" class="text-3xl font-mono font-bold text-white bg-black/50 rounded-xl px-4 py-2 tabular-nums leading-none">1:00</div>
+    <div id="ta-score" class="text-sm font-semibold text-zinc-200 bg-black/50 rounded-xl px-4 py-1.5 text-center">0 blocks</div>
+  </div>
+
+  <!-- Combo HUD: placement streak multiplier badge shown in Classic mode -->
+  <div id="combo-hud" class="hidden pointer-events-none fixed top-3 left-3 z-20 transition-opacity duration-200">
+    <div id="combo-badge" class="text-3xl font-mono font-bold text-white rounded-xl px-4 py-2 leading-none tabular-nums bg-amber-500" style="transition: transform 0.15s ease-out;">2×</div>
+  </div>
+
+  <!-- Time Attack game-over overlay -->
+  <div id="ta-gameover" class="hidden fixed inset-0 z-30 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+    <div class="max-w-sm w-full mx-4 bg-zinc-900/95 rounded-2xl p-8 text-center shadow-xl">
+      <h2 class="text-2xl font-bold mb-2">Time's up!</h2>
+      <p id="ta-final-score" class="text-zinc-300 text-lg mb-6">You cleared 0 blocks</p>
+      <div class="flex gap-3 justify-center">
+        <button id="ta-play-again" class="px-5 py-2 rounded-lg bg-amber-600 hover:bg-amber-500 font-semibold transition-colors">Play Again</button>
+        <button id="ta-back-menu" class="px-5 py-2 rounded-lg bg-zinc-700 hover:bg-zinc-600 font-semibold transition-colors">Back to Menu</button>
+      </div>
+    </div>
+  </div>
+
+
   </div><!-- /#rotor -->
 
   <script type="module">
@@ -317,29 +501,283 @@
     const headers = token ? { 'x-usernode-token': token } : {};
     const statusEl = document.getElementById('status');
 
-    const BUILD_VERSION = 'battle-mode';
+    // Decode the JWT payload (base64url) to get the current user's username for
+    // self-exclusion in the online list friend buttons. Read-only — no sensitive use.
+    let myUsername = null;
+    try {
+      if (token) {
+        const payload = JSON.parse(atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
+        myUsername = payload.username || null;
+      }
+    } catch (_) {}
 
+    // Build identifier — bump this (to the deploying commit short SHA) on every
+    // change so the top-right stamp confirms exactly which code is running.
+    const BUILD_VERSION = 'power-ups+hold-queue+achievements-badges+chat+daily-challenge+leaderboard+online-presence+block-attribution+audio-sfx+next-piece-preview+spectator-mode+friends+battle-mode';
+
+    // Badge definitions — mirror of the server-side BADGES array, extended with
+    // a `hint` field shown in the panel for unearned badges.
+    const BADGES_DEF = [
+      { id: 'first_block',     name: 'First Block',    icon: '🏗️', flavour: 'Placed your first block!',        hint: 'Place your first block' },
+      { id: 'builder',         name: 'Builder',         icon: '🧱', flavour: 'Placed 10 blocks!',               hint: 'Place 10 blocks total' },
+      { id: 'architect',       name: 'Architect',       icon: '🏰', flavour: 'Placed 100 blocks!',              hint: 'Place 100 blocks total' },
+      { id: 'high_scorer',     name: 'High Scorer',     icon: '⭐', flavour: 'Earned 1,000 score points!',      hint: 'Accumulate 1,000 score points' },
+      { id: 'comboist',        name: 'Comboist',        icon: '⚡', flavour: 'Hit a ×3 combo multiplier!',      hint: 'Achieve a ×3 combo multiplier' },
+      { id: 'rainbow_placer',  name: 'Rainbow Placer',  icon: '🌈', flavour: 'Placed a Rainbow Block!',         hint: 'Place a Rainbow Block' },
+      { id: 'golden_touch',    name: 'Golden Touch',    icon: '✨', flavour: 'Placed a Gold Block!',            hint: 'Place a Gold Block' },
+      { id: 'glowmaster',      name: 'Glowmaster',      icon: '💡', flavour: 'Placed a Glowstone block!',       hint: 'Place a Glowstone block' },
+      { id: 'shadow_sculptor', name: 'Shadow Sculptor', icon: '🌑', flavour: 'Placed an Obsidian block!',       hint: 'Place an Obsidian block' },
+      { id: 'material_artist', name: 'Material Artist', icon: '🎨', flavour: 'Used 8+ different block types!', hint: 'Use 8 or more different block types' },
+      { id: 'streak_3',        name: 'Hot Start',       icon: '🔥', flavour: 'Logged in 3 days in a row!',     hint: 'Log in 3 days in a row' },
+      { id: 'streak_7',        name: 'Week Warrior',    icon: '🗓️', flavour: 'A full week of building!',       hint: 'Log in 7 days in a row' },
+      { id: 'streak_14',       name: 'Fortnight Pro',   icon: '🏆', flavour: 'Two weeks of daily play!',       hint: 'Log in 14 days in a row' },
+      { id: 'streak_30',       name: 'Monthly Master',  icon: '👑', flavour: 'A full month on the block!',     hint: 'Log in 30 days in a row' },
+    ];
+
+    // Touch capability: drives (a) the on-screen control overlay, (b) skipping
+    // mouse-lock in favour of direct touch play, and (c) portrait force-rotation.
     const isTouch = (window.matchMedia && window.matchMedia('(pointer: coarse)').matches)
       || ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
+
+    // ---- Audio system ----
+    // All audio generated with Web Audio API — no external files.
+    // AudioContext is created lazily on first user gesture (browser autoplay policy).
+    const audio = (() => {
+      let ctx = null;
+      let masterGain = null;
+      let muted = localStorage.getItem('blockgame-muted') === 'true';
+
+      // Music: 72 BPM, 8-beat looping phrase (C – Am – F – G)
+      const BEAT_SEC = 60 / 72;
+      const PHRASE_BEATS = 8;
+      const PHRASE_SEC = PHRASE_BEATS * BEAT_SEC;
+
+      // Bass notes: [beatInPhrase, rootFreqHz, durationBeats]
+      const BASS = [
+        [0, 65.4, 1.9],   // C2
+        [2, 55.0, 1.9],   // A1
+        [4, 87.3, 1.9],   // F2
+        [6, 98.0, 1.9],   // G2
+      ];
+      // Melody arpeggios: eighth-note runs over each chord
+      const MELODY = [
+        [0.0, 261.6, 0.7], [0.5, 329.6, 0.7], [1.0, 392.0, 0.7], [1.5, 329.6, 0.7],
+        [2.0, 220.0, 0.7], [2.5, 261.6, 0.7], [3.0, 329.6, 0.7], [3.5, 261.6, 0.7],
+        [4.0, 349.2, 0.7], [4.5, 440.0, 0.7], [5.0, 523.3, 0.7], [5.5, 440.0, 0.7],
+        [6.0, 392.0, 0.7], [6.5, 493.9, 0.7], [7.0, 392.0, 0.7], [7.5, 329.6, 0.7],
+      ];
+
+      let musicTimerId = null;
+      let nextPhraseTime = 0;
+
+      function scheduleNote(freq, type, gainPeak, startT, durSec, useLpf) {
+        const osc = ctx.createOscillator();
+        const g = ctx.createGain();
+        osc.type = type;
+        osc.frequency.value = freq;
+        // Start at near-zero so exponential ramps work; linear attack, exp decay.
+        g.gain.setValueAtTime(0.0001, startT);
+        g.gain.linearRampToValueAtTime(gainPeak, startT + 0.015);
+        g.gain.exponentialRampToValueAtTime(0.0001, startT + durSec);
+        if (useLpf) {
+          const lpf = ctx.createBiquadFilter();
+          lpf.type = 'lowpass';
+          lpf.frequency.value = 250;
+          lpf.Q.value = 0.7;
+          osc.connect(lpf);
+          lpf.connect(g);
+          osc.addEventListener('ended', () => { osc.disconnect(); lpf.disconnect(); g.disconnect(); });
+        } else {
+          osc.connect(g);
+          osc.addEventListener('ended', () => { osc.disconnect(); g.disconnect(); });
+        }
+        g.connect(masterGain);
+        osc.start(startT);
+        osc.stop(startT + durSec + 0.05);
+      }
+
+      function schedulePhrase(t0) {
+        for (const [beat, freq, dur] of BASS) {
+          scheduleNote(freq, 'sawtooth', 0.06, t0 + beat * BEAT_SEC, dur * BEAT_SEC, true);
+        }
+        for (const [beat, freq, dur] of MELODY) {
+          scheduleNote(freq, 'triangle', 0.035, t0 + beat * BEAT_SEC, dur * BEAT_SEC, false);
+        }
+      }
+
+      function musicTick() {
+        if (!ctx) return;
+        // Keep two full phrases buffered ahead at all times.
+        const until = ctx.currentTime + PHRASE_SEC * 2;
+        while (nextPhraseTime < until) {
+          schedulePhrase(nextPhraseTime);
+          nextPhraseTime += PHRASE_SEC;
+        }
+      }
+
+      function startMusic() {
+        if (musicTimerId !== null) return;
+        nextPhraseTime = ctx.currentTime + 0.1;
+        musicTick();
+        // Re-run every ~3s (well within one phrase duration) to pre-schedule ahead.
+        musicTimerId = setInterval(musicTick, 3000);
+      }
+
+      function playPlace() {
+        if (!ctx) return;
+        const t = ctx.currentTime;
+        const osc = ctx.createOscillator();
+        const g = ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(180, t);
+        osc.frequency.linearRampToValueAtTime(140, t + 0.1);
+        g.gain.setValueAtTime(0, t);
+        g.gain.linearRampToValueAtTime(0.4, t + 0.005);
+        g.gain.exponentialRampToValueAtTime(0.0001, t + 0.15);
+        osc.connect(g);
+        g.connect(masterGain);
+        osc.addEventListener('ended', () => { osc.disconnect(); g.disconnect(); });
+        osc.start(t);
+        osc.stop(t + 0.16);
+      }
+
+      function playBreak() {
+        if (!ctx) return;
+        const t = ctx.currentTime;
+        const bufSize = Math.floor(ctx.sampleRate * 0.08);
+        const buf = ctx.createBuffer(1, bufSize, ctx.sampleRate);
+        const data = buf.getChannelData(0);
+        for (let i = 0; i < bufSize; i++) data[i] = Math.random() * 2 - 1;
+        const src = ctx.createBufferSource();
+        src.buffer = buf;
+        const filter = ctx.createBiquadFilter();
+        filter.type = 'bandpass';
+        filter.frequency.value = 400;
+        filter.Q.value = 2;
+        const g = ctx.createGain();
+        g.gain.setValueAtTime(0.35, t);
+        g.gain.exponentialRampToValueAtTime(0.0001, t + 0.08);
+        src.connect(filter);
+        filter.connect(g);
+        g.connect(masterGain);
+        src.addEventListener('ended', () => { src.disconnect(); filter.disconnect(); g.disconnect(); });
+        src.start(t);
+        src.stop(t + 0.09);
+      }
+
+      function playJoin() {
+        if (!ctx) return;
+        const t = ctx.currentTime;
+        // Arpeggiated C major chord
+        [[261.6, 0], [329.6, 0.12], [392.0, 0.24]].forEach(([freq, delay]) => {
+          const osc = ctx.createOscillator();
+          const g = ctx.createGain();
+          osc.type = 'triangle';
+          osc.frequency.value = freq;
+          const ts = t + delay;
+          g.gain.setValueAtTime(0, ts);
+          g.gain.linearRampToValueAtTime(0.2, ts + 0.4);
+          g.gain.exponentialRampToValueAtTime(0.0001, ts + 1.2);
+          osc.connect(g);
+          g.connect(masterGain);
+          osc.addEventListener('ended', () => { osc.disconnect(); g.disconnect(); });
+          osc.start(ts);
+          osc.stop(ts + 1.3);
+        });
+      }
+
+      function toggleMute() {
+        muted = !muted;
+        localStorage.setItem('blockgame-muted', String(muted));
+        if (masterGain) {
+          const t = ctx.currentTime;
+          masterGain.gain.cancelScheduledValues(t);
+          masterGain.gain.setValueAtTime(masterGain.gain.value, t);
+          masterGain.gain.linearRampToValueAtTime(muted ? 0 : 1, t + 0.05);
+        }
+        return muted;
+      }
+
+      function isMuted() { return muted; }
+
+      function init() {
+        if (!ctx) {
+          ctx = new (window.AudioContext || window.webkitAudioContext)();
+          masterGain = ctx.createGain();
+          masterGain.gain.setValueAtTime(muted ? 0 : 1, ctx.currentTime);
+          masterGain.connect(ctx.destination);
+        }
+        if (ctx.state === 'suspended') ctx.resume();
+        playJoin();
+        startMusic();
+      }
+
+      return { init, playPlace, playBreak, toggleMute, isMuted };
+    })();
+
     const buildStampEl = document.getElementById('build-stamp');
     buildStampEl.textContent = 'build ' + BUILD_VERSION;
 
-    // Decode JWT payload for username display (display only, not verified)
-    const myUsername = (() => {
-      try {
-        const p = token.split('.')[1];
-        return JSON.parse(atob(p.replace(/-/g, '+').replace(/_/g, '/'))
-        ).username || 'You';
-      } catch { return 'You'; }
-    })();
+    // Daily Challenge HUD element — bottom position raised on touch to clear
+    // the on-screen fly/build action cluster that lives at bottom-right.
+    const challengeHudEl = document.getElementById('challenge-hud');
+    challengeHudEl.style.bottom = isTouch ? '10rem' : '1rem';
+
+    // Streak HUD pill sits above the challenge HUD.
+    const streakHudEl = document.getElementById('streak-hud');
+    const CHALLENGE_HUD_HEIGHT_PX = 54; // approx rendered height (px) of challenge pill
+    const STREAK_GAP_PX = 6;
+    const challengeHudBottomPx = isTouch ? 160 : 16; // 10rem=160px, 1rem=16px
+    streakHudEl.style.bottom = (challengeHudBottomPx + CHALLENGE_HUD_HEIGHT_PX + STREAK_GAP_PX) + 'px';
+
+    function updateStreakHud(current) {
+      if (current <= 0) return;
+      streakHudEl.textContent = current === 1 ? '🔥 Day 1' : '🔥 ' + current + ' day streak';
+      streakHudEl.classList.remove('hidden');
+    }
 
     // ---- World/runtime state ----
     let DIMS = { w: 32, d: 32, h: 24 };
     let PALETTE = [];
-    const blocks = new Map();
-    let cursor = 0;
+    const blocks = new Map();        // "x,y,z" -> block_type (non-zero only) — classic world
+    let cursor = 0;                  // last seq seen from the server
     let selectedType = 1;
     const key = (x, y, z) => x + ',' + y + ',' + z;
+
+    // ---- Power-up state ----
+    const powerupMap = new Map(); // id -> { type, x, y, z, mesh }
+    const activeBuff = new Map(); // type -> expiresAt (performance.now() ms)
+    let placeHeld = false;        // true while the place key/button is held down
+    let lastRapidPlace = 0;       // ms timestamp of the last rapid-place fire
+
+    // ---- Hold queue state ----
+    let heldType = null;    // block type ID currently in the hold slot, or null
+    let holdLocked = false; // true after a hold swap; cleared on next block placement
+
+    // ---- Badge state ----
+    const earnedBadges = new Map(); // badge_id -> { earned_at }
+    let badgesOpen = false;
+
+    // ---- Chat state ----
+    let chatCursor = 0;    // last chat message id seen
+    let chatUnread = 0;    // messages received while drawer was closed
+    let chatOpen = false;  // whether the chat drawer is visible
+    let chatOpening = false; // true while waiting for pointer lock to release for chat
+
+    // ---- Daily Challenge state ----
+    let challengeDate = null;        // ISO date string (YYYY-MM-DD) for current progress
+    let challengeTarget = 0;         // today's placement goal
+    let challengePlaced = 0;         // blocks placed today by this user
+    let challengeCompleted = false;  // true once placed >= target
+
+    // ---- Game mode state ----
+    let gameMode = null;           // null | 'classic' | 'timeattack'
+    const taBlocks = new Map();    // TA layout: client-only, never written to server
+    let taScore = 0;
+    let taTimeLeft = 60;
+    let taTimerHandle = null;
+    let pollHandle = null;         // classic-mode server poll interval
+    let pendingTaInit = false;     // true while waiting for play-entry to fire initTimeAttack
 
     // ---- Three.js scaffold ----
     const canvas = document.getElementById('scene');
@@ -366,6 +804,24 @@
       return new THREE.MeshLambertMaterial(opts);
     }
 
+    // ---- Power-up geometry, materials, and scene group ----
+    const powerupGeom = new THREE.BoxGeometry(0.5, 0.5, 0.5);
+    const POWERUP_DEFS = {
+      speed_boost: { color: '#FFD700', label: 'Speed Boost' },
+      super_jump:  { color: '#22d3ee', label: 'Super Jump'  },
+      rapid_place: { color: '#fb923c', label: 'Rapid Place' },
+    };
+    const powerupMats = {};
+    for (const [type, def] of Object.entries(POWERUP_DEFS)) {
+      // MeshBasicMaterial is unaffected by lighting so power-ups always glow
+      // bright and stand out from the Lambert-lit world blocks.
+      powerupMats[type] = new THREE.MeshBasicMaterial({ color: new THREE.Color(def.color) });
+    }
+    const powerupGroup = new THREE.Group();
+    scene.add(powerupGroup);
+
+    // Ground = immutable grass layer at y = 0 (one InstancedMesh, raycastable
+    // so blocks can be placed on top, but never breakable).
     let groundMesh = null;
     function buildGround() {
       const grass = PALETTE.find((p) => p.name === 'Grass') || PALETTE[0];
@@ -404,12 +860,15 @@
       scene.add(grid);
     }
 
+    // Dynamic blocks: one InstancedMesh per type, rebuilt from the active map.
+    // In TA mode uses taBlocks; otherwise uses the shared blocks map.
     const blockGroup = new THREE.Group();
     scene.add(blockGroup);
     function rebuildBlockMeshes() {
       blockGroup.clear();
+      const source = gameMode === 'timeattack' ? taBlocks : blocks;
       const byType = new Map();
-      for (const [k, t] of blocks) {
+      for (const [k, t] of source) {
         if (!byType.has(t)) byType.set(t, []);
         const [x, y, z] = k.split(',').map(Number);
         byType.get(t).push({ x, y, z });
@@ -430,6 +889,7 @@
       }
     }
 
+    // Targeting highlight.
     const highlight = new THREE.LineSegments(
       new THREE.EdgesGeometry(cube),
       new THREE.LineBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.6 })
@@ -437,15 +897,220 @@
     highlight.visible = false;
     scene.add(highlight);
 
+    // Placement preview ghost: a translucent block at target.place showing
+    // where the next block will land before the player commits.
+    const previewMaterial = new THREE.MeshLambertMaterial({
+      transparent: true, opacity: 0.38, depthWrite: false,
+    });
+    const previewMesh = new THREE.Mesh(cube, previewMaterial);
+    previewMesh.visible = false;
+    scene.add(previewMesh);
+
+    // ---- Raycast from screen center to find the aimed cell + face ----
     const raycaster = new THREE.Raycaster();
     const centre = new THREE.Vector2(0, 0);
-    let target = null;
+    let target = null; // { cell:{x,y,z}, place:{x,y,z} }
+
+    // ---- Block attribution ("Who built this?") ----
+    const attributionEl = document.getElementById('attribution');
+    let _attrTimer = null;   // debounce handle
+    let _attrAbort = null;   // AbortController for in-flight fetch
+    let _attrKey = null;     // cell key of last fetch so we don't re-fetch same cell
+
+    function relativeTime(isoStr) {
+      const diff = Math.floor((Date.now() - new Date(isoStr).getTime()) / 1000);
+      if (diff < 60) return 'just now';
+      if (diff < 3600) return Math.floor(diff / 60) + ' min ago';
+      if (diff < 86400) return Math.floor(diff / 3600) + ' hr ago';
+      return Math.floor(diff / 86400) + ' days ago';
+    }
+
+    // ---- Badge panel rendering ----
+    function renderBadgesPanel() {
+      const listEl = document.getElementById('badges-list');
+      listEl.innerHTML = '';
+      for (const b of BADGES_DEF) {
+        const earned = earnedBadges.get(b.id);
+        const item = document.createElement('div');
+        item.className = 'flex items-start gap-2.5 rounded-lg px-2 py-2 ' + (earned ? 'bg-white/5' : 'opacity-40');
+        const iconEl = document.createElement('span');
+        iconEl.className = 'text-xl leading-none mt-0.5 flex-shrink-0';
+        iconEl.textContent = earned ? b.icon : '🔒';
+        const info = document.createElement('div');
+        info.className = 'min-w-0';
+        const nameEl = document.createElement('div');
+        nameEl.className = 'font-semibold text-zinc-100 leading-tight';
+        nameEl.textContent = b.name;
+        const subEl = document.createElement('div');
+        subEl.className = 'text-zinc-400 text-xs mt-0.5 leading-snug';
+        subEl.textContent = earned
+          ? b.flavour + ' · earned ' + relativeTime(earned.earned_at)
+          : b.hint;
+        info.appendChild(nameEl);
+        info.appendChild(subEl);
+        item.appendChild(iconEl);
+        item.appendChild(info);
+        listEl.appendChild(item);
+      }
+    }
+
+    // ---- Badge toast queue ----
+    const toastQueue = [];
+    let toastShowing = false;
+
+    function showNextToast() {
+      if (!toastQueue.length) { toastShowing = false; return; }
+      toastShowing = true;
+      const badge = toastQueue.shift();
+      const container = document.getElementById('badge-toasts');
+      const toast = document.createElement('div');
+      toast.className = 'flex items-center gap-3 bg-black/85 backdrop-blur rounded-xl px-4 py-2.5 text-sm text-zinc-100 shadow-xl';
+      toast.style.cssText = 'opacity:0;transition:opacity 0.3s;';
+      const iconSpan = document.createElement('span');
+      iconSpan.className = 'text-2xl leading-none flex-shrink-0';
+      iconSpan.textContent = badge.icon;
+      const textDiv = document.createElement('div');
+      const nameDiv = document.createElement('div');
+      nameDiv.className = 'font-semibold';
+      nameDiv.textContent = badge.name;
+      const subDiv = document.createElement('div');
+      subDiv.className = 'text-zinc-400 text-xs mt-0.5';
+      subDiv.textContent = badge.flavour;
+      textDiv.appendChild(nameDiv);
+      textDiv.appendChild(subDiv);
+      toast.appendChild(iconSpan);
+      toast.appendChild(textDiv);
+      container.appendChild(toast);
+      // Trigger opacity transition after insertion.
+      requestAnimationFrame(() => { toast.style.opacity = '1'; });
+      const displayMs = toastQueue.length > 0 ? 3000 : 4000;
+      setTimeout(() => {
+        toast.style.opacity = '0';
+        setTimeout(() => { toast.remove(); showNextToast(); }, 300);
+      }, displayMs);
+    }
+
+    function showBadgeToast(badge) {
+      toastQueue.push(badge);
+      if (!toastShowing) showNextToast();
+    }
+
+    function clearAttribution() {
+      if (_attrTimer !== null) { clearTimeout(_attrTimer); _attrTimer = null; }
+      if (_attrAbort !== null) { _attrAbort.abort(); _attrAbort = null; }
+      _attrKey = null;
+      attributionEl.textContent = '';
+      attributionEl.classList.add('hidden');
+    }
+
+    function scheduleAttribution(cellKey, x, y, z) {
+      if (_attrKey === cellKey) return; // already showing / fetching this cell
+      clearAttribution();
+      _attrKey = cellKey;
+      _attrTimer = setTimeout(async () => {
+        _attrTimer = null;
+        const ac = new AbortController();
+        _attrAbort = ac;
+        try {
+          const res = await fetch('/api/block/' + x + '/' + y + '/' + z,
+            { headers, signal: ac.signal });
+          if (!res.ok || ac.signal.aborted) return;
+          const data = await res.json();
+          if (!data || !data.username) return;
+          attributionEl.textContent = 'Built by ' + data.username + ' · ' + relativeTime(data.updated_at);
+          attributionEl.classList.remove('hidden');
+        } catch (_) { /* AbortError or network error — fine */ }
+      }, 200);
+    }
+
+    function updateAttribution() {
+      if (!target || target.cell.y < 1 || !blocks.has(key(target.cell.x, target.cell.y, target.cell.z))) {
+        clearAttribution();
+      } else {
+        const c = target.cell;
+        scheduleAttribution(key(c.x, c.y, c.z), c.x, c.y, c.z);
+      }
+    }
+
+    // ---- Power-up buff HUD ----
+    const powerupHudEl = document.getElementById('powerup-hud');
+    let _lastHudHtml = '';
+    function renderBuffHud() {
+      const now = performance.now();
+      let html = '';
+      for (const [type, expiresAt] of activeBuff) {
+        const remaining = Math.ceil((expiresAt - now) / 1000);
+        if (remaining > 0) {
+          const def = POWERUP_DEFS[type];
+          html += '<div class="px-2 py-1 rounded text-xs font-bold text-black" style="background:' + def.color + '">'
+                + def.label + ' ' + remaining + 's</div>';
+        }
+      }
+      if (html !== _lastHudHtml) { powerupHudEl.innerHTML = html; _lastHudHtml = html; }
+    }
+
+    // ---- Power-up world sync ----
+    async function pollPowerUps() {
+      if (document.hidden) return;
+      try {
+        const res = await fetch('/api/powerups', { headers });
+        if (!res.ok) return;
+        const { powerups } = await res.json();
+        const serverIds = new Set(powerups.map((p) => p.id));
+        // Remove meshes for items that are no longer on the server (claimed).
+        for (const [id, pu] of powerupMap) {
+          if (!serverIds.has(id)) {
+            if (pu.mesh) powerupGroup.remove(pu.mesh);
+            powerupMap.delete(id);
+          }
+        }
+        // Add meshes for items the client doesn't know about yet.
+        for (const p of powerups) {
+          if (!powerupMap.has(p.id)) {
+            const mat = powerupMats[p.type] || powerupMats.speed_boost;
+            const mesh = new THREE.Mesh(powerupGeom, mat);
+            mesh.position.set(p.x + 0.5, p.y + 0.5, p.z + 0.5);
+            mesh.userData.baseY = p.y + 0.5;
+            mesh.userData.phase = (p.id * 1.618) % (Math.PI * 2); // stable per-id phase
+            powerupGroup.add(mesh);
+            powerupMap.set(p.id, { ...p, mesh });
+          }
+        }
+      } catch (e) { /* transient; next tick retries */ }
+    }
+
+    // ---- Collect a power-up (optimistic removal + server claim) ----
+    async function collectPowerUp(id) {
+      const pu = powerupMap.get(id);
+      if (!pu) return;
+      // Optimistic: remove immediately so the player doesn't trigger it again.
+      if (pu.mesh) powerupGroup.remove(pu.mesh);
+      powerupMap.delete(id);
+      try {
+        const res = await fetch('/api/powerups/' + id + '/collect', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...headers },
+        });
+        if (!res.ok) {
+          // 409 = another player got it first; re-sync the world state.
+          if (res.status === 409) pollPowerUps();
+          return;
+        }
+        const { type, duration } = await res.json();
+        activeBuff.set(type, performance.now() + duration * 1000);
+        renderBuffHud();
+        // Fetch the replacement that the server spawned.
+        pollPowerUps();
+      } catch (e) { /* transient */ }
+    }
+
     function updateTarget() {
       raycaster.setFromCamera(centre, camera);
       const targets = [groundMesh, ...blockGroup.children].filter(Boolean);
       const hits = raycaster.intersectObjects(targets, false);
       target = null;
       highlight.visible = false;
+      previewMesh.visible = false;
       if (!hits.length) return;
       const hit = hits[0];
       const cells = hit.object.userData.cells;
@@ -458,6 +1123,12 @@
       };
       highlight.position.set(cell.x + 0.5, cell.y + 0.5, cell.z + 0.5);
       highlight.visible = true;
+      // Show ghost at the prospective placement cell if playing, in bounds, and unoccupied.
+      const p = target.place;
+      if (playing && inBounds(p.x, p.y, p.z) && !blocks.has(key(p.x, p.y, p.z))) {
+        previewMesh.position.set(p.x + 0.5, p.y + 0.5, p.z + 0.5);
+        previewMesh.visible = true;
+      }
     }
 
     const inBounds = (x, y, z) =>
@@ -467,9 +1138,43 @@
       const k = key(x, y, z);
       if (t === 0) blocks.delete(k); else blocks.set(k, t);
       rebuildBlockMeshes();
+      clearAttribution(); // label is stale after any block change; loop will re-fetch
     }
+    // ---- Daily Challenge rendering ----
+    function renderChallenge() {
+      if (!challengeDate) return;
+      const pct = Math.min(100, Math.round((challengePlaced / challengeTarget) * 100));
+      const barColor = challengeCompleted ? '#22c55e' : '#7c3aed';
+      challengeHudEl.innerHTML =
+        '<div style="font-weight:600;color:rgba(255,255,255,0.45);margin-bottom:2px;line-height:1.2">Daily Challenge</div>' +
+        '<div style="margin-bottom:3px;line-height:1.2">Place ' + challengeTarget + ' blocks</div>' +
+        (challengeCompleted
+          ? '<div style="font-weight:600;color:#4ade80">✓ Complete!</div>'
+          : '<div style="font-variant-numeric:tabular-nums">' + challengePlaced + ' / ' + challengeTarget + '</div>'
+        ) +
+        '<div style="margin-top:5px;height:3px;border-radius:9999px;background:rgba(255,255,255,0.18);overflow:hidden">' +
+          '<div style="width:' + pct + '%;height:100%;border-radius:9999px;background:' + barColor + ';transition:width 0.3s"></div>' +
+        '</div>';
+    }
+
+    function syncChallenge(data) {
+      if (!data) return;
+      challengeDate = data.date;
+      challengeTarget = data.target;
+      challengePlaced = data.placed;
+      challengeCompleted = !!data.completed_at;
+      renderChallenge();
+      if (gameMode !== 'spectate') challengeHudEl.classList.remove('hidden');
+    }
+
     async function sendEdit(x, y, z, t) {
       applyLocal(x, y, z, t);
+      // Optimistic challenge increment for placements (not breaks).
+      if (t !== 0 && challengeDate && !challengeCompleted) {
+        challengePlaced++;
+        if (challengePlaced >= challengeTarget) challengeCompleted = true;
+        renderChallenge();
+      }
       try {
         const res = await fetch('/api/block', {
           method: 'POST',
@@ -477,24 +1182,92 @@
           body: JSON.stringify({ x, y, z, block_type: t }),
         });
         if (res.ok) {
-          const { seq } = await res.json();
-          if (seq && seq > cursor) cursor = seq;
+          const data = await res.json();
+          updateComboHud(data.combo_multiplier || 1);
+          if (data.seq && data.seq > cursor) cursor = data.seq;
+          if (data.newly_earned_badges && data.newly_earned_badges.length) {
+            for (const badge of data.newly_earned_badges) {
+              earnedBadges.set(badge.id, { earned_at: new Date().toISOString() });
+              showBadgeToast(badge);
+            }
+            if (badgesOpen) renderBadgesPanel();
+          }
+          if (data.challenge) syncChallenge(data.challenge);
         }
       } catch (e) { /* poll loop will reconcile */ }
+    }
+
+    // ---- Cascade combo HUD ----
+    const comboHudEl = document.getElementById('combo-hud');
+    const comboBadgeEl = document.getElementById('combo-badge');
+    let comboHideTimer = null;
+    let lastComboMultiplier = 1;
+
+    function hideComboHud() {
+      if (comboHideTimer !== null) { clearTimeout(comboHideTimer); comboHideTimer = null; }
+      comboHudEl.classList.add('hidden');
+      lastComboMultiplier = 1;
+    }
+
+    function updateComboHud(multiplier) {
+      if (gameMode !== 'classic' || multiplier <= 1) { hideComboHud(); return; }
+      comboBadgeEl.textContent = multiplier + '×';
+      comboBadgeEl.classList.remove('bg-amber-500', 'bg-orange-500', 'bg-red-500', 'combo-pulse');
+      if (multiplier >= 5) {
+        comboBadgeEl.classList.add('bg-red-500', 'combo-pulse');
+      } else if (multiplier >= 3) {
+        comboBadgeEl.classList.add('bg-orange-500');
+      } else {
+        comboBadgeEl.classList.add('bg-amber-500');
+      }
+      if (multiplier > lastComboMultiplier) {
+        comboBadgeEl.style.transform = 'scale(1.3)';
+        requestAnimationFrame(() => requestAnimationFrame(() => { comboBadgeEl.style.transform = ''; }));
+      }
+      lastComboMultiplier = multiplier;
+      comboHudEl.classList.remove('hidden');
+      if (comboHideTimer !== null) clearTimeout(comboHideTimer);
+      comboHideTimer = setTimeout(() => {
+        comboHudEl.classList.add('hidden');
+        lastComboMultiplier = 1;
+        comboHideTimer = null;
+      }, 3000);
     }
 
     function placeBlock() {
       if (!target) return;
       const { x, y, z } = target.place;
       if (!inBounds(x, y, z)) return;
+      if (gameMode === 'timeattack') {
+        const k = key(x, y, z);
+        if (taBlocks.get(k) === selectedType) return;
+        taBlocks.set(k, selectedType);
+        rebuildBlockMeshes();
+        return;
+      }
       if (blocks.get(key(x, y, z)) === selectedType) return;
+      audio.playPlace();
       sendEdit(x, y, z, selectedType);
+      // Unlock hold after each successful placement (Tetris lock rule)
+      holdLocked = false;
+      updateHoldPanel();
     }
+
     function breakBlock() {
       if (!target) return;
       const { x, y, z } = target.cell;
       if (y < 1) return;
+      if (gameMode === 'timeattack') {
+        const k = key(x, y, z);
+        if (!taBlocks.has(k)) return;
+        taBlocks.delete(k);
+        taScore++;
+        rebuildBlockMeshes();
+        updateTaScoreDisplay();
+        return;
+      }
       if (!blocks.has(key(x, y, z))) return;
+      audio.playBreak();
       sendEdit(x, y, z, 0);
     }
 
@@ -502,6 +1275,8 @@
     let yaw = 0, pitch = 0;
     let locked = false;
     let playing = false;
+    let turntableEnabled = true;
+    let turntableAngle = 0;
     let dragMode = false;
     let lockUnavailable = false;
     let lockTimer = null;
@@ -518,6 +1293,50 @@
     const lookModeEl = document.getElementById('lookmode');
     const touchControlsEl = document.getElementById('touch-controls');
 
+    // ---- Chat DOM refs ----
+    const chatDrawerEl = document.getElementById('chat-drawer');
+    const chatMessagesEl = document.getElementById('chat-messages');
+    const chatInputEl = document.getElementById('chat-input');
+    const chatSendEl = document.getElementById('chat-send');
+    const chatBadgeEl = document.getElementById('chat-badge');
+    const chatToggleEl = document.getElementById('chat-toggle');
+
+    // Mute button: sync icon to stored preference immediately on load.
+    const muteBtnEl = document.getElementById('mute-btn');
+    muteBtnEl.textContent = audio.isMuted() ? '🔇' : '🔊';
+    muteBtnEl.addEventListener('click', () => {
+      muteBtnEl.textContent = audio.toggleMute() ? '🔇' : '🔊';
+    });
+
+    // Turntable button: toggle auto-rotating camera on the menu screen.
+    const turntableBtnEl = document.getElementById('turntable-btn');
+    function syncTurntableBtn() {
+      turntableBtnEl.style.opacity = turntableEnabled ? '1' : '0.4';
+    }
+    syncTurntableBtn();
+    turntableBtnEl.addEventListener('click', () => {
+      turntableEnabled = !turntableEnabled;
+      syncTurntableBtn();
+    });
+
+    // Badges button: toggle the badges panel.
+    const badgesBtnEl = document.getElementById('badges-btn');
+    const badgesPanelEl = document.getElementById('badges-panel');
+    badgesBtnEl.addEventListener('click', () => {
+      badgesOpen = !badgesOpen;
+      if (badgesOpen) {
+        renderBadgesPanel();
+        badgesPanelEl.classList.remove('hidden');
+      } else {
+        badgesPanelEl.classList.add('hidden');
+      }
+    });
+    document.getElementById('badges-close').addEventListener('click', () => {
+      badgesOpen = false;
+      badgesPanelEl.classList.add('hidden');
+    });
+
+    // Reusable temporaries + one-shot roll diagnostic state for applyLook().
     const _lookFwd = new THREE.Vector3();
     const _lookTarget = new THREE.Vector3();
     const _camRight = new THREE.Vector3();
@@ -559,16 +1378,125 @@
     function resetMove() {
       for (const k in move) move[k] = false;
       dragging = false;
+      placeHeld = false;
     }
     window.addEventListener('blur', resetMove);
     document.addEventListener('visibilitychange', () => { if (document.hidden) resetMove(); });
+
+    // ---- Time Attack logic ----
+
+    function updateTaTimerDisplay() {
+      const el = document.getElementById('ta-timer');
+      const mins = Math.floor(taTimeLeft / 60);
+      const secs = taTimeLeft % 60;
+      el.textContent = mins + ':' + String(secs).padStart(2, '0');
+      el.classList.toggle('text-red-400', taTimeLeft <= 10);
+      el.classList.toggle('text-white', taTimeLeft > 10);
+    }
+
+    function updateTaScoreDisplay() {
+      document.getElementById('ta-score').textContent =
+        taScore + ' block' + (taScore === 1 ? '' : 's');
+    }
+
+    function tickTimer() {
+      taTimeLeft--;
+      updateTaTimerDisplay();
+      if (taTimeLeft <= 0) {
+        clearInterval(taTimerHandle);
+        taTimerHandle = null;
+        endTimeAttack();
+      }
+    }
+
+    function initTimeAttack() {
+      taBlocks.clear();
+      taScore = 0;
+      taTimeLeft = 60;
+      if (taTimerHandle) { clearInterval(taTimerHandle); taTimerHandle = null; }
+
+      // Scatter ~150 blocks across the plot using vivid colors
+      const taTypes = [9, 10, 11, 7, 6, 3]; // Red, Blue, Yellow, Brick, Sand, Stone
+      let count = 0;
+      let attempts = 0;
+      while (count < 150 && attempts < 3000) {
+        attempts++;
+        const x = Math.floor(Math.random() * DIMS.w);
+        const z = Math.floor(Math.random() * DIMS.d);
+        const y = 1 + Math.floor(Math.random() * 4); // y 1..4
+        const k = key(x, y, z);
+        if (!taBlocks.has(k)) {
+          taBlocks.set(k, taTypes[count % taTypes.length]);
+          count++;
+        }
+      }
+
+      rebuildBlockMeshes();
+      spawnCamera();
+
+      document.getElementById('ta-hud').classList.remove('hidden');
+      document.getElementById('palette').classList.add('hidden');
+      updateTaTimerDisplay();
+      updateTaScoreDisplay();
+
+      taTimerHandle = setInterval(tickTimer, 1000);
+    }
+
+    function endTimeAttack() {
+      if (taTimerHandle) { clearInterval(taTimerHandle); taTimerHandle = null; }
+      // Set playing=false BEFORE exitPointerLock so pointerlockchange won't
+      // re-trigger endTimeAttack when it sees !playing.
+      playing = false;
+      dragMode = false;
+      resetMove();
+      canvas.style.cursor = '';
+      if (locked) { try { document.exitPointerLock(); } catch (_) {} }
+
+      document.getElementById('ta-hud').classList.add('hidden');
+      const fs = document.getElementById('ta-final-score');
+      fs.textContent = 'You cleared ' + taScore + ' block' + (taScore === 1 ? '' : 's');
+      document.getElementById('ta-gameover').classList.remove('hidden');
+
+      refreshControlCopy();
+      updateTouchControlsVisibility();
+    }
+
+    // ---- Mode entry ----
+
+    // Called once play is actually entered (lock acquired or drag/touch started).
+    // Handles per-mode initialization so it runs at the right moment regardless
+    // of whether play was entered via pointer lock, drag fallback, or touch.
+    function onPlayEntered() {
+      if (pendingTaInit) {
+        pendingTaInit = false;
+        initTimeAttack();
+      } else if (gameMode === 'classic') {
+        if (!pollHandle) pollHandle = setInterval(poll, 1500);
+      } else if (gameMode === 'spectate') {
+        if (!pollHandle) pollHandle = setInterval(poll, 1500);
+        document.getElementById('palette').classList.add('hidden');
+        document.getElementById('hold-panel').classList.add('hidden');
+        challengeHudEl.classList.add('hidden');
+        document.getElementById('crosshair').style.opacity = '0.3';
+        // Immediately ping presence as a spectator so the online list updates fast.
+        heartbeat();
+      }
+    }
+
+    function startMode(mode) {
+      gameMode = mode;
+      if (mode === 'timeattack') pendingTaInit = true;
+      tryPointerLock();
+    }
+
+    // ---- Control scheme helpers ----
 
     function refreshControlCopy() {
       if (isTouch) {
         hintEl.classList.add('hidden');
         hintFallbackEl.classList.add('hidden');
         lookModeEl.classList.add('hidden');
-        overlayHelpEl.textContent = 'Tap to play — drag to look, use the on-screen buttons to move and build.';
+        overlayHelpEl.textContent = 'Tap a mode to start — drag to look, use the on-screen buttons to move and build.';
         return;
       }
       if (locked) {
@@ -587,8 +1515,8 @@
         hintFallbackEl.classList.add('hidden');
       }
       overlayHelpEl.textContent = lockUnavailable
-        ? 'Click to play — drag to look, click to build, press Esc for this menu.'
-        : 'Click to play — move the mouse to look, press Esc to release. If your browser blocks mouse-lock, you can drag to look instead.';
+        ? 'Click a mode — drag to look, click to build, press Esc for this menu.'
+        : 'Click a mode — move the mouse to look, press Esc to release. If your browser blocks mouse-lock, you can drag to look instead.';
       lookModeEl.classList.toggle('hidden', !playing);
     }
 
@@ -599,13 +1527,15 @@
     function onLockFail() {
       clearLockTimer();
       if (locked) return;
-      if (dragMode && playing) lockUnavailable = true;
+      const wasAlreadyPlaying = dragMode && playing;
+      if (wasAlreadyPlaying) lockUnavailable = true;
       dragMode = true;
       playing = true;
       dragging = false;
       canvas.style.cursor = 'grab';
       overlayEl.style.display = 'none';
       refreshControlCopy();
+      if (!wasAlreadyPlaying) onPlayEntered();
     }
 
     function enterTouchPlay() {
@@ -616,12 +1546,36 @@
       overlayEl.style.display = 'none';
       refreshControlCopy();
       updateTouchControlsVisibility();
+      onPlayEntered();
     }
 
     function exitToMenu() {
+      // In TA mode, if still actively playing, end the run first (shows game-over).
+      if (gameMode === 'timeattack' && playing) {
+        endTimeAttack();
+        return;
+      }
+      // Stop any lingering TA timer.
+      if (taTimerHandle) { clearInterval(taTimerHandle); taTimerHandle = null; }
+      // Stop classic poll.
+      if (pollHandle) { clearInterval(pollHandle); pollHandle = null; }
+
+      gameMode = null;
       playing = false;
+      dragMode = false;
       resetMove();
       canvas.style.cursor = '';
+
+      taBlocks.clear();
+      rebuildBlockMeshes(); // gameMode is now null → renders classic blocks
+
+      document.getElementById('ta-hud').classList.add('hidden');
+      document.getElementById('ta-gameover').classList.add('hidden');
+      document.getElementById('palette').classList.remove('hidden');
+      document.getElementById('hold-panel').classList.remove('hidden');
+      document.getElementById('crosshair').style.opacity = '';
+      hideComboHud();
+
       overlayEl.style.display = 'flex';
       refreshControlCopy();
       updateTouchControlsVisibility();
@@ -664,15 +1618,45 @@
         lockUnavailable = false;
         canvas.style.cursor = '';
         overlayEl.style.display = 'none';
-      } else if (!dragMode) {
+        onPlayEntered();
+      } else if (chatOpening) {
+        // Lock released specifically so the player can type in chat.
+        // Don't show the overlay — chat drawer is already visible.
+        chatOpening = false;
         playing = false;
-        resetMove();
-        overlayEl.style.display = 'flex';
+        dragMode = true;
+        canvas.style.cursor = 'grab';
+      } else if (!dragMode) {
+        if (gameMode === 'timeattack' && playing) {
+          // Esc pressed mid-TA run in native-lock mode — end the game.
+          endTimeAttack();
+          return; // endTimeAttack calls refreshControlCopy
+        } else if (gameMode !== 'timeattack') {
+          playing = false;
+          resetMove();
+          hideComboHud();
+          overlayEl.style.display = 'flex';
+        }
+        // gameMode === 'timeattack' && !playing: endTimeAttack already ran, nothing to do.
       }
       refreshControlCopy();
     });
     document.addEventListener('pointerlockerror', onLockFail);
-    document.getElementById('play-btn').addEventListener('click', tryPointerLock);
+
+    document.getElementById('play-classic-btn').addEventListener('click', () => { audio.init(); startMode('classic'); });
+    document.getElementById('play-ta-btn').addEventListener('click', () => { audio.init(); startMode('timeattack'); });
+    document.getElementById('play-spectate-btn').addEventListener('click', () => { audio.init(); startMode('spectate'); });
+
+    document.getElementById('ta-play-again').addEventListener('click', () => {
+      document.getElementById('ta-gameover').classList.add('hidden');
+      startMode('timeattack');
+    });
+    document.getElementById('ta-back-menu').addEventListener('click', () => {
+      document.getElementById('ta-gameover').classList.add('hidden');
+      exitToMenu();
+    });
+
+
     canvas.addEventListener('click', () => {
       if (isTouch) return;
       if (!locked && !playing) tryPointerLock();
@@ -685,8 +1669,15 @@
     canvas.addEventListener('mousedown', (e) => {
       if (inBattleMode) return;
       if (locked) {
-        if (e.button === 0) placeBlock();
-        else if (e.button === 2) breakBlock();
+        if (gameMode !== 'spectate') {
+          // Native path: set placeHeld and fire the first block immediately.
+          // The render loop handles continuous firing when Rapid Place is active.
+          if (e.button === 0) {
+            placeHeld = true;
+            placeBlock();
+            lastRapidPlace = performance.now();
+          } else if (e.button === 2) breakBlock();
+        }
         return;
       }
       if (!playing) return;
@@ -696,11 +1687,12 @@
       canvas.style.cursor = 'grabbing';
     });
     window.addEventListener('mouseup', (e) => {
+      if (e.button === 0) placeHeld = false; // always clear regardless of mode
       if (inBattleMode || locked || !playing || !dragging) return;
       dragging = false;
       canvas.style.cursor = 'grab';
       const moved = Math.hypot(e.clientX - pressX, e.clientY - pressY);
-      if (moved < DRAG_THRESHOLD) {
+      if (moved < DRAG_THRESHOLD && gameMode !== 'spectate') {
         if (e.button === 0) placeBlock();
         else if (e.button === 2) breakBlock();
       }
@@ -716,25 +1708,74 @@
         handleTetrisKey(e);
         return;
       }
+      // While the chat input is focused, only Escape is handled globally
+      // (to close the drawer); all other keys are for typing.
+      if (document.activeElement === chatInputEl) {
+        if (e.key === 'Escape') { e.preventDefault(); closeChat(); }
+        return;
+      }
+      // While the friends add-by-username input is focused, only Escape is handled.
+      if (document.activeElement === friendsInputEl) {
+        if (e.key === 'Escape') { e.preventDefault(); closeFriends(); }
+        return;
+      }
+      // Escape closes the chat drawer if it is open (before the existing
+      // Escape handler that would otherwise return to the overlay).
+      if (e.key === 'Escape' && chatOpen) { e.preventDefault(); closeChat(); return; }
+      // Enter opens chat while the player is active.
+      if (e.code === 'Enter' && playing && !chatOpen) { e.preventDefault(); openChat(); return; }
+
       if (codeMap[e.code]) { move[codeMap[e.code]] = true; if (e.code === 'Space') e.preventDefault(); }
       if (e.code.startsWith('Digit')) {
         const n = parseInt(e.code.slice(5), 10);
         if (n >= 1 && n <= 9 && PALETTE[n - 1]) selectType(PALETTE[n - 1].id);
       }
-      if (e.code === 'KeyF' && playing) placeBlock();
-      if (e.code === 'KeyG' && playing) breakBlock();
-      if (e.code === 'KeyH') toggleControls();
-      if (e.code === 'Escape' && dragMode && playing) {
-        playing = false;
-        resetMove();
-        canvas.style.cursor = '';
-        overlayEl.style.display = 'flex';
-        refreshControlCopy();
+      // Build via keyboard: F adds a block, G deletes one (mirrors the mouse
+      // bindings). Only act while actually playing so the keys don't fire from
+      // behind the menu. `!e.repeat` prevents OS key-repeat from stacking
+      // single-fire shots; the render loop handles continuous firing when the
+      // Rapid Place buff is active.
+      if (e.code === 'KeyF' && playing && !e.repeat && gameMode !== 'spectate') {
+        placeHeld = true;
+        placeBlock();
+        lastRapidPlace = performance.now();
+      }
+      if (e.code === 'KeyG' && playing && gameMode !== 'spectate') breakBlock();
+      // H is context-aware: triggers hold/swap while playing, toggles the
+      // controls overlay when the menu/overlay is up.
+      if (e.code === 'KeyH') {
+        if (playing && gameMode !== 'spectate') holdBlock();
+        else toggleControls();
+      }
+      // L toggles the leaderboard panel.
+      if (e.code === 'KeyL') toggleLeaderboard();
+      if (e.code === 'KeyM') { muteBtnEl.textContent = audio.toggleMute() ? '🔇' : '🔊'; }
+      // Escape: close overlays in priority order, then handle mode exit.
+      // In native (locked) mode the browser handles Esc and fires
+      // pointerlockchange, which restores the overlay there.
+      if (e.code === 'Escape') {
+        if (!leaderboardEl.classList.contains('hidden')) {
+          closeLeaderboard();
+        } else if (!friendsPanelEl.classList.contains('hidden')) {
+          closeFriends();
+        } else if (dragMode && playing) {
+          if (gameMode === 'timeattack') {
+            endTimeAttack();
+          } else {
+            playing = false;
+            resetMove();
+            hideComboHud();
+            canvas.style.cursor = '';
+            overlayEl.style.display = 'flex';
+            refreshControlCopy();
+          }
+        }
       }
     });
     window.addEventListener('keyup', (e) => {
       if (inBattleMode) return;
       if (codeMap[e.code]) move[codeMap[e.code]] = false;
+      if (e.code === 'KeyF') placeHeld = false;
     });
 
     // ---- Touch input ----
@@ -781,14 +1822,34 @@
     for (const el of touchControlsEl.querySelectorAll('[data-mv]')) bindHold(el, el.dataset.mv);
     for (const el of touchControlsEl.querySelectorAll('[data-act]')) {
       const act = el.dataset.act;
-      bindTap(el, () => {
-        if (act === 'place' && playing) placeBlock();
-        else if (act === 'break' && playing) breakBlock();
-        else if (act === 'menu') exitToMenu();
-      });
+      if (act === 'place') {
+        // Place needs placeHeld tracking for the Rapid Place buff, so it gets
+        // its own touchstart/touchend instead of the generic bindTap.
+        el.addEventListener('touchstart', (e) => {
+          e.preventDefault();
+          if (!playing || gameMode === 'spectate') return;
+          placeHeld = true;
+          placeBlock();
+          lastRapidPlace = performance.now();
+        }, { passive: false });
+        const releasePlaceHeld = (e) => { if (e.cancelable) e.preventDefault(); placeHeld = false; };
+        el.addEventListener('touchend', releasePlaceHeld);
+        el.addEventListener('touchcancel', releasePlaceHeld);
+      } else {
+        bindTap(el, () => {
+          if (act === 'break' && playing && gameMode !== 'spectate') breakBlock();
+          else if (act === 'hold' && playing && gameMode !== 'spectate') holdBlock();
+          else if (act === 'menu') {
+            if (gameMode === 'timeattack' && playing) endTimeAttack();
+            else exitToMenu();
+          }
+        });
+      }
     }
 
     // ---- Controls overlay toggle ----
+    // Shared by the `h` key (when not playing) and the top-right "(?)" button —
+    // both show/hide the help panel listing every key/mouse binding.
     const controlsEl = document.getElementById('controls');
     if (isTouch) {
       const ul = controlsEl.querySelector('ul');
@@ -797,16 +1858,239 @@
         '<li><span class="font-semibold">Move pad</span> — glide forward / back / left / right</li>',
         '<li><span class="font-semibold">Up / Down</span> — fly up / down</li>',
         '<li><span class="font-semibold">Add</span> / <span class="font-semibold">Delete</span> — place / remove a block at the crosshair</li>',
+        '<li><span class="font-semibold">Hold</span> — swap the active block type with the hold slot</li>',
         '<li><span class="font-semibold">Palette</span> — tap a swatch to pick a block</li>',
+        '<li><span class="font-semibold">💬</span> — open / close chat</li>',
+        '<li><span class="font-semibold">🏆</span> — leaderboard</li>',
         '<li><span class="font-semibold">☰ Menu</span> — back to the start screen</li>',
+        '<li><span class="font-semibold">Power-ups</span> — collect glowing cubes for Speed, Jump, or Rapid Place (hold Add)</li>',
+        '<li><span class="font-semibold">🔊 / 🔇</span> — tap to mute / unmute audio</li>',
       ].join('');
-      const playBtn = document.getElementById('play-btn');
-      if (playBtn) playBtn.textContent = 'Tap to play';
+      const classicBtn = document.getElementById('play-classic-btn');
+      if (classicBtn) classicBtn.textContent = 'Tap to play';
+      const taBtn = document.getElementById('play-ta-btn');
+      if (taBtn) taBtn.textContent = 'Tap to play';
+      const spectateBtn = document.getElementById('play-spectate-btn');
+      if (spectateBtn) spectateBtn.textContent = 'Tap to watch';
     }
     function toggleControls() { controlsEl.classList.toggle('hidden'); }
     document.getElementById('help-btn').addEventListener('click', toggleControls);
     document.getElementById('controls-close').addEventListener('click', () => {
       controlsEl.classList.add('hidden');
+    });
+
+    // ---- Leaderboard overlay ----
+    const leaderboardEl = document.getElementById('leaderboard');
+    const leaderboardContentEl = document.getElementById('leaderboard-content');
+    let leaderboardTimer = null;
+
+    function closeLeaderboard() {
+      leaderboardEl.classList.add('hidden');
+      if (leaderboardTimer !== null) { clearTimeout(leaderboardTimer); leaderboardTimer = null; }
+    }
+    function toggleLeaderboard() {
+      if (leaderboardEl.classList.contains('hidden')) {
+        leaderboardEl.classList.remove('hidden');
+        fetchLeaderboard();
+      } else {
+        closeLeaderboard();
+      }
+    }
+    function escapeHtml(s) {
+      return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+    async function fetchLeaderboard() {
+      clearTimeout(leaderboardTimer);
+      leaderboardTimer = null;
+      try {
+        const res = await fetch('/api/leaderboard', { headers });
+        if (!res.ok) throw new Error('fetch failed');
+        const { entries } = await res.json();
+        if (!entries.length) {
+          leaderboardContentEl.innerHTML = '<p class="py-1">No builders yet — be the first!</p>';
+        } else {
+          leaderboardContentEl.innerHTML =
+            '<table class="w-full text-xs">' +
+            '<thead><tr class="text-zinc-500 uppercase border-b border-zinc-700">' +
+            '<th class="text-left pb-1 w-6">#</th>' +
+            '<th class="text-left pb-1 pl-2">Player</th>' +
+            '<th class="text-right pb-1">Blocks</th></tr></thead><tbody>' +
+            entries.map(e =>
+              '<tr class="border-b border-zinc-800/60 last:border-0">' +
+              '<td class="py-1 text-zinc-500">' + e.rank + '</td>' +
+              '<td class="py-1 pl-2 max-w-[180px] truncate">' + escapeHtml(e.username) + '</td>' +
+              '<td class="py-1 text-right font-mono text-zinc-100">' + e.count + '</td></tr>'
+            ).join('') +
+            '</tbody></table>';
+        }
+      } catch (_) {
+        leaderboardContentEl.innerHTML = '<p class="py-1 text-zinc-500">Couldn\'t load leaderboard.</p>';
+      }
+      if (!leaderboardEl.classList.contains('hidden')) {
+        leaderboardTimer = setTimeout(fetchLeaderboard, 30000);
+      }
+    }
+    document.getElementById('leaderboard-btn').addEventListener('click', toggleLeaderboard);
+    document.getElementById('leaderboard-close').addEventListener('click', closeLeaderboard);
+
+    // ---- Friends panel ----
+    const friendsPanelEl = document.getElementById('friends-panel');
+    const friendsContentEl = document.getElementById('friends-content');
+    const friendsBadgeEl = document.getElementById('friends-badge');
+    const friendsInputEl = document.getElementById('friends-input');
+    const friendsAddStatusEl = document.getElementById('friends-add-status');
+    let friendsCache = null; // { friends, incoming, outgoing }
+
+    function closeFriends() { friendsPanelEl.classList.add('hidden'); }
+    function toggleFriends() {
+      if (friendsPanelEl.classList.contains('hidden')) {
+        friendsPanelEl.classList.remove('hidden');
+        friendsBadgeEl.classList.add('hidden');
+        fetchFriends();
+      } else {
+        closeFriends();
+      }
+    }
+
+    async function fetchFriends() {
+      friendsContentEl.innerHTML = '<span class="text-zinc-500">Loading…</span>';
+      try {
+        const res = await fetch('/api/friends', { headers });
+        if (!res.ok) throw new Error('fetch failed');
+        const data = await res.json();
+        friendsCache = data;
+        renderFriendsPanel(data);
+        if (data.incoming.length > 0 && friendsPanelEl.classList.contains('hidden')) {
+          friendsBadgeEl.classList.remove('hidden');
+        } else {
+          friendsBadgeEl.classList.add('hidden');
+        }
+      } catch (_) {
+        friendsContentEl.innerHTML = '<span class="text-zinc-500">Couldn\'t load friends.</span>';
+      }
+    }
+
+    function renderFriendsPanel({ friends, incoming, outgoing }) {
+      const online = friends.filter((f) => f.online);
+      const offline = friends.filter((f) => !f.online);
+      let html = '';
+
+      if (online.length) {
+        html += '<div class="mb-2"><div class="text-zinc-500 text-[10px] font-semibold uppercase tracking-wide mb-1">Online</div>';
+        html += online.map((f) =>
+          '<div class="group flex items-center gap-1.5 py-0.5">' +
+          '<span class="inline-block w-2 h-2 rounded-full bg-green-400 shrink-0"></span>' +
+          '<span class="flex-1 truncate">' + escapeHtml(f.username) + '</span>' +
+          '<button class="remove-friend-btn ' + (isTouch ? '' : 'opacity-0 group-hover:opacity-100 ') + 'transition-opacity text-zinc-500 hover:text-red-400 leading-none cursor-pointer text-xs" data-id="' + f.id + '" title="Remove friend">✕</button>' +
+          '</div>'
+        ).join('');
+        html += '</div>';
+      }
+
+      if (offline.length) {
+        html += '<div class="mb-2"><div class="text-zinc-500 text-[10px] font-semibold uppercase tracking-wide mb-1">Offline</div>';
+        html += offline.map((f) =>
+          '<div class="group flex items-center gap-1.5 py-0.5 text-zinc-400">' +
+          '<span class="inline-block w-2 h-2 rounded-full bg-zinc-600 shrink-0"></span>' +
+          '<span class="flex-1 truncate">' + escapeHtml(f.username) + '</span>' +
+          '<button class="remove-friend-btn ' + (isTouch ? '' : 'opacity-0 group-hover:opacity-100 ') + 'transition-opacity text-zinc-500 hover:text-red-400 leading-none cursor-pointer text-xs" data-id="' + f.id + '" title="Remove friend">✕</button>' +
+          '</div>'
+        ).join('');
+        html += '</div>';
+      }
+
+      if (!online.length && !offline.length) {
+        html += '<p class="text-zinc-500 text-xs py-1">No friends yet — add someone below!</p>';
+      }
+
+      if (incoming.length || outgoing.length) {
+        html += '<div class="border-t border-zinc-700/60 mt-2 pt-2"><div class="text-zinc-500 text-[10px] font-semibold uppercase tracking-wide mb-1">Requests</div>';
+        html += incoming.map((r) =>
+          '<div class="flex items-center gap-1 py-0.5">' +
+          '<span class="flex-1 truncate text-zinc-300">' + escapeHtml(r.username) + '</span>' +
+          '<button class="accept-req-btn shrink-0 px-2 py-0.5 rounded text-[10px] font-semibold bg-violet-600 hover:bg-violet-500 text-white cursor-pointer" data-id="' + r.id + '">Accept</button>' +
+          '<button class="decline-req-btn shrink-0 px-2 py-0.5 rounded text-[10px] font-semibold bg-zinc-700 hover:bg-zinc-600 text-zinc-200 cursor-pointer ml-1" data-id="' + r.id + '">Decline</button>' +
+          '</div>'
+        ).join('');
+        html += outgoing.map((r) =>
+          '<div class="flex items-center gap-1.5 py-0.5 text-zinc-400">' +
+          '<span class="flex-1 truncate">' + escapeHtml(r.username) + '</span>' +
+          '<span class="text-[10px] text-zinc-500 shrink-0">sent</span>' +
+          '</div>'
+        ).join('');
+        html += '</div>';
+      }
+
+      friendsContentEl.innerHTML = html;
+
+      for (const btn of friendsContentEl.querySelectorAll('.remove-friend-btn')) {
+        btn.addEventListener('click', () => removeFriend(Number(btn.dataset.id)));
+      }
+      for (const btn of friendsContentEl.querySelectorAll('.accept-req-btn')) {
+        btn.addEventListener('click', () => acceptRequest(Number(btn.dataset.id)));
+      }
+      for (const btn of friendsContentEl.querySelectorAll('.decline-req-btn')) {
+        btn.addEventListener('click', () => declineRequest(Number(btn.dataset.id)));
+      }
+    }
+
+    async function sendFriendRequest(username) {
+      friendsAddStatusEl.textContent = '';
+      try {
+        const res = await fetch('/api/friends/request', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...headers },
+          body: JSON.stringify({ username }),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          friendsAddStatusEl.textContent = data.error || 'Failed';
+          friendsAddStatusEl.className = 'mt-1 text-xs text-center text-red-400';
+        } else {
+          friendsAddStatusEl.textContent = 'Request sent!';
+          friendsAddStatusEl.className = 'mt-1 text-xs text-center text-green-400';
+          friendsInputEl.value = '';
+          fetchFriends();
+        }
+      } catch (_) {
+        friendsAddStatusEl.textContent = 'Network error';
+        friendsAddStatusEl.className = 'mt-1 text-xs text-center text-red-400';
+      }
+    }
+
+    async function acceptRequest(id) {
+      try {
+        await fetch('/api/friends/' + id + '/accept', { method: 'POST', headers });
+        fetchFriends();
+      } catch (_) {}
+    }
+
+    async function declineRequest(id) {
+      try {
+        await fetch('/api/friends/' + id + '/decline', { method: 'POST', headers });
+        fetchFriends();
+      } catch (_) {}
+    }
+
+    async function removeFriend(id) {
+      try {
+        await fetch('/api/friends/' + id, { method: 'DELETE', headers });
+        fetchFriends();
+      } catch (_) {}
+    }
+
+    document.getElementById('friends-btn').addEventListener('click', toggleFriends);
+    document.getElementById('friends-close').addEventListener('click', closeFriends);
+    document.getElementById('friends-add-btn').addEventListener('click', () => {
+      const u = friendsInputEl.value.trim();
+      if (u) sendFriendRequest(u);
+    });
+    friendsInputEl.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        const u = friendsInputEl.value.trim();
+        if (u) sendFriendRequest(u);
+      }
     });
 
     // ---- Palette UI ----
@@ -815,6 +2099,14 @@
       for (const el of document.querySelectorAll('#palette [data-id]')) {
         el.classList.toggle('ring-2', Number(el.dataset.id) === id);
         el.classList.toggle('ring-white', Number(el.dataset.id) === id);
+      }
+      // Sync ghost color/opacity to the newly selected block type.
+      const p = PALETTE.find((q) => q.id === id);
+      if (p) {
+        previewMaterial.color.set(p.color);
+        // Semi-transparent blocks (Glass) would nearly vanish at full ghost
+        // opacity, so scale down proportionally and cap at 0.38.
+        previewMaterial.opacity = Math.min(0.38, (p.opacity ?? 1) * 0.55);
       }
     }
     function buildPalette() {
@@ -837,7 +2129,138 @@
         wrap.appendChild(btn);
       });
       selectType(selectedType);
+      // Reset hold state on world/palette load
+      heldType = null;
+      holdLocked = false;
+      updateHoldPanel();
     }
+
+    // ---- Hold queue ----
+    function updateHoldPanel() {
+      const swatchEl = document.getElementById('hold-swatch');
+      if (!swatchEl) return;
+      const p = heldType !== null ? PALETTE.find((q) => q.id === heldType) : null;
+      if (!p) {
+        swatchEl.style.background = '';
+        swatchEl.style.opacity = '';
+        swatchEl.className = 'w-10 h-10 rounded-md border-2 border-dashed border-zinc-600 flex items-center justify-center';
+        swatchEl.innerHTML = '<span class="text-zinc-600 text-sm font-bold">–</span>';
+      } else {
+        swatchEl.style.background = p.color;
+        swatchEl.style.opacity = holdLocked ? '0.4' : '1';
+        swatchEl.className = 'w-10 h-10 rounded-md';
+        swatchEl.innerHTML = '';
+      }
+    }
+
+    function holdBlock() {
+      if (holdLocked) return;
+      const prev = selectedType;
+      if (heldType !== null) selectType(heldType);
+      heldType = prev;
+      holdLocked = true;
+      updateHoldPanel();
+    }
+
+    // ---- Chat ----
+    function updateChatBadge() {
+      if (chatUnread > 0) {
+        chatBadgeEl.textContent = chatUnread > 9 ? '9+' : String(chatUnread);
+        chatBadgeEl.classList.remove('hidden');
+      } else {
+        chatBadgeEl.classList.add('hidden');
+      }
+    }
+
+    function appendChatMessage(m) {
+      const row = document.createElement('div');
+      row.className = 'leading-relaxed break-words';
+      const name = document.createElement('span');
+      name.className = 'font-semibold text-violet-300 mr-1';
+      name.textContent = m.username + ':';
+      const body = document.createElement('span');
+      body.className = 'text-zinc-200';
+      body.textContent = ' ' + m.body;
+      row.appendChild(name);
+      row.appendChild(body);
+      chatMessagesEl.appendChild(row);
+      // Auto-scroll to latest when the drawer is open.
+      if (chatOpen) chatMessagesEl.scrollTop = chatMessagesEl.scrollHeight;
+    }
+
+    function openChat() {
+      chatOpen = true;
+      chatUnread = 0;
+      chatBadgeEl.classList.add('hidden');
+      chatDrawerEl.classList.remove('hidden');
+      chatMessagesEl.scrollTop = chatMessagesEl.scrollHeight;
+      resetMove();
+      if (locked) {
+        // Release pointer lock so the cursor is visible for typing.
+        // pointerlockchange will fire — chatOpening flag suppresses the overlay.
+        chatOpening = true;
+        document.exitPointerLock();
+      } else {
+        playing = false;
+      }
+      if (isTouch) updateTouchControlsVisibility();
+      // Small delay so the drawer is rendered before the input is focused.
+      setTimeout(() => chatInputEl.focus(), 30);
+    }
+
+    function closeChat() {
+      chatOpen = false;
+      chatDrawerEl.classList.add('hidden');
+      chatInputEl.blur();
+      if (isTouch) {
+        // Re-enter drag play immediately on touch devices.
+        dragMode = true;
+        playing = true;
+        updateTouchControlsVisibility();
+      }
+      // Desktop: player clicks the canvas to re-enter play (either pointer
+      // lock or drag mode, same as the initial entry flow).
+    }
+
+    async function sendChat() {
+      const body = chatInputEl.value.trim();
+      if (!body) return;
+      chatInputEl.value = '';
+      chatInputEl.disabled = true;
+      chatSendEl.disabled = true;
+      try {
+        await fetch('/api/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...headers },
+          body: JSON.stringify({ body }),
+        });
+      } catch (e) { /* transient */ } finally {
+        chatInputEl.disabled = false;
+        chatSendEl.disabled = false;
+        chatInputEl.focus();
+      }
+    }
+
+    async function loadChat() {
+      try {
+        const res = await fetch('/api/chat?since=0', { headers });
+        if (!res.ok) return;
+        const { messages, cursor: cc } = await res.json();
+        for (const m of messages) appendChatMessage(m);
+        if (cc) chatCursor = cc;
+      } catch (e) { /* ignore */ }
+    }
+
+    // ---- Chat event listeners ----
+    chatToggleEl.addEventListener('click', () => {
+      if (chatOpen) closeChat(); else openChat();
+    });
+    document.getElementById('chat-close').addEventListener('click', closeChat);
+    chatSendEl.addEventListener('click', sendChat);
+    chatInputEl.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); sendChat(); }
+      // Escape is handled by the global keydown listener above.
+    });
 
     // ---- Server sync ----
     async function loadWorld() {
@@ -861,20 +2284,138 @@
       return true;
     }
 
+    async function heartbeat() {
+      if (!token) return;
+      try {
+        const presenceMode = gameMode === 'spectate' ? 'spectate' : 'classic';
+        const res = await fetch('/api/presence/ping', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...headers },
+          body: JSON.stringify({ mode: presenceMode }),
+        });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (data.streak) updateStreakHud(data.streak.current);
+        if (data.newly_earned_badges && data.newly_earned_badges.length) {
+          for (const badge of data.newly_earned_badges) {
+            earnedBadges.set(badge.id, { earned_at: badge.earned_at });
+            showBadgeToast(badge);
+          }
+          renderBadgesPanel();
+        }
+      } catch (_) { /* transient */ }
+    }
+
+    const onlineListEl = document.getElementById('online-list');
+    async function pollPresence() {
+      if (!token) return;
+      try {
+        const res = await fetch('/api/presence/online', { headers });
+        if (!res.ok) return;
+        const { users } = await res.json();
+        if (!users.length) {
+          onlineListEl.textContent = 'Just you right now.';
+          return;
+        }
+        const builders = users.filter((u) => u.mode !== 'spectate');
+        const spectators = users.filter((u) => u.mode === 'spectate');
+        const makeRow = (u, isSpectator) => {
+          const safe = u.username.replace(/&/g, '&amp;').replace(/</g, '&lt;');
+          const isSelf = myUsername && u.username.toLowerCase() === myUsername.toLowerCase();
+          let statusHtml = '';
+          if (!isSelf && friendsCache) {
+            const lc = u.username.toLowerCase();
+            const isFriend = friendsCache.friends.some((f) => f.username.toLowerCase() === lc);
+            const isOutgoing = friendsCache.outgoing.some((r) => r.username.toLowerCase() === lc);
+            const isIncoming = friendsCache.incoming.some((r) => r.username.toLowerCase() === lc);
+            if (isFriend) {
+              statusHtml = '<span class="text-green-400 text-xs ml-1">✓</span>';
+            } else if (isOutgoing) {
+              statusHtml = '<span class="text-zinc-500 text-xs ml-1">pending</span>';
+            } else if (isIncoming) {
+              statusHtml = '<button class="ol-accept-btn text-xs ml-1 px-1.5 py-0.5 rounded bg-violet-600 hover:bg-violet-500 text-white cursor-pointer" data-username="' + safe + '">Accept</button>';
+            } else {
+              statusHtml = '<button class="ol-add-btn text-xs ml-1 px-1.5 py-0.5 rounded bg-zinc-700 hover:bg-zinc-600 text-zinc-200 cursor-pointer" data-username="' + safe + '">+ Add</button>';
+            }
+          } else if (!isSelf && !friendsCache) {
+            statusHtml = '<button class="ol-add-btn text-xs ml-1 px-1.5 py-0.5 rounded bg-zinc-700 hover:bg-zinc-600 text-zinc-200 cursor-pointer" data-username="' + safe + '">+ Add</button>';
+          }
+          if (isSpectator) {
+            return '<div class="flex items-center gap-1.5 py-0.5">' +
+              '<span class="text-xs shrink-0 leading-none" title="Spectating">👁</span>' +
+              '<span class="text-zinc-500">' + safe + '</span>' +
+              statusHtml + '</div>';
+          }
+          return '<div class="flex items-center gap-1.5 py-0.5">' +
+            '<span class="inline-block w-2 h-2 rounded-full bg-green-400 shrink-0"></span>' +
+            '<span>' + safe + '</span>' +
+            statusHtml + '</div>';
+        };
+        let html = '<div class="mb-1 text-zinc-500 text-xs font-semibold uppercase tracking-wide">Online now</div>';
+        for (const u of builders) html += makeRow(u, false);
+        for (const u of spectators) html += makeRow(u, true);
+        if (spectators.length > 0) {
+          html += '<div class="text-zinc-500 text-xs mt-1">' + spectators.length + ' watching</div>';
+        }
+        onlineListEl.innerHTML = html;
+
+        // Event delegation for Add / Accept buttons in the online list
+        onlineListEl.onclick = (e) => {
+          const addBtn = e.target.closest('.ol-add-btn');
+          const acceptBtn = e.target.closest('.ol-accept-btn');
+          if (addBtn) {
+            addBtn.textContent = '…';
+            addBtn.disabled = true;
+            sendFriendRequest(addBtn.dataset.username).then(() => pollPresence());
+          } else if (acceptBtn) {
+            const incomingReq = friendsCache && friendsCache.incoming.find(
+              (r) => r.username.toLowerCase() === acceptBtn.dataset.username.toLowerCase()
+            );
+            if (incomingReq) {
+              acceptBtn.textContent = '…';
+              acceptBtn.disabled = true;
+              acceptRequest(incomingReq.id).then(() => pollPresence());
+            }
+          }
+        };
+      } catch (_) { /* transient */ }
+    }
+
     async function poll() {
       if (document.hidden) return;
+
+      // World changes
       try {
         const res = await fetch('/api/world/changes?since=' + cursor, { headers });
-        if (!res.ok) return;
-        const { changes, cursor: c } = await res.json();
-        if (changes.length) {
-          for (const ch of changes) {
-            const k = key(ch.x, ch.y, ch.z);
-            if (ch.t === 0) blocks.delete(k); else blocks.set(k, ch.t);
+        if (res.ok) {
+          const { changes, cursor: c } = await res.json();
+          if (changes.length) {
+            for (const ch of changes) {
+              const k = key(ch.x, ch.y, ch.z);
+              if (ch.t === 0) blocks.delete(k); else blocks.set(k, ch.t);
+            }
+            rebuildBlockMeshes();
           }
-          rebuildBlockMeshes();
+          if (c && c > cursor) cursor = c;
+          // Only rebuild if we're currently in classic mode showing the shared world.
+          if (gameMode !== 'timeattack') rebuildBlockMeshes();
         }
-        if (c && c > cursor) cursor = c;
+      } catch (e) { /* transient; next tick retries */ }
+
+      // Chat messages
+      try {
+        const chatRes = await fetch('/api/chat?since=' + chatCursor, { headers });
+        if (chatRes.ok) {
+          const { messages, cursor: cc } = await chatRes.json();
+          if (messages.length) {
+            for (const m of messages) appendChatMessage(m);
+            if (!chatOpen) {
+              chatUnread += messages.length;
+              updateChatBadge();
+            }
+          }
+          if (cc && cc > chatCursor) chatCursor = cc;
+        }
       } catch (e) { /* transient */ }
     }
 
@@ -909,26 +2450,75 @@
       const dt = Math.min((now - prev) / 1000, 0.1);
       prev = now;
 
-      if (!inBattleMode && playing && (locked || dragMode)) {
+      // Expire old buffs so the HUD and multipliers are always current.
+      for (const [type, expiresAt] of activeBuff) {
+        if (now > expiresAt) activeBuff.delete(type);
+      }
+
+      if (!playing && turntableEnabled) {
+        turntableAngle += dt * 0.25;
+        const cx = DIMS.w / 2, cz = DIMS.d / 2;
+        camera.position.set(cx + 8 * Math.sin(turntableAngle), 3.5, cz + 8 * Math.cos(turntableAngle));
+        camera.lookAt(cx, 1.5, cz);
+      } else if (!inBattleMode && playing && (locked || dragMode)) {
         fwd.set(-Math.sin(yaw), 0, -Math.cos(yaw));
         right.set(Math.cos(yaw), 0, -Math.sin(yaw));
-        const step = SPEED * dt;
+
+        // Speed Boost doubles lateral speed; Super Jump triples vertical speed.
+        const speedMult = activeBuff.has('speed_boost') ? 2 : 1;
+        const vertMult  = activeBuff.has('super_jump')  ? 3 : 1;
+        const horizStep = SPEED * speedMult * dt;
+        const vertStep  = SPEED * vertMult  * dt;
+
+        // Sum horizontal contributions and normalize so diagonal travel isn't
+        // faster than cardinal.
         horiz.set(0, 0, 0);
         if (move.f) horiz.add(fwd);
         if (move.b) horiz.sub(fwd);
         if (move.r) horiz.add(right);
         if (move.l) horiz.sub(right);
         if (horiz.lengthSq() > 1) horiz.normalize();
-        camera.position.addScaledVector(horiz, step);
-        if (move.up) camera.position.y += step;
-        if (move.down) camera.position.y -= step;
+        camera.position.addScaledVector(horiz, horizStep);
+        if (move.up)   camera.position.y += vertStep;
+        if (move.down) camera.position.y -= vertStep;
+
         const m = 4;
         camera.position.x = Math.max(-m, Math.min(DIMS.w + m, camera.position.x));
         camera.position.z = Math.max(-m, Math.min(DIMS.d + m, camera.position.z));
         camera.position.y = Math.max(1.2, Math.min(DIMS.h + 6, camera.position.y));
+
+        // Rapid Block Placement: while the buff is active and the place
+        // key/button is held, auto-place a block every 150 ms.
+        if (activeBuff.has('rapid_place') && placeHeld && (now - lastRapidPlace > 150)) {
+          placeBlock();
+          lastRapidPlace = now;
+        }
+
+        // Collect nearby power-ups. Break after the first to avoid modifying
+        // the Map while still iterating it in the same frame.
+        for (const [id, pu] of powerupMap) {
+          const dx = camera.position.x - (pu.x + 0.5);
+          const dy = camera.position.y - (pu.y + 0.5);
+          const dz = camera.position.z - (pu.z + 0.5);
+          if (Math.sqrt(dx * dx + dy * dy + dz * dz) < 1.2) {
+            collectPowerUp(id);
+            break;
+          }
+        }
+      }
+
+      // Animate power-up meshes every frame (even when the overlay is showing).
+      for (const [, pu] of powerupMap) {
+        if (pu.mesh) {
+          pu.mesh.position.y = pu.mesh.userData.baseY
+            + Math.sin(now * 0.002 + pu.mesh.userData.phase) * 0.12;
+          pu.mesh.rotation.y += dt;
+        }
       }
 
       updateTarget();
+      updateAttribution();
+      renderBuffHud();
       renderer.render(scene, camera);
       requestAnimationFrame(loop);
     }
@@ -940,8 +2530,54 @@
       refreshControlCopy();
       const ok = await loadWorld();
       if (!ok) return;
+      // Fetch earned badges so the panel renders correctly from the first open.
+      try {
+        const badgesRes = await fetch('/api/badges', { headers });
+        if (badgesRes.ok) {
+          const badgesData = await badgesRes.json();
+          for (const b of badgesData.badges) {
+            earnedBadges.set(b.id, { earned_at: b.earned_at });
+          }
+        }
+      } catch (_) { /* non-critical; panel will populate on first badge earned */ }
+      await loadChat();
+
+      // Load friends once so the badge is correct and the online list
+      // can show friend status on first render. Non-fatal if unavailable.
+      fetchFriends().catch(() => {});
+
+      // Load today's challenge progress (non-fatal if unavailable).
+      try {
+        const cr = await fetch('/api/challenge/today', { headers });
+        if (cr.ok) syncChallenge(await cr.json());
+      } catch (_) {}
+
+      // Load login streak so the HUD shows immediately without waiting for heartbeat.
+      try {
+        const sr = await fetch('/api/streak', { headers });
+        if (sr.ok) {
+          const sd = await sr.json();
+          if (sd.current_streak > 0) updateStreakHud(sd.current_streak);
+        }
+      } catch (_) {}
+
+
       requestAnimationFrame(loop);
-      setInterval(poll, 1500);
+      // Poll is started per-mode in onPlayEntered(), not here.
+      heartbeat();
+      setInterval(heartbeat, 30000);
+      pollPresence();
+      setInterval(pollPresence, 15000);
+      pollPowerUps();
+      setInterval(pollPowerUps, 1500);
+      // Re-fetch challenge every 30s to catch midnight UTC rollover and
+      // progress made in other tabs.
+      setInterval(async () => {
+        try {
+          const cr = await fetch('/api/challenge/today', { headers });
+          if (cr.ok) syncChallenge(await cr.json());
+        } catch (_) {}
+      }, 30000);
     })();
 
     // ================================================================
