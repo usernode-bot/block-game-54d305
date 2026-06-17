@@ -584,6 +584,24 @@
       animation: ta-card-pop 0.34s cubic-bezier(0.18, 0.89, 0.32, 1.28) both;
     }
 
+    /* ---- AI Coach bubble enter animation ---- */
+    @keyframes coachSlideIn {
+      from { transform: translateY(0.5rem); }
+      to   { transform: translateY(0); }
+    }
+    #coach-bubble.coach-entering {
+      animation: coachSlideIn 0.25s ease-out;
+    }
+
+    /* ---- AI Coach progress bar (width shrinks to 0 over --coach-dur) ---- */
+    @keyframes coachProgress {
+      from { width: 100%; }
+      to   { width: 0%; }
+    }
+    #coach-progress.coach-progress-run {
+      animation: coachProgress var(--coach-dur, 8s) linear forwards;
+    }
+
     /* ---- Floating "+1" score pops (Time Attack) ---- */
     @keyframes score-pop-rise {
       0%   { transform: translate(-50%, -50%) scale(0.6); opacity: 0; }
@@ -912,15 +930,18 @@
           class="hidden fixed z-20 pointer-events-none"
           style="top: 13.5rem; right: 0.75rem; border-radius: 6px; border: 1px solid rgba(255,255,255,0.15); opacity: 0.9"></canvas>
 
-  <!-- AI Coach bubble: persistent floating bubble in bottom-left corner. Hidden by default. -->
-  <div id="coach-bubble" class="hidden fixed bottom-4 left-4 z-20 max-w-[240px]"
+  <!-- AI Coach bubble: non-intrusive floating bubble above the bottom HUD cluster.
+       Positioned above the hold-panel / undo-redo HUD at bottom-[5.5rem] left-4.
+       Auto-dismisses after 8 s (auto-tips) or 12 s (player-asked). -->
+  <div id="coach-bubble" class="hidden fixed bottom-[5.5rem] left-4 z-[25] max-w-[240px]"
        style="transition: opacity 0.3s; opacity: 0">
-    <div class="bg-black/75 backdrop-blur rounded-xl px-4 py-3 text-sm text-zinc-100 shadow-xl">
+    <div class="bg-black/75 backdrop-blur rounded-xl px-4 py-3 text-sm text-zinc-100 shadow-xl overflow-hidden">
       <div class="flex items-start gap-2">
         <span class="text-base leading-none mt-0.5 shrink-0 pointer-events-none">💡</span>
-        <p id="coach-tip-text" class="leading-snug flex-1 pointer-events-none"></p>
+        <p id="coach-tip-text" class="leading-snug flex-1 pointer-events-none" aria-live="polite"></p>
         <button id="coach-dismiss" class="shrink-0 text-zinc-500 hover:text-zinc-200 text-xs leading-none cursor-pointer ml-1 mt-0.5">✕</button>
       </div>
+      <div id="coach-progress" class="mt-2 h-0.5 rounded-full bg-amber-400/70" style="width:100%"></div>
     </div>
   </div>
 
@@ -2379,6 +2400,7 @@
     const COACH_COOLDOWN_MS = 30_000;
     let coachGrantRequired = false;  // true if LLM proxy returned grant_required
     let coachFetching = false;       // prevents concurrent tip fetches
+    let coachDismissTimer = null;    // auto-dismiss setTimeout handle
     let sessionBlocksPlaced = 0;     // placements this session, for milestone trigger
     let sessionScore = 0;
     let sessionClassicBest = 0;
@@ -4633,6 +4655,7 @@
     // ---- AI Coach DOM refs ----
     const coachBubbleEl = document.getElementById('coach-bubble');
     const coachTipTextEl = document.getElementById('coach-tip-text');
+    const coachProgressEl = document.getElementById('coach-progress');
     const coachBtnEl = document.getElementById('coach-btn');
 
     // ---- Chat DOM refs ----
@@ -5755,7 +5778,7 @@
         document.getElementById('crosshair').style.opacity = '0.3';
         // Hide coach and prompt HUD in spectate mode — player isn't building.
         coachBtnEl.classList.add('hidden');
-        coachBubbleEl.classList.add('hidden');
+        dismissCoachTip();
         promptHudEl.classList.add('hidden');
         // Immediately ping presence as a spectator so the online list updates fast.
         heartbeat();
@@ -5914,8 +5937,7 @@
       fogMesh.visible = false;
       hideMinimap();
       // Dismiss any active coach tip and restore coach button.
-      coachBubbleEl.classList.add('hidden');
-      coachBubbleEl.style.opacity = '0';
+      dismissCoachTip();
       coachBtnEl.classList.remove('hidden');
       closeMsgCompose();
       updateMsgWriteBtn();
@@ -7949,20 +7971,37 @@
       };
     }
 
-    function showCoachTip(text) {
+    function dismissCoachTip() {
+      clearTimeout(coachDismissTimer);
+      coachDismissTimer = null;
+      coachBubbleEl.style.opacity = '0';
+      setTimeout(() => coachBubbleEl.classList.add('hidden'), 350);
+    }
+
+    function showCoachTip(text, isPlayerAsked) {
+      clearTimeout(coachDismissTimer);
+      const durationMs = isPlayerAsked ? 12000 : 8000;
       lastTipAt = Date.now();
       coachTipTextEl.textContent = text;
-      coachBubbleEl.classList.remove('hidden');
-      // Force reflow then fade in.
+      // Set the CSS duration variable used by the progress-bar animation.
+      coachBubbleEl.style.setProperty('--coach-dur', (durationMs / 1000) + 's');
+      // Restart slide-in animation.
+      coachBubbleEl.classList.remove('coach-entering');
       void coachBubbleEl.offsetWidth;
+      coachBubbleEl.classList.add('coach-entering');
+      // Show with fade-in.
+      coachBubbleEl.classList.remove('hidden');
       coachBubbleEl.style.opacity = '1';
+      // Restart progress bar animation.
+      coachProgressEl.classList.remove('coach-progress-run');
+      void coachProgressEl.offsetWidth;
+      coachProgressEl.classList.add('coach-progress-run');
+      // Schedule auto-dismiss.
+      coachDismissTimer = setTimeout(dismissCoachTip, durationMs);
     }
 
     function showCoachUnavailable() {
-      coachTipTextEl.textContent = 'Coach is resting — try again later.';
-      coachBubbleEl.classList.remove('hidden');
-      void coachBubbleEl.offsetWidth;
-      coachBubbleEl.style.opacity = '1';
+      showCoachTip('Coach is resting — try again later.', true);
     }
 
     async function fetchCoachTip(trigger, badgeName, _retried) {
@@ -8014,7 +8053,7 @@
           if (trigger === 'player_asked') showCoachUnavailable();
           return;
         }
-        showCoachTip(data.tip);
+        showCoachTip(data.tip, trigger === 'player_asked');
       } catch (_) {
         if (trigger === 'player_asked') showCoachUnavailable();
       } finally {
@@ -8249,10 +8288,7 @@
     themeBtnEl.addEventListener('click', toggleThemePanel);
     document.getElementById('theme-close').addEventListener('click', closeThemePanel);
 
-    document.getElementById('coach-dismiss').addEventListener('click', () => {
-      coachBubbleEl.style.opacity = '0';
-      setTimeout(() => coachBubbleEl.classList.add('hidden'), 350);
-    });
+    document.getElementById('coach-dismiss').addEventListener('click', dismissCoachTip);
     document.getElementById('friends-add-btn').addEventListener('click', () => {
       const u = friendsInputEl.value.trim();
       if (u) sendFriendRequest(u);
