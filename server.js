@@ -29,6 +29,8 @@ const DIMS = { w: 32, d: 32, h: 24 }; // x in [0,w-1], z in [0,d-1], y in [0,h-1
 // `opacity` < 1 renders semi-transparent (glass). Colors are hex strings.
 // `material` 'standard' uses MeshStandardMaterial (PBR); default is Lambert.
 // `emissive` / `emissiveIntensity` add a glow. `powerup` marks animated blocks.
+// `hueCycle` is a purely cosmetic flag: the client animates the block's shared
+// material through the color wheel (rainbow shimmer). It has no gameplay effect.
 const PALETTE = [
   { id: 1,  name: 'Grass',         color: '#3dd847' },
   { id: 2,  name: 'Dirt',          color: '#b8643e' },
@@ -48,6 +50,7 @@ const PALETTE = [
   { id: 16, name: 'Obsidian',      color: '#2d1555', material: 'standard', metalness: 0.3, roughness: 0.1 },
   { id: 17, name: 'Rainbow Block', color: '#ff1493', powerup: true },
   { id: 18, name: 'Crystal',       color: '#b39dff', opacity: 0.65, emissive: '#7a4dff', emissiveIntensity: 0.3, material: 'standard', metalness: 0.1, roughness: 0.2, unlockAt: 50, unlockIcon: '💎' },
+  { id: 19, name: 'Prism',         color: '#ff4d4d', hueCycle: true },
 ];
 const VALID_TYPES = new Set(PALETTE.map((p) => p.id)); // does NOT include 0
 
@@ -61,6 +64,7 @@ const BLOCK_POINTS = {
   16: 4,  // Obsidian
   17: 5,  // Rainbow Block
   18: 3,  // Crystal Block
+  19: 2,  // Prism (visual-only)
 };
 
 // Sentinel "user" id for staging seed rows so they never reference a real user.
@@ -2348,6 +2352,7 @@ function buildSeedCells() {
   set(22, 1, 10, 16); // Obsidian
   set(23, 1, 10, 17); // Rainbow Block
   set(24, 1, 10, 18); // Crystal Block (showcase row)
+  set(25, 1, 10, 19); // Prism (visual-only rainbow shimmer)
   set(20, 1, 11, 13); // Snow
   // Crystal spire so staging reviewers can see the block's appearance.
   set(10, 1, 22, 18);

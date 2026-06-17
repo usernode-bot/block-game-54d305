@@ -2174,9 +2174,11 @@
     const blockGroup = new THREE.Group();
     scene.add(blockGroup);
     let crystalMaterial = null; // tracked for emissive pulse animation in the render loop
+    let hueCycleMaterials = []; // tracked for rainbow hue-cycle animation (Prism, etc.)
     function rebuildBlockMeshes() {
       blockGroup.clear();
       crystalMaterial = null;
+      hueCycleMaterials = [];
       let source = blocks;
       if (gameMode === 'timeattack') source = taBlocks;
       else if (gameMode === 'time-attack-60') source = ta60Blocks;
@@ -2195,6 +2197,7 @@
         if (!p) continue;
         const mat = materialFor(p);
         if (t === 18) crystalMaterial = mat;
+        if (p.hueCycle) hueCycleMaterials.push(mat);
         const mesh = new THREE.InstancedMesh(cube, mat, cells.length);
         cells.forEach((c, i) => {
           dummy.position.set(c.x + 0.5, c.y + 0.5, c.z + 0.5);
@@ -5595,7 +5598,11 @@
           ? p.name + ' (place ' + p.unlockAt + ' blocks to unlock)'
           : p.name + (i < 9 ? ' (' + (i + 1) + ')' : '');
         btn.className = 'relative w-10 h-10 rounded-md ring-offset-1 ring-offset-black/0 transition';
-        btn.style.background = p.color;
+        // Hue-cycle blocks (Prism) get a full rainbow gradient swatch so they
+        // read as multi-colored at a glance; everything else is its flat color.
+        btn.style.background = p.hueCycle
+          ? 'linear-gradient(135deg, #ff4d4d, #ffb800, #3dd847, #2563ff, #b14dff)'
+          : p.color;
         if (isLocked) {
           btn.style.opacity = '0.35';
           const lock = document.createElement('span');
@@ -6040,6 +6047,12 @@
       updateAttribution();
       // Animate Crystal block emissive glow: gentle 0.2→0.4 pulse (~7.9s period).
       if (crystalMaterial) crystalMaterial.emissiveIntensity = 0.2 + 0.2 * Math.sin(now * 0.0008);
+      // Animate hue-cycle blocks (Prism): rotate color through the wheel (~5s period).
+      // Purely cosmetic — all instances of a type share one material so they cycle in unison.
+      if (hueCycleMaterials.length) {
+        const hue = (now * 0.0002) % 1;
+        for (const m of hueCycleMaterials) m.color.setHSL(hue, 0.85, 0.6);
+      }
       renderBuffHud();
 
       // Camera shake for disaster events: decaying sine displacement
