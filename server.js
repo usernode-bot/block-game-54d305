@@ -179,6 +179,17 @@ function dailyTarget(dateObj) {
   return 20 + ((y * 31 + m * 7 + d) % 81);
 }
 
+// Returns the ISO date string (YYYY-MM-DD) for the Monday that starts the
+// UTC week containing dateObj. Deterministic — same as dailyTarget's UTC approach.
+function weekStart(dateObj) {
+  const day = dateObj.getUTCDay(); // 0 = Sun, 1 = Mon, …, 6 = Sat
+  const offset = day === 0 ? 6 : day - 1; // days since last Monday
+  const monday = new Date(Date.UTC(
+    dateObj.getUTCFullYear(), dateObj.getUTCMonth(), dateObj.getUTCDate() - offset
+  ));
+  return monday.toISOString().slice(0, 10);
+}
+
 app.use(express.json());
 
 // Verify platform-issued JWT if one was passed, then enforce auth on
@@ -336,11 +347,24 @@ app.post('/api/block', async (req, res) => {
          RETURNING total_score, blocks_placed, best_combo`,
         [req.user.id, req.user.username, earned, combo_tier]
       );
+
       const lb = {
         total_score:   Number(lbRes.rows[0].total_score),
         blocks_placed: Number(lbRes.rows[0].blocks_placed),
         best_combo:    lbRes.rows[0].best_combo,
       };
+
+      // Upsert weekly tournament score (same formula; window = current UTC week)
+      await pool.query(
+        `INSERT INTO tournament_scores (week_start, user_id, username, score, blocks_placed, updated_at)
+         VALUES ($1, $2, $3, $4, 1, NOW())
+         ON CONFLICT (week_start, user_id) DO UPDATE SET
+           score         = tournament_scores.score + EXCLUDED.score,
+           blocks_placed = tournament_scores.blocks_placed + 1,
+           username      = EXCLUDED.username,
+           updated_at    = NOW()`,
+        [weekStart(now), req.user.id, req.user.username, earned]
+      );
 
       // Track which block types this player has ever placed.
       await pool.query(
@@ -428,11 +452,13 @@ app.get('/api/chat', async (req, res) => {
 // ---- Presence: heartbeat ping ----
 app.post('/api/presence/ping', async (req, res) => {
   try {
+    const rawMode = req.body && req.body.mode;
+    const mode = ['classic', 'spectate'].includes(rawMode) ? rawMode : 'classic';
     await pool.query(
-      `INSERT INTO user_presence (user_id, username, last_seen)
-       VALUES ($1, $2, NOW())
-       ON CONFLICT (user_id) DO UPDATE SET username = EXCLUDED.username, last_seen = NOW()`,
-      [req.user.id, req.user.username]
+      `INSERT INTO user_presence (user_id, username, last_seen, mode)
+       VALUES ($1, $2, NOW(), $3)
+       ON CONFLICT (user_id) DO UPDATE SET username = EXCLUDED.username, last_seen = NOW(), mode = EXCLUDED.mode`,
+      [req.user.id, req.user.username, mode]
     );
 
     // Upsert login streak. Idempotent for the same UTC day.
@@ -514,20 +540,14 @@ app.get('/api/streak', async (req, res) => {
 });
 
 // ---- Presence: who is online (seen in the last 60s) ----
-const STAGING_DEMO_USERS = [
-  { username: 'Staging Builder A' },
-  { username: 'Staging Builder B' },
-  { username: 'Staging Builder C' },
-  { username: 'Staging Builder D' },
-];
 app.get('/api/presence/online', async (req, res) => {
   try {
     const { rows } = await pool.query(
-      `SELECT username FROM user_presence
+      `SELECT username, mode FROM user_presence
        WHERE last_seen > NOW() - INTERVAL '60 seconds'
        ORDER BY username`
     );
-    const users = rows.map((r) => ({ username: r.username }));
+    const users = rows.map((r) => ({ username: r.username, mode: r.mode || 'classic' }));
     if (IS_STAGING) users.push(...STAGING_DEMO_USERS);
     res.json({ users });
   } catch (err) {
@@ -657,6 +677,59 @@ app.post('/api/puzzle/complete', async (req, res) => {
   }
 });
 
+// ---- Power-up spawn position: picks an unoccupied cell at y=2 ----
+async function pickSpawnPosition() {
+  let chosen = { x: 1, y: 2, z: 1 };
+  for (let i = 0; i < 10; i++) {
+    const x = 1 + Math.floor(Math.random() * (DIMS.w - 2));
+    const z = 1 + Math.floor(Math.random() * (DIMS.d - 2));
+    chosen = { x, y: 2, z };
+    const { rows } = await pool.query(
+      `SELECT 1 FROM blocks WHERE x = $1 AND y = 2 AND z = $2 AND block_type <> 0`,
+      [x, z]
+    );
+    if (!rows.length) return chosen;
+  }
+  return chosen; // use last attempt even if occupied
+}
+
+// ---- Power-ups: list all unclaimed items ----
+app.get('/api/powerups', async (_req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT id, type, x, y, z FROM powerups WHERE claimed_at IS NULL`
+    );
+    res.json({ powerups: rows });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- Power-ups: collect one (atomic claim + spawn replacement) ----
+app.post('/api/powerups/:id/collect', async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const { rows } = await pool.query(
+      `UPDATE powerups
+         SET claimed_at = NOW(), claimed_by_user_id = $1, claimed_by_username = $2
+       WHERE id = $3 AND claimed_at IS NULL
+       RETURNING type`,
+      [req.user.id, req.user.username, id]
+    );
+    if (!rows.length) return res.status(409).json({ error: 'already claimed' });
+    const type = rows[0].type;
+    // Immediately spawn a replacement of the same type.
+    const pos = await pickSpawnPosition();
+    await pool.query(
+      `INSERT INTO powerups (type, x, y, z) VALUES ($1, $2, $3, $4)`,
+      [type, pos.x, pos.y, pos.z]
+    );
+    res.json({ ok: true, type, duration: 12 });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ---- Daily Challenge: today's goal and the requesting user's progress. ----
 // Target is derived deterministically from the UTC date — no DB write needed.
 // Returns { date, target, placed, completed_at }.
@@ -677,6 +750,68 @@ app.get('/api/challenge/today', async (req, res) => {
       target,
       placed: row ? row.blocks_placed : 0,
       completed_at: row ? row.completed_at : null,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- Weekly Tournament: current week top-10 + self row + last week's top-3 ----
+app.get('/api/tournament', async (req, res) => {
+  try {
+    const now = new Date();
+    const curWeek = weekStart(now);
+    const weekStartDate = new Date(curWeek + 'T00:00:00Z');
+    const weekEndDate = new Date(weekStartDate.getTime() + 6 * 24 * 60 * 60 * 1000);
+    const curWeekEnd = weekEndDate.toISOString().slice(0, 10);
+    const prevWeekDate = new Date(weekStartDate.getTime() - 7 * 24 * 60 * 60 * 1000);
+    const prevWeek = prevWeekDate.toISOString().slice(0, 10);
+
+    const topRes = await pool.query(
+      `SELECT rank() OVER (ORDER BY score DESC) AS rank,
+              user_id, username, score, blocks_placed
+       FROM tournament_scores
+       WHERE week_start = $1
+       ORDER BY score DESC
+       LIMIT 10`,
+      [curWeek]
+    );
+    const selfRes = await pool.query(
+      `SELECT * FROM (
+         SELECT rank() OVER (ORDER BY score DESC) AS rank,
+                user_id, username, score, blocks_placed
+         FROM tournament_scores
+         WHERE week_start = $1
+       ) ranked WHERE user_id = $2`,
+      [curWeek, req.user.id]
+    );
+    const prevRes = await pool.query(
+      `SELECT rank() OVER (ORDER BY score DESC) AS rank,
+              user_id, username, score, blocks_placed
+       FROM tournament_scores
+       WHERE week_start = $1
+       ORDER BY score DESC
+       LIMIT 3`,
+      [prevWeek]
+    );
+
+    const toRow = (r) => ({
+      rank: Number(r.rank),
+      user_id: Number(r.user_id),
+      username: r.username,
+      score: Number(r.score),
+      blocks_placed: Number(r.blocks_placed),
+    });
+
+    res.json({
+      week_start: curWeek,
+      week_end: curWeekEnd,
+      entries: topRes.rows.map(toRow),
+      self: selfRes.rows.length ? toRow(selfRes.rows[0]) : null,
+      last_week: {
+        week_start: prevWeek,
+        entries: prevRes.rows.map(toRow),
+      },
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -1054,6 +1189,21 @@ async function seedStaging() {
      ON CONFLICT (challenge_date, user_id) DO NOTHING`,
     [todayStr, targetToday]
   );
+
+  // Seed one of each power-up type at fixed, open positions so testers can
+  // immediately see and collect them. Skipped if any unclaimed power-ups
+  // already exist (e.g. after a hot-reload during the same staging run).
+  const { rows: pwCount } = await pool.query(
+    `SELECT COUNT(*) AS n FROM powerups WHERE claimed_at IS NULL`
+  );
+  if (Number(pwCount[0].n) === 0) {
+    await pool.query(`
+      INSERT INTO powerups (type, x, y, z) VALUES
+        ('speed_boost', 5, 2, 16),
+        ('super_jump',  28, 2, 16),
+        ('rapid_place', 16, 2, 28)
+    `);
+  }
 }
 
 // Seed the leaderboard with 6 fake builders so staging shows a populated panel.
@@ -1081,6 +1231,26 @@ async function seedLeaderboard() {
   }
 }
 
+// ---- Ensure at least one of each power-up type is live in the world ----
+// Runs on every boot (after staging seed). In production the first boot
+// inserts all three; subsequent boots are no-ops. In staging the seed above
+// takes priority; this is a safety net for any type the seed missed.
+async function ensurePowerUps() {
+  for (const type of ['speed_boost', 'super_jump', 'rapid_place']) {
+    const { rows } = await pool.query(
+      `SELECT 1 FROM powerups WHERE type = $1 AND claimed_at IS NULL LIMIT 1`,
+      [type]
+    );
+    if (!rows.length) {
+      const pos = await pickSpawnPosition();
+      await pool.query(
+        `INSERT INTO powerups (type, x, y, z) VALUES ($1, $2, $3, $4)`,
+        [type, pos.x, pos.y, pos.z]
+      );
+    }
+  }
+}
+
 // ---- Staging seed: a few obviously-fake chat messages so the chat drawer
 // has visible content when a reviewer first opens it. Uses explicit IDs with
 // ON CONFLICT DO NOTHING for idempotency across reboots. ----
@@ -1103,6 +1273,37 @@ async function seedChat() {
   await pool.query(
     `SELECT setval('chat_messages_id_seq', GREATEST((SELECT MAX(id) FROM chat_messages), 3))`
   );
+}
+
+async function seedTournament() {
+  const now = new Date();
+  const curWeek = weekStart(now);
+  const prevWeekDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+  const prevWeek = weekStart(prevWeekDate);
+
+  const seeds = [
+    { userId: -1, username: 'Staging demo Alice',   score: 320, blocks: 85 },
+    { userId: -2, username: 'Staging demo Bob',     score: 210, blocks: 60 },
+    { userId: -3, username: 'Staging demo Charlie', score: 155, blocks: 45 },
+    { userId: -4, username: 'Staging demo Dana',    score: 90,  blocks: 30 },
+    { userId: -5, username: 'Staging demo Eli',     score: 40,  blocks: 18 },
+    { userId: -6, username: 'Staging demo Faye',    score: 15,  blocks: 8  },
+  ];
+
+  for (const s of seeds) {
+    await pool.query(
+      `INSERT INTO tournament_scores (week_start, user_id, username, score, blocks_placed, updated_at)
+       VALUES ($1, $2, $3, $4, $5, NOW())
+       ON CONFLICT (week_start, user_id) DO NOTHING`,
+      [curWeek, s.userId, s.username, s.score, s.blocks]
+    );
+    await pool.query(
+      `INSERT INTO tournament_scores (week_start, user_id, username, score, blocks_placed, updated_at)
+       VALUES ($1, $2, $3, $4, $5, NOW())
+       ON CONFLICT (week_start, user_id) DO NOTHING`,
+      [prevWeek, s.userId, s.username, Math.round(s.score * 0.75), Math.round(s.blocks * 0.75)]
+    );
+  }
 }
 
 async function seedStreaks() {
@@ -1201,10 +1402,15 @@ async function start() {
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS user_presence (
-      user_id  INTEGER PRIMARY KEY,
-      username VARCHAR(255) NOT NULL,
-      last_seen TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      user_id   INTEGER PRIMARY KEY,
+      username  VARCHAR(255) NOT NULL,
+      last_seen TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      mode      VARCHAR(20) NOT NULL DEFAULT 'classic'
     )
+  `);
+  await pool.query(`
+    ALTER TABLE user_presence
+      ADD COLUMN IF NOT EXISTS mode VARCHAR(20) NOT NULL DEFAULT 'classic'
   `);
 
   await pool.query(`
@@ -1233,6 +1439,35 @@ async function start() {
   await pool.query(`
     CREATE INDEX IF NOT EXISTS daily_challenge_progress_date_placed_idx
     ON daily_challenge_progress (challenge_date, blocks_placed DESC)
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS tournament_scores (
+      week_start    DATE         NOT NULL,
+      user_id       INTEGER      NOT NULL,
+      username      VARCHAR(255) NOT NULL,
+      score         BIGINT       NOT NULL DEFAULT 0,
+      blocks_placed BIGINT       NOT NULL DEFAULT 0,
+      updated_at    TIMESTAMPTZ  DEFAULT NOW(),
+      PRIMARY KEY (week_start, user_id)
+    )
+  `);
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS tournament_scores_week_score_idx
+    ON tournament_scores (week_start, score DESC)
+  `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS powerups (
+      id SERIAL PRIMARY KEY,
+      type VARCHAR(20) NOT NULL,
+      x SMALLINT NOT NULL,
+      y SMALLINT NOT NULL,
+      z SMALLINT NOT NULL,
+      spawned_at TIMESTAMPTZ DEFAULT NOW(),
+      claimed_at TIMESTAMPTZ,
+      claimed_by_user_id INTEGER,
+      claimed_by_username VARCHAR(255)
+    )
   `);
 
   // Login streak tracking: one row per user, updated on each daily first visit.
@@ -1267,6 +1502,7 @@ async function start() {
   await pool.query(`CREATE INDEX IF NOT EXISTS friendships_addressee_status_idx ON friendships (addressee_id, status)`);
   await pool.query(`CREATE INDEX IF NOT EXISTS friendships_requester_status_idx ON friendships (requester_id, status)`);
 
+
   if (IS_STAGING) {
     try { await seedStaging(); }
     catch (err) { console.error('staging blocks seed failed', err); }
@@ -1274,9 +1510,22 @@ async function start() {
     catch (err) { console.error('staging chat seed failed', err); }
     try { await seedLeaderboard(); }
     catch (err) { console.error('leaderboard seed failed', err); }
+    try { await seedTournament(); }
+    catch (err) { console.error('tournament seed failed', err); }
     try { await seedStreaks(); }
     catch (err) { console.error('streak seed failed', err); }
+    try {
+      // Two fake spectators so the eye-icon path is exercisable in staging.
+      await pool.query(
+        `INSERT INTO user_presence (user_id, username, last_seen, mode)
+         VALUES (-9001, 'Staging demo spectator — Alice', NOW(), 'spectate'),
+                (-9002, 'Staging demo spectator — Bob',   NOW(), 'spectate')
+         ON CONFLICT (user_id) DO UPDATE SET last_seen = NOW(), mode = EXCLUDED.mode`
+      );
+    } catch (err) { console.error('staging spectator seed failed', err); }
   }
+
+  await ensurePowerUps();
 
   app.listen(port, () => console.log(`Listening on :${port}`));
 }
