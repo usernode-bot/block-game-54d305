@@ -130,6 +130,9 @@ function weekStart(dateObj) {
 
 app.use(express.json());
 
+// Larger body limit for screenshot uploads (base64 JPEG data URLs can reach ~400 KB).
+const jsonLarge = express.json({ limit: '2mb' });
+
 // Verify platform-issued JWT if one was passed, then enforce auth on
 // anything not explicitly marked public. The iframe adds `?token=…`
 // on load; the frontend script forwards the token via `x-usernode-token`
@@ -887,6 +890,75 @@ app.delete('/api/friends/:id', async (req, res) => {
   }
 });
 
+// ---- Gallery: fetch the current user's screenshots (newest first, max 10) ----
+app.get('/api/gallery', async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT id, image_data, created_at
+       FROM player_screenshots
+       WHERE user_id = $1
+       ORDER BY created_at DESC
+       LIMIT 10`,
+      [req.user.id]
+    );
+    res.json({
+      screenshots: rows.map((r) => ({
+        id: Number(r.id),
+        image_data: r.image_data,
+        created_at: r.created_at,
+      })),
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- Gallery: save a new screenshot (base64 JPEG data URL), enforce 10-shot cap ----
+app.post('/api/gallery', jsonLarge, async (req, res) => {
+  try {
+    const image_data = typeof req.body.image_data === 'string' ? req.body.image_data : '';
+    if (!image_data.startsWith('data:image/')) {
+      return res.status(400).json({ error: 'image_data must be a data URL' });
+    }
+    const { rows } = await pool.query(
+      `INSERT INTO player_screenshots (user_id, username, image_data)
+       VALUES ($1, $2, $3)
+       RETURNING id, created_at`,
+      [req.user.id, req.user.username, image_data]
+    );
+    // Drop oldest screenshots beyond the 10-row cap for this user.
+    await pool.query(
+      `DELETE FROM player_screenshots
+       WHERE user_id = $1
+         AND id NOT IN (
+           SELECT id FROM player_screenshots
+           WHERE user_id = $1
+           ORDER BY created_at DESC
+           LIMIT 10
+         )`,
+      [req.user.id]
+    );
+    res.json({ ok: true, id: Number(rows[0].id), created_at: rows[0].created_at });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- Gallery: delete a screenshot (must be owned by the requesting user) ----
+app.delete('/api/gallery/:id', async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const { rows } = await pool.query(
+      `DELETE FROM player_screenshots WHERE id = $1 AND user_id = $2 RETURNING id`,
+      [id, req.user.id]
+    );
+    if (!rows.length) return res.status(404).json({ error: 'Screenshot not found' });
+    res.status(204).end();
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.use(express.static(path.join(__dirname, 'public'), {
   setHeaders(res, filePath) {
     // The entire game is inline in index.html, so a cached shell hides a
@@ -1216,6 +1288,28 @@ async function seedStreaks() {
   }
 }
 
+// Minimal 1×1 pixel JPEG as a base64 data URL — used for staging seed rows so
+// the gallery table has rows to query without needing actual screenshots.
+const SEED_JPEG = 'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/2wBDAQkJCQwLDBgNDRgyIRwhMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjL/wAARCAABAAEDASIAAhEBAxEB/8QAFAABAAAAAAAAAAAAAAAAAAAACf/EABQQAQAAAAAAAAAAAAAAAAAAAAD/xAAUAQEAAAAAAAAAAAAAAAAAAAAA/8QAFBEBAAAAAAAAAAAAAAAAAAAAAP/aAAwDAQACEQMRAD8AJQAB/9k=';
+
+async function seedGalleryScreenshots() {
+  // Seed two placeholder screenshots for the staging spectator user (-9001).
+  // These confirm the table and API work; real testers take their own screenshots.
+  for (const rowId of [-90011, -90012]) {
+    await pool.query(
+      `INSERT INTO player_screenshots (id, user_id, username, image_data, created_at)
+       OVERRIDING SYSTEM VALUE
+       VALUES ($1, -9001, 'Staging demo spectator — Alice', $2, NOW() - INTERVAL '1 hour')
+       ON CONFLICT (id) DO NOTHING`,
+      [rowId, SEED_JPEG]
+    );
+  }
+  await pool.query(
+    `SELECT setval('player_screenshots_id_seq',
+       GREATEST((SELECT MAX(id) FROM player_screenshots), 1))`
+  );
+}
+
 async function start() {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS blocks (
@@ -1370,6 +1464,23 @@ async function start() {
   await pool.query(`CREATE INDEX IF NOT EXISTS friendships_addressee_status_idx ON friendships (addressee_id, status)`);
   await pool.query(`CREATE INDEX IF NOT EXISTS friendships_requester_status_idx ON friendships (requester_id, status)`);
 
+  // Player screenshots: one row per captured image, capped at 10 per user.
+  // Marked staging:private — screenshots are personal content that should not
+  // be copied to staging containers.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS player_screenshots (
+      id         BIGSERIAL    PRIMARY KEY,
+      user_id    INTEGER      NOT NULL,
+      username   VARCHAR(255) NOT NULL,
+      image_data TEXT         NOT NULL,
+      created_at TIMESTAMPTZ  DEFAULT NOW()
+    )
+  `);
+  await pool.query(`COMMENT ON TABLE player_screenshots IS 'staging:private'`);
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS player_screenshots_user_created_idx
+    ON player_screenshots (user_id, created_at DESC)
+  `);
 
   if (IS_STAGING) {
     try { await seedStaging(); }
@@ -1391,6 +1502,8 @@ async function start() {
          ON CONFLICT (user_id) DO UPDATE SET last_seen = NOW(), mode = EXCLUDED.mode`
       );
     } catch (err) { console.error('staging spectator seed failed', err); }
+    try { await seedGalleryScreenshots(); }
+    catch (err) { console.error('staging gallery seed failed', err); }
   }
 
   await ensurePowerUps();

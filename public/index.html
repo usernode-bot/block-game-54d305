@@ -221,10 +221,15 @@
   <button id="friends-btn" title="Friends" aria-label="Toggle friends"
           class="fixed top-[6.25rem] right-3 z-30 w-9 h-9 rounded-full bg-black/50 hover:bg-black/70 text-zinc-100 text-lg leading-none flex items-center justify-center transition-colors cursor-pointer relative">👥<span id="friends-badge" class="hidden absolute -top-1 -right-1 w-3 h-3 rounded-full bg-red-500 pointer-events-none"></span></button>
 
+  <!-- Screenshot / gallery button: sits below the friends button. Hidden until
+       the player enters a game mode (shown by onPlayEntered, hidden by exitToMenu). -->
+  <button id="gallery-btn" title="Take screenshot (P)" aria-label="Take screenshot"
+          class="hidden fixed top-[8.5rem] right-3 z-30 w-9 h-9 rounded-full bg-black/50 hover:bg-black/70 text-zinc-100 text-lg leading-none flex items-center justify-center transition-colors cursor-pointer">📷</button>
+
   <!-- Build/version stamp: always visible, dim, so the running build can be
        confirmed at a glance. Bump BUILD_VERSION (below) on every change.
-       Shifted down to make room for the leaderboard and friends buttons above. -->
-  <div id="build-stamp" class="pointer-events-none fixed top-36 right-3 z-20 text-[11px] text-zinc-300/70 bg-black/40 rounded px-2 py-1 font-mono"></div>
+       Shifted down to make room for the leaderboard, friends, and gallery buttons above. -->
+  <div id="build-stamp" class="pointer-events-none fixed top-44 right-3 z-20 text-[11px] text-zinc-300/70 bg-black/40 rounded px-2 py-1 font-mono"></div>
 
   <!-- Badges panel: lists all 10 badges with earned/locked state. Hidden by
        default; toggled by the trophy button. -->
@@ -296,6 +301,17 @@
       <button id="friends-add-btn" class="shrink-0 px-3 py-1.5 bg-violet-600 hover:bg-violet-500 active:bg-violet-700 text-white text-xs font-semibold rounded cursor-pointer transition-colors">Add</button>
     </div>
     <div id="friends-add-status" class="mt-1 text-xs text-center min-h-[1.2em]"></div>
+  </div>
+
+  <!-- Gallery panel: shows the user's past screenshots. Hidden by default;
+       opened automatically when a screenshot is taken. -->
+  <div id="gallery-panel" class="hidden fixed top-28 right-3 z-30 w-72 max-w-[90vw] rounded-xl bg-black/70 backdrop-blur p-4 text-sm text-zinc-200 shadow-xl">
+    <div class="flex items-center justify-between mb-3">
+      <h2 class="font-bold text-zinc-100">Gallery</h2>
+      <button id="gallery-close" aria-label="Close gallery" class="text-zinc-400 hover:text-zinc-100 cursor-pointer leading-none">✕</button>
+    </div>
+    <div id="gallery-content" class="max-h-96 overflow-y-auto"></div>
+    <p class="text-zinc-600 text-[10px] mt-2 text-right">Up to 10 screenshots stored.</p>
   </div>
 
   <!-- Touch controls: translucent on-screen overlay shown only on touch devices
@@ -398,7 +414,7 @@
 
     // Build identifier — bump this (to the deploying commit short SHA) on every
     // change so the top-right stamp confirms exactly which code is running.
-    const BUILD_VERSION = 'power-ups+hold-queue+achievements-badges+chat+daily-challenge+leaderboard+online-presence+block-attribution+audio-sfx+next-piece-preview+spectator-mode+weekly-tournament+friends';
+    const BUILD_VERSION = 'power-ups+hold-queue+achievements-badges+chat+daily-challenge+leaderboard+online-presence+block-attribution+audio-sfx+next-piece-preview+spectator-mode+weekly-tournament+friends+screenshots';
 
     // Badge definitions — mirror of the server-side BADGES array, extended with
     // a `hint` field shown in the panel for unearned badges.
@@ -666,7 +682,7 @@
 
     // ---- Three.js scaffold ----
     const canvas = document.getElementById('scene');
-    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: true });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     const scene = new THREE.Scene();
     scene.background = new THREE.Color('#8ec7ff');
@@ -1353,6 +1369,8 @@
     // Handles per-mode initialization so it runs at the right moment regardless
     // of whether play was entered via pointer lock, drag fallback, or touch.
     function onPlayEntered() {
+      // Reveal the screenshot button for all game modes.
+      galleryBtnEl.classList.remove('hidden');
       if (pendingTaInit) {
         pendingTaInit = false;
         initTimeAttack();
@@ -1461,6 +1479,8 @@
       document.getElementById('hold-panel').classList.remove('hidden');
       document.getElementById('crosshair').style.opacity = '';
       hideComboHud();
+      galleryBtnEl.classList.add('hidden');
+      closeGallery();
 
       overlayEl.style.display = 'flex';
       refreshControlCopy();
@@ -1631,6 +1651,8 @@
       // L toggles the leaderboard panel.
       if (e.code === 'KeyL') toggleLeaderboard();
       if (e.code === 'KeyM') { muteBtnEl.textContent = audio.toggleMute() ? '🔇' : '🔊'; }
+      // P takes a screenshot (only while in-game; disabled when chat is active).
+      if (e.code === 'KeyP' && playing) takeScreenshot();
       // Escape: close overlays in priority order, then handle mode exit.
       // In native (locked) mode the browser handles Esc and fires
       // pointerlockchange, which restores the overlay there.
@@ -1639,6 +1661,8 @@
           closeLeaderboard();
         } else if (!friendsPanelEl.classList.contains('hidden')) {
           closeFriends();
+        } else if (!galleryPanelEl.classList.contains('hidden')) {
+          closeGallery();
         } else if (dragMode && playing) {
           if (gameMode === 'timeattack') {
             endTimeAttack();
@@ -2089,6 +2113,105 @@
         if (u) sendFriendRequest(u);
       }
     });
+
+    // ---- Gallery / screenshot ----
+    const galleryPanelEl = document.getElementById('gallery-panel');
+    const galleryContentEl = document.getElementById('gallery-content');
+    const galleryBtnEl = document.getElementById('gallery-btn');
+
+    function closeGallery() { galleryPanelEl.classList.add('hidden'); }
+
+    function renderGalleryPanel(screenshots) {
+      if (!screenshots.length) {
+        galleryContentEl.innerHTML = '<p class="text-zinc-500 text-xs py-2">No screenshots yet — press P or tap 📷 to capture.</p>';
+        return;
+      }
+      let html = '';
+      for (const shot of screenshots) {
+        const d = new Date(shot.created_at);
+        const label = d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) +
+          ' · ' + d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+        html += '<div class="mb-3 shot-item" data-id="' + shot.id + '">' +
+          '<img src="' + escapeHtml(shot.image_data) + '" class="w-full rounded-md" alt="Screenshot">' +
+          '<div class="flex items-center justify-between mt-1">' +
+          '<span class="text-zinc-500 text-[11px]">' + escapeHtml(label) + '</span>' +
+          '<button class="del-shot-btn text-zinc-500 hover:text-red-400 text-xs cursor-pointer leading-none" data-id="' + shot.id + '" title="Delete">✕</button>' +
+          '</div></div>';
+      }
+      galleryContentEl.innerHTML = html;
+      for (const btn of galleryContentEl.querySelectorAll('.del-shot-btn')) {
+        btn.addEventListener('click', () => deleteScreenshot(Number(btn.dataset.id)));
+      }
+    }
+
+    async function fetchGallery() {
+      galleryContentEl.innerHTML = '<span class="text-zinc-500 text-xs">Loading…</span>';
+      try {
+        const res = await fetch('/api/gallery', { headers });
+        if (!res.ok) throw new Error('fetch failed');
+        const { screenshots } = await res.json();
+        renderGalleryPanel(screenshots);
+      } catch (_) {
+        galleryContentEl.innerHTML = '<span class="text-zinc-500 text-xs">Couldn\'t load gallery.</span>';
+      }
+    }
+
+    async function deleteScreenshot(id) {
+      // Optimistically remove from DOM before the server round-trip.
+      const el = galleryContentEl.querySelector('.shot-item[data-id="' + id + '"]');
+      if (el) el.remove();
+      if (!galleryContentEl.querySelector('.shot-item')) {
+        galleryContentEl.innerHTML = '<p class="text-zinc-500 text-xs py-2">No screenshots yet — press P or tap 📷 to capture.</p>';
+      }
+      try {
+        await fetch('/api/gallery/' + id, { method: 'DELETE', headers });
+      } catch (_) {}
+    }
+
+    function showScreenshotToast() {
+      const container = document.getElementById('badge-toasts');
+      const toast = document.createElement('div');
+      toast.className = 'flex items-center gap-3 bg-black/85 backdrop-blur rounded-xl px-4 py-2.5 text-sm text-zinc-100 shadow-xl';
+      toast.style.cssText = 'opacity:0;transition:opacity 0.3s;';
+      const iconSpan = document.createElement('span');
+      iconSpan.className = 'text-2xl leading-none flex-shrink-0';
+      iconSpan.textContent = '📷';
+      const textDiv = document.createElement('div');
+      const nameDiv = document.createElement('div');
+      nameDiv.className = 'font-semibold';
+      nameDiv.textContent = 'Screenshot saved!';
+      textDiv.appendChild(nameDiv);
+      toast.appendChild(iconSpan);
+      toast.appendChild(textDiv);
+      container.appendChild(toast);
+      requestAnimationFrame(() => { toast.style.opacity = '1'; });
+      setTimeout(() => {
+        toast.style.opacity = '0';
+        setTimeout(() => toast.remove(), 300);
+      }, 2500);
+    }
+
+    async function takeScreenshot() {
+      const imageData = renderer.domElement.toDataURL('image/jpeg', 0.7);
+      // Open the gallery panel to show the new shot.
+      galleryPanelEl.classList.remove('hidden');
+      galleryContentEl.innerHTML = '<span class="text-zinc-500 text-xs">Saving…</span>';
+      try {
+        const res = await fetch('/api/gallery', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...headers },
+          body: JSON.stringify({ image_data: imageData }),
+        });
+        if (!res.ok) throw new Error('upload failed');
+        await fetchGallery();
+        showScreenshotToast();
+      } catch (_) {
+        galleryContentEl.innerHTML = '<span class="text-zinc-500 text-xs">Couldn\'t save screenshot.</span>';
+      }
+    }
+
+    galleryBtnEl.addEventListener('click', takeScreenshot);
+    document.getElementById('gallery-close').addEventListener('click', closeGallery);
 
     // ---- Palette UI ----
     function selectType(id) {
