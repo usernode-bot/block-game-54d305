@@ -91,6 +91,29 @@
       -webkit-user-select: none;
       -webkit-tap-highlight-color: transparent;
     }
+
+    /* Battle overlay covers 3D canvas while in battle mode */
+    #battle-overlay {
+      position: absolute;
+      inset: 0;
+      z-index: 40;
+      background: #09090b;
+      color: #e4e4e7;
+      overflow: hidden;
+    }
+    #battle-overlay.hidden { display: none; }
+
+    .battle-screen { position: absolute; inset: 0; overflow-y: auto; }
+    .battle-screen.hidden { display: none; }
+
+    /* Tetris board canvas borders */
+    #my-canvas, #opp-canvas { display: block; border: 1px solid #27272a; border-radius: 4px; }
+    #next-canvas { display: block; border-radius: 4px; background: #0f0f1a; }
+
+    /* Spinner animation */
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .spin { animation: spin 0.8s linear infinite; }
+
     @keyframes sr-banner-fade {
       0%   { opacity: 0; transform: translateY(-12px); }
       15%  { opacity: 1; transform: translateY(0); }
@@ -721,6 +744,11 @@
           <h2 class="font-semibold text-lg sm:text-base lg:text-lg text-zinc-100 mb-2 mode-title">Versus</h2>
           <p class="text-zinc-400 text-sm sm:text-sm lg:text-sm mb-5 mode-desc">Race up to 3 friends. 60 seconds, your own board — highest score wins.</p>
           <button id="play-versus-btn" class="w-full px-4 py-3 rounded-lg bg-orange-600 hover:bg-orange-500 font-semibold text-sm sm:text-sm lg:text-base transition hover:scale-[1.02] active:scale-[0.98] mode-btn">Play Versus</button>
+        </div>
+        <div class="flex-1 bg-zinc-900/80 rounded-xl p-5">
+          <h2 class="font-semibold text-zinc-100 mb-1">Battle Mode</h2>
+          <p class="text-zinc-400 text-xs mb-4">Race to outlast your opponent on your own Tetris board.</p>
+          <button id="battle-btn" class="w-full px-4 py-2 rounded-lg bg-emerald-700 hover:bg-emerald-600 font-semibold text-sm transition-colors">⚔ Battle</button>
         </div>
       </div>
       <div id="tournament-teaser" class="hidden mt-3 rounded-xl bg-zinc-900/60 px-4 py-2.5 text-xs text-zinc-300"></div>
@@ -1383,6 +1411,115 @@
     </div>
   </div>
 
+  <!-- ===== BATTLE OVERLAY ===== -->
+  <div id="battle-overlay" class="hidden">
+
+    <!-- Lobby Screen -->
+    <div id="battle-lobby-screen" class="battle-screen flex flex-col items-center justify-center p-6">
+      <h2 class="text-3xl font-bold mb-2">⚔ Battle Mode</h2>
+      <p class="text-zinc-400 text-sm mb-8">Race to outlast your opponent on your own Tetris board.</p>
+      <div class="flex flex-col sm:flex-row gap-6 w-full max-w-xl">
+        <!-- Create Room -->
+        <div class="flex-1 flex flex-col bg-zinc-900 rounded-2xl p-6 border border-zinc-800">
+          <h3 class="text-lg font-semibold mb-1">Create Room</h3>
+          <p class="text-zinc-500 text-sm mb-4">Get a code to share with a friend.</p>
+          <button id="create-room-btn" class="mt-auto w-full py-2.5 rounded-lg bg-violet-600 hover:bg-violet-500 font-semibold transition-colors">Create Room</button>
+          <p id="create-room-error" class="hidden mt-2 text-rose-400 text-sm text-center"></p>
+        </div>
+        <!-- Join Room -->
+        <div class="flex-1 flex flex-col bg-zinc-900 rounded-2xl p-6 border border-zinc-800">
+          <h3 class="text-lg font-semibold mb-1">Join Room</h3>
+          <p class="text-zinc-500 text-sm mb-4">Enter a 5-letter code to join.</p>
+          <input id="join-code-input" type="text" maxlength="5" placeholder="XXXXX" autocomplete="off" spellcheck="false"
+                 class="w-full px-3 py-2 rounded-lg bg-zinc-800 border border-zinc-700 text-center font-mono text-2xl uppercase tracking-widest focus:outline-none focus:border-violet-500 mb-2">
+          <button id="join-room-btn" class="w-full py-2.5 rounded-lg bg-emerald-700 hover:bg-emerald-600 font-semibold transition-colors">Join</button>
+          <p id="join-room-error" class="hidden mt-2 text-rose-400 text-sm text-center"></p>
+        </div>
+      </div>
+      <button id="battle-back-btn" class="mt-8 text-zinc-500 hover:text-zinc-300 text-sm transition-colors">← Back to Block World</button>
+    </div>
+
+    <!-- Waiting Screen -->
+    <div id="battle-waiting-screen" class="battle-screen hidden flex flex-col items-center justify-center p-6">
+      <h2 class="text-2xl font-bold mb-2">Waiting for Opponent</h2>
+      <p class="text-zinc-400 text-sm mb-6">Share this code with a friend:</p>
+      <div class="flex items-center gap-3 mb-2">
+        <span id="display-room-code" class="font-mono text-5xl font-bold tracking-widest text-violet-400">XXXXX</span>
+        <button id="copy-code-btn" title="Copy code"
+                class="p-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 transition-colors text-xs font-semibold">
+          Copy
+        </button>
+      </div>
+      <p id="copy-confirm" class="hidden text-emerald-400 text-xs mb-4">Copied!</p>
+      <div id="waiting-status" class="flex items-center gap-3 mt-6 text-zinc-400">
+        <div class="w-4 h-4 rounded-full border-2 border-violet-500 border-t-transparent spin"></div>
+        <span id="waiting-status-text">Waiting for opponent to join…</span>
+      </div>
+      <button id="waiting-back-btn" class="mt-10 text-zinc-500 hover:text-zinc-300 text-sm transition-colors">← Cancel</button>
+    </div>
+
+    <!-- Game Screen -->
+    <div id="battle-game-screen" class="battle-screen hidden flex flex-col items-center justify-center py-4 px-2">
+      <!-- Result overlay -->
+      <div id="game-result" class="hidden absolute inset-0 z-50 flex flex-col items-center justify-center bg-black/85 text-center px-4">
+        <div id="game-result-emoji" class="text-6xl mb-3"></div>
+        <div id="game-result-title" class="text-4xl font-bold mb-2"></div>
+        <div id="game-result-sub" class="text-zinc-400 text-sm mb-6"></div>
+        <button id="game-back-btn" class="px-6 py-3 rounded-lg bg-violet-600 hover:bg-violet-500 font-semibold text-base transition-colors">Back to Menu</button>
+      </div>
+
+      <!-- Boards -->
+      <div id="boards-row" class="flex items-start gap-4 select-none">
+        <!-- My side -->
+        <div class="flex flex-col items-center gap-1">
+          <div class="text-sm font-semibold text-zinc-300" id="my-label">You</div>
+          <div class="flex gap-3 items-start">
+            <!-- Side info -->
+            <div class="flex flex-col items-start gap-3 pt-1">
+              <div>
+                <div class="text-[10px] text-zinc-500 uppercase tracking-wider mb-1">Next</div>
+                <canvas id="next-canvas" width="80" height="80"></canvas>
+              </div>
+              <div>
+                <div class="text-[10px] text-zinc-500 uppercase tracking-wider">Score</div>
+                <div id="my-score" class="text-xl font-mono font-bold text-violet-400">0</div>
+              </div>
+              <div>
+                <div class="text-[10px] text-zinc-500 uppercase tracking-wider">Lines</div>
+                <div id="my-lines" class="text-lg font-mono text-zinc-300">0</div>
+              </div>
+            </div>
+            <canvas id="my-canvas" width="240" height="480"></canvas>
+          </div>
+        </div>
+
+        <!-- VS divider -->
+        <div class="text-xl font-bold text-zinc-700 self-center pb-8">VS</div>
+
+        <!-- Opponent side -->
+        <div class="flex flex-col items-center gap-1">
+          <div class="text-sm font-semibold text-zinc-300" id="opp-label">Opponent</div>
+          <div class="flex gap-3 items-start">
+            <canvas id="opp-canvas" width="240" height="480"></canvas>
+            <!-- Side info -->
+            <div class="flex flex-col items-start gap-3 pt-1">
+              <div>
+                <div class="text-[10px] text-zinc-500 uppercase tracking-wider">Score</div>
+                <div id="opp-score" class="text-xl font-mono font-bold text-emerald-400">0</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Controls hint -->
+      <div class="mt-3 text-[11px] text-zinc-600 text-center">
+        ← → / A D move &nbsp;·&nbsp; ↑ / W rotate &nbsp;·&nbsp; ↓ / S soft drop &nbsp;·&nbsp; Space hard drop
+      </div>
+    </div>
+
+  </div><!-- /#battle-overlay -->
+
   <!-- Chat drawer: slides up from the bottom of the game canvas. Hidden by
        default; toggled by the chat button or the Enter key. -->
   <div id="chat-drawer" class="hidden fixed bottom-0 left-0 right-0 z-[22] flex flex-col h-48 sm:h-64 border-t border-zinc-700/80">
@@ -1680,7 +1817,7 @@
 
     // Build identifier — bump this (to the deploying commit short SHA) on every
     // change so the top-right stamp confirms exactly which code is running.
-    const BUILD_VERSION = 'speedrun-mode+power-ups+hold-queue+achievements-badges+chat+daily-challenge+leaderboard+online-presence+block-attribution+audio-sfx+next-piece-preview+spectator-mode+weekly-tournament+friends+betting-system+blocks-placed-hud+ai-opponent+weather-system+day-night-cycle+minimap+ai-coach+ai-hints+nft-skins+player-stats+leaderboard-daily+new-badges+daily-theme-voting+natural-disasters+community-monuments+undo-redo-history+pastel-chrome+mobs+message-in-a-block+accessibility-panel+pixel-pets+versus-mode';
+    const BUILD_VERSION = 'speedrun-mode+power-ups+hold-queue+achievements-badges+chat+daily-challenge+leaderboard+online-presence+block-attribution+audio-sfx+next-piece-preview+spectator-mode+weekly-tournament+friends+betting-system+blocks-placed-hud+ai-opponent+weather-system+day-night-cycle+minimap+ai-coach+ai-hints+nft-skins+player-stats+leaderboard-daily+new-badges+daily-theme-voting+natural-disasters+community-monuments+undo-redo-history+pastel-chrome+mobs+message-in-a-block+accessibility-panel+pixel-pets+versus-mode+battle-mode';
 
     // Badge definitions — mirror of the server-side BADGES array, extended with
     // a `hint` field shown in the panel for unearned badges.
@@ -5457,7 +5594,7 @@
       } catch (_) { /* transient; next poll will sync */ }
     }
 
-    // ---- Pointer-lock fly camera ----
+    // ---- Camera ----
     let yaw = 0, pitch = 0;
     let locked = false;
     let playing = false;
@@ -7550,6 +7687,7 @@
 
     canvas.addEventListener('contextmenu', (e) => e.preventDefault());
     canvas.addEventListener('mousedown', (e) => {
+      if (inBattleMode) return;
       if (locked) {
         if (gameMode !== 'spectate') {
           // Native path: set placeHeld and fire the first block immediately.
@@ -7586,7 +7724,7 @@
         stampEndCell = null;
         return;
       }
-      if (locked || !playing || !dragging) return;
+      if (inBattleMode || locked || !playing || !dragging) return;
       dragging = false;
       canvas.style.cursor = 'grab';
       const moved = Math.hypot(e.clientX - pressX, e.clientY - pressY);
@@ -7603,6 +7741,10 @@
     };
     window.addEventListener('keydown', (e) => {
       resetIdle();
+      if (inBattleMode) {
+        handleTetrisKey(e);
+        return;
+      }
       // While the chat input is focused, only Escape is handled globally
       // (to close the drawer); all other keys are for typing.
       if (document.activeElement === chatInputEl) {
@@ -7718,6 +7860,7 @@
       }
     });
     window.addEventListener('keyup', (e) => {
+      if (inBattleMode) return;
       if (codeMap[e.code]) move[codeMap[e.code]] = false;
       if (e.code === 'KeyF') placeHeld = false;
     });
@@ -10295,7 +10438,7 @@
           camera.position.set(cx + 8 * Math.sin(turntableAngle), 3.5, cz + 8 * Math.cos(turntableAngle));
           camera.lookAt(cx, 1.5, cz);
         }
-      } else if (playing && (locked || dragMode)) {
+      } else if (!inBattleMode && playing && (locked || dragMode)) {
         fwd.set(-Math.sin(yaw), 0, -Math.cos(yaw));
         right.set(Math.cos(yaw), 0, -Math.sin(yaw));
 
@@ -10726,6 +10869,604 @@
         }
       } catch (_) {}
     })();
+
+    // ================================================================
+    // ==================== BATTLE MODE / TETRIS =======================
+    // ================================================================
+
+    // ---- Tetris constants ----
+    const TCOLS = 10, TROWS = 20, TCELL = 24;
+    const PIECE_COLORS = [
+      '',
+      '#00e5e5', // I - cyan
+      '#e5e500', // O - yellow
+      '#9000e5', // T - purple
+      '#00e500', // S - green
+      '#e50000', // Z - red
+      '#0000e5', // J - blue
+      '#e57800', // L - orange
+    ];
+    // Piece shapes indexed 1-7, matching PIECE_COLORS
+    const PIECE_SHAPES = [
+      null,
+      [[1,1,1,1]],           // 1 I
+      [[1,1],[1,1]],         // 2 O
+      [[0,1,0],[1,1,1]],     // 3 T
+      [[0,1,1],[1,1,0]],     // 4 S
+      [[1,1,0],[0,1,1]],     // 5 Z
+      [[1,0,0],[1,1,1]],     // 6 J
+      [[0,0,1],[1,1,1]],     // 7 L
+    ];
+
+    // ---- Battle state ----
+    let inBattleMode = false;   // true when battle overlay is visible
+    let battleActive = false;   // true when Tetris game is running
+    let battleRoomCode = '';
+    let battleWs = null;
+    let pingInterval = null;
+
+    // ---- Tetris game state ----
+    let myBoard, activePiece, nextPieceType, pieceBag;
+    let myScore = 0, myLines = 0;
+    let dropInterval = 800;
+    let dropTimer = null, syncTimer = null;
+    let gameRafId = null;
+    let myGameOver = false;
+
+    // Opponent state (received over WS)
+    let oppBoard = null, oppPiece = null, oppScore = 0;
+
+    // ---- Screen helpers ----
+    const battleOverlay = document.getElementById('battle-overlay');
+    const lobbyScreen = document.getElementById('battle-lobby-screen');
+    const waitingScreen = document.getElementById('battle-waiting-screen');
+    const gameScreen = document.getElementById('battle-game-screen');
+
+    function showBattleScreen(name) {
+      inBattleMode = true;
+      battleOverlay.classList.remove('hidden');
+      for (const s of [lobbyScreen, waitingScreen, gameScreen]) {
+        s.classList.add('hidden');
+      }
+      if (name === 'lobby') lobbyScreen.classList.remove('hidden');
+      else if (name === 'waiting') waitingScreen.classList.remove('hidden');
+      else if (name === 'game') gameScreen.classList.remove('hidden');
+    }
+
+    function hideBattleOverlay() {
+      inBattleMode = false;
+      battleActive = false;
+      battleOverlay.classList.add('hidden');
+      stopTetris();
+      closeBattleWs();
+    }
+
+    // ---- WS connection ----
+    function openBattleWs(code) {
+      closeBattleWs();
+      const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const url = `${proto}//${location.host}/ws/tetris?code=${encodeURIComponent(code)}&token=${encodeURIComponent(token)}`;
+      const ws = new WebSocket(url);
+
+      ws.onopen = () => {
+        pingInterval = setInterval(() => {
+          if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'ping' }));
+        }, 15000);
+      };
+
+      ws.onmessage = (event) => {
+        let msg;
+        try { msg = JSON.parse(event.data); } catch { return; }
+        handleBattleMessage(msg);
+      };
+
+      ws.onclose = () => {
+        clearInterval(pingInterval);
+        pingInterval = null;
+        if (battleActive) {
+          // Unexpected close during game - server handles winner notification
+          showGameResult('loss', 'disconnected');
+        }
+      };
+
+      ws.onerror = () => {};
+      battleWs = ws;
+    }
+
+    function closeBattleWs() {
+      clearInterval(pingInterval);
+      pingInterval = null;
+      if (battleWs) {
+        try { battleWs.close(); } catch {}
+        battleWs = null;
+      }
+    }
+
+    function handleBattleMessage(msg) {
+      if (msg.type === 'guest_joined') {
+        document.getElementById('waiting-status-text').textContent =
+          (msg.guest_username || 'Opponent') + ' joined! Game starting in 3 seconds…';
+        document.getElementById('waiting-status').querySelector('.spin').style.display = 'none';
+      }
+
+      if (msg.type === 'opponent_disconnected') {
+        if (!battleActive) {
+          // Pre-game disconnect - return to lobby with message
+          showBattleScreen('lobby');
+          setLobbyError('Opponent disconnected before the game started.');
+        }
+      }
+
+      if (msg.type === 'game_start') {
+        document.getElementById('my-label').textContent = myUsername;
+        document.getElementById('opp-label').textContent = msg.opponent_username || 'Opponent';
+        showBattleScreen('game');
+        startTetris();
+      }
+
+      if (msg.type === 'opponent_update') {
+        oppBoard = msg.board;
+        oppPiece = msg.piece;
+        oppScore = msg.score || 0;
+        document.getElementById('opp-score').textContent = oppScore;
+      }
+
+      if (msg.type === 'game_end') {
+        stopTetris();
+        if (msg.result === 'win') {
+          const reason = msg.reason === 'opponent_disconnected' ? 'Opponent disconnected.' : '';
+          showGameResult('win', reason);
+        } else {
+          showGameResult('loss', '');
+        }
+      }
+    }
+
+    function setLobbyError(msg) {
+      const el = document.getElementById('create-room-error');
+      el.textContent = msg;
+      el.classList.remove('hidden');
+    }
+
+    // ---- Tetris engine ----
+    function shuffleBag() {
+      const b = [1,2,3,4,5,6,7];
+      for (let i = b.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [b[i], b[j]] = [b[j], b[i]];
+      }
+      return b;
+    }
+
+    function nextFromBag() {
+      if (!pieceBag || !pieceBag.length) pieceBag = shuffleBag();
+      return pieceBag.pop();
+    }
+
+    function makeBoard() {
+      return Array.from({ length: TROWS }, () => new Array(TCOLS).fill(0));
+    }
+
+    function canPlace(shape, px, py) {
+      for (let r = 0; r < shape.length; r++) {
+        for (let c = 0; c < shape[r].length; c++) {
+          if (!shape[r][c]) continue;
+          const nr = py + r, nc = px + c;
+          if (nc < 0 || nc >= TCOLS || nr >= TROWS) return false;
+          if (nr >= 0 && myBoard[nr][nc]) return false;
+        }
+      }
+      return true;
+    }
+
+    function spawnPiece() {
+      const type = nextPieceType || nextFromBag();
+      nextPieceType = nextFromBag();
+      const shape = PIECE_SHAPES[type].map(r => [...r]);
+      const x = Math.floor((TCOLS - shape[0].length) / 2);
+      activePiece = { type, shape, x, y: 0 };
+      if (!canPlace(shape, x, 0)) {
+        activePiece = null;
+        myGameOver = true;
+        stopTetris();
+        if (battleWs && battleWs.readyState === WebSocket.OPEN) {
+          battleWs.send(JSON.stringify({ type: 'game_over' }));
+        }
+      }
+      renderNextPiece();
+    }
+
+    function lockPiece() {
+      if (!activePiece) return;
+      for (let r = 0; r < activePiece.shape.length; r++) {
+        for (let c = 0; c < activePiece.shape[r].length; c++) {
+          if (!activePiece.shape[r][c]) continue;
+          const nr = activePiece.y + r, nc = activePiece.x + c;
+          if (nr >= 0 && nr < TROWS) myBoard[nr][nc] = activePiece.type;
+        }
+      }
+      clearLines();
+      spawnPiece();
+    }
+
+    function clearLines() {
+      const full = [];
+      for (let r = 0; r < TROWS; r++) {
+        if (myBoard[r].every(v => v !== 0)) full.push(r);
+      }
+      if (!full.length) return;
+      // Remove full rows (highest index first avoids shifting issues)
+      for (let i = full.length - 1; i >= 0; i--) myBoard.splice(full[i], 1);
+      for (let i = 0; i < full.length; i++) myBoard.unshift(new Array(TCOLS).fill(0));
+      myLines += full.length;
+      const pts = [0, 100, 300, 500, 800][Math.min(full.length, 4)];
+      myScore += pts;
+      dropInterval = Math.max(100, 800 - Math.floor(myLines / 10) * 50);
+      if (dropTimer) { clearInterval(dropTimer); dropTimer = setInterval(tick, dropInterval); }
+      document.getElementById('my-score').textContent = myScore;
+      document.getElementById('my-lines').textContent = myLines;
+    }
+
+    function tick() {
+      if (myGameOver || !activePiece) return;
+      if (canPlace(activePiece.shape, activePiece.x, activePiece.y + 1)) {
+        activePiece.y++;
+      } else {
+        lockPiece();
+      }
+    }
+
+    function rotateShape(shape) {
+      const rows = shape.length, cols = shape[0].length;
+      return Array.from({ length: cols }, (_, c) =>
+        Array.from({ length: rows }, (_, r) => shape[rows - 1 - r][c])
+      );
+    }
+
+    function tryRotate() {
+      if (!activePiece || myGameOver) return;
+      const newShape = rotateShape(activePiece.shape);
+      const kicks = [[0,0],[-1,0],[1,0],[0,-1],[-2,0],[2,0]];
+      for (const [dx, dy] of kicks) {
+        if (canPlace(newShape, activePiece.x + dx, activePiece.y + dy)) {
+          activePiece.shape = newShape;
+          activePiece.x += dx;
+          activePiece.y += dy;
+          return;
+        }
+      }
+    }
+
+    function hardDrop() {
+      if (!activePiece || myGameOver) return;
+      while (canPlace(activePiece.shape, activePiece.x, activePiece.y + 1)) {
+        activePiece.y++;
+      }
+      lockPiece();
+    }
+
+    function handleTetrisKey(e) {
+      if (!battleActive || myGameOver) return;
+      const prevent = ['ArrowLeft','ArrowRight','ArrowUp','ArrowDown','Space'].includes(e.code);
+      if (prevent) e.preventDefault();
+      if (!activePiece) return;
+      switch (e.code) {
+        case 'ArrowLeft': case 'KeyA':
+          if (canPlace(activePiece.shape, activePiece.x - 1, activePiece.y)) activePiece.x--;
+          break;
+        case 'ArrowRight': case 'KeyD':
+          if (canPlace(activePiece.shape, activePiece.x + 1, activePiece.y)) activePiece.x++;
+          break;
+        case 'ArrowDown': case 'KeyS':
+          if (canPlace(activePiece.shape, activePiece.x, activePiece.y + 1)) activePiece.y++;
+          break;
+        case 'ArrowUp': case 'KeyW':
+          tryRotate();
+          break;
+        case 'Space':
+          hardDrop();
+          break;
+      }
+    }
+
+    // ---- Tetris rendering ----
+    function fillCell(ctx, c, r, color) {
+      const x = c * TCELL + 1, y = r * TCELL + 1;
+      const sz = TCELL - 2;
+      ctx.fillStyle = color;
+      ctx.fillRect(x, y, sz, sz);
+      // Simple highlight bevel
+      ctx.fillStyle = 'rgba(255,255,255,0.2)';
+      ctx.fillRect(x, y, sz, 3);
+      ctx.fillRect(x, y, 3, sz);
+      ctx.fillStyle = 'rgba(0,0,0,0.25)';
+      ctx.fillRect(x, y + sz - 3, sz, 3);
+      ctx.fillRect(x + sz - 3, y, 3, sz);
+    }
+
+    function calcGhostY(shape, px, py) {
+      let gy = py;
+      outer: while (true) {
+        for (let r = 0; r < shape.length; r++) {
+          for (let c = 0; c < shape[r].length; c++) {
+            if (!shape[r][c]) continue;
+            const nr = gy + 1 + r, nc = px + c;
+            if (nc < 0 || nc >= TCOLS || nr >= TROWS) break outer;
+            if (nr >= 0 && myBoard[nr][nc]) break outer;
+          }
+        }
+        gy++;
+      }
+      return gy;
+    }
+
+    function drawTetrisBoard(ctx, board, piece, showGhost) {
+      const W = TCOLS * TCELL, H = TROWS * TCELL;
+      ctx.fillStyle = '#0a0a14';
+      ctx.fillRect(0, 0, W, H);
+
+      // Grid
+      ctx.strokeStyle = '#18182a';
+      ctx.lineWidth = 0.5;
+      for (let r = 0; r <= TROWS; r++) {
+        ctx.beginPath(); ctx.moveTo(0, r * TCELL); ctx.lineTo(W, r * TCELL); ctx.stroke();
+      }
+      for (let c = 0; c <= TCOLS; c++) {
+        ctx.beginPath(); ctx.moveTo(c * TCELL, 0); ctx.lineTo(c * TCELL, H); ctx.stroke();
+      }
+
+      // Locked cells
+      for (let r = 0; r < TROWS; r++) {
+        for (let c = 0; c < TCOLS; c++) {
+          if (board[r][c]) fillCell(ctx, c, r, PIECE_COLORS[board[r][c]]);
+        }
+      }
+
+      if (piece) {
+        // Ghost piece (my board only)
+        if (showGhost) {
+          const gy = calcGhostY(piece.shape, piece.x, piece.y);
+          if (gy !== piece.y) {
+            ctx.globalAlpha = 0.2;
+            for (let r = 0; r < piece.shape.length; r++) {
+              for (let c = 0; c < piece.shape[r].length; c++) {
+                if (piece.shape[r][c] && gy + r >= 0) {
+                  ctx.fillStyle = PIECE_COLORS[piece.type];
+                  ctx.fillRect((piece.x + c) * TCELL + 1, (gy + r) * TCELL + 1, TCELL - 2, TCELL - 2);
+                }
+              }
+            }
+            ctx.globalAlpha = 1;
+          }
+        }
+
+        // Active piece
+        for (let r = 0; r < piece.shape.length; r++) {
+          for (let c = 0; c < piece.shape[r].length; c++) {
+            if (piece.shape[r][c] && piece.y + r >= 0) {
+              fillCell(ctx, piece.x + c, piece.y + r, PIECE_COLORS[piece.type]);
+            }
+          }
+        }
+      }
+    }
+
+    function renderMyBoard() {
+      const cvs = document.getElementById('my-canvas');
+      if (!cvs) return;
+      drawTetrisBoard(cvs.getContext('2d'), myBoard, activePiece, true);
+    }
+
+    function renderNextPiece() {
+      const cvs = document.getElementById('next-canvas');
+      if (!cvs || !nextPieceType) return;
+      const ctx = cvs.getContext('2d');
+      ctx.fillStyle = '#0a0a14';
+      ctx.fillRect(0, 0, 80, 80);
+      const shape = PIECE_SHAPES[nextPieceType];
+      const cell = 18;
+      const ox = Math.floor((4 - shape[0].length) / 2) * cell + 4;
+      const oy = Math.floor((4 - shape.length) / 2) * cell + 4;
+      ctx.fillStyle = PIECE_COLORS[nextPieceType];
+      for (let r = 0; r < shape.length; r++) {
+        for (let c = 0; c < shape[r].length; c++) {
+          if (shape[r][c]) ctx.fillRect(ox + c * cell + 1, oy + r * cell + 1, cell - 2, cell - 2);
+        }
+      }
+    }
+
+    function renderOppBoard() {
+      const cvs = document.getElementById('opp-canvas');
+      if (!cvs) return;
+      const ctx = cvs.getContext('2d');
+      if (!oppBoard) {
+        ctx.fillStyle = '#0a0a14';
+        ctx.fillRect(0, 0, cvs.width, cvs.height);
+        ctx.fillStyle = '#334155';
+        ctx.font = '13px system-ui, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('Waiting for', cvs.width / 2, cvs.height / 2 - 10);
+        ctx.fillText('board data…', cvs.width / 2, cvs.height / 2 + 10);
+        return;
+      }
+      drawTetrisBoard(ctx, oppBoard, oppPiece, false);
+    }
+
+    function gameLoop() {
+      if (!battleActive) return;
+      renderMyBoard();
+      renderOppBoard();
+      gameRafId = requestAnimationFrame(gameLoop);
+    }
+
+    function startTetris() {
+      myBoard = makeBoard();
+      pieceBag = shuffleBag();
+      nextPieceType = nextFromBag();
+      myScore = 0; myLines = 0; dropInterval = 800;
+      myGameOver = false;
+      oppBoard = null; oppPiece = null; oppScore = 0;
+      activePiece = null;
+      battleActive = true;
+
+      document.getElementById('my-score').textContent = '0';
+      document.getElementById('my-lines').textContent = '0';
+      document.getElementById('opp-score').textContent = '0';
+      document.getElementById('game-result').classList.add('hidden');
+
+      spawnPiece();
+      if (myGameOver) return; // immediate top-out (shouldn't happen)
+
+      dropTimer = setInterval(tick, dropInterval);
+      syncTimer = setInterval(() => {
+        if (!battleWs || battleWs.readyState !== WebSocket.OPEN) return;
+        battleWs.send(JSON.stringify({
+          type: 'board_update',
+          board: myBoard,
+          piece: activePiece ? { shape: activePiece.shape, x: activePiece.x, y: activePiece.y, type: activePiece.type } : null,
+          score: myScore,
+        }));
+      }, 100);
+
+      gameRafId = requestAnimationFrame(gameLoop);
+    }
+
+    function stopTetris() {
+      battleActive = false;
+      if (dropTimer) { clearInterval(dropTimer); dropTimer = null; }
+      if (syncTimer) { clearInterval(syncTimer); syncTimer = null; }
+      if (gameRafId) { cancelAnimationFrame(gameRafId); gameRafId = null; }
+    }
+
+    function showGameResult(result, reason) {
+      stopTetris();
+      const resultEl = document.getElementById('game-result');
+      const emojiEl = document.getElementById('game-result-emoji');
+      const titleEl = document.getElementById('game-result-title');
+      const subEl = document.getElementById('game-result-sub');
+
+      if (result === 'win') {
+        emojiEl.textContent = '🏆';
+        titleEl.textContent = 'YOU WIN!';
+        titleEl.className = 'text-4xl font-bold mb-2 text-emerald-400';
+        subEl.textContent = reason || 'Your opponent topped out.';
+      } else {
+        emojiEl.textContent = '💀';
+        titleEl.textContent = 'GAME OVER';
+        titleEl.className = 'text-4xl font-bold mb-2 text-rose-400';
+        subEl.textContent = reason || 'Your board topped out.';
+      }
+      resultEl.classList.remove('hidden');
+      // Do one final render to show the topped-out board state
+      renderMyBoard();
+      renderOppBoard();
+    }
+
+    // ---- Battle UI event listeners ----
+    document.getElementById('battle-btn').addEventListener('click', () => {
+      showBattleScreen('lobby');
+      // Clear errors
+      document.getElementById('create-room-error').classList.add('hidden');
+      document.getElementById('join-room-error').classList.add('hidden');
+      document.getElementById('join-code-input').value = '';
+    });
+
+    document.getElementById('battle-back-btn').addEventListener('click', () => {
+      hideBattleOverlay();
+    });
+
+    document.getElementById('create-room-btn').addEventListener('click', async () => {
+      const btn = document.getElementById('create-room-btn');
+      const errEl = document.getElementById('create-room-error');
+      btn.disabled = true;
+      btn.textContent = 'Creating…';
+      errEl.classList.add('hidden');
+      try {
+        const res = await fetch('/api/tetris/rooms', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...headers },
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Failed to create room');
+        battleRoomCode = data.room_code;
+        document.getElementById('display-room-code').textContent = battleRoomCode;
+        document.getElementById('waiting-status-text').textContent = 'Waiting for opponent to join…';
+        document.getElementById('waiting-status').querySelector('.spin').style.display = '';
+        showBattleScreen('waiting');
+        openBattleWs(battleRoomCode);
+      } catch (e) {
+        errEl.textContent = e.message;
+        errEl.classList.remove('hidden');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Create Room';
+      }
+    });
+
+    document.getElementById('join-room-btn').addEventListener('click', async () => {
+      const codeInput = document.getElementById('join-code-input');
+      const code = codeInput.value.trim().toUpperCase();
+      const errEl = document.getElementById('join-room-error');
+      const btn = document.getElementById('join-room-btn');
+      errEl.classList.add('hidden');
+
+      if (code.length !== 5) {
+        errEl.textContent = 'Please enter a 5-character room code.';
+        errEl.classList.remove('hidden');
+        return;
+      }
+
+      btn.disabled = true;
+      btn.textContent = 'Joining…';
+      try {
+        const res = await fetch(`/api/tetris/rooms/${encodeURIComponent(code)}/join`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...headers },
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Failed to join room');
+        battleRoomCode = code;
+        document.getElementById('display-room-code').textContent = battleRoomCode;
+        document.getElementById('waiting-status-text').textContent = 'Joined! Game starting shortly…';
+        document.getElementById('waiting-status').querySelector('.spin').style.display = '';
+        showBattleScreen('waiting');
+        openBattleWs(battleRoomCode);
+      } catch (e) {
+        errEl.textContent = e.message;
+        errEl.classList.remove('hidden');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Join';
+      }
+    });
+
+    // Auto-uppercase join code input
+    document.getElementById('join-code-input').addEventListener('input', (e) => {
+      e.target.value = e.target.value.toUpperCase();
+    });
+
+    // Copy room code
+    document.getElementById('copy-code-btn').addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(battleRoomCode);
+        const confirmEl = document.getElementById('copy-confirm');
+        confirmEl.classList.remove('hidden');
+        setTimeout(() => confirmEl.classList.add('hidden'), 2000);
+      } catch {}
+    });
+
+    // Cancel waiting / back to lobby
+    document.getElementById('waiting-back-btn').addEventListener('click', () => {
+      closeBattleWs();
+      showBattleScreen('lobby');
+    });
+
+    // Back to menu from game result
+    document.getElementById('game-back-btn').addEventListener('click', () => {
+      closeBattleWs();
+      showBattleScreen('lobby');
+    });
+
   </script>
   <script>
   // Animated mode-preview thumbnails
