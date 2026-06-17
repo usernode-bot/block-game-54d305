@@ -530,10 +530,52 @@ app.post('/api/presence/ping', async (req, res) => {
       }
     }
 
+    // Daily login reward: check if already claimed today
+    let dailyReward = { claimed: false };
+    const today = new Date().toISOString().slice(0, 10);
+    const rewardCheckRes = await pool.query(
+      `SELECT coins_earned FROM login_rewards WHERE user_id = $1 AND reward_date = $2`,
+      [req.user.id, today]
+    );
+
+    if (rewardCheckRes.rows.length === 0) {
+      // Calculate reward based on streak: base 10 coins, multiplier 1.0 + (streak * 0.1), capped at 3.0
+      const multiplier = Math.min(3.0, 1.0 + (current_streak * 0.1));
+      const coinsEarned = Math.round(10 * multiplier);
+
+      // Insert reward claim
+      await pool.query(
+        `INSERT INTO login_rewards (user_id, reward_date, coins_earned)
+         VALUES ($1, $2, $3)
+         ON CONFLICT DO NOTHING`,
+        [req.user.id, today, coinsEarned]
+      );
+
+      // Upsert player coins balance
+      await pool.query(
+        `INSERT INTO player_coins (user_id, coins_balance, updated_at)
+         VALUES ($1, $2, NOW())
+         ON CONFLICT (user_id) DO UPDATE SET
+           coins_balance = player_coins.coins_balance + EXCLUDED.coins_balance,
+           updated_at = NOW()`,
+        [req.user.id, coinsEarned]
+      );
+
+      dailyReward = {
+        claimed: true,
+        coins_earned: coinsEarned,
+        current_streak: current_streak,
+        multiplier: parseFloat(multiplier.toFixed(1)),
+      };
+    } else {
+      dailyReward = { claimed: true };
+    }
+
     res.json({
       ok: true,
       streak: { current: current_streak, longest: longest_streak },
       newly_earned_badges: newlyEarnedBadges,
+      daily_reward: dailyReward,
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -552,6 +594,20 @@ app.get('/api/streak', async (req, res) => {
       current_streak: rows[0].current_streak,
       longest_streak: rows[0].longest_streak,
     });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- Player coins: current user's coin balance ----
+app.get('/api/player/coins', async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT coins_balance FROM player_coins WHERE user_id = $1`,
+      [req.user.id]
+    );
+    const coins = rows.length ? Number(rows[0].coins_balance) : 0;
+    res.json({ coins });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -1578,6 +1634,29 @@ async function seedStreaks() {
   }
 }
 
+async function seedLoginRewards() {
+  const rows = [
+    { user_id: -1, coins_earned: 30, coins_balance: 150 },
+    { user_id: -2, coins_earned: 50, coins_balance: 250 },
+    { user_id: -3, coins_earned: 65, coins_balance: 325 },
+    { user_id: -4, coins_earned: 15, coins_balance: 75 },
+  ];
+  const today = new Date().toISOString().slice(0, 10);
+  for (const r of rows) {
+    await pool.query(
+      `INSERT INTO login_rewards (user_id, reward_date, coins_earned)
+       VALUES ($1, $2, $3)
+       ON CONFLICT DO NOTHING`,
+      [r.user_id, today, r.coins_earned]
+    );
+    await pool.query(
+      `INSERT INTO player_coins (user_id, coins_balance) VALUES ($1, $2)
+       ON CONFLICT (user_id) DO UPDATE SET coins_balance = EXCLUDED.coins_balance`,
+      [r.user_id, r.coins_balance]
+    );
+  }
+}
+
 // ---- Natural Disaster trigger (called from GET /api/world/changes) ----
 // Uses SELECT ... FOR UPDATE SKIP LOCKED on disaster_schedule so that only one
 // concurrent request can trigger at a time. Returns the fired disaster row or null.
@@ -1845,6 +1924,28 @@ async function start() {
     )
   `);
 
+  // Daily login rewards: tracks which players have claimed their daily reward and the date.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS login_rewards (
+      user_id        INTEGER NOT NULL,
+      reward_date    DATE NOT NULL,
+      coins_earned   INTEGER NOT NULL,
+      claimed_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at     TIMESTAMPTZ DEFAULT NOW(),
+      PRIMARY KEY (user_id, reward_date)
+    )
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS login_rewards_user_date_idx ON login_rewards (user_id, reward_date)`);
+
+  // Player coin balance: stores cumulative coins for each player.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS player_coins (
+      user_id        INTEGER PRIMARY KEY,
+      coins_balance  BIGINT NOT NULL DEFAULT 0,
+      updated_at     TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+
   // Social graph: friend requests and accepted friendships.
   // Marked staging:private — the friend relationships between real users must
   // not be copied to staging containers.
@@ -1910,6 +2011,8 @@ async function start() {
     catch (err) { console.error('endless-scores seed failed', err); }
     try { await seedStreaks(); }
     catch (err) { console.error('streak seed failed', err); }
+    try { await seedLoginRewards(); }
+    catch (err) { console.error('login-rewards seed failed', err); }
     // Staging spectators are now surfaced via the STAGING_DEMO_USERS constant
     // appended in GET /api/presence/online, so no DB seed is needed here.
   }

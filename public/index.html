@@ -503,6 +503,19 @@
   <!-- Full-screen flash overlay for disaster visual effects. -->
   <div id="disaster-flash" class="pointer-events-none fixed inset-0 z-50 hidden" style="opacity:0;transition:opacity 0.1s;"></div>
 
+  <!-- Daily login reward modal: appears once per day on first login. -->
+  <div id="daily-login-reward" class="hidden fixed inset-0 z-50 flex items-center justify-center" style="background: rgba(52, 47, 70, 0.55);">
+    <div class="bg-black/95 rounded-lg p-6 sm:p-8 max-w-sm mx-4 text-center shadow-xl border border-violet-500/30">
+      <div class="text-5xl mb-4">🎉</div>
+      <h2 class="text-2xl font-bold text-white mb-2" id="reward-title">Day 5 Streak!</h2>
+      <p class="text-zinc-200 mb-4">You earned <span id="reward-coins" class="font-mono font-bold text-amber-400">50</span> coins</p>
+      <p class="text-sm text-zinc-400 mb-6">
+        Streak of <span id="reward-streak-num">5</span> days = <span id="reward-multiplier">2.0</span>× bonus
+      </p>
+      <button id="reward-dismiss" class="bg-violet-600 hover:bg-violet-500 active:bg-violet-700 text-white px-8 py-2.5 rounded-lg text-sm font-semibold transition">Continue playing</button>
+    </div>
+  </div>
+
   <!-- Badge toast container: toasts stack above the palette, bottom-centre. -->
   <div id="badge-toasts" class="pointer-events-none fixed left-1/2 -translate-x-1/2 z-40 flex flex-col-reverse items-center gap-2" style="bottom: 5.5rem"></div>
 
@@ -1098,6 +1111,7 @@
     let taTimerHandle = null;
     let pollHandle = null;         // classic-mode server poll interval
     let pendingTaInit = false;     // true while waiting for play-entry to fire initTimeAttack
+    let sessionShownDailyReward = false; // track if daily reward modal was shown this session
 
     // ---- Endless Mode state ----
     const endlessBlocks = new Map();     // infinite grid: key = 'x,y,z', value = block_type
@@ -1688,6 +1702,25 @@
     function showUnlockToast(item) {
       toastQueue.push({ icon: item.icon, name: item.name, flavour: item.description, _isUnlock: true });
       if (!toastShowing) showNextToast();
+    }
+
+    function showDailyRewardModal(reward) {
+      const modalEl = document.getElementById('daily-login-reward');
+      const titleEl = document.getElementById('reward-title');
+      const coinsEl = document.getElementById('reward-coins');
+      const streakEl = document.getElementById('reward-streak-num');
+      const multiplierEl = document.getElementById('reward-multiplier');
+      const dismissEl = document.getElementById('reward-dismiss');
+
+      titleEl.textContent = `Day ${reward.current_streak} Streak!`;
+      coinsEl.textContent = reward.coins_earned;
+      streakEl.textContent = reward.current_streak;
+      multiplierEl.textContent = reward.multiplier.toFixed(1);
+
+      modalEl.classList.remove('hidden');
+      dismissEl.onclick = () => {
+        modalEl.classList.add('hidden');
+      };
     }
 
     // ---- Natural Disaster client-side effects ----
@@ -3828,6 +3861,10 @@
         if (!res.ok) return;
         const data = await res.json();
         if (data.streak) updateStreakHud(data.streak.current);
+        if (data.daily_reward && data.daily_reward.coins_earned && !sessionShownDailyReward) {
+          showDailyRewardModal(data.daily_reward);
+          sessionShownDailyReward = true;
+        }
         if (data.newly_earned_badges && data.newly_earned_badges.length) {
           for (const badge of data.newly_earned_badges) {
             earnedBadges.set(badge.id, { earned_at: badge.earned_at });
