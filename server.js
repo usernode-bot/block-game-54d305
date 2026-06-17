@@ -213,6 +213,7 @@ app.post('/api/block', async (req, res) => {
     let challenge = null;
     // ---- Scoring (placements only; breaks earn 0) ----
     let earned = 0, combo_multiplier = 1, rainbow_multiplier = 1, combo_tier = 1;
+    let coin_balance = null;
     let newly_earned_badges = [];
     if (t !== 0) {
       const now = new Date();
@@ -304,6 +305,23 @@ app.post('/api/block', async (req, res) => {
         [weekStart(now), req.user.id, req.user.username, earned]
       );
 
+      // Award 1 coin per block placed. Non-fatal if it fails.
+      try {
+        const coinRes = await pool.query(
+          `INSERT INTO coin_balances (user_id, username, balance, updated_at)
+           VALUES ($1, $2, 1, NOW())
+           ON CONFLICT (user_id) DO UPDATE SET
+             balance    = coin_balances.balance + 1,
+             username   = EXCLUDED.username,
+             updated_at = NOW()
+           RETURNING balance`,
+          [req.user.id, req.user.username]
+        );
+        coin_balance = Number(coinRes.rows[0].balance);
+      } catch (coinErr) {
+        console.error('coin upsert failed', coinErr);
+      }
+
       // Track which block types this player has ever placed.
       await pool.query(
         `INSERT INTO player_type_usage (user_id, block_type) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
@@ -335,7 +353,7 @@ app.post('/api/block', async (req, res) => {
       newly_earned_badges = newBadges.map((b) => ({ id: b.id, name: b.name, icon: b.icon, flavour: b.flavour }));
     }
 
-    res.json({ ok: true, seq, ...(challenge ? { challenge } : {}), earned, combo_multiplier, rainbow_multiplier, newly_earned_badges });
+    res.json({ ok: true, seq, ...(challenge ? { challenge } : {}), earned, combo_multiplier, rainbow_multiplier, newly_earned_badges, ...(coin_balance !== null ? { coin_balance } : {}) });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -887,6 +905,159 @@ app.delete('/api/friends/:id', async (req, res) => {
   }
 });
 
+// ---- Coins: get current user's balance ----
+app.get('/api/coins', async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT balance FROM coin_balances WHERE user_id = $1`,
+      [req.user.id]
+    );
+    res.json({ balance: rows.length ? Number(rows[0].balance) : 0 });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- Coins: send coins to another user by username ----
+app.post('/api/coins/send', async (req, res) => {
+  const senderId = req.user.id;
+  const senderUsername = req.user.username;
+  const targetUsername = (typeof req.body.username === 'string' ? req.body.username : '').trim();
+  const amount = Number(req.body.amount);
+
+  if (!targetUsername) return res.status(400).json({ error: 'username required' });
+  if (!Number.isInteger(amount) || amount < 1) return res.status(400).json({ error: 'invalid_amount' });
+  if (amount > 10000) return res.status(400).json({ error: 'amount_too_large' });
+
+  try {
+    // Resolve recipient — same lookup used by friend requests.
+    const { rows: userRows } = await pool.query(
+      `SELECT user_id, username FROM (
+         SELECT user_id, username, 1 AS priority FROM user_presence
+         UNION
+         SELECT user_id, username, 2 AS priority FROM leaderboard
+       ) u
+       WHERE LOWER(username) = LOWER($1)
+       ORDER BY priority ASC
+       LIMIT 1`,
+      [targetUsername]
+    );
+    if (!userRows.length) return res.status(404).json({ error: 'user_not_found' });
+    const { user_id: recipientId, username: recipientUsername } = userRows[0];
+    if (recipientId === senderId) return res.status(400).json({ error: 'self_send' });
+
+    const client = await pool.connect();
+    let newBalance;
+    try {
+      await client.query('BEGIN');
+
+      // Lock sender's balance row.
+      const { rows: balRows } = await client.query(
+        `SELECT balance FROM coin_balances WHERE user_id = $1 FOR UPDATE`,
+        [senderId]
+      );
+      const currentBalance = balRows.length ? Number(balRows[0].balance) : 0;
+      if (currentBalance < amount) {
+        await client.query('ROLLBACK');
+        return res.status(402).json({ error: 'insufficient_balance' });
+      }
+
+      // Deduct from sender.
+      const { rows: deductRows } = await client.query(
+        `UPDATE coin_balances SET balance = balance - $1, updated_at = NOW()
+         WHERE user_id = $2 RETURNING balance`,
+        [amount, senderId]
+      );
+      newBalance = Number(deductRows[0].balance);
+
+      // Credit recipient.
+      await client.query(
+        `INSERT INTO coin_balances (user_id, username, balance, updated_at)
+         VALUES ($1, $2, $3, NOW())
+         ON CONFLICT (user_id) DO UPDATE SET
+           balance    = coin_balances.balance + EXCLUDED.balance,
+           username   = EXCLUDED.username,
+           updated_at = NOW()`,
+        [recipientId, recipientUsername, amount]
+      );
+
+      // Record transaction.
+      const { rows: txRows } = await client.query(
+        `INSERT INTO coin_transactions (from_user_id, from_username, to_user_id, to_username, amount)
+         VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+        [senderId, senderUsername, recipientId, recipientUsername, amount]
+      );
+      const txId = Number(txRows[0].id);
+
+      // Notify recipient.
+      await client.query(
+        `INSERT INTO inbox_notifications (recipient_user_id, type, payload)
+         VALUES ($1, 'coin_gift', $2)`,
+        [recipientId, JSON.stringify({ from_username: senderUsername, amount, transaction_id: txId })]
+      );
+
+      await client.query('COMMIT');
+    } catch (txErr) {
+      await client.query('ROLLBACK');
+      throw txErr;
+    } finally {
+      client.release();
+    }
+
+    res.json({ ok: true, balance: newBalance });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- Inbox: fetch notifications since a cursor (notification id) ----
+app.get('/api/inbox', async (req, res) => {
+  try {
+    const since = Number(req.query.since) || 0;
+    const uid = req.user.id;
+    const { rows } = await pool.query(
+      `SELECT id, type, payload, read, created_at
+       FROM inbox_notifications
+       WHERE recipient_user_id = $1 AND id > $2
+       ORDER BY id ASC
+       LIMIT 50`,
+      [uid, since]
+    );
+    const { rows: unreadRows } = await pool.query(
+      `SELECT COUNT(*)::int AS cnt FROM inbox_notifications
+       WHERE recipient_user_id = $1 AND read = false`,
+      [uid]
+    );
+    const cursor = rows.length ? Number(rows[rows.length - 1].id) : since;
+    res.json({
+      notifications: rows.map((r) => ({
+        id: Number(r.id),
+        type: r.type,
+        payload: r.payload,
+        read: r.read,
+        created_at: r.created_at,
+      })),
+      cursor,
+      unread_count: unreadRows[0].cnt,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- Inbox: mark all notifications read ----
+app.post('/api/inbox/read', async (req, res) => {
+  try {
+    await pool.query(
+      `UPDATE inbox_notifications SET read = true WHERE recipient_user_id = $1 AND read = false`,
+      [req.user.id]
+    );
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.use(express.static(path.join(__dirname, 'public'), {
   setHeaders(res, filePath) {
     // The entire game is inline in index.html, so a cached shell hides a
@@ -1216,6 +1387,31 @@ async function seedStreaks() {
   }
 }
 
+async function seedCoins() {
+  // Seed a balance for the staging demo user so the coin HUD is visible immediately.
+  await pool.query(
+    `INSERT INTO coin_balances (user_id, username, balance)
+     VALUES ($1, 'Staging demo player', 500)
+     ON CONFLICT (user_id) DO NOTHING`,
+    [SEED_USER_ID]
+  );
+
+  // Seed three demo inbox notifications for the staging user (2 unread, 1 read).
+  const demoNotifications = [
+    { from_username: 'Staging demo sender Alicia',    amount: 50,  read: false },
+    { from_username: 'Staging demo sender BuilderBot', amount: 20,  read: true  },
+    { from_username: 'Staging demo sender MineKing',   amount: 100, read: false },
+  ];
+  for (const n of demoNotifications) {
+    await pool.query(
+      `INSERT INTO inbox_notifications (recipient_user_id, type, payload, read)
+       VALUES ($1, 'coin_gift', $2, $3)
+       ON CONFLICT DO NOTHING`,
+      [SEED_USER_ID, JSON.stringify({ from_username: n.from_username, amount: n.amount, transaction_id: -1 }), n.read]
+    );
+  }
+}
+
 async function start() {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS blocks (
@@ -1370,6 +1566,46 @@ async function start() {
   await pool.query(`CREATE INDEX IF NOT EXISTS friendships_addressee_status_idx ON friendships (addressee_id, status)`);
   await pool.query(`CREATE INDEX IF NOT EXISTS friendships_requester_status_idx ON friendships (requester_id, status)`);
 
+  // Coin balances: one row per user, tracks spendable coin total.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS coin_balances (
+      user_id    INTEGER      PRIMARY KEY,
+      username   VARCHAR(255) NOT NULL,
+      balance    BIGINT       NOT NULL DEFAULT 0,
+      updated_at TIMESTAMPTZ  DEFAULT NOW()
+    )
+  `);
+  await pool.query(`COMMENT ON TABLE coin_balances IS 'staging:private'`);
+
+  // Coin transactions: append-only ledger of every transfer.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS coin_transactions (
+      id             BIGSERIAL    PRIMARY KEY,
+      from_user_id   INTEGER      NOT NULL,
+      from_username  VARCHAR(255) NOT NULL,
+      to_user_id     INTEGER      NOT NULL,
+      to_username    VARCHAR(255) NOT NULL,
+      amount         INTEGER      NOT NULL,
+      created_at     TIMESTAMPTZ  DEFAULT NOW()
+    )
+  `);
+  await pool.query(`COMMENT ON TABLE coin_transactions IS 'staging:private'`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS coin_transactions_to_idx   ON coin_transactions (to_user_id, created_at)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS coin_transactions_from_idx ON coin_transactions (from_user_id, created_at)`);
+
+  // Inbox notifications: one row per notification event.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS inbox_notifications (
+      id                BIGSERIAL    PRIMARY KEY,
+      recipient_user_id INTEGER      NOT NULL,
+      type              VARCHAR(32)  NOT NULL DEFAULT 'coin_gift',
+      payload           JSONB        NOT NULL DEFAULT '{}',
+      read              BOOLEAN      NOT NULL DEFAULT false,
+      created_at        TIMESTAMPTZ  DEFAULT NOW()
+    )
+  `);
+  await pool.query(`COMMENT ON TABLE inbox_notifications IS 'staging:private'`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS inbox_notifications_recipient_idx ON inbox_notifications (recipient_user_id, read, id DESC)`);
 
   if (IS_STAGING) {
     try { await seedStaging(); }
@@ -1382,6 +1618,8 @@ async function start() {
     catch (err) { console.error('tournament seed failed', err); }
     try { await seedStreaks(); }
     catch (err) { console.error('streak seed failed', err); }
+    try { await seedCoins(); }
+    catch (err) { console.error('coins seed failed', err); }
     try {
       // Two fake spectators so the eye-icon path is exercisable in staging.
       await pool.query(
