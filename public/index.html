@@ -1320,6 +1320,12 @@
     <div id="endless-best" class="hidden text-xs sm:text-sm font-semibold text-zinc-400 bg-black/50 rounded-xl px-3 sm:px-4 py-1 sm:py-1.5 text-center">Best: <span id="endless-best-value">0</span> blocks</div>
   </div>
 
+  <!-- Puzzle Mode HUD: level and progress shown only during Puzzle mode -->
+  <div id="puzzle-hud" class="hidden pointer-events-none fixed top-3 left-3 z-20 flex flex-col gap-1">
+    <div id="puzzle-level" class="text-2xl sm:text-3xl font-mono font-bold text-white bg-black/50 rounded-xl px-3 sm:px-4 py-1.5 sm:py-2 tabular-nums leading-tight border border-purple-500/50">Level 1</div>
+    <div id="puzzle-progress" class="text-xs sm:text-sm font-semibold text-zinc-200 bg-black/50 rounded-xl px-3 sm:px-4 py-1 sm:py-1.5 text-center">0 / 10 cleared</div>
+  </div>
+
   <!-- Combo HUD: placement streak multiplier badge shown in Classic mode -->
   <div id="combo-hud" class="hidden pointer-events-none fixed top-3 left-3 z-20 transition-opacity duration-200">
     <div id="combo-badge" class="text-2xl sm:text-3xl font-mono font-bold text-white rounded-xl px-3 sm:px-4 py-1 sm:py-2 leading-tight tabular-nums bg-amber-500" style="transition: transform 0.15s ease-out;">2×</div>
@@ -1561,7 +1567,7 @@
 
     // Build identifier — bump this (to the deploying commit short SHA) on every
     // change so the top-right stamp confirms exactly which code is running.
-    const BUILD_VERSION = 'power-ups+hold-queue+achievements-badges+chat+daily-challenge+leaderboard+online-presence+block-attribution+audio-sfx+next-piece-preview+spectator-mode+weekly-tournament+friends+betting-system+blocks-placed-hud+day-night-cycle+minimap+ai-coach+daily-theme-voting+natural-disasters+community-monuments+undo-redo-history+pastel-chrome+mobs+message-in-a-block+accessibility-panel+pixel-pets+versus-mode';
+    const BUILD_VERSION = 'power-ups+hold-queue+achievements-badges+chat+daily-challenge+leaderboard+online-presence+block-attribution+audio-sfx+next-piece-preview+spectator-mode+weekly-tournament+friends+betting-system+blocks-placed-hud+day-night-cycle+minimap+ai-coach+daily-theme-voting+natural-disasters+community-monuments+undo-redo-history+pastel-chrome+mobs+message-in-a-block+accessibility-panel+pixel-pets+versus-mode+puzzle-mode';
 
     // Badge definitions — mirror of the server-side BADGES array, extended with
     // a `hint` field shown in the panel for unearned badges.
@@ -2577,6 +2583,7 @@
     let puzzleTarget = 10;               // blocks to clear this level
     let puzzleCleared = 0;               // blocks cleared so far
     let puzzleStartTime = null;          // when the level started
+    let puzzleTotalCleared = 0;         // cumulative blocks cleared across all levels this session
     let pendingPuzzleInit = false;       // true while waiting for play-entry to fire initPuzzleMode
 
     // ---- Learn Mode state ----
@@ -3153,6 +3160,7 @@
       else if (gameMode === 'learn') source = learnBlocks;
       else if (gameMode === 'tutorial') source = tutorialBlocks;
       else if (gameMode === 'versus') source = versusBlocks;
+      else if (gameMode === 'puzzle') source = puzzleBlocks;
       const byType = new Map();
       for (const [k, t] of source) {
         if (!byType.has(t)) byType.set(t, []);
@@ -3726,9 +3734,6 @@
     }
 
     async function sendEdit(x, y, z, t, prevType) {
-      if (!undoInProgress && gameMode === 'classic' && prevType !== undefined) {
-        pushUndo(x, y, z, prevType, t);
-      }
       applyLocal(x, y, z, t);
       // Optimistic challenge increment for placements (not breaks).
       if (t !== 0 && challengeDate && !challengeCompleted) {
@@ -4113,12 +4118,6 @@
       undoTouchBtnEl.style.pointerEvents = hasItems ? '' : 'none';
     }
 
-    function pushUndo(x, y, z, prevType, newType) {
-      if (undoStack.length >= 5) undoStack.shift();
-      undoStack.push({ x, y, z, prevType, newType });
-      refreshUndoButton();
-    }
-
     function showSimpleToast(msg) {
       toastQueue.push({ icon: '↩', name: msg, flavour: '' });
       if (!toastShowing) showNextToast();
@@ -4129,18 +4128,20 @@
       const entry = undoStack.pop();
       refreshUndoButton();
       const currentType = blocks.get(key(entry.x, entry.y, entry.z)) ?? 0;
-      if (currentType !== entry.newType) {
+      if (currentType !== entry.to) {
         showSimpleToast("Can't undo: block was changed");
+        undoStack.push(entry);
+        refreshUndoButton();
         return;
       }
       undoInProgress = true;
       try {
-        if (entry.prevType === 0) {
+        if (entry.from === 0) {
           audio.playBreak();
         } else {
           audio.playPlace();
         }
-        await sendEdit(entry.x, entry.y, entry.z, entry.prevType);
+        await sendEdit(entry.x, entry.y, entry.z, entry.from);
       } finally {
         undoInProgress = false;
         refreshUndoButton();
@@ -4168,6 +4169,7 @@
         // Time Attack (60s) is break-only; placing is a no-op
         return;
       }
+      if (gameMode === 'puzzle') return;
       if (gameMode === 'endless') {
         const k = key(x, y, z);
         if (endlessBlocks.get(k) === actualType) return;
@@ -4277,7 +4279,7 @@
         const k = key(cell.x, cell.y, cell.z);
         const newType = blocks.get(k);
         if (!undoInProgress && gameMode === 'classic' && newType !== prevType) {
-          pushUndo(cell.x, cell.y, cell.z, prevType, newType);
+          pushHistory(cell.x, cell.y, cell.z, prevType, newType);
         }
         sendEdit(cell.x, cell.y, cell.z, newType, prevType);
       }
@@ -4347,6 +4349,25 @@
         updateEndlessHud();
         if (endlessMovesRemaining <= 0 || !hasValidMoveAnywhere()) {
           endEndlessMode();
+        }
+        return;
+      }
+      if (gameMode === 'puzzle') {
+        const k = key(x, y, z);
+        if (!puzzleBlocks.has(k)) return;
+        const brokenTypePuzzle = puzzleBlocks.get(k);
+        puzzleBlocks.delete(k);
+        puzzleCleared++;
+        puzzleTotalCleared++;
+        audio.playBreak();
+        emitBlockBreak(x + 0.5, y + 0.5, z + 0.5, brokenTypePuzzle);
+        rebuildBlockMeshes();
+        updatePuzzleHud();
+        if (puzzleCleared >= puzzleTarget) {
+          const completedLevel = puzzleLevel;
+          puzzleLevel++;
+          initPuzzleMode();
+          showSimpleToast('Level ' + completedLevel + ' complete!');
         }
         return;
       }
@@ -5337,6 +5358,67 @@
       if (placedEl) placedEl.textContent = endlessBlocksPlaced + ' block' + (endlessBlocksPlaced === 1 ? '' : 's');
     }
 
+    function updatePuzzleHud() {
+      const levelEl = document.getElementById('puzzle-level');
+      const progressEl = document.getElementById('puzzle-progress');
+      if (levelEl) levelEl.textContent = 'Level ' + puzzleLevel;
+      if (progressEl) progressEl.textContent = puzzleCleared + ' / ' + puzzleTarget + ' cleared';
+    }
+
+    async function initPuzzleMode() {
+      puzzleBlocks.clear();
+      puzzleCleared = 0;
+      puzzleStartTime = Date.now();
+
+      try {
+        const res = await fetch('/api/puzzle-level/' + puzzleLevel, {
+          method: 'POST',
+          headers: Object.assign({ 'content-type': 'application/json' }, headers),
+          body: JSON.stringify({}),
+        });
+        if (!res.ok) throw new Error('fetch failed');
+        const data = await res.json();
+        for (const b of data.block_snapshot) {
+          puzzleBlocks.set(key(b.x, b.y, b.z), b.t);
+        }
+        puzzleTarget = data.target_blocks_to_clear;
+      } catch (err) {
+        console.error('initPuzzleMode fetch error', err);
+        // Fallback: generate some blocks locally so the mode is still playable
+        puzzleTarget = 10;
+        for (let i = 0; i < 10; i++) {
+          puzzleBlocks.set(key(5 + i, 1, 5), 1);
+        }
+      }
+
+      document.getElementById('palette').classList.add('hidden');
+      document.getElementById('hold-panel').classList.add('hidden');
+      document.getElementById('score-hud').classList.add('hidden');
+      document.getElementById('combo-hud').classList.add('hidden');
+      document.getElementById('ta-hud').classList.add('hidden');
+      document.getElementById('ta-60-hud').classList.add('hidden');
+      document.getElementById('endless-hud').classList.add('hidden');
+      document.getElementById('puzzle-hud').classList.remove('hidden');
+      updatePuzzleHud();
+      rebuildBlockMeshes();
+      spawnCamera();
+    }
+
+    async function endPuzzleMode() {
+      if (puzzleLevel - 1 < 1) return;
+      try {
+        await fetch('/api/puzzle-score', {
+          method: 'POST',
+          headers: Object.assign({ 'content-type': 'application/json' }, headers),
+          body: JSON.stringify({
+            level_number: puzzleLevel - 1,
+            blocks_cleared_session: puzzleTotalCleared,
+            time_ms: puzzleStartTime ? Date.now() - puzzleStartTime : 0,
+          }),
+        });
+      } catch (_) {}
+    }
+
     function initEndlessMode() {
       endlessBlocks.clear();
       endlessMovesRemaining = 500 + Math.floor(Math.random() * 1000);
@@ -5750,6 +5832,10 @@
         pendingVersusInit = false;
         initVersus();
         coachBtnEl.classList.add('hidden');
+      } else if (pendingPuzzleInit) {
+        pendingPuzzleInit = false;
+        initPuzzleMode();
+        coachBtnEl.classList.add('hidden');
       } else if (gameMode === 'classic') {
         sessionScore = 0;
         updateScoreHud();
@@ -5883,6 +5969,10 @@
       if (gameMode === 'learn' && playing) {
         endLearnMode();
       }
+      // In Puzzle mode, submit the score before clearing state.
+      if (gameMode === 'puzzle' && playing) {
+        endPuzzleMode();
+      }
       // Stop any lingering TA timer.
       if (taTimerHandle) { clearInterval(taTimerHandle); taTimerHandle = null; }
       // Stop classic poll.
@@ -5910,6 +6000,10 @@
 
       taBlocks.clear();
       learnBlocks.clear();
+      puzzleBlocks.clear();
+      puzzleLevel = 1;
+      puzzleCleared = 0;
+      puzzleTotalCleared = 0;
       rebuildBlockMeshes(); // gameMode is now null → renders classic blocks
 
       document.getElementById('ta-hud').classList.add('hidden');
@@ -5919,6 +6013,7 @@
       document.getElementById('versus-lobby').classList.add('hidden');
       document.getElementById('versus-hud').classList.add('hidden');
       document.getElementById('versus-gameover').classList.add('hidden');
+      document.getElementById('puzzle-hud').classList.add('hidden');
       versusBlocks.clear();
       document.getElementById('learn-hints').innerHTML = '';
       document.getElementById('palette').classList.remove('hidden');
