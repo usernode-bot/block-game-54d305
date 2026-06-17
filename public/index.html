@@ -764,6 +764,10 @@
        Positioned bottom-right above the palette. -->
   <div id="powerup-hud" class="pointer-events-none fixed bottom-24 right-4 z-20 flex flex-col items-end gap-1"></div>
 
+  <!-- Weather / time-of-day indicator: bottom-left, above the hold panel.
+       Fades in when weather changes, fades out after 6s of stability. -->
+  <div id="weather-hud" class="pointer-events-none fixed left-4 z-20 text-xs font-semibold text-white/90 bg-black/55 rounded-lg px-2 py-1.5 whitespace-nowrap" style="bottom: 5.5rem; opacity: 0; transition: opacity 0.7s;"></div>
+
   <!-- Mode-select / start overlay -->
   <div id="overlay" class="fixed inset-0 z-30 flex items-center justify-center bg-black/60 backdrop-blur-sm">
     <div class="max-w-sm sm:max-w-xl lg:max-w-4xl w-full px-4">
@@ -1972,7 +1976,7 @@
 
     // Build identifier — bump this (to the deploying commit short SHA) on every
     // change so the top-right stamp confirms exactly which code is running.
-    const BUILD_VERSION = 'cyberpunk-theme+speedrun-mode+power-ups+hold-queue+achievements-badges+chat+daily-challenge+leaderboard+online-presence+block-attribution+audio-sfx+next-piece-preview+spectator-mode+weekly-tournament+friends+xp-levels+collab-challenges+betting-system+blocks-placed-hud+ai-opponent+weather-system+day-night-cycle+minimap+ai-coach+ai-hints+nft-skins+player-stats+leaderboard-daily+new-badges+daily-theme-voting+natural-disasters+community-monuments+undo-redo-history+pastel-chrome+mobs+message-in-a-block+accessibility-panel+pixel-pets+versus-mode+blueprint+battle-mode';
+    const BUILD_VERSION = 'cyberpunk-theme+speedrun-mode+power-ups+hold-queue+achievements-badges+chat+daily-challenge+leaderboard+online-presence+block-attribution+audio-sfx+next-piece-preview+spectator-mode+weekly-tournament+friends+xp-levels+collab-challenges+betting-system+blocks-placed-hud+ai-opponent+weather-system+weather-tod+day-night-cycle+minimap+ai-coach+ai-hints+nft-skins+player-stats+leaderboard-daily+new-badges+daily-theme-voting+natural-disasters+community-monuments+undo-redo-history+pastel-chrome+mobs+message-in-a-block+accessibility-panel+pixel-pets+versus-mode+blueprint+battle-mode';
 
     // Badge definitions — mirror of the server-side BADGES array, extended with
     // a `hint` field shown in the panel for unearned badges.
@@ -3117,6 +3121,28 @@
     let tutorialEarned = 0;              // score earned during tutorial
     let firstBlockPlacedInTutorial = false;
 
+    // ---- Weather & time-of-day state ----
+    // weatherCurrent / weatherChangeAt are synced from the server every 30s.
+    // Time-of-day is derived purely from Date.now() so all clients stay in sync.
+    let weatherCurrent  = 'clear'; // 'clear' | 'cloudy' | 'rain' | 'snow' | 'storm'
+    let weatherChangeAt = 0;       // unix ms when current weather state started
+    let stormFlashNext  = 0;       // performance.now() ms of next lightning spike
+    let stormFlashEnd   = 0;       // performance.now() ms when lightning ends
+    let weatherHudTimer = null;    // auto-hide timeout handle
+    let rainOpacity     = 0;       // smoothed rain particle opacity (0-1)
+    let snowOpacity     = 0;       // smoothed snow particle opacity (0-1)
+
+    // TOD keyframes: full day = 20 real minutes; 0 = midnight, 0.5 = noon
+    const TOD_KF = [
+      { t: 0.00, sky: '#0a0e1a', amb: 0.08, sun: 0.0 },
+      { t: 0.22, sky: '#ff8c42', amb: 0.35, sun: 0.3 },
+      { t: 0.33, sky: '#7fc8f8', amb: 0.55, sun: 0.7 },
+      { t: 0.50, sky: '#8ec7ff', amb: 0.65, sun: 0.9 },
+      { t: 0.67, sky: '#7fc8f8', amb: 0.55, sun: 0.7 },
+      { t: 0.78, sky: '#e06030', amb: 0.30, sun: 0.2 },
+      { t: 0.88, sky: '#12182e', amb: 0.10, sun: 0.0 },
+    ];
+
     // ---- Speed Run state ----
     let srSession = null;       // { session_id, started_at, levels, current_level, level_progress }
     let srStartedAt = null;     // Date.now() when the run started (for display timer)
@@ -3638,6 +3664,58 @@
     const powerupGroup = new THREE.Group();
     scene.add(powerupGroup);
 
+    // ---- Particle systems (rain & snow) ----
+    // Positions are in world-space, re-centered on the camera each frame.
+    const RAIN_COUNT = 800;
+    const rainPositions = new Float32Array(RAIN_COUNT * 3);
+    for (let i = 0; i < RAIN_COUNT; i++) {
+      rainPositions[i * 3]     = (Math.random() - 0.5) * 40;
+      rainPositions[i * 3 + 1] = Math.random() * 30;
+      rainPositions[i * 3 + 2] = (Math.random() - 0.5) * 40;
+    }
+    const rainGeom = new THREE.BufferGeometry();
+    rainGeom.setAttribute('position', new THREE.BufferAttribute(rainPositions, 3));
+
+    // Thin vertical streak texture for rain drops
+    const _rainCv = document.createElement('canvas');
+    _rainCv.width = 2; _rainCv.height = 10;
+    const _rainCtx = _rainCv.getContext('2d');
+    const _rainGrad = _rainCtx.createLinearGradient(0, 0, 0, 10);
+    _rainGrad.addColorStop(0,   'rgba(200,230,255,0)');
+    _rainGrad.addColorStop(0.3, 'rgba(200,230,255,0.9)');
+    _rainGrad.addColorStop(1,   'rgba(200,230,255,0.9)');
+    _rainCtx.fillStyle = _rainGrad;
+    _rainCtx.fillRect(0, 0, 2, 10);
+    const rainTex = new THREE.CanvasTexture(_rainCv);
+
+    const rainMat = new THREE.PointsMaterial({
+      map: rainTex, size: 0.35, color: 0xaaccee,
+      transparent: true, opacity: 0, depthWrite: false, sizeAttenuation: true,
+    });
+    const rainParticles = new THREE.Points(rainGeom, rainMat);
+    scene.add(rainParticles);
+
+    const SNOW_COUNT = 400;
+    const snowPositions = new Float32Array(SNOW_COUNT * 3);
+    for (let i = 0; i < SNOW_COUNT; i++) {
+      snowPositions[i * 3]     = (Math.random() - 0.5) * 40;
+      snowPositions[i * 3 + 1] = Math.random() * 30;
+      snowPositions[i * 3 + 2] = (Math.random() - 0.5) * 40;
+    }
+    const snowGeom = new THREE.BufferGeometry();
+    snowGeom.setAttribute('position', new THREE.BufferAttribute(snowPositions, 3));
+    const snowMat = new THREE.PointsMaterial({
+      color: 0xddeeff, size: 0.18,
+      transparent: true, opacity: 0, depthWrite: false, sizeAttenuation: true,
+    });
+    const snowParticles = new THREE.Points(snowGeom, snowMat);
+    scene.add(snowParticles);
+
+    // Scratch colors for the environment update
+    const _envSky = new THREE.Color();
+    const _envA   = new THREE.Color();
+    const _envB   = new THREE.Color();
+
     // ---- Community Monument beacons ----
     const monumentGroup = new THREE.Group();
     scene.add(monumentGroup);
@@ -3672,7 +3750,7 @@
     mobGroup.visible = false;
     scene.add(mobGroup);
 
-    // ---- Particle system ----
+    // ---- Particle system (block break/place effects) ----
     const PARTICLE_POOL_SIZE = 150;
     const particleGeom = new THREE.BoxGeometry(0.1, 0.1, 0.1);
     const particleGroup = new THREE.Group();
@@ -4514,8 +4592,153 @@
       if (html !== _lastHudHtml) { powerupHudEl.innerHTML = html; _lastHudHtml = html; }
     }
 
+    // ---- Weather & time-of-day system ----
+
+    // Compute current time-of-day (0=midnight, 0.5=noon) from UTC wall clock.
+    // Full cycle = 20 real minutes, so all clients stay in sync without a server call.
+    function computeTOD() {
+      return ((Date.now() / 1000) % 1200) / 1200;
+    }
+
+    // Interpolate TOD keyframes, returning { sky: THREE.Color, amb, sun }.
+    function sampleTOD(tod) {
+      const kf = TOD_KF;
+      let ai = kf.length - 1, bi = 0;
+      for (let i = 0; i < kf.length - 1; i++) {
+        if (tod >= kf[i].t && tod < kf[i + 1].t) { ai = i; bi = i + 1; break; }
+      }
+      const a = kf[ai], b = kf[bi];
+      const bT   = bi === 0 ? 1.0 : b.t; // wrap midnight
+      const span = bT - a.t;
+      const alpha = span > 0 ? Math.min(1, Math.max(0, (tod - a.t) / span)) : 0;
+      _envA.set(a.sky); _envB.set(b.sky);
+      return {
+        sky: _envA.clone().lerp(_envB, alpha),
+        amb: a.amb + (b.amb - a.amb) * alpha,
+        sun: a.sun + (b.sun - a.sun) * alpha,
+      };
+    }
+
+    const WEATHER_SKY_OVERLAY = {
+      cloudy: '#6b7a8d', rain: '#4a5a6d', snow: '#8090a0', storm: '#2a3040',
+    };
+
+    function updateEnvironment(now, dt) {
+      const tod   = computeTOD();
+      const base  = sampleTOD(tod);
+      const wName = weatherCurrent;
+
+      // Weather intensity: 0 for clear, otherwise ramp 0→1 over 15 s after changeAt.
+      const wInt = wName === 'clear' ? 0
+        : Math.min(1, (Date.now() - weatherChangeAt) / 15000);
+
+      // Sun arc: semicircle from east (dawn) to west (dusk) during daytime only.
+      const DAY_S = 0.22, DAY_E = 0.78;
+      if (tod >= DAY_S && tod <= DAY_E) {
+        const angle = ((tod - DAY_S) / (DAY_E - DAY_S)) * Math.PI;
+        sun.position.set(Math.cos(angle) * 60, Math.sin(angle) * 60, 20);
+      } else {
+        sun.position.set(0, -60, 20); // below horizon at night
+      }
+
+      // Sky color: TOD base blended with weather overlay.
+      _envSky.copy(base.sky);
+      const ovr = WEATHER_SKY_OVERLAY[wName];
+      if (ovr && wInt > 0) { _envA.set(ovr); _envSky.lerp(_envA, wInt * 0.65); }
+      scene.background = _envSky;
+      scene.fog.color.copy(_envSky);
+
+      // Fog distance: weather tightens visibility.
+      let tFogNear = 40, tFogFar = 90;
+      if (wName === 'storm')                          { tFogNear = 15; tFogFar = 40; }
+      else if (wName === 'rain')                      { tFogNear = 25; tFogFar = 60; }
+      else if (wName === 'cloudy' || wName === 'snow') { tFogNear = 32; tFogFar = 75; }
+      scene.fog.near = 40 + (tFogNear - 40) * wInt;
+      scene.fog.far  = 90 + (tFogFar  - 90) * wInt;
+
+      // Ambient light: dimmer at night and in bad weather.
+      const ambW = wName === 'storm' ? 0.4 : wName === 'rain' ? 0.6 : wName === 'cloudy' ? 0.75 : 1;
+      ambientLight.intensity = base.amb * (1 - wInt * (1 - ambW));
+
+      // Directional sun: off at night, dims in weather.
+      const sunW = wName === 'storm' ? 0.1 : wName === 'rain' ? 0.3 : wName === 'cloudy' ? 0.6 : 1;
+      sun.intensity = base.sun * (1 - wInt * (1 - sunW));
+
+      // Lightning during storm: spike ambient to 3.0 for 200 ms every 10–40 s.
+      if (wName === 'storm' && wInt > 0.5) {
+        if (stormFlashNext === 0) stormFlashNext = now + 10000 + Math.random() * 20000;
+        if (now >= stormFlashNext) {
+          stormFlashEnd  = now + 200;
+          stormFlashNext = now + 10000 + Math.random() * 30000;
+        }
+        if (now < stormFlashEnd) ambientLight.intensity = 3.0;
+      } else {
+        stormFlashNext = 0; stormFlashEnd = 0;
+      }
+
+      // Particle opacity: smooth lerp toward target (time constant ~10 s).
+      const isRain = wName === 'rain' || wName === 'storm';
+      const isSnow = wName === 'snow';
+      const tRain  = isRain ? wInt * (wName === 'storm' ? 0.9 : 0.65) : 0;
+      const tSnow  = isSnow ? wInt * 0.8 : 0;
+      const lerpK  = Math.min(1, dt * 0.1);
+      rainOpacity += (tRain - rainOpacity) * lerpK;
+      snowOpacity += (tSnow - snowOpacity) * lerpK;
+
+      // Rain particles: fall fast, wrap when below camera.
+      rainParticles.visible = rainOpacity > 0.01;
+      if (rainParticles.visible) {
+        rainMat.opacity = rainOpacity;
+        const rp   = rainGeom.attributes.position.array;
+        const cx = camera.position.x, cy = camera.position.y, cz = camera.position.z;
+        const fs = 18 * dt;
+        for (let i = 0; i < RAIN_COUNT; i++) {
+          rp[i * 3 + 1] -= fs;
+          if (rp[i * 3 + 1] < cy - 15) {
+            rp[i * 3]     = cx + (Math.random() - 0.5) * 40;
+            rp[i * 3 + 1] = cy + 15;
+            rp[i * 3 + 2] = cz + (Math.random() - 0.5) * 40;
+          }
+        }
+        rainGeom.attributes.position.needsUpdate = true;
+      }
+
+      // Snow particles: fall slowly with gentle horizontal drift.
+      snowParticles.visible = snowOpacity > 0.01;
+      if (snowParticles.visible) {
+        snowMat.opacity = snowOpacity;
+        const sp = snowGeom.attributes.position.array;
+        const cx = camera.position.x, cy = camera.position.y, cz = camera.position.z;
+        const fs = 1.5 * dt;
+        for (let i = 0; i < SNOW_COUNT; i++) {
+          sp[i * 3 + 1] -= fs;
+          sp[i * 3]     += Math.sin(now * 0.001 + i * 0.7) * 0.008;
+          if (sp[i * 3 + 1] < cy - 15) {
+            sp[i * 3]     = cx + (Math.random() - 0.5) * 40;
+            sp[i * 3 + 1] = cy + 15;
+            sp[i * 3 + 2] = cz + (Math.random() - 0.5) * 40;
+          }
+        }
+        snowGeom.attributes.position.needsUpdate = true;
+      }
+    }
+
     // ---- Weather HUD ----
-    const weatherHudEl = document.getElementById('weather-hud');
+    const weatherHudEl  = document.getElementById('weather-hud');
+    const WEATHER_ICONS = { clear: '☀️', cloudy: '☁️', rain: '🌧️', snow: '❄️', storm: '⛈️' };
+
+    function showWeatherHud(weather) {
+      if (!weatherHudEl) return;
+      const icon  = WEATHER_ICONS[weather] || '☀️';
+      const label = weather.charAt(0).toUpperCase() + weather.slice(1);
+      weatherHudEl.textContent = icon + ' ' + label;
+      weatherHudEl.style.opacity = '1';
+      if (weatherHudTimer) clearTimeout(weatherHudTimer);
+      weatherHudTimer = setTimeout(() => {
+        if (weatherHudEl) weatherHudEl.style.opacity = '0';
+      }, 6000);
+    }
+
     let _lastWeatherHudKey = '';
     const _WEATHER_ICONS  = { clear: '☀️', rain: '🌧', fog: '🌫️' };
     const _WEATHER_LABELS = { clear: 'Clear', rain: 'Rainy', fog: 'Foggy' };
@@ -4528,6 +4751,22 @@
       const label = isNight ? 'Night'         : (_WEATHER_LABELS[state] || 'Clear');
       weatherHudEl.innerHTML = icon + ' <span>' + label + '</span>';
     }
+    // ---- Weather poll (every 30 s; intentionally not auth-gated on the server) ----
+    async function pollWeather() {
+      if (document.hidden) return;
+      try {
+        const res = await fetch('/api/world-conditions');
+        if (!res.ok) return;
+        const data = await res.json();
+        const prev = weatherCurrent;
+        weatherCurrent  = data.weather  || 'clear';
+        weatherChangeAt = data.changeAt || 0;
+        if (gameMode !== 'timeattack' && data.weather !== prev) {
+          showWeatherHud(data.weather);
+        }
+      } catch (_) {}
+    }
+
     // ---- Mini-map rendering ----
     function renderMinimap() {
       const SCALE = 4; // px per world unit (128px / 32 units)
@@ -6497,6 +6736,18 @@
     }
 
     function initTimeAttack() {
+      // Reset scene to static noon so weather doesn't distract during the timed run.
+      scene.background = new THREE.Color('#8ec7ff');
+      scene.fog.color.set('#8ec7ff');
+      scene.fog.near = 40; scene.fog.far = 90;
+      ambientLight.intensity = 0.65;
+      sun.intensity = 0.9;
+      sun.position.set(30, 60, 20);
+      rainParticles.visible = false;
+      snowParticles.visible = false;
+      rainOpacity = 0; snowOpacity = 0;
+      if (weatherHudEl) weatherHudEl.style.opacity = '0';
+
       taBlocks.clear();
       taScore = 0;
       if (taTimerHandle) { clearInterval(taTimerHandle); taTimerHandle = null; }
@@ -11284,6 +11535,8 @@
         }
       }
 
+      // Update sky, fog, lighting, and particles (skipped in Time Attack mode).
+      if (gameMode !== 'timeattack') updateEnvironment(now, dt);
       // Update speedrun timer display every frame.
       if (mode === 'speedrun' && srStartedAt !== null && playing) {
         srTimerEl.textContent = formatTime(Date.now() - srStartedAt);
@@ -11656,6 +11909,9 @@
         } catch (_) {}
       }, 30000);
 
+      // Fetch initial weather state and poll every 30 s.
+      pollWeather();
+      setInterval(pollWeather, 30000);
       // Check for an in-progress speedrun session and surface it on load.
       try {
         const res = await fetch('/api/speedrun/session', { headers });
