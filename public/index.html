@@ -451,6 +451,12 @@
           <button id="play-endless-btn" class="w-full px-4 py-3 rounded-lg bg-rose-600 hover:bg-rose-500 font-semibold text-sm sm:text-sm lg:text-base transition hover:scale-[1.02] active:scale-[0.98]">Play Endless</button>
         </div>
         <div class="bg-zinc-900/80 rounded-xl p-5 sm:p-6 lg:p-7 transition hover:bg-zinc-800/80">
+          <canvas id="preview-tutorial" class="w-full rounded-lg mb-4" height="140"></canvas>
+          <h2 class="font-semibold text-lg sm:text-base lg:text-lg text-zinc-100 mb-2">Tutorial</h2>
+          <p class="text-zinc-400 text-sm sm:text-sm lg:text-sm mb-5">Learn the basics step-by-step: place blocks, break them, earn points, and clear lines.</p>
+          <button id="play-tutorial-btn" class="w-full px-4 py-3 rounded-lg bg-green-600 hover:bg-green-500 font-semibold text-sm sm:text-sm lg:text-base transition hover:scale-[1.02] active:scale-[0.98]">📚 Start Tutorial</button>
+        </div>
+        <div class="bg-zinc-900/80 rounded-xl p-5 sm:p-6 lg:p-7 transition hover:bg-zinc-800/80">
           <canvas id="preview-learn" class="w-full rounded-lg mb-4" height="140"></canvas>
           <h2 class="font-semibold text-lg sm:text-base lg:text-lg text-zinc-100 mb-2">Learn Mode</h2>
           <p class="text-zinc-400 text-sm sm:text-sm lg:text-sm mb-5">Perfect for getting started. Learn the basics at your own pace with helpful hints.</p>
@@ -821,6 +827,9 @@
 
   <!-- Learn mode hints: on-screen instructions and tutorials -->
   <div id="learn-hints" class="pointer-events-none fixed inset-0 z-20"></div>
+
+  <!-- Tutorial hints: on-screen instructions and step progression -->
+  <div id="tutorial-hints" class="pointer-events-none fixed inset-0 z-20"></div>
 
   <!-- Time Attack game-over overlay -->
   <div id="ta-gameover" class="hidden fixed inset-0 z-30 flex items-center justify-center bg-black/60 backdrop-blur-sm">
@@ -1286,7 +1295,7 @@
     }
 
     // ---- Game mode state ----
-    let gameMode = null;           // null | 'classic' | 'timeattack' | 'endless' | 'learn' | 'time-attack-60'
+    let gameMode = null;           // null | 'classic' | 'timeattack' | 'endless' | 'learn' | 'tutorial' | 'time-attack-60'
     const taBlocks = new Map();    // TA layout: client-only, never written to server
     let taScore = 0;
     let taTimeLeft = 60;
@@ -1319,6 +1328,13 @@
     let learnBlocksPlaced = 0;           // blocks placed in learn session
     let pendingLearnInit = false;        // true while waiting for play-entry to fire initLearnMode
     let learnHintsShown = lsGet('learn_hints_shown', {});
+
+    // ---- Tutorial Mode state ----
+    const tutorialBlocks = new Map();    // Tutorial session: key = 'x,y,z', value = block_type
+    let tutorialStep = 0;                // current tutorial step (0-6)
+    let pendingTutorialInit = false;     // true while waiting for play-entry to fire initTutorialMode
+    let tutorialEarned = 0;              // score earned during tutorial
+    let firstBlockPlacedInTutorial = false;
 
     // ---- Three.js scaffold ----
     const canvas = document.getElementById('scene');
@@ -1771,6 +1787,7 @@
       else if (gameMode === 'time-attack-60') source = ta60Blocks;
       else if (gameMode === 'endless') source = endlessBlocks;
       else if (gameMode === 'learn') source = learnBlocks;
+      else if (gameMode === 'tutorial') source = tutorialBlocks;
       const byType = new Map();
       for (const [k, t] of source) {
         if (!byType.has(t)) byType.set(t, []);
@@ -2365,6 +2382,187 @@
       }
     }
 
+    // ---- Tutorial Mode hints and steps ----
+    const tutorialHintsEl = document.getElementById('tutorial-hints');
+    const TUTORIAL_STEPS_DEF = [
+      {
+        id: 'welcome',
+        title: '🎮 Welcome to block-game!',
+        text: 'You\'re about to learn how to place blocks, earn points, and clear lines. Let\'s get started!',
+        position: 'center',
+        dismissible: true,
+        timeout: 5000,
+      },
+      {
+        id: 'movement',
+        title: '👀 Look around',
+        text: 'Use WASD or arrow keys to move. Click and drag (or press Space/Shift) to look up and down.',
+        position: 'center',
+        dismissible: true,
+        timeout: null,
+      },
+      {
+        id: 'place_block',
+        title: '🧱 Place your first block',
+        text: 'Click (or press F) on a cell to place a block. Try it now!',
+        position: 'center',
+        dismissible: true,
+        timeout: null,
+      },
+      {
+        id: 'break_block',
+        title: '✂️ Break a block',
+        text: 'Right-click (or press G) on the block you just placed to remove it.',
+        position: 'center',
+        dismissible: true,
+        timeout: null,
+      },
+      {
+        id: 'scoring',
+        title: '⭐ You earned points!',
+        text: 'Each block you place is worth 10 points. Clearing a full line earns 50 bonus points!',
+        position: 'center',
+        dismissible: true,
+        timeout: 4000,
+      },
+      {
+        id: 'line_clear',
+        title: '✨ Clear a full line',
+        text: 'Fill an entire horizontal layer (all 32×32 cells) with blocks to clear the line and earn 50 points!',
+        position: 'center',
+        dismissible: true,
+        timeout: 4000,
+      },
+      {
+        id: 'complete',
+        title: '🎉 Tutorial complete!',
+        text: 'You\'ve learned the basics! Head to the main game modes or continue building here.',
+        position: 'center',
+        dismissible: true,
+        timeout: null,
+      },
+    ];
+
+    function showTutorialHint(stepIndex) {
+      if (gameMode !== 'tutorial') return;
+      if (stepIndex < 0 || stepIndex >= TUTORIAL_STEPS_DEF.length) return;
+
+      const step = TUTORIAL_STEPS_DEF[stepIndex];
+      tutorialHintsEl.innerHTML = '';
+
+      const overlay = document.createElement('div');
+      overlay.className = 'fixed inset-0 flex flex-col items-center justify-center';
+
+      // Create a card with the hint
+      const card = document.createElement('div');
+      card.className = 'bg-black/80 rounded-2xl p-8 sm:p-10 max-w-sm text-center shadow-2xl backdrop-blur border border-zinc-700/50';
+
+      const title = document.createElement('h3');
+      title.className = 'text-2xl font-bold text-white mb-3';
+      title.textContent = step.title;
+      card.appendChild(title);
+
+      const text = document.createElement('p');
+      text.className = 'text-zinc-200 text-sm sm:text-base mb-6 leading-relaxed';
+      text.textContent = step.text;
+      card.appendChild(text);
+
+      // Action buttons
+      const actions = document.createElement('div');
+      actions.className = 'flex gap-3 flex-col sm:flex-row justify-center';
+
+      if (step.dismissible) {
+        const nextBtn = document.createElement('button');
+        nextBtn.className = 'px-6 py-2 rounded-lg bg-violet-600 hover:bg-violet-500 text-white font-semibold transition hover:scale-105 active:scale-95';
+        nextBtn.textContent = stepIndex === TUTORIAL_STEPS_DEF.length - 1 ? '✓ Finish' : 'Next →';
+        nextBtn.onclick = () => advanceTutorialStep('hint_dismissed');
+        actions.appendChild(nextBtn);
+
+        if (stepIndex > 0) {
+          const skipBtn = document.createElement('button');
+          skipBtn.className = 'px-6 py-2 rounded-lg bg-zinc-700 hover:bg-zinc-600 text-white font-semibold transition hover:scale-105 active:scale-95';
+          skipBtn.textContent = 'Back to Menu';
+          skipBtn.onclick = () => endTutorialMode();
+          actions.appendChild(skipBtn);
+        }
+      }
+
+      card.appendChild(actions);
+      overlay.appendChild(card);
+      tutorialHintsEl.appendChild(overlay);
+
+      if (step.timeout && step.timeout > 0) {
+        setTimeout(() => {
+          if (tutorialStep === stepIndex && gameMode === 'tutorial') {
+            advanceTutorialStep('auto_advance');
+          }
+        }, step.timeout);
+      }
+    }
+
+    function advanceTutorialStep(reason) {
+      if (gameMode !== 'tutorial') return;
+      // Skip certain steps based on what triggered the advance
+      if (reason === 'block_placed' && tutorialStep !== 2) return; // Only advance on step 2
+      if (reason === 'block_broken' && tutorialStep !== 3) return; // Only advance on step 3
+      tutorialStep++;
+      if (tutorialStep >= TUTORIAL_STEPS_DEF.length) {
+        completeTutorial();
+      } else {
+        showTutorialHint(tutorialStep);
+      }
+    }
+
+    async function completeTutorial() {
+      gameMode = 'tutorial'; // Ensure we're still in tutorial
+      await fetch('/api/tutorial/complete', {
+        method: 'POST',
+        headers: { 'x-usernode-token': headers['x-usernode-token'] || '' },
+      });
+      endTutorialMode();
+      overlayEl.style.display = 'flex';
+      showMinimap(); // Hide minimap when back at menu
+      minimap.canvas.classList.add('hidden');
+    }
+
+    function endTutorialMode() {
+      playing = false;
+      dragMode = false;
+      resetMove();
+      canvas.style.cursor = '';
+      if (locked) { try { document.exitPointerLock(); } catch (_) {} }
+
+      tutorialBlocks.clear();
+      tutorialStep = 0;
+      tutorialEarned = 0;
+      firstBlockPlacedInTutorial = false;
+      document.getElementById('tutorial-hints').innerHTML = '';
+      refreshControlCopy();
+      updateTouchControlsVisibility();
+    }
+
+    function initTutorialMode() {
+      tutorialBlocks.clear();
+      tutorialStep = 0;
+      tutorialEarned = 0;
+      firstBlockPlacedInTutorial = false;
+
+      document.getElementById('palette').classList.remove('hidden');
+      document.getElementById('hold-panel').classList.remove('hidden');
+      document.getElementById('score-hud').classList.add('hidden');
+      document.getElementById('combo-hud').classList.add('hidden');
+      document.getElementById('ta-hud').classList.add('hidden');
+      document.getElementById('ta-gameover').classList.add('hidden');
+      document.getElementById('ta-60-hud').classList.add('hidden');
+      document.getElementById('ta-60-gameover').classList.add('hidden');
+      document.getElementById('endless-hud').classList.add('hidden');
+      document.getElementById('endless-gameover').classList.add('hidden');
+
+      rebuildBlockMeshes();
+      spawnCamera();
+      showTutorialHint(0);
+    }
+
     // ---- Undo helpers ----
     const undoBtnEl = document.getElementById('undo-btn');
     const undoTouchBtnEl = document.getElementById('undo-touch-btn');
@@ -2465,6 +2663,22 @@
         updateHoldPanel();
         return;
       }
+      if (gameMode === 'tutorial') {
+        const k = key(x, y, z);
+        if (tutorialBlocks.get(k) === selectedType) return;
+        tutorialBlocks.set(k, selectedType);
+        if (!firstBlockPlacedInTutorial) {
+          firstBlockPlacedInTutorial = true;
+          tutorialEarned = 10;
+          advanceTutorialStep('block_placed');
+        }
+        emitBlockPlace(x + 0.5, y + 0.5, z + 0.5);
+        audio.playPlace();
+        rebuildBlockMeshes();
+        holdLocked = false;
+        updateHoldPanel();
+        return;
+      }
       if (blocks.get(key(x, y, z)) === selectedType) return;
       const prevType = blocks.get(key(x, y, z)) ?? 0;
       audio.playPlace();
@@ -2529,6 +2743,17 @@
         showLearnHint('first_break');
         audio.playBreak();
         emitBlockBreak(x + 0.5, y + 0.5, z + 0.5, brokenTypeLearn);
+        rebuildBlockMeshes();
+        return;
+      }
+      if (gameMode === 'tutorial') {
+        const k = key(x, y, z);
+        if (!tutorialBlocks.has(k)) return;
+        const brokenTypeTutorial = tutorialBlocks.get(k);
+        tutorialBlocks.delete(k);
+        advanceTutorialStep('block_broken');
+        audio.playBreak();
+        emitBlockBreak(x + 0.5, y + 0.5, z + 0.5, brokenTypeTutorial);
         rebuildBlockMeshes();
         return;
       }
@@ -3107,6 +3332,10 @@
         pendingLearnInit = false;
         initLearnMode();
         coachBtnEl.classList.add('hidden');
+      } else if (pendingTutorialInit) {
+        pendingTutorialInit = false;
+        initTutorialMode();
+        coachBtnEl.classList.add('hidden');
       } else if (gameMode === 'classic') {
         sessionScore = 0;
         updateScoreHud();
@@ -3133,6 +3362,7 @@
       if (mode === 'time-attack-60') pendingTa60Init = true;
       if (mode === 'endless') pendingEndlessInit = true;
       if (mode === 'learn') pendingLearnInit = true;
+      if (mode === 'tutorial') pendingTutorialInit = true;
       refreshUndoButton();
       tryPointerLock();
     }
@@ -3323,6 +3553,7 @@
     document.getElementById('play-ta-60-btn').addEventListener('click', () => { audio.init(); startMode('time-attack-60'); });
     document.getElementById('play-daily-challenge-btn').addEventListener('click', () => { audio.init(); startMode('daily-challenge'); });
     document.getElementById('play-endless-btn').addEventListener('click', () => { audio.init(); startMode('endless'); });
+    document.getElementById('play-tutorial-btn').addEventListener('click', () => { audio.init(); startMode('tutorial'); });
     document.getElementById('play-learn-btn').addEventListener('click', () => { audio.init(); startMode('learn'); });
     document.getElementById('play-spectate-btn').addEventListener('click', () => { audio.init(); startMode('spectate'); });
 
@@ -4766,7 +4997,7 @@
           if (events && events.length) {
             if (ec) eventsCursor = ec;
             for (const ev of events) {
-              if (gameMode !== 'learn') handleDisasterEvent(ev);
+              if (gameMode !== 'learn' && gameMode !== 'tutorial') handleDisasterEvent(ev);
             }
           }
         }
