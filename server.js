@@ -395,42 +395,51 @@ app.post('/api/block', async (req, res) => {
 });
 
 // ---- Delta feed: every cell changed since the client's cursor, including
-// breaks (block_type 0). Powers near-realtime collaborative editing. ----
+// breaks (block_type 0). Powers near-realtime collaborative editing.
+// Supports world_id parameter: 0 = shared world, >0 = custom world (no disasters)
 app.get('/api/world/changes', async (req, res) => {
   try {
     const since = Number(req.query.since) || 0;
     const eventsSince = Number(req.query.events_since) || 0;
+    const world_id = Number(req.query.world_id) || 0;
 
-    // Lazily trigger disasters when clients are polling
-    const newDisaster = await maybeFireDisaster();
-
-    const { rows } = await pool.query(
-      `SELECT x, y, z, block_type, seq FROM blocks WHERE seq > $1 ORDER BY seq`,
-      [since]
-    );
-    const cursor = rows.length ? Number(rows[rows.length - 1].seq) : since;
-
-    // Return any disaster events the client hasn't seen yet
-    const eventsRes = await pool.query(
-      `SELECT id, type, origin_x, origin_z, params, blocks_destroyed, triggered_at
-       FROM disasters WHERE id > $1 ORDER BY id`,
-      [eventsSince]
-    );
-    const events = eventsRes.rows.map((r) => ({
-      id: Number(r.id),
-      type: r.type,
-      label: DISASTER_DEFS[r.type] ? DISASTER_DEFS[r.type].label : r.type,
-      icon: DISASTER_DEFS[r.type] ? DISASTER_DEFS[r.type].icon : '💥',
-      origin_x: r.origin_x,
-      origin_z: r.origin_z,
-      params: r.params,
-      blocks_destroyed: r.blocks_destroyed,
-      triggered_at: r.triggered_at,
-    }));
+    let events = [];
+    // Only fire disasters in the shared world (world_id = 0)
+    if (world_id === 0) {
+      const newDisaster = await maybeFireDisaster();
+      const eventsRes = await pool.query(
+        `SELECT id, type, origin_x, origin_z, params, blocks_destroyed, triggered_at
+         FROM disasters WHERE id > $1 ORDER BY id`,
+        [eventsSince]
+      );
+      events = eventsRes.rows.map((r) => ({
+        id: Number(r.id),
+        type: r.type,
+        label: DISASTER_DEFS[r.type] ? DISASTER_DEFS[r.type].label : r.type,
+        icon: DISASTER_DEFS[r.type] ? DISASTER_DEFS[r.type].icon : '💥',
+        origin_x: r.origin_x,
+        origin_z: r.origin_z,
+        params: r.params,
+        blocks_destroyed: r.blocks_destroyed,
+        triggered_at: r.triggered_at,
+      }));
+    }
     const eventsCursor = events.length ? events[events.length - 1].id : eventsSince;
 
+    // For shared world, poll the blocks table; for custom worlds, return empty changes
+    // (custom world block updates happen via POST /api/worlds/:id/blocks)
+    let changes = [];
+    if (world_id === 0) {
+      const { rows } = await pool.query(
+        `SELECT x, y, z, block_type, seq FROM blocks WHERE seq > $1 ORDER BY seq`,
+        [since]
+      );
+      changes = rows.map((r) => ({ x: r.x, y: r.y, z: r.z, t: r.block_type }));
+    }
+    const cursor = changes.length ? Math.max(...changes.map(c => Number(c.seq) || 0)) : since;
+
     res.json({
-      changes: rows.map((r) => ({ x: r.x, y: r.y, z: r.z, t: r.block_type })),
+      changes,
       cursor,
       events,
       eventsCursor,
@@ -472,11 +481,12 @@ app.post('/api/presence/ping', async (req, res) => {
   try {
     const rawMode = req.body && req.body.mode;
     const mode = ['classic', 'spectate'].includes(rawMode) ? rawMode : 'classic';
+    const current_world_id = req.body && req.body.current_world_id ? Number(req.body.current_world_id) : null;
     await pool.query(
-      `INSERT INTO user_presence (user_id, username, last_seen, mode)
-       VALUES ($1, $2, NOW(), $3)
-       ON CONFLICT (user_id) DO UPDATE SET username = EXCLUDED.username, last_seen = NOW(), mode = EXCLUDED.mode`,
-      [req.user.id, req.user.username, mode]
+      `INSERT INTO user_presence (user_id, username, last_seen, mode, current_world_id)
+       VALUES ($1, $2, NOW(), $3, $4)
+       ON CONFLICT (user_id) DO UPDATE SET username = EXCLUDED.username, last_seen = NOW(), mode = EXCLUDED.mode, current_world_id = EXCLUDED.current_world_id`,
+      [req.user.id, req.user.username, mode, current_world_id]
     );
 
     // Upsert login streak. Idempotent for the same UTC day.
@@ -613,14 +623,20 @@ app.get('/api/player/coins', async (req, res) => {
   }
 });
 
-// ---- Presence: who is online (seen in the last 60s) ----
+// ---- Presence: who is online (seen in the last 60s), optionally filtered by world ----
 app.get('/api/presence/online', async (req, res) => {
   try {
-    const { rows } = await pool.query(
-      `SELECT username, mode FROM user_presence
-       WHERE last_seen > NOW() - INTERVAL '60 seconds'
-       ORDER BY username`
-    );
+    const current_world_id = req.query.current_world_id ? Number(req.query.current_world_id) : null;
+
+    let query = `SELECT username, mode, current_world_id FROM user_presence
+       WHERE last_seen > NOW() - INTERVAL '60 seconds'`;
+    if (current_world_id !== null) {
+      query += ` AND (current_world_id = $1 OR current_world_id IS NULL)`;
+    }
+    query += ` ORDER BY username`;
+
+    const params = current_world_id !== null ? [current_world_id] : [];
+    const { rows } = await pool.query(query, params);
     const users = rows.map((r) => ({ username: r.username, mode: r.mode || 'classic' }));
     if (IS_STAGING) users.push(...STAGING_DEMO_USERS);
     res.json({ users });
@@ -849,6 +865,271 @@ app.post('/api/chat', async (req, res) => {
   }
 });
 
+// ---- Custom Worlds: list user's saved worlds ----
+app.get('/api/worlds', async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT id, world_name, blocks_count, created_at, owner_username
+       FROM user_worlds
+       WHERE owner_id = $1
+       ORDER BY updated_at DESC
+       LIMIT 10`,
+      [req.user.id]
+    );
+    res.json({
+      worlds: rows.map((r) => ({
+        id: Number(r.id),
+        world_name: r.world_name,
+        blocks_count: Number(r.blocks_count),
+        created_at: r.created_at,
+        owner_username: r.owner_username,
+      })),
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- Custom Worlds: save current (shared) world as a custom snapshot ----
+app.post('/api/worlds', async (req, res) => {
+  try {
+    const world_name = (typeof req.body.world_name === 'string' ? req.body.world_name : '').trim();
+    if (!world_name) return res.status(400).json({ error: 'world_name required' });
+    if (world_name.length > 255) return res.status(400).json({ error: 'world_name too long' });
+
+    const { rows: blocks } = await pool.query(
+      `SELECT x, y, z, block_type FROM blocks WHERE block_type <> 0`
+    );
+    const block_snapshot = blocks.map((b) => ({ x: b.x, y: b.y, z: b.z, t: b.block_type }));
+    const blocks_count = blocks.length;
+
+    const { rows } = await pool.query(
+      `INSERT INTO user_worlds (owner_id, owner_username, world_name, block_snapshot, blocks_count, updated_at)
+       VALUES ($1, $2, $3, $4, $5, NOW())
+       ON CONFLICT (owner_id, world_name) DO UPDATE SET
+         block_snapshot = EXCLUDED.block_snapshot,
+         blocks_count = EXCLUDED.blocks_count,
+         updated_at = NOW()
+       RETURNING id, world_name`,
+      [req.user.id, req.user.username, world_name, JSON.stringify(block_snapshot), blocks_count]
+    );
+    res.json({ ok: true, id: Number(rows[0].id), world_name: rows[0].world_name });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- Custom Worlds: get blocks from a world (world_id = 0 is shared world) ----
+app.get('/api/worlds/:id/blocks', async (req, res) => {
+  try {
+    const world_id = Number(req.params.id);
+    let blocks;
+
+    if (world_id === 0) {
+      const { rows } = await pool.query(
+        `SELECT x, y, z, block_type FROM blocks WHERE block_type <> 0`
+      );
+      blocks = rows;
+    } else {
+      const { rows } = await pool.query(
+        `SELECT block_snapshot FROM user_worlds WHERE id = $1`,
+        [world_id]
+      );
+      if (!rows.length) return res.status(404).json({ error: 'World not found' });
+      blocks = rows[0].block_snapshot || [];
+    }
+
+    res.json({
+      blocks: blocks.map((b) => ({ x: b.x, y: b.y, z: b.z, t: b.block_type || b.t })),
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- Custom Worlds: place/break a block in a custom world ----
+app.post('/api/worlds/:id/blocks', async (req, res) => {
+  try {
+    const world_id = Number(req.params.id);
+    const x = Number(req.body.x);
+    const y = Number(req.body.y);
+    const z = Number(req.body.z);
+    const t = Number(req.body.block_type);
+
+    const intIn = (v, lo, hi) => Number.isInteger(v) && v >= lo && v <= hi;
+    if (!intIn(x, 0, DIMS.w - 1) || !intIn(z, 0, DIMS.d - 1)) {
+      return res.status(400).json({ error: 'coordinate out of bounds' });
+    }
+    if (!intIn(y, 1, DIMS.h - 1)) {
+      return res.status(400).json({ error: 'y out of buildable range' });
+    }
+    if (t !== 0 && !VALID_TYPES.has(t)) {
+      return res.status(400).json({ error: 'unknown block_type' });
+    }
+
+    if (world_id === 0) {
+      return res.status(400).json({ error: 'Cannot modify shared world via custom endpoint' });
+    }
+
+    const { rows: worldRows } = await pool.query(
+      `SELECT block_snapshot FROM user_worlds WHERE id = $1 FOR UPDATE`,
+      [world_id]
+    );
+    if (!worldRows.length) return res.status(404).json({ error: 'World not found' });
+
+    let blocks = worldRows[0].block_snapshot || [];
+    const cellKey = `${x},${y},${z}`;
+    const existingIndex = blocks.findIndex((b) => `${b.x},${b.y},${b.z}` === cellKey);
+
+    if (t === 0) {
+      if (existingIndex >= 0) blocks.splice(existingIndex, 1);
+    } else {
+      if (existingIndex >= 0) {
+        blocks[existingIndex] = { x, y, z, t };
+      } else {
+        blocks.push({ x, y, z, t });
+      }
+    }
+
+    const blocks_count = blocks.length;
+    await pool.query(
+      `UPDATE user_worlds SET block_snapshot = $1, blocks_count = $2, updated_at = NOW() WHERE id = $3`,
+      [JSON.stringify(blocks), blocks_count, world_id]
+    );
+
+    // Scoring still applies globally
+    let earned = 0, combo_multiplier = 1, rainbow_multiplier = 1, combo_tier = 1;
+    let newly_earned_badges = [];
+    let newly_unlocked_types = [];
+    if (t !== 0) {
+      const base = BLOCK_POINTS[t] || 1;
+
+      const comboRes = await pool.query(
+        `SELECT COUNT(*)::int AS recent
+         FROM blocks
+         WHERE updated_by_user_id = $1
+           AND block_type <> 0
+           AND updated_at > NOW() - INTERVAL '10 seconds'`,
+        [req.user.id]
+      );
+      const recent = comboRes.rows[0].recent;
+      if (recent >= 10) { combo_multiplier = 5; combo_tier = 4; }
+      else if (recent >= 6) { combo_multiplier = 3; combo_tier = 3; }
+      else if (recent >= 3) { combo_multiplier = 2; combo_tier = 2; }
+
+      const rainbowRes = await pool.query(
+        `SELECT 1 FROM blocks
+         WHERE updated_by_user_id = $1
+           AND block_type = 17
+           AND updated_at > NOW() - INTERVAL '30 seconds'
+         LIMIT 1`,
+        [req.user.id]
+      );
+      if (rainbowRes.rows.length > 0) rainbow_multiplier = 2;
+
+      earned = Math.round(base * combo_multiplier * rainbow_multiplier);
+
+      const lbRes = await pool.query(
+        `INSERT INTO leaderboard (user_id, username, total_score, blocks_placed, best_combo, updated_at)
+         VALUES ($1, $2, $3, 1, $4, NOW())
+         ON CONFLICT (user_id) DO UPDATE SET
+           total_score   = leaderboard.total_score + EXCLUDED.total_score,
+           blocks_placed = leaderboard.blocks_placed + 1,
+           best_combo    = GREATEST(leaderboard.best_combo, EXCLUDED.best_combo),
+           username      = EXCLUDED.username,
+           updated_at    = NOW()
+         RETURNING total_score, blocks_placed, best_combo`,
+        [req.user.id, req.user.username, earned, combo_tier]
+      );
+
+      const lb = {
+        total_score:   Number(lbRes.rows[0].total_score),
+        blocks_placed: Number(lbRes.rows[0].blocks_placed),
+        best_combo:    lbRes.rows[0].best_combo,
+      };
+
+      const earnedRes = await pool.query(
+        `SELECT badge_id FROM player_badges WHERE user_id = $1`,
+        [req.user.id]
+      );
+      const earnedIds = new Set(earnedRes.rows.map((r) => r.badge_id));
+
+      const typeCountRes = await pool.query(
+        `SELECT COUNT(*)::int AS type_count FROM player_type_usage WHERE user_id = $1`,
+        [req.user.id]
+      );
+      const typeCount = typeCountRes.rows[0].type_count;
+
+      const newBadges = checkBadges({ lb, justPlacedType: t, typeCount }, earnedIds);
+      for (const badge of newBadges) {
+        await pool.query(
+          `INSERT INTO player_badges (user_id, badge_id, earned_at) VALUES ($1, $2, NOW()) ON CONFLICT DO NOTHING`,
+          [req.user.id, badge.id]
+        );
+      }
+      newly_earned_badges = newBadges.map((b) => ({ id: b.id, name: b.name, icon: b.icon, flavour: b.flavour }));
+
+      for (const up of PALETTE.filter((p) => p.unlockAt)) {
+        if (lb.blocks_placed === up.unlockAt) {
+          newly_unlocked_types.push({ id: up.id, name: up.name, icon: up.unlockIcon || '✨', description: 'A translucent gem-like block, earned through dedication.' });
+        }
+      }
+
+      await pool.query(
+        `INSERT INTO player_type_usage (user_id, block_type) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+        [req.user.id, t]
+      );
+    }
+
+    res.json({ ok: true, seq: 0, earned, combo_multiplier, rainbow_multiplier, newly_earned_badges, newly_unlocked_types });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- Custom Worlds: rename or update a world ----
+app.put('/api/worlds/:id', async (req, res) => {
+  try {
+    const world_id = Number(req.params.id);
+    const world_name = typeof req.body.world_name === 'string' ? req.body.world_name.trim() : null;
+
+    const { rows: ownerRows } = await pool.query(
+      `SELECT owner_id FROM user_worlds WHERE id = $1`,
+      [world_id]
+    );
+    if (!ownerRows.length) return res.status(404).json({ error: 'World not found' });
+    if (ownerRows[0].owner_id !== req.user.id) return res.status(403).json({ error: 'Not authorized' });
+
+    if (world_name) {
+      if (world_name.length > 255) return res.status(400).json({ error: 'world_name too long' });
+      await pool.query(
+        `UPDATE user_worlds SET world_name = $1, updated_at = NOW() WHERE id = $2`,
+        [world_name, world_id]
+      );
+    }
+
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- Custom Worlds: delete a world ----
+app.delete('/api/worlds/:id', async (req, res) => {
+  try {
+    const world_id = Number(req.params.id);
+
+    const { rows } = await pool.query(
+      `DELETE FROM user_worlds WHERE id = $1 AND owner_id = $2 RETURNING id`,
+      [world_id, req.user.id]
+    );
+    if (!rows.length) return res.status(404).json({ error: 'World not found or not authorized' });
+
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 // ---- Block attribution: who placed the block at (x, y, z) and when. ----
 // Returns { username, updated_at } for a placed block, or null for empty /
@@ -1459,6 +1740,49 @@ async function seedStaging() {
         ('meteor',     24,   24,   '{"radius":4,"oy":10}',                22, NOW() - INTERVAL '2 minutes')
     `);
   }
+
+  // Seed custom worlds so staging shows world list
+  const starterHouseBlocks = [
+    { x: 14, y: 1, z: 14, t: 3 }, { x: 14, y: 1, z: 15, t: 3 }, { x: 14, y: 1, z: 16, t: 3 }, { x: 14, y: 1, z: 17, t: 3 }, { x: 14, y: 1, z: 18, t: 3 },
+    { x: 15, y: 1, z: 14, t: 3 }, { x: 15, y: 1, z: 18, t: 3 },
+    { x: 16, y: 1, z: 14, t: 3 }, { x: 16, y: 1, z: 18, t: 3 },
+    { x: 17, y: 1, z: 14, t: 3 }, { x: 17, y: 1, z: 18, t: 3 },
+    { x: 18, y: 1, z: 14, t: 3 }, { x: 18, y: 1, z: 15, t: 3 }, { x: 18, y: 1, z: 16, t: 3 }, { x: 18, y: 1, z: 17, t: 3 }, { x: 18, y: 1, z: 18, t: 3 },
+    { x: 14, y: 2, z: 14, t: 3 }, { x: 14, y: 2, z: 15, t: 3 }, { x: 14, y: 2, z: 17, t: 3 }, { x: 14, y: 2, z: 18, t: 3 },
+    { x: 15, y: 2, z: 14, t: 3 }, { x: 15, y: 2, z: 18, t: 3 },
+    { x: 16, y: 2, z: 14, t: 3 }, { x: 16, y: 2, z: 18, t: 3 },
+    { x: 17, y: 2, z: 14, t: 3 }, { x: 17, y: 2, z: 18, t: 3 },
+    { x: 18, y: 2, z: 14, t: 3 }, { x: 18, y: 2, z: 15, t: 3 }, { x: 18, y: 2, z: 17, t: 3 }, { x: 18, y: 2, z: 18, t: 3 },
+    { x: 14, y: 3, z: 14, t: 3 }, { x: 14, y: 3, z: 15, t: 3 }, { x: 14, y: 3, z: 17, t: 3 }, { x: 14, y: 3, z: 18, t: 3 },
+    { x: 15, y: 3, z: 14, t: 3 }, { x: 15, y: 3, z: 18, t: 3 },
+    { x: 16, y: 3, z: 14, t: 3 }, { x: 16, y: 3, z: 18, t: 3 },
+    { x: 17, y: 3, z: 14, t: 3 }, { x: 17, y: 3, z: 18, t: 3 },
+    { x: 18, y: 3, z: 14, t: 3 }, { x: 18, y: 3, z: 15, t: 3 }, { x: 18, y: 3, z: 17, t: 3 }, { x: 18, y: 3, z: 18, t: 3 },
+  ];
+
+  const colorfulGardenBlocks = [
+    { x: 10, y: 1, z: 10, t: 7 }, { x: 11, y: 1, z: 10, t: 9 }, { x: 12, y: 1, z: 10, t: 10 },
+    { x: 10, y: 1, z: 11, t: 11 }, { x: 11, y: 1, z: 11, t: 12 }, { x: 12, y: 1, z: 11, t: 13 },
+    { x: 10, y: 1, z: 12, t: 2 }, { x: 11, y: 1, z: 12, t: 1 }, { x: 12, y: 1, z: 12, t: 6 },
+    { x: 10, y: 1, z: 13, t: 14 }, { x: 11, y: 1, z: 13, t: 15 }, { x: 12, y: 1, z: 13, t: 16 },
+    { x: 10, y: 1, z: 14, t: 17 }, { x: 11, y: 1, z: 14, t: 18 }, { x: 12, y: 1, z: 14, t: 8 },
+  ];
+
+  const { rows: worldCount } = await pool.query(`SELECT COUNT(*) AS n FROM user_worlds`);
+  if (Number(worldCount[0].n) === 0) {
+    await pool.query(
+      `INSERT INTO user_worlds (owner_id, owner_username, world_name, block_snapshot, blocks_count, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
+       ON CONFLICT DO NOTHING`,
+      [-1, 'staging-demo-alice', 'Starter house', JSON.stringify(starterHouseBlocks), starterHouseBlocks.length]
+    );
+    await pool.query(
+      `INSERT INTO user_worlds (owner_id, owner_username, world_name, block_snapshot, blocks_count, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
+       ON CONFLICT DO NOTHING`,
+      [-2, 'staging-demo-bob', 'Colorful garden', JSON.stringify(colorfulGardenBlocks), colorfulGardenBlocks.length]
+    );
+  }
 }
 
 // Seed the leaderboard with 6 fake builders so staging shows a populated panel.
@@ -1863,6 +2187,10 @@ async function start() {
     ALTER TABLE user_presence
       ADD COLUMN IF NOT EXISTS mode VARCHAR(20) NOT NULL DEFAULT 'classic'
   `);
+  await pool.query(`
+    ALTER TABLE user_presence
+      ADD COLUMN IF NOT EXISTS current_world_id INTEGER
+  `);
 
   // Daily challenge progress: one row per (date, user). Public table —
   // placement counts and usernames are not sensitive.
@@ -1985,6 +2313,27 @@ async function start() {
       fire_at   TIMESTAMPTZ  NOT NULL,
       next_type VARCHAR(20)  NOT NULL
     )
+  `);
+
+  // User custom worlds: snapshots of blocks that players can save and load.
+  // Public table — it holds only usernames and block configurations.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS user_worlds (
+      id SERIAL PRIMARY KEY,
+      owner_id INTEGER NOT NULL,
+      owner_username VARCHAR(255) NOT NULL,
+      world_name VARCHAR(255) NOT NULL,
+      description TEXT,
+      block_snapshot JSONB NOT NULL DEFAULT '[]',
+      blocks_count INTEGER NOT NULL DEFAULT 0,
+      is_public BOOLEAN DEFAULT false,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW(),
+      UNIQUE (owner_id, world_name)
+    )
+  `);
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS user_worlds_owner_idx ON user_worlds (owner_id, updated_at DESC)
   `);
 
   // Prime the schedule on first boot; subsequent boots leave the existing row intact.

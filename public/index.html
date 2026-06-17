@@ -526,6 +526,7 @@
       <button data-menu-item="friends" class="w-full text-left px-4 py-2.5 text-sm text-zinc-200 hover:bg-zinc-800/50 flex items-center gap-3 transition">👥 Friends</button>
       <button data-menu-item="coach" class="w-full text-left px-4 py-2.5 text-sm text-zinc-200 hover:bg-zinc-800/50 flex items-center gap-3 transition">💡 Coach</button>
       <button data-menu-item="badges" class="w-full text-left px-4 py-2.5 text-sm text-zinc-200 hover:bg-zinc-800/50 flex items-center gap-3 transition">🏅 Badges</button>
+      <button data-menu-item="worlds" class="w-full text-left px-4 py-2.5 text-sm text-zinc-200 hover:bg-zinc-800/50 flex items-center gap-3 transition">🌍 Worlds</button>
       <button data-menu-item="settings" class="w-full text-left px-4 py-2.5 text-sm text-zinc-200 hover:bg-zinc-800/50 flex items-center gap-3 transition">⚙️ Settings</button>
       <div class="border-t border-zinc-700/60"></div>
       <button data-menu-item="mute" class="w-full text-left px-4 py-2.5 text-sm text-zinc-200 hover:bg-zinc-800/50 flex items-center gap-3 transition">🔊 Mute</button>
@@ -549,6 +550,10 @@
   <!-- AI Coach toggle: below the friends button. Hidden in spectate mode. -->
   <button id="coach-btn" title="Ask AI Coach" aria-label="Ask AI Coach"
           class="fixed top-[8.5rem] right-3 z-30 w-12 h-12 sm:w-9 sm:h-9 rounded-full bg-black/50 hover:bg-black/70 text-zinc-100 text-lg leading-none flex items-center justify-center transition hover:scale-110 active:scale-95 cursor-pointer">💡</button>
+
+  <!-- Worlds toggle: below the coach button. -->
+  <button id="worlds-btn" title="Worlds" aria-label="Toggle worlds"
+          class="fixed top-[10.75rem] right-3 z-30 w-12 h-12 sm:w-9 sm:h-9 rounded-full bg-black/50 hover:bg-black/70 text-zinc-100 text-lg leading-none flex items-center justify-center transition hover:scale-110 active:scale-95 cursor-pointer">🌍</button>
 
   <!-- Build/version stamp: always visible, dim, so the running build can be
        confirmed at a glance. Bump BUILD_VERSION (below) on every change.
@@ -613,6 +618,18 @@
         <div class="text-xs text-zinc-400 mt-1">Also auto-adjusts based on your recent runs.</div>
       </div>
     </div>
+  </div>
+
+  <!-- World Slots panel: lists saved custom worlds. Hidden by default. -->
+  <div id="worlds-panel" class="hidden fixed top-16 right-3 z-30 w-full sm:w-80 max-w-[90vw] rounded-xl bg-black/70 backdrop-blur px-3 py-4 sm:p-4 text-sm text-zinc-200 shadow-xl">
+    <div class="flex items-center justify-between mb-3">
+      <h2 class="font-bold text-zinc-100">Worlds</h2>
+      <button id="worlds-close" aria-label="Close worlds" class="text-zinc-400 hover:text-zinc-100 cursor-pointer leading-none transition-colors">✕</button>
+    </div>
+    <div class="mb-3">
+      <button id="save-world-btn" class="w-full px-3 py-2 rounded bg-violet-600 hover:bg-violet-500 active:bg-violet-700 text-white text-sm font-semibold transition">Save Current World</button>
+    </div>
+    <div id="worlds-list" class="space-y-2 sm:space-y-1.5 max-h-[calc(100vh-300px)] sm:max-h-96 overflow-y-auto pr-0.5"></div>
   </div>
 
   <!-- Full-screen flash overlay for disaster visual effects. -->
@@ -1230,6 +1247,9 @@
     let pollHandle = null;         // classic-mode server poll interval
     let pendingTaInit = false;     // true while waiting for play-entry to fire initTimeAttack
     let sessionShownDailyReward = false; // track if daily reward modal was shown this session
+
+    // ---- Custom worlds state ----
+    let currentWorldId = 0;        // 0 = shared world, >0 = custom world ID
 
     // ---- Endless Mode state ----
     const endlessBlocks = new Map();     // infinite grid: key = 'x,y,z', value = block_type
@@ -2143,7 +2163,8 @@
         if (sessionBlocksPlaced % 25 === 0) fetchCoachTip('block_milestone');
       }
       try {
-        const res = await fetch('/api/block', {
+        const endpoint = currentWorldId > 0 ? `/api/worlds/${currentWorldId}/blocks` : '/api/block';
+        const res = await fetch(endpoint, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', ...headers },
           body: JSON.stringify({ x, y, z, block_type: t }),
@@ -3930,6 +3951,166 @@
       }
     });
 
+    // ---- Worlds panel UI ----
+    const worldsBtnEl = document.getElementById('worlds-btn');
+    const worldsPanelEl = document.getElementById('worlds-panel');
+    const worldsListEl = document.getElementById('worlds-list');
+    const saveWorldBtnEl = document.getElementById('save-world-btn');
+    let worldsOpen = false;
+
+    async function loadWorldsList() {
+      try {
+        const res = await fetch('/api/worlds', { headers: { 'x-usernode-token': token } });
+        if (!res.ok) return;
+        const data = await res.json();
+        renderWorldsList(data.worlds || []);
+      } catch (e) {
+        console.error('load worlds list failed', e);
+      }
+    }
+
+    function renderWorldsList(worlds) {
+      worldsListEl.innerHTML = '';
+      if (worlds.length === 0) {
+        worldsListEl.innerHTML = '<div class="text-xs text-zinc-400 text-center py-3">No saved worlds yet</div>';
+        return;
+      }
+      worlds.forEach((w) => {
+        const el = document.createElement('div');
+        el.className = 'p-2 rounded bg-zinc-800/50 text-xs space-y-1';
+        el.innerHTML = `
+          <div class="flex justify-between items-start gap-2">
+            <div>
+              <div class="font-semibold text-zinc-100">${w.world_name}</div>
+              <div class="text-zinc-400">by ${w.owner_username}</div>
+              <div class="text-zinc-500">${w.blocks_count} blocks</div>
+            </div>
+          </div>
+          <div class="flex gap-1">
+            <button class="load-world-btn flex-1 px-2 py-1 rounded bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold transition" data-id="${w.id}">Load</button>
+            <button class="rename-world-btn flex-1 px-2 py-1 rounded bg-zinc-700 hover:bg-zinc-600 text-zinc-200 text-xs font-semibold transition" data-id="${w.id}">Rename</button>
+            <button class="delete-world-btn flex-1 px-2 py-1 rounded bg-red-900 hover:bg-red-800 text-zinc-200 text-xs font-semibold transition" data-id="${w.id}">Delete</button>
+          </div>
+        `;
+        worldsListEl.appendChild(el);
+      });
+      document.querySelectorAll('.load-world-btn').forEach((btn) => {
+        btn.addEventListener('click', (e) => {
+          const id = Number(e.target.dataset.id);
+          loadWorld(id);
+        });
+      });
+      document.querySelectorAll('.delete-world-btn').forEach((btn) => {
+        btn.addEventListener('click', (e) => {
+          const id = Number(e.target.dataset.id);
+          if (confirm('Delete this world?')) deleteWorld(id);
+        });
+      });
+      document.querySelectorAll('.rename-world-btn').forEach((btn) => {
+        btn.addEventListener('click', (e) => {
+          const id = Number(e.target.dataset.id);
+          renameWorld(id);
+        });
+      });
+    }
+
+    async function loadWorld(id) {
+      if (!token) return;
+      try {
+        const res = await fetch(`/api/worlds/${id}/blocks`, { headers: { 'x-usernode-token': token } });
+        if (!res.ok) { alert('Failed to load world'); return; }
+        const data = await res.json();
+        blocks.clear();
+        (data.blocks || []).forEach((b) => {
+          blocks.set(`${b.x},${b.y},${b.z}`, b.t);
+        });
+        currentWorldId = id;
+        rebuildBlockMeshes();
+        worldsPanelEl.classList.add('hidden');
+        worldsOpen = false;
+      } catch (e) {
+        console.error('load world failed', e);
+        alert('Failed to load world');
+      }
+    }
+
+    async function deleteWorld(id) {
+      if (!token) return;
+      try {
+        const res = await fetch(`/api/worlds/${id}`, { method: 'DELETE', headers: { 'x-usernode-token': token } });
+        if (res.ok) {
+          loadWorldsList();
+        }
+      } catch (e) {
+        console.error('delete world failed', e);
+      }
+    }
+
+    async function renameWorld(id) {
+      const newName = prompt('New world name:');
+      if (!newName || !token) return;
+      try {
+        const res = await fetch(`/api/worlds/${id}`, {
+          method: 'PUT',
+          headers: { 'content-type': 'application/json', 'x-usernode-token': token },
+          body: JSON.stringify({ world_name: newName })
+        });
+        if (res.ok) {
+          loadWorldsList();
+        }
+      } catch (e) {
+        console.error('rename world failed', e);
+      }
+    }
+
+    worldsBtnEl.addEventListener('click', () => {
+      worldsOpen = !worldsOpen;
+      if (worldsOpen) {
+        loadWorldsList();
+        worldsPanelEl.classList.remove('hidden');
+      } else {
+        worldsPanelEl.classList.add('hidden');
+      }
+    });
+
+    document.getElementById('worlds-close').addEventListener('click', () => {
+      worldsOpen = false;
+      worldsPanelEl.classList.add('hidden');
+    });
+
+    saveWorldBtnEl.addEventListener('click', async () => {
+      if (!token) return;
+      const name = prompt('World name:');
+      if (!name) return;
+      try {
+        const res = await fetch('/api/worlds', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', 'x-usernode-token': token },
+          body: JSON.stringify({ world_name: name })
+        });
+        if (res.ok) {
+          alert('World saved!');
+          loadWorldsList();
+        } else {
+          alert('Failed to save world');
+        }
+      } catch (e) {
+        console.error('save world failed', e);
+        alert('Failed to save world');
+      }
+    });
+
+    // Handle menu panel worlds item
+    document.querySelectorAll('[data-menu-item]').forEach((btn) => {
+      if (btn.dataset.menuItem === 'worlds') {
+        btn.addEventListener('click', () => {
+          document.getElementById('menu-btn').classList.toggle('hidden');
+          document.getElementById('menu-panel').classList.toggle('open');
+          worldsBtnEl.click();
+        });
+      }
+    });
+
     // ---- Palette UI ----
     function selectType(id) {
       const _p = PALETTE.find((q) => q.id === id);
@@ -4143,7 +4324,7 @@
         const res = await fetch('/api/presence/ping', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', ...headers },
-          body: JSON.stringify({ mode: presenceMode }),
+          body: JSON.stringify({ mode: presenceMode, current_world_id: currentWorldId || null }),
         });
         if (!res.ok) return;
         const data = await res.json();
@@ -4240,9 +4421,10 @@
     async function poll() {
       if (document.hidden) return;
 
-      // World changes
+      // World changes (shared or custom world)
       try {
-        const res = await fetch('/api/world/changes?since=' + cursor + '&events_since=' + eventsCursor, { headers });
+        const worldParam = currentWorldId > 0 ? '&world_id=' + currentWorldId : '';
+        const res = await fetch('/api/world/changes?since=' + cursor + '&events_since=' + eventsCursor + worldParam, { headers });
         if (res.ok) {
           const data = await res.json();
           const { changes, cursor: c, events, eventsCursor: ec } = data;
