@@ -1607,6 +1607,7 @@
     let lastTipAt = 0;               // ms timestamp of last tip shown
     const COACH_COOLDOWN_MS = 30_000;
     let coachGrantRequired = false;  // true if LLM proxy returned grant_required
+    let coachSystemBudgetExhausted = false;  // true if system token budget is exhausted
     let coachFetching = false;       // prevents concurrent tip fetches
     let coachDismissTimer = null;
     let sessionBlocksPlaced = 0;     // placements this session, for milestone trigger
@@ -5155,9 +5156,10 @@
 
     async function fetchCoachTip(trigger, badgeName, _retried) {
       if (coachFetching) return;
-      // Auto-tips: skip if grant hasn't been given yet, or if not actively playing.
+      // Auto-tips: skip if grant hasn't been given yet, system budget exhausted, or if not actively playing.
       if (trigger !== 'player_asked') {
         if (coachGrantRequired) return;
+        if (coachSystemBudgetExhausted) return;
         if (!playing) return;
         if (Date.now() - lastTipAt < COACH_COOLDOWN_MS) return;
       } else {
@@ -5198,6 +5200,16 @@
           }
           return;
         }
+
+        // Handle budget exhaustion errors (system or user budget)
+        if ((res.status === 429 || res.status === 500) && data.code) {
+          if (data.code === 'budget_exceeded' || data.code === 'system_budget_exceeded') {
+            coachSystemBudgetExhausted = true;
+          }
+          if (trigger === 'player_asked') showCoachUnavailable();
+          return;
+        }
+
         if (!res.ok || !data.tip) {
           if (trigger === 'player_asked') showCoachUnavailable();
           return;

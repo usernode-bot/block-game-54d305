@@ -2073,13 +2073,29 @@ app.post('/api/coach/tip', async (req, res) => {
       }),
     });
 
-    if (resp.status === 403) {
-      const body = await resp.json().catch(() => ({}));
-      if (body.code === 'grant_required') return res.status(403).json({ error: 'grant_required' });
-    }
-    if (resp.status === 429) return res.status(429).json({ error: 'unavailable' });
-    if (!resp.ok) return res.status(500).json({ error: 'unavailable' });
+    // Handle error responses. Parse body once to check error code.
+    if (!resp.ok) {
+      const body = resp.status === 403 || resp.status === 429 ? await resp.json().catch(() => ({})) : {};
 
+      if (resp.status === 403) {
+        // Handle 403 errors based on error code
+        if (body.code === 'grant_required') {
+          return res.status(403).json({ error: 'grant_required' });
+        }
+        // Other 403 errors (budget exceeded, etc.) are treated as unavailable
+        return res.status(500).json({ error: 'unavailable', code: body.code });
+      }
+
+      if (resp.status === 429) {
+        // 429 errors: pass through the error code if available
+        return res.status(429).json({ error: 'unavailable', code: body.code });
+      }
+
+      // Other non-ok responses
+      return res.status(500).json({ error: 'unavailable' });
+    }
+
+    // Success case: parse the response and extract the tip
     const llmData = await resp.json();
     const tip = llmData?.content?.[0]?.text?.trim() || '';
     if (!tip) return res.status(500).json({ error: 'unavailable' });
