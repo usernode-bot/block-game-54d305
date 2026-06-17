@@ -619,10 +619,14 @@
   <button id="worlds-btn" title="Worlds" aria-label="Toggle worlds"
           class="fixed top-[10.75rem] right-3 z-30 w-12 h-12 sm:w-9 sm:h-9 rounded-full bg-black/50 hover:bg-black/70 text-zinc-100 text-lg leading-none flex items-center justify-center transition hover:scale-110 active:scale-95 cursor-pointer">🌍</button>
 
+  <!-- Daily Theme toggle: below the coach button. Hidden in Time Attack mode. -->
+  <button id="theme-btn" title="Daily Build Theme" aria-label="Daily Build Theme"
+          class="fixed top-[10.5rem] right-3 z-30 w-9 h-9 rounded-full bg-black/50 hover:bg-black/70 text-zinc-100 text-lg leading-none flex items-center justify-center transition-colors cursor-pointer">🌟</button>
+
   <!-- Build/version stamp: always visible, dim, so the running build can be
        confirmed at a glance. Bump BUILD_VERSION (below) on every change.
-       Shifted down to make room for the leaderboard, friends, and coach buttons above. -->
-  <div id="build-stamp" class="pointer-events-none fixed top-[10.5rem] right-3 z-20 text-[11px] text-zinc-300/70 bg-black/40 rounded px-2 py-1 font-mono"></div>
+       Shifted down to make room for the leaderboard, friends, coach, and theme buttons above. -->
+  <div id="build-stamp" class="pointer-events-none fixed top-[12.75rem] right-3 z-20 text-[11px] text-zinc-300/70 bg-black/40 rounded px-2 py-1 font-mono"></div>
 
   <!-- Mini-map: top-down 128×128 px overhead view of the 32×32 world.
        Hidden until a play mode is chosen; shown/hidden via JS. -->
@@ -630,8 +634,8 @@
           class="hidden fixed z-20 pointer-events-none"
           style="top: 11.5rem; right: 0.75rem; border-radius: 6px; border: 1px solid rgba(255,255,255,0.15); opacity: 0.9"></canvas>
 
-  <!-- AI Coach bubble: appears on the left side with a tip. Hidden by default. -->
-  <div id="coach-bubble" class="hidden fixed left-4 top-1/2 -translate-y-1/2 z-20 max-w-[240px]"
+  <!-- AI Coach bubble: persistent floating bubble in bottom-left corner. Hidden by default. -->
+  <div id="coach-bubble" class="hidden fixed bottom-4 left-4 z-20 max-w-[240px]"
        style="transition: opacity 0.3s; opacity: 0">
     <div class="bg-black/75 backdrop-blur rounded-xl px-4 py-3 text-sm text-zinc-100 shadow-xl">
       <div class="flex items-start gap-2">
@@ -733,6 +737,13 @@
        to clear the on-screen action cluster). Hidden until init() loads data. -->
   <div id="challenge-hud" class="hidden pointer-events-none fixed right-3 z-20 w-36 rounded-lg bg-black/55 px-2 py-1.5 text-xs text-white/90"></div>
 
+  <!-- Blocks Placed HUD: personal lifetime stat, bottom-left corner.
+       Bottom position set by JS (raised on touch to clear movement pad). -->
+  <div id="blocks-placed-hud" class="hidden pointer-events-none fixed left-3 z-20 rounded-lg bg-black/55 px-2 py-1.5 text-white/90">
+    <div class="text-[9px] font-bold uppercase tracking-widest text-white/60 leading-tight">Blocks Placed</div>
+    <div id="blocks-placed-count" class="text-lg font-mono font-bold leading-tight tabular-nums">0</div>
+  </div>
+
   <!-- Player HP HUD: shown in Classic mode only. -->
   <div id="hp-hud" class="hidden pointer-events-none fixed bottom-24 left-4 z-20 rounded-lg bg-black/55 px-2 py-1.5 text-xs text-white/90 font-semibold whitespace-nowrap">&#10084; <span id="hp-value">10</span></div>
 
@@ -763,6 +774,28 @@
       <li><span class="font-semibold">Esc</span> — close panel / release / menu</li>
       <li><span class="font-semibold">Power-ups</span> — collect glowing cubes for Speed, Jump, or Rapid Place (hold F/Add)</li>
     </ul>
+  </div>
+
+  <!-- Tutorial overlay: shown once to first-time Classic players.
+       Spotlight + tooltip card walk through 5 core mechanics.
+       Dismissed state stored in localStorage under blockgame-tutorial-seen. -->
+  <div id="tutorial-overlay" class="hidden fixed inset-0 z-[60]" role="dialog" aria-modal="true" aria-label="Game tutorial">
+    <!-- Full-screen backdrop (used when there is no spotlight target) -->
+    <div id="tutorial-backdrop" class="absolute inset-0 bg-black/55 pointer-events-auto" style="transition: opacity 0.2s;"></div>
+    <!-- Spotlight cutout: box-shadow dims everything outside this element -->
+    <div id="tutorial-spotlight" class="absolute rounded-2xl pointer-events-none" style="box-shadow: 0 0 0 9999px rgba(0,0,0,0.62); transition: left 0.25s ease, top 0.25s ease, width 0.25s ease, height 0.25s ease; opacity: 0;"></div>
+    <!-- Tooltip card -->
+    <div id="tutorial-card" class="fixed pointer-events-auto bg-black/85 backdrop-blur-sm rounded-2xl px-5 py-4 shadow-2xl" style="width: 300px; z-index: 61; transition: left 0.25s ease, top 0.25s ease;">
+      <span id="tutorial-counter" class="block text-[11px] font-semibold text-zinc-400 uppercase tracking-widest mb-2"></span>
+      <p id="tutorial-copy" class="text-sm leading-relaxed text-zinc-100 mb-4"></p>
+      <div class="flex items-center justify-between gap-2">
+        <button id="tutorial-skip" class="text-xs text-zinc-500 hover:text-zinc-300 cursor-pointer transition-colors shrink-0">Skip tutorial</button>
+        <div class="flex gap-2 shrink-0">
+          <button id="tutorial-back" class="hidden px-3 py-1.5 rounded-lg bg-zinc-700 hover:bg-zinc-600 text-xs font-semibold text-zinc-200 transition-colors cursor-pointer">Back</button>
+          <button id="tutorial-next" class="px-4 py-1.5 rounded-lg bg-violet-600 hover:bg-violet-500 text-xs font-semibold text-white transition-colors cursor-pointer">Next →</button>
+        </div>
+      </div>
+    </div>
   </div>
 
   <!-- Leaderboard overlay: top 10 builders. Hidden by default; toggled by
@@ -797,6 +830,16 @@
       <button id="friends-add-btn" class="shrink-0 px-3 py-1.5 bg-violet-600 hover:bg-violet-500 active:bg-violet-700 text-white text-xs font-semibold rounded cursor-pointer transition hover:scale-105 active:scale-95" id="friends-add-btn-text">Add</button>
     </div>
     <div id="friends-add-status" class="mt-1 text-xs text-center min-h-[1.2em]"></div>
+  </div>
+
+  <!-- Daily Build Theme panel: nominations list, voting, and nominate form.
+       Hidden by default; toggled by the 🌟 button. Hidden in Time Attack mode. -->
+  <div id="theme-panel" class="hidden fixed top-28 right-3 z-30 w-72 max-w-[90vw] rounded-xl bg-black/70 backdrop-blur p-4 text-sm text-zinc-200 shadow-xl">
+    <div class="flex items-center justify-between mb-3">
+      <h2 class="font-bold text-zinc-100">Daily Theme</h2>
+      <button id="theme-close" aria-label="Close theme panel" class="text-zinc-400 hover:text-zinc-100 cursor-pointer leading-none">✕</button>
+    </div>
+    <div id="theme-content" class="text-zinc-400 text-center py-2 text-xs">Loading…</div>
   </div>
 
   <!-- Player profile panel: displays stats, badges, and ranks for any clicked leaderboard player -->
@@ -1008,7 +1051,7 @@
 
     // Build identifier — bump this (to the deploying commit short SHA) on every
     // change so the top-right stamp confirms exactly which code is running.
-    const BUILD_VERSION = 'power-ups+hold-queue+achievements-badges+chat+daily-challenge+leaderboard+online-presence+block-attribution+audio-sfx+next-piece-preview+spectator-mode+weekly-tournament+friends+weather-tod+day-night-cycle+minimap+ai-coach+natural-disasters+undo-redo-history+pastel-chrome+mobs';
+    const BUILD_VERSION = 'power-ups+hold-queue+achievements-badges+chat+daily-challenge+leaderboard+online-presence+block-attribution+audio-sfx+next-piece-preview+spectator-mode+weekly-tournament+friends+weather-tod+blocks-placed-hud+day-night-cycle+minimap+ai-coach+daily-theme-voting+natural-disasters+undo-redo-history+pastel-chrome+mobs';
 
     // Badge definitions — mirror of the server-side BADGES array, extended with
     // a `hint` field shown in the panel for unearned badges.
@@ -1028,6 +1071,7 @@
       { id: 'streak_7',        name: 'Week Warrior',    icon: '🗓️', flavour: 'A full week of building!',       hint: 'Log in 7 days in a row' },
       { id: 'streak_14',       name: 'Fortnight Pro',   icon: '🏆', flavour: 'Two weeks of daily play!',       hint: 'Log in 14 days in a row' },
       { id: 'streak_30',       name: 'Monthly Master',  icon: '👑', flavour: 'A full month on the block!',     hint: 'Log in 30 days in a row' },
+      { id: 'theme_winner',   name: 'Theme Champion',  icon: '🥇', flavour: 'First place in the daily build theme vote!', hint: 'Win the daily build theme vote' },
     ];
 
     // Touch capability: drives (a) the on-screen control overlay, (b) skipping
@@ -1640,6 +1684,8 @@
     // the on-screen fly/build action cluster that lives at bottom-right.
     const challengeHudEl = document.getElementById('challenge-hud');
     challengeHudEl.style.bottom = isTouch ? '10rem' : '1rem';
+    const blocksPlacedHudEl = document.getElementById('blocks-placed-hud');
+    blocksPlacedHudEl.style.bottom = isTouch ? '13rem' : '5.5rem';
 
     // Streak HUD pill sits above the challenge HUD.
     const streakHudEl = document.getElementById('streak-hud');
@@ -1706,7 +1752,6 @@
     const COACH_COOLDOWN_MS = 30_000;
     let coachGrantRequired = false;  // true if LLM proxy returned grant_required
     let coachFetching = false;       // prevents concurrent tip fetches
-    let coachDismissTimer = null;
     let sessionBlocksPlaced = 0;     // placements this session, for milestone trigger
     let sessionScore = 0;
     let sessionClassicBest = 0;
@@ -1753,6 +1798,9 @@
     let playerHp           = PLAYER_MAX_HP;
     let lastDamagedAt      = 0;   // ms; 2-second inter-hit immunity
     let deathInvincibleUntil = 0; // ms; 5-second post-respawn invincibility
+
+    // ---- Blocks placed (lifetime) ----
+    let myBlocksPlaced = 0;
 
     // ---- Game mode state ----
     let gameMode = null;           // null | 'classic' | 'timeattack' | 'endless' | 'learn' | 'tutorial' | 'time-attack-60'
@@ -2953,6 +3001,10 @@
       if (gameMode !== 'spectate') challengeHudEl.classList.remove('hidden');
     }
 
+    function renderBlocksPlacedHud() {
+      document.getElementById('blocks-placed-count').textContent = myBlocksPlaced.toLocaleString();
+    }
+
     async function sendEdit(x, y, z, t, prevType) {
       if (!undoInProgress && gameMode === 'classic' && prevType !== undefined) {
         pushUndo(x, y, z, prevType, t);
@@ -3014,6 +3066,11 @@
             buildPalette(); // re-render palette so the newly unlocked swatch activates
           }
           if (data.challenge) syncChallenge(data.challenge);
+          if (t !== 0) {
+            myBlocksPlaced++;
+            renderBlocksPlacedHud();
+            blocksPlacedHudEl.classList.remove('hidden');
+          }
         }
       } catch (e) { /* poll loop will reconcile */ }
     }
@@ -4124,6 +4181,8 @@
       document.getElementById('ta-feedback-msg').textContent = feedbackMsg;
       document.getElementById('ta-best-banner').classList.add('hidden');
       document.getElementById('ta-gameover').classList.remove('hidden');
+      // Restore theme button when Time Attack ends.
+      themeBtnEl.classList.remove('hidden');
 
       // Persist the run + play the appropriate end-of-run cue (fanfare on a
       // new personal best, otherwise the "time's up" tone).
@@ -4400,6 +4459,9 @@
         initTimeAttack();
         hideScoreHud();
         coachBtnEl.classList.remove('hidden');
+        // Hide theme button and panel during Time Attack.
+        themeBtnEl.classList.add('hidden');
+        closeThemePanel();
         setTimeout(() => fetchCoachTip('time_attack_start'), 2000);
       } else if (pendingTa60Init) {
         pendingTa60Init = false;
@@ -4425,10 +4487,14 @@
         if (!pollHandle) pollHandle = setInterval(poll, 1500);
         coachBtnEl.classList.remove('hidden');
         document.getElementById('undo-redo-hud').classList.remove('hidden');
-        setTimeout(() => fetchCoachTip('mode_start'), 3000);
         hpHudEl.classList.remove('hidden');
         updateHpHud();
         mobGroup.visible = true;
+        if (!lsGet('blockgame-tutorial-seen', false)) {
+          setTimeout(showTutorial, 600);
+        } else {
+          setTimeout(() => fetchCoachTip('mode_start'), 3000);
+        }
       } else if (gameMode === 'spectate') {
         if (!pollHandle) pollHandle = setInterval(poll, 1500);
         document.getElementById('palette').classList.add('hidden');
@@ -4573,7 +4639,6 @@
       // Dismiss any active coach tip and restore coach button.
       coachBubbleEl.classList.add('hidden');
       coachBubbleEl.style.opacity = '0';
-      if (coachDismissTimer) { clearTimeout(coachDismissTimer); coachDismissTimer = null; }
       coachBtnEl.classList.remove('hidden');
       overlayEl.style.display = 'flex';
       refreshControlCopy();
@@ -4826,6 +4891,8 @@
           closeLeaderboard();
         } else if (!friendsPanelEl.classList.contains('hidden')) {
           closeFriends();
+        } else if (!themePanelEl.classList.contains('hidden')) {
+          closeThemePanel();
         } else if (dragMode && playing) {
           if (gameMode === 'timeattack') {
             endTimeAttack();
@@ -5572,7 +5639,13 @@
         try {
           const res = await fetch('/api/leaderboard', { headers });
           if (!res.ok) throw new Error('fetch failed');
-          const { entries } = await res.json();
+          const lbData = await res.json();
+          const { entries } = lbData;
+          if (lbData.self != null) {
+            myBlocksPlaced = lbData.self.blocks_placed;
+            renderBlocksPlacedHud();
+            blocksPlacedHudEl.classList.remove('hidden');
+          }
           if (!entries.length) {
             leaderboardContentEl.innerHTML = '<p class="py-1">No builders yet — be the first!</p>';
           } else {
@@ -5930,31 +6003,13 @@
       // Force reflow then fade in.
       void coachBubbleEl.offsetWidth;
       coachBubbleEl.style.opacity = '1';
-      if (coachDismissTimer) clearTimeout(coachDismissTimer);
-      coachDismissTimer = setTimeout(() => {
-        coachBubbleEl.style.opacity = '0';
-        coachDismissTimer = setTimeout(() => {
-          coachBubbleEl.classList.add('hidden');
-          coachDismissTimer = null;
-        }, 350);
-      }, 8000);
     }
 
     function showCoachUnavailable() {
-      const prev = coachTipTextEl.textContent;
       coachTipTextEl.textContent = 'Coach is resting — try again later.';
       coachBubbleEl.classList.remove('hidden');
       void coachBubbleEl.offsetWidth;
       coachBubbleEl.style.opacity = '1';
-      if (coachDismissTimer) clearTimeout(coachDismissTimer);
-      coachDismissTimer = setTimeout(() => {
-        coachBubbleEl.style.opacity = '0';
-        coachDismissTimer = setTimeout(() => {
-          coachBubbleEl.classList.add('hidden');
-          coachTipTextEl.textContent = prev;
-          coachDismissTimer = null;
-        }, 350);
-      }, 3000);
     }
 
     async function fetchCoachTip(trigger, badgeName, _retried) {
@@ -6027,8 +6082,221 @@
     });
 
     coachBtnEl.addEventListener('click', () => fetchCoachTip('player_asked'));
+
+    // ---- Daily Build Theme panel ----
+    const themePanelEl = document.getElementById('theme-panel');
+    const themeContentEl = document.getElementById('theme-content');
+    const themeBtnEl = document.getElementById('theme-btn');
+    let themeTimer = null;
+    let themeData = null;
+
+    function closeThemePanel() {
+      themePanelEl.classList.add('hidden');
+      if (themeTimer !== null) { clearTimeout(themeTimer); themeTimer = null; }
+    }
+
+    function toggleThemePanel() {
+      if (themePanelEl.classList.contains('hidden')) {
+        themePanelEl.classList.remove('hidden');
+        fetchTheme();
+      } else {
+        closeThemePanel();
+      }
+    }
+
+    function themeCountdownText(themeDateStr) {
+      const midnight = new Date(themeDateStr + 'T00:00:00Z').getTime() + 86400000;
+      const msLeft = midnight - Date.now();
+      return msLeft > 0 ? formatCountdown(msLeft) : 'Closed';
+    }
+
+    function renderThemePanel(data) {
+      themeData = data;
+      const yesterday = data.yesterday;
+      const nominations = data.nominations || [];
+      const myNom = data.my_nomination;
+      const myVote = data.my_vote;
+      let html = '';
+
+      // Yesterday's winner
+      if (yesterday) {
+        html += '<div class="mb-3 pb-2 border-b border-zinc-700/60 text-xs">';
+        html += '<div class="text-zinc-500 mb-0.5">Yesterday — ' + escapeHtml(yesterday.theme_name) + '</div>';
+        if (yesterday.winner_username) {
+          let jumpBtn = '';
+          if (yesterday.anchor) {
+            jumpBtn = ' <button class="theme-jump-btn text-violet-400 hover:text-violet-300 underline cursor-pointer" data-x="' +
+              yesterday.anchor.anchor_x + '" data-y="' + yesterday.anchor.anchor_y + '" data-z="' + yesterday.anchor.anchor_z +
+              '" title="Jump to build">view</button>';
+          }
+          html += '<div class="font-semibold text-amber-300">🥇 ' + escapeHtml(yesterday.winner_username) + jumpBtn + '</div>';
+        } else {
+          html += '<div class="text-zinc-600 italic">No nominations yesterday</div>';
+        }
+        html += '</div>';
+      }
+
+      // Today's theme header
+      html += '<div class="mb-3">';
+      html += '<div class="text-base font-bold text-zinc-100">🎨 ' + escapeHtml(data.theme_name) + '</div>';
+      html += '<div class="text-xs text-zinc-400 mt-0.5">Closes in ' + themeCountdownText(data.theme_date) + '</div>';
+      html += '</div>';
+
+      // Nominate section
+      if (!myNom) {
+        html += '<div id="theme-nominate-area" class="mb-3">';
+        html += '<button id="theme-nominate-btn" class="w-full py-1.5 px-3 bg-violet-600 hover:bg-violet-500 active:bg-violet-700 text-white text-xs font-semibold rounded cursor-pointer transition-colors">Nominate my build</button>';
+        html += '</div>';
+      } else {
+        html += '<div class="mb-2 text-xs text-emerald-400 font-semibold">✓ You nominated — ' + escapeHtml(myNom.description) + '</div>';
+      }
+
+      // Nominations list
+      if (!nominations.length) {
+        html += '<p class="text-zinc-500 text-xs py-1">No nominations yet — be first!</p>';
+      } else {
+        html += '<div class="text-zinc-500 text-[10px] font-semibold uppercase tracking-wide mb-1.5">Nominations</div>';
+        html += '<div class="space-y-2 max-h-52 overflow-y-auto pr-0.5">';
+        for (const nom of nominations) {
+          const isMine = myNom && nom.user_id === myNom.user_id;
+          const isVoted = myVote === nom.user_id;
+          const canVote = !isMine && myVote === null;
+          html += '<div class="flex items-start gap-2">';
+          // Vote control
+          if (isMine) {
+            html += '<span class="shrink-0 text-[10px] text-violet-400 mt-1 font-semibold leading-none">you</span>';
+          } else if (isVoted) {
+            html += '<span class="shrink-0 text-base text-amber-400 leading-none mt-0.5" title="Your vote">👍</span>';
+          } else if (canVote) {
+            html += '<button class="theme-vote-btn shrink-0 text-base text-zinc-500 hover:text-amber-400 cursor-pointer transition-colors leading-none mt-0.5" data-uid="' + nom.user_id + '" title="Vote">👍</button>';
+          } else {
+            html += '<span class="shrink-0 text-base text-zinc-700 leading-none mt-0.5">👍</span>';
+          }
+          html += '<div class="flex-1 min-w-0">';
+          html += '<div class="flex items-center gap-1">';
+          html += '<span class="font-semibold text-xs truncate' + (isMine ? ' text-violet-300' : '') + '">' + escapeHtml(nom.username) + '</span>';
+          html += '<span class="text-[10px] text-zinc-500 font-mono ml-auto shrink-0">' + nom.vote_count + 'v</span>';
+          html += '<button class="theme-jump-btn shrink-0 text-[11px] text-zinc-500 hover:text-violet-400 cursor-pointer ml-1 leading-none" data-x="' +
+            nom.anchor_x + '" data-y="' + nom.anchor_y + '" data-z="' + nom.anchor_z + '" title="Fly to build">⊙</button>';
+          html += '</div>';
+          html += '<div class="text-[11px] text-zinc-400 truncate leading-tight">' + escapeHtml(nom.description) + '</div>';
+          html += '</div>';
+          html += '</div>';
+        }
+        html += '</div>';
+      }
+
+      themeContentEl.innerHTML = html;
+
+      // Bind vote buttons
+      for (const btn of themeContentEl.querySelectorAll('.theme-vote-btn')) {
+        btn.addEventListener('click', () => castThemeVote(Number(btn.dataset.uid)));
+      }
+      // Bind jump buttons (camera teleport, suppressed during Time Attack)
+      for (const btn of themeContentEl.querySelectorAll('.theme-jump-btn')) {
+        btn.addEventListener('click', () => {
+          if (gameMode === 'timeattack') return;
+          const x = Number(btn.dataset.x), y = Number(btn.dataset.y), z = Number(btn.dataset.z);
+          camera.position.set(x + 0.5, y + 5, z + 9);
+          const dir = new THREE.Vector3(x + 0.5, y + 1, z + 0.5).sub(camera.position).normalize();
+          pitch = Math.asin(Math.max(-1, Math.min(1, dir.y)));
+          yaw = Math.atan2(-dir.x, -dir.z);
+          applyLook();
+        });
+      }
+      // Bind nominate button
+      const nomBtnEl = document.getElementById('theme-nominate-btn');
+      if (nomBtnEl) nomBtnEl.addEventListener('click', showNominateForm);
+    }
+
+    function showNominateForm() {
+      const areaEl = document.getElementById('theme-nominate-area');
+      if (!areaEl) return;
+      const ax = Math.round(Math.max(0, Math.min(31, camera.position.x)));
+      const ay = Math.max(1, Math.min(23, Math.round(camera.position.y - 1)));
+      const az = Math.round(Math.max(0, Math.min(31, camera.position.z)));
+      areaEl.innerHTML =
+        '<div class="text-[10px] text-zinc-500 mb-1">Anchor: (' + ax + ', ' + ay + ', ' + az + ') — your current position</div>' +
+        '<input id="theme-desc-input" type="text" maxlength="80" placeholder="Describe your build…" autocomplete="off"' +
+        '  class="w-full bg-zinc-800 text-zinc-100 text-xs rounded px-2 py-1.5 border border-zinc-700 focus:border-violet-500 outline-none placeholder-zinc-500 mb-1.5">' +
+        '<div id="theme-desc-count" class="text-[10px] text-zinc-500 text-right mb-1">0 / 80</div>' +
+        '<div class="flex gap-2">' +
+        '  <button id="theme-submit-btn" class="flex-1 py-1.5 bg-violet-600 hover:bg-violet-500 text-white text-xs font-semibold rounded cursor-pointer transition-colors">Submit</button>' +
+        '  <button id="theme-cancel-btn" class="px-3 py-1.5 bg-zinc-700 hover:bg-zinc-600 text-zinc-200 text-xs rounded cursor-pointer">Cancel</button>' +
+        '</div>' +
+        '<div id="theme-nominate-status" class="mt-1 text-xs text-center min-h-[1.2em]"></div>';
+
+      const descInput = document.getElementById('theme-desc-input');
+      const countEl = document.getElementById('theme-desc-count');
+      descInput.addEventListener('input', () => { countEl.textContent = descInput.value.length + ' / 80'; });
+      descInput.addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.preventDefault(); fetchTheme(); } });
+      setTimeout(() => descInput.focus(), 30);
+
+      document.getElementById('theme-cancel-btn').addEventListener('click', fetchTheme);
+      document.getElementById('theme-submit-btn').addEventListener('click', async () => {
+        const desc = descInput.value.trim();
+        const statusEl = document.getElementById('theme-nominate-status');
+        if (!desc) { statusEl.textContent = 'Please enter a description.'; statusEl.className = 'mt-1 text-xs text-center text-red-400 min-h-[1.2em]'; return; }
+        statusEl.textContent = '';
+        try {
+          const res = await fetch('/api/theme/nominate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...headers },
+            body: JSON.stringify({ description: desc, anchor_x: ax, anchor_y: ay, anchor_z: az }),
+          });
+          const data = await res.json();
+          if (!res.ok) {
+            statusEl.textContent = data.error || 'Failed.';
+            statusEl.className = 'mt-1 text-xs text-center text-red-400 min-h-[1.2em]';
+          } else {
+            fetchTheme();
+          }
+        } catch (_) {
+          statusEl.textContent = 'Network error.';
+        }
+      });
+    }
+
+    async function castThemeVote(nomineeUserId) {
+      try {
+        const res = await fetch('/api/theme/vote', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...headers },
+          body: JSON.stringify({ nominee_user_id: nomineeUserId }),
+        });
+        if (res.ok) fetchTheme();
+      } catch (_) { /* transient */ }
+    }
+
+    async function fetchTheme() {
+      clearTimeout(themeTimer);
+      themeTimer = null;
+      try {
+        const res = await fetch('/api/theme/today', { headers });
+        if (!res.ok) return;
+        const data = await res.json();
+        renderThemePanel(data);
+        // Refresh earned badges if theme_winner was just awarded (lazy resolution).
+        if (data.yesterday?.winner_user_id && !earnedBadges.has('theme_winner')) {
+          try {
+            const br = await fetch('/api/badges', { headers });
+            if (br.ok) {
+              const bd = await br.json();
+              for (const b of bd.badges) earnedBadges.set(b.id, { earned_at: b.earned_at });
+              if (badgesOpen) renderBadgesPanel();
+            }
+          } catch (_) {}
+        }
+      } catch (_) {}
+      if (!themePanelEl.classList.contains('hidden')) {
+        themeTimer = setTimeout(fetchTheme, 30000);
+      }
+    }
+
+    themeBtnEl.addEventListener('click', toggleThemePanel);
+    document.getElementById('theme-close').addEventListener('click', closeThemePanel);
+
     document.getElementById('coach-dismiss').addEventListener('click', () => {
-      if (coachDismissTimer) { clearTimeout(coachDismissTimer); coachDismissTimer = null; }
       coachBubbleEl.style.opacity = '0';
       setTimeout(() => coachBubbleEl.classList.add('hidden'), 350);
     });
@@ -6752,6 +7020,127 @@
     // Fade the controls hint after a few seconds.
     setTimeout(() => { hintEl.style.opacity = '0'; hintFallbackEl.style.opacity = '0'; }, 6000);
 
+    // ---- First-time tutorial overlay ----
+    // Steps walk new Classic-mode players through 5 core mechanics.
+    // Dismissal is stored in localStorage so it never re-appears.
+    const TUTORIAL_STEPS = [
+      {
+        target: '#crosshair',
+        copy: 'Click anywhere on the screen to lock your mouse and look around. Drag the mouse to turn. Press Esc any time to release.',
+        mobileCopy: 'Drag anywhere on the screen to look around.',
+        padding: 56,
+        cardPos: 'below-center',
+      },
+      {
+        target: null,
+        copy: 'Fly with WASD. Space floats you up; Shift drops you down.',
+        mobileCopy: 'Use the on-screen D-pad to move. Tap Up or Down on the right side to fly.',
+        padding: 0,
+        cardPos: 'center',
+      },
+      {
+        target: '#crosshair',
+        copy: 'Left-click (or press F) to place a block exactly where the crosshair points. Right-click (or press G) to remove one.',
+        mobileCopy: 'Tap Add to place a block where the crosshair points. Tap Delete to remove one.',
+        padding: 56,
+        cardPos: 'below-center',
+      },
+      {
+        target: '#palette',
+        copy: 'Choose a block type from the palette — click a swatch or press keys 1–9. New types unlock as you build more!',
+        padding: 10,
+        cardPos: 'above',
+      },
+      {
+        target: null,
+        copy: 'Place 3+ blocks within 10 seconds to trigger a combo multiplier — reach 2×, 3×, or 5×! Watch the top-left corner for your badge. Also grab glowing orbs around the world for speed and placement boosts.',
+        padding: 0,
+        cardPos: 'center',
+      },
+    ];
+
+    function showTutorial() {
+      const tutorialEl = document.getElementById('tutorial-overlay');
+      const spotlightEl = document.getElementById('tutorial-spotlight');
+      const cardEl = document.getElementById('tutorial-card');
+      const copyEl = document.getElementById('tutorial-copy');
+      const counterEl = document.getElementById('tutorial-counter');
+      const backBtn = document.getElementById('tutorial-back');
+      const nextBtn = document.getElementById('tutorial-next');
+      const skipBtn = document.getElementById('tutorial-skip');
+      const backdropEl = document.getElementById('tutorial-backdrop');
+
+      const isMobile = window.matchMedia('(pointer: coarse)').matches;
+      let step = 0;
+
+      tutorialEl.classList.remove('hidden');
+
+      function placeCard(rect, cardPos) {
+        const margin = 12;
+        const vw = window.innerWidth;
+        const vh = window.innerHeight;
+        const cardW = Math.min(300, vw - margin * 2);
+        cardEl.style.width = cardW + 'px';
+
+        if (!rect || cardPos === 'center') {
+          cardEl.style.left = Math.round((vw - cardW) / 2) + 'px';
+          cardEl.style.top = Math.round(vh / 2 - 90) + 'px';
+          return;
+        }
+        if (cardPos === 'above') {
+          const cardH = cardEl.offsetHeight || 170;
+          cardEl.style.left = Math.max(margin, Math.min(vw - cardW - margin, rect.left)) + 'px';
+          cardEl.style.top = Math.max(margin, rect.top - cardH - 16) + 'px';
+          return;
+        }
+        // below-center default
+        const x = Math.round((rect.left + rect.right) / 2 - cardW / 2);
+        cardEl.style.left = Math.max(margin, Math.min(vw - cardW - margin, x)) + 'px';
+        cardEl.style.top = Math.min(vh - 200, rect.bottom + 20) + 'px';
+      }
+
+      function renderStep(i) {
+        const s = TUTORIAL_STEPS[i];
+        counterEl.textContent = 'Step ' + (i + 1) + ' of ' + TUTORIAL_STEPS.length;
+        copyEl.textContent = (isMobile && s.mobileCopy) ? s.mobileCopy : s.copy;
+        backBtn.classList.toggle('hidden', i === 0);
+        nextBtn.textContent = (i === TUTORIAL_STEPS.length - 1) ? 'Got it!' : 'Next →';
+
+        const targetEl = s.target ? document.querySelector(s.target) : null;
+        const r = targetEl ? targetEl.getBoundingClientRect() : null;
+        const hasSpot = r && r.width > 0 && r.height > 0;
+
+        if (hasSpot) {
+          const p = s.padding || 16;
+          backdropEl.style.opacity = '0';
+          spotlightEl.style.opacity = '1';
+          spotlightEl.style.left = (r.left - p) + 'px';
+          spotlightEl.style.top = (r.top - p) + 'px';
+          spotlightEl.style.width = (r.width + p * 2) + 'px';
+          spotlightEl.style.height = (r.height + p * 2) + 'px';
+          placeCard({ left: r.left - p, right: r.right + p, top: r.top - p, bottom: r.bottom + p }, s.cardPos);
+        } else {
+          backdropEl.style.opacity = '1';
+          spotlightEl.style.opacity = '0';
+          placeCard(null, 'center');
+        }
+      }
+
+      function closeTutorial() {
+        lsSet('blockgame-tutorial-seen', true);
+        tutorialEl.classList.add('hidden');
+        setTimeout(() => fetchCoachTip('mode_start'), 1500);
+      }
+
+      renderStep(0);
+      nextBtn.addEventListener('click', () => {
+        if (step < TUTORIAL_STEPS.length - 1) { step++; renderStep(step); }
+        else closeTutorial();
+      });
+      backBtn.addEventListener('click', () => { if (step > 0) { step--; renderStep(step); } });
+      skipBtn.addEventListener('click', closeTutorial);
+    }
+
     (async function init() {
       updateOrientation();
       refreshControlCopy();
@@ -6807,6 +7196,12 @@
           if (sd.current_streak > 0) updateStreakHud(sd.current_streak);
         }
       } catch (_) {}
+
+      // Load initial blocks-placed count from leaderboard self row.
+      fetchLeaderboard().catch(() => {});
+
+      // Load today's build theme (non-fatal).
+      fetchTheme().catch(() => {});
 
       requestAnimationFrame(loop);
       // Poll is started per-mode in onPlayEntered(), not here.
