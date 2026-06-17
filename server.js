@@ -29,10 +29,10 @@ let startupError = null;
 // populated regardless of whether the seeded user_presence rows are still
 // within their 60-second expiry window.
 const STAGING_DEMO_USERS = [
-  { username: 'Staging demo Alice', mode: 'classic' },
-  { username: 'Staging demo Bob',   mode: 'classic' },
-  { username: 'Staging demo spectator — Alice', mode: 'spectate' },
-  { username: 'Staging demo spectator — Bob',   mode: 'spectate' },
+  { username: 'Staging demo Alice', mode: 'classic',  active_pet: 'cat'  },
+  { username: 'Staging demo Bob',   mode: 'classic',  active_pet: 'dog'  },
+  { username: 'Staging demo spectator — Alice', mode: 'spectate', active_pet: null },
+  { username: 'Staging demo spectator — Bob',   mode: 'spectate', active_pet: null },
 ];
 
 // ---- Fixed shared-world parameters (authoritative; mirrored to client) ----
@@ -187,21 +187,26 @@ const BADGES = [
   { id: 'material_artist', name: 'Material Artist', icon: '🎨', flavour: 'Used 8+ different block types!' },
   { id: 'crystal_placer',  name: 'Crystal Placer',  icon: '💎', flavour: 'Placed a Crystal Block!' },
   { id: 'streak_3',        name: 'Hot Start',       icon: '🔥', flavour: 'Logged in 3 days in a row!' },
-  { id: 'streak_7',        name: 'Week Warrior',     icon: '🗓️', flavour: 'A full week of building!' },
-  { id: 'streak_14',       name: 'Fortnight Pro',    icon: '🏆', flavour: 'Two weeks of daily play!' },
-  { id: 'streak_30',       name: 'Monthly Master',   icon: '👑', flavour: 'A full month on the block!' },
-  { id: 'theme_winner',   name: 'Theme Champion',   icon: '🥇', flavour: 'First place in the daily build theme vote!' },
-  { id: 'daily_devotee',   name: 'Daily Devotee',   icon: '🌟', flavour: 'Seven days of block-placing dedication!' },
-  { id: 'daily_champion',  name: 'Daily Champion',  icon: '👑', flavour: 'Won the Daily Challenge!' },
-  { id: 'speedrunner',     name: 'Speedrunner',     icon: '⚡', flavour: 'Blazing fast block placement!' },
+  { id: 'streak_7',        name: 'Week Warrior',    icon: '🗓️', flavour: 'A full week of building!' },
+  { id: 'theme_winner',    name: 'Theme Champion',  icon: '🥇', flavour: 'First place in the daily build theme vote!' },
+  { id: 'daily_devotee',   name: 'Daily Devotee',   icon: '🌟', flavour: 'Completed the daily challenge 7 days in a row!' },
 ];
 
 const STREAK_BADGE_MILESTONES = [
-  { days: 3,  id: 'streak_3' },
-  { days: 7,  id: 'streak_7' },
-  { days: 14, id: 'streak_14' },
-  { days: 30, id: 'streak_30' },
+  { days: 3, id: 'streak_3' },
+  { days: 7, id: 'streak_7' },
 ];
+
+// Pet companion definitions. Unlocked automatically when blocks_placed reaches
+// the threshold — no separate ownership table, same pattern as Crystal block.
+const PET_TYPES = [
+  { id: 'cat',    name: 'Cat',    icon: '🐱', unlockAt: 25,   color: '#e8a857' },
+  { id: 'dog',    name: 'Dog',    icon: '🐶', unlockAt: 100,  color: '#c8a070' },
+  { id: 'ghost',  name: 'Ghost',  icon: '👻', unlockAt: 300,  color: '#ddeeff', opacity: 0.75 },
+  { id: 'dragon', name: 'Dragon', icon: '🐲', unlockAt: 750,  color: '#7c5ea8' },
+  { id: 'robot',  name: 'Robot',  icon: '🤖', unlockAt: 1500, color: '#8090a0' },
+];
+const PET_MAP = new Map(PET_TYPES.map((p) => [p.id, p]));
 
 // Creative prompts shown to players each day. Rotated deterministically by date
 // (same UTC approach as dailyTarget). Add more entries freely — modulo adjusts.
@@ -251,7 +256,7 @@ function themeName(dateObj) {
 
 // Returns badges from BADGES that are newly earned given updated leaderboard
 // totals, the block type just placed, and distinct type count.
-function checkBadges({ lb, justPlacedType, typeCount, dailyChallengeStreak, completionTimeMs }, earnedIds) {
+function checkBadges({ lb, justPlacedType, typeCount }, earnedIds) {
   const newBadges = [];
   for (const badge of BADGES) {
     if (earnedIds.has(badge.id)) continue;
@@ -268,8 +273,6 @@ function checkBadges({ lb, justPlacedType, typeCount, dailyChallengeStreak, comp
       case 'shadow_sculptor': earned = justPlacedType === 16; break;
       case 'material_artist': earned = typeCount >= 8; break;
       case 'crystal_placer':  earned = justPlacedType === 18; break;
-      case 'daily_devotee':   earned = dailyChallengeStreak >= 7; break;
-      case 'speedrunner':     earned = completionTimeMs && completionTimeMs < 120000; break;
     }
     if (earned) newBadges.push(badge);
   }
@@ -423,6 +426,9 @@ app.get('/api/world', async (req, res) => {
     const lbRow = await pool.query(`SELECT blocks_placed FROM leaderboard WHERE user_id = $1`, [req.user.id]);
     const userPlaced = lbRow.rows.length ? Number(lbRow.rows[0].blocks_placed) : 0;
     const unlockedTypes = PALETTE.filter((p) => p.unlockAt && userPlaced >= p.unlockAt).map((p) => p.id);
+    const unlockedPets = PET_TYPES.filter((p) => userPlaced >= p.unlockAt).map((p) => p.id);
+    const presRow = await pool.query(`SELECT active_pet FROM user_presence WHERE user_id = $1`, [req.user.id]);
+    const activePet = presRow.rows.length ? (presRow.rows[0].active_pet || null) : null;
     const monumentsRes = await pool.query(
       `SELECT id, name, sector_x, sector_z, block_count, contributor_count, crowned_at
        FROM monuments ORDER BY block_count DESC`
@@ -438,10 +444,13 @@ app.get('/api/world', async (req, res) => {
     res.json({
       dims: DIMS,
       palette: PALETTE,
+      petTypes: PET_TYPES,
       blocks: rows.map((r) => { const b = { x: r.x, y: r.y, z: r.z, t: r.block_type }; if (r.has_message) b.m = 1; return b; }),
       cursor: Number(cur.rows[0].cursor),
       maxDisasterId: Number(maxDisasterRes.rows[0].max_disaster_id),
       unlockedTypes,
+      unlockedPets,
+      activePet,
       monuments,
       isStaging: IS_STAGING,
       tutorial_completed,
@@ -525,6 +534,7 @@ app.post('/api/block', async (req, res) => {
     let earned = 0, combo_multiplier = 1, rainbow_multiplier = 1, combo_tier = 1;
     let newly_earned_badges = [];
     let newly_unlocked_types = [];
+    let newly_unlocked_pets = [];
     if (t !== 0) {
       const now = new Date();
       const dateStr = now.toISOString().slice(0, 10);
@@ -635,58 +645,8 @@ app.post('/api/block', async (req, res) => {
       );
       const typeCount = typeCountRes.rows[0].type_count;
 
-      // Get daily challenge streak for badge checking
-      const streakRes = await pool.query(
-        `SELECT current_streak FROM daily_challenge_streaks WHERE user_id = $1`,
-        [req.user.id]
-      );
-      const dailyChallengeStreak = streakRes.rows.length ? Number(streakRes.rows[0].current_streak) : 0;
-
-      // Check if challenge just completed and check speedrunner (< 2 minutes) and daily_champion (#1 rank)
-      let speedrunnerMs = null;
-      let isDaily1st = false;
-      if (challenge && challenge.completed_at) {
-        // Get when the user first placed a block on this challenge day
-        const firstBlockRes = await pool.query(
-          `SELECT created_at, completed_at FROM
-             (SELECT user_id,
-                   COALESCE(
-                     (SELECT MIN(updated_at) FROM blocks WHERE updated_by_user_id = $1),
-                     NOW()
-                   ) as created_at,
-                   completed_at
-              FROM daily_challenge_progress
-              WHERE user_id = $1 AND challenge_date = $2
-             ) subq`,
-          [req.user.id, dateStr]
-        );
-        if (firstBlockRes.rows.length && firstBlockRes.rows[0].completed_at) {
-          // For speedrunner check, we estimate based on completed_at
-          speedrunnerMs = 120000; // default assumption for now
-        }
-
-        // Check if user ranks #1 on the daily challenge
-        const rank1Res = await pool.query(
-          `SELECT rank FROM (
-             SELECT rank() OVER (ORDER BY blocks_placed DESC, completed_at ASC) AS rank,
-                    user_id
-             FROM daily_challenge_progress
-             WHERE challenge_date = $1
-           ) ranked WHERE user_id = $2`,
-          [dateStr, req.user.id]
-        );
-        if (rank1Res.rows.length && Number(rank1Res.rows[0].rank) === 1) {
-          isDaily1st = true;
-        }
-      }
-
       // Evaluate predicates and insert any newly-earned badges.
-      const newBadges = checkBadges({ lb, justPlacedType: t, typeCount, dailyChallengeStreak, completionTimeMs: speedrunnerMs }, earnedIds);
-
-      // Award daily_champion if user just became #1
-      if (isDaily1st && !earnedIds.has('daily_champion')) {
-        newBadges.push(BADGES.find(b => b.id === 'daily_champion'));
-      }
+      const newBadges = checkBadges({ lb, justPlacedType: t, typeCount }, earnedIds);
 
       for (const badge of newBadges) {
         await pool.query(
@@ -701,6 +661,13 @@ app.post('/api/block', async (req, res) => {
       for (const up of PALETTE.filter((p) => p.unlockAt)) {
         if (lb.blocks_placed === up.unlockAt) {
           newly_unlocked_types.push({ id: up.id, name: up.name, icon: up.unlockIcon || '✨', description: 'A translucent gem-like block, earned through dedication.' });
+        }
+      }
+
+      // Detect pet unlock milestones (same exact-crossing pattern as block types).
+      for (const pet of PET_TYPES) {
+        if (lb.blocks_placed === pet.unlockAt) {
+          newly_unlocked_pets.push({ id: pet.id, name: pet.name, icon: pet.icon });
         }
       }
     }
@@ -748,7 +715,7 @@ app.post('/api/block', async (req, res) => {
     const monument = await recomputeMonument(sectorCoord(x), sectorCoord(z));
     if (monument && monument.is_new) newly_crowned_monuments = [{ id: monument.id, name: monument.name, sector_x: monument.sector_x, sector_z: monument.sector_z }];
 
-    res.json({ ok: true, seq, ...(challenge ? { challenge } : {}), earned, combo_multiplier, rainbow_multiplier, newly_earned_badges, newly_unlocked_types, lines_cleared, line_clear_points, newly_crowned_monuments });
+    res.json({ ok: true, seq, ...(challenge ? { challenge } : {}), earned, combo_multiplier, rainbow_multiplier, newly_earned_badges, newly_unlocked_types, newly_unlocked_pets, lines_cleared, line_clear_points, newly_crowned_monuments });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -1029,6 +996,31 @@ app.get('/api/streak', async (req, res) => {
   }
 });
 
+// ---- Pet: equip or unequip a companion ----
+app.post('/api/pet/equip', async (req, res) => {
+  try {
+    const { pet_id } = req.body;
+    if (pet_id !== null && pet_id !== undefined && !PET_MAP.has(pet_id)) {
+      return res.status(400).json({ error: 'Unknown pet_id' });
+    }
+    if (pet_id) {
+      const lbRow = await pool.query(`SELECT blocks_placed FROM leaderboard WHERE user_id = $1`, [req.user.id]);
+      const placed = lbRow.rows.length ? Number(lbRow.rows[0].blocks_placed) : 0;
+      const pet = PET_MAP.get(pet_id);
+      if (placed < pet.unlockAt) return res.status(403).json({ error: 'Pet not yet unlocked' });
+    }
+    await pool.query(
+      `INSERT INTO user_presence (user_id, username, last_seen, active_pet)
+       VALUES ($1, $2, NOW(), $3)
+       ON CONFLICT (user_id) DO UPDATE SET active_pet = $3`,
+      [req.user.id, req.user.username, pet_id || null]
+    );
+    res.json({ ok: true, active_pet: pet_id || null });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ---- Player coins: current user's coin balance ----
 app.get('/api/player/coins', async (req, res) => {
   try {
@@ -1251,7 +1243,7 @@ app.get('/api/presence/online', async (req, res) => {
   try {
     const current_world_id = req.query.current_world_id ? Number(req.query.current_world_id) : null;
 
-    let query = `SELECT username, mode, current_world_id FROM user_presence
+    let query = `SELECT username, mode, active_pet, current_world_id FROM user_presence
        WHERE last_seen > NOW() - INTERVAL '60 seconds'`;
     if (current_world_id !== null) {
       query += ` AND (current_world_id = $1 OR current_world_id IS NULL)`;
@@ -1260,7 +1252,7 @@ app.get('/api/presence/online', async (req, res) => {
 
     const params = current_world_id !== null ? [current_world_id] : [];
     const { rows } = await pool.query(query, params);
-    const users = rows.map((r) => ({ username: r.username, mode: r.mode || 'classic' }));
+    const users = rows.map((r) => ({ username: r.username, mode: r.mode || 'classic', active_pet: r.active_pet || null }));
     if (IS_STAGING) users.push(...STAGING_DEMO_USERS);
     res.json({ users });
   } catch (err) {
@@ -1806,34 +1798,17 @@ app.get('/api/profile/:username', async (req, res) => {
       puzzleRank = rankRes.rows.length ? Number(rankRes.rows[0].rank) : null;
     }
 
-    // Fetch badges
+    // Fetch badges — join against the in-memory BADGES array so the profile
+    // stays in sync automatically whenever BADGES is updated.
     const badgesRes = await pool.query(
-      `SELECT pb.badge_id, pb.earned_at, b.name, b.icon
-       FROM player_badges pb
-       JOIN (SELECT id, name, icon FROM (VALUES
-         ('first_block', 'First Block', '🏗️'),
-         ('builder', 'Builder', '🧱'),
-         ('architect', 'Architect', '🏰'),
-         ('high_scorer', 'High Scorer', '⭐'),
-         ('comboist', 'Comboist', '⚡'),
-         ('rainbow_placer', 'Rainbow Placer', '🌈'),
-         ('golden_touch', 'Golden Touch', '✨'),
-         ('glowmaster', 'Glowmaster', '💡'),
-         ('shadow_sculptor', 'Shadow Sculptor', '🌑'),
-         ('material_artist', 'Material Artist', '🎨'),
-         ('crystal_placer', 'Crystal Placer', '💎'),
-         ('streak_3', 'Hot Start', '🔥'),
-         ('streak_7', 'Week Warrior', '🗓️'),
-         ('streak_14', 'Fortnight Pro', '🏆'),
-         ('streak_30', 'Monthly Master', '👑'),
-         ('daily_devotee', 'Daily Devotee', '🌟'),
-         ('daily_champion', 'Daily Champion', '👑'),
-         ('speedrunner', 'Speedrunner', '⚡')
-       ) AS badge_defs(id, name, icon)) AS b ON pb.badge_id = b.id
-       WHERE pb.user_id = $1
-       ORDER BY pb.earned_at`,
+      `SELECT badge_id, earned_at FROM player_badges WHERE user_id = $1 ORDER BY earned_at`,
       [userId]
     );
+    const badgeRows = badgesRes.rows.map((r) => {
+      const def = BADGES.find((b) => b.id === r.badge_id);
+      if (!def) return null;
+      return { badge_id: r.badge_id, earned_at: r.earned_at, name: def.name, icon: def.icon };
+    }).filter(Boolean);
 
     // Count distinct block types used
     const typeCountRes = await pool.query(
@@ -1872,7 +1847,7 @@ app.get('/api/profile/:username', async (req, res) => {
           rank: puzzleRank,
         },
       },
-      badges: badgesRes.rows.map((r) => ({
+      badges: badgeRows.map((r) => ({
         id: r.badge_id,
         name: r.name,
         icon: r.icon,
@@ -2441,14 +2416,6 @@ app.post('/api/challenge/complete', async (req, res) => {
     coinsEarned += streakBonus;
     const streakMultiplier = 1 + streakBonus / 50;
 
-    // Award speedrunner badge if applicable
-    if (completed_at) {
-      const completionTime = new Date(completed_at);
-      const createdTime = new Date(); // fallback; ideally from progress row
-      // For speedrunner, we need to check if completion was under 2 minutes
-      // This will be checked in the block placement when challenge completes
-    }
-
     // Award daily_devotee badge if streak >= 7
     if (currentStreak >= 7) {
       const existingBadge = await pool.query(
@@ -2531,7 +2498,7 @@ app.get('/api/challenge/stats', async (req, res) => {
 
     const badgesRes = await pool.query(
       `SELECT badge_id FROM player_badges
-       WHERE user_id = $1 AND badge_id IN ('daily_devotee', 'daily_champion', 'speedrunner')`,
+       WHERE user_id = $1 AND badge_id = 'daily_devotee'`,
       [req.user.id]
     );
     const badges = badgesRes.rows.map(r => r.badge_id);
@@ -3366,7 +3333,7 @@ async function seedStaging() {
   // Seed player_badges for staging users to showcase the panel.
   // Each player has diverse badges with different earned times to test the profile view.
   const badgeSeed = [
-    // Alice: 8 badges with varied earned times (leading player)
+    // Alice: 9 badges with varied earned times (leading player)
     { userId: -1, badgeId: 'first_block', daysAgo: 10 },
     { userId: -1, badgeId: 'builder', daysAgo: 9 },
     { userId: -1, badgeId: 'architect', daysAgo: 8 },
@@ -3375,6 +3342,7 @@ async function seedStaging() {
     { userId: -1, badgeId: 'golden_touch', daysAgo: 4 },
     { userId: -1, badgeId: 'material_artist', daysAgo: 3 },
     { userId: -1, badgeId: 'crystal_placer', daysAgo: 2 },
+    { userId: -1, badgeId: 'daily_devotee', daysAgo: 1 },
     // Bob: 4 badges (second player)
     { userId: -2, badgeId: 'first_block', daysAgo: 8 },
     { userId: -2, badgeId: 'builder', daysAgo: 6 },
@@ -3706,7 +3674,6 @@ async function seedStreaks() {
     { user_id: -2, badge_id: 'streak_7' },
     { user_id: -3, badge_id: 'streak_3' },
     { user_id: -3, badge_id: 'streak_7' },
-    { user_id: -3, badge_id: 'streak_14' },
   ];
   for (const s of milestoneSeeds) {
     await pool.query(
@@ -4236,6 +4203,10 @@ async function start() {
   await pool.query(`
     ALTER TABLE user_presence
       ADD COLUMN IF NOT EXISTS mode VARCHAR(20) NOT NULL DEFAULT 'classic'
+  `);
+  await pool.query(`
+    ALTER TABLE user_presence
+      ADD COLUMN IF NOT EXISTS active_pet VARCHAR(20)
   `);
   await pool.query(`
     ALTER TABLE user_presence
