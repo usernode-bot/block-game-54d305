@@ -2579,6 +2579,47 @@ app.post('/api/coach/tip', async (req, res) => {
   }
 });
 
+// ---- Share Score API ----
+app.post('/api/share-score', async (req, res) => {
+  try {
+    const { mode, score_data } = req.body;
+    const username = req.user.username;
+
+    if (!mode || !score_data) {
+      return res.status(400).json({ error: 'Missing mode or score_data' });
+    }
+
+    // Build message template based on mode
+    let message = '';
+    switch (mode) {
+      case 'timeattack':
+        message = `${username} cleared ${score_data.blocks_cleared} blocks in Time Attack difficulty ${score_data.difficulty_level}! ⏱️`;
+        break;
+      case 'time-attack-60':
+        message = `${username} cleared ${score_data.blocks_cleared} blocks in 60-second Time Attack mode! ⏱️`;
+        break;
+      case 'endless':
+        message = `${username} placed ${score_data.blocks_placed} blocks and survived ${score_data.moves_survived} moves in Endless mode! 🎮`;
+        break;
+      case 'daily-challenge':
+        message = `${username} completed today's Daily Challenge (placed ${score_data.blocks_placed}/${score_data.target_blocks} blocks)! 🔥`;
+        break;
+      default:
+        return res.status(400).json({ error: 'Invalid mode' });
+    }
+
+    // Return the message for the frontend to use with Twitter intent and/or Usernode feed
+    res.json({
+      message,
+      mode,
+      twitter_url: `https://twitter.com/intent/tweet?text=${encodeURIComponent(message)}&url=${encodeURIComponent('https://social-vibecoding.usernodelabs.org/app/block-game')}`
+    });
+  } catch (err) {
+    console.error('share-score error', err.message);
+    res.status(500).json({ error: 'Failed to generate share message' });
+  }
+});
+
 // ---- Daily Build Theme Voting API ----
 
 app.get('/api/theme/today', async (req, res) => {
