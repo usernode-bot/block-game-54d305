@@ -211,10 +211,14 @@
   <button id="leaderboard-btn" title="Leaderboard (l)" aria-label="Toggle leaderboard"
           class="fixed top-14 right-3 z-30 w-9 h-9 rounded-full bg-black/50 hover:bg-black/70 text-zinc-100 text-lg leading-none flex items-center justify-center transition-colors cursor-pointer">🏆</button>
 
+  <!-- Friends toggle: sits below the leaderboard button. -->
+  <button id="friends-btn" title="Friends" aria-label="Toggle friends"
+          class="fixed top-[6.25rem] right-3 z-30 w-9 h-9 rounded-full bg-black/50 hover:bg-black/70 text-zinc-100 text-lg leading-none flex items-center justify-center transition-colors cursor-pointer relative">👥<span id="friends-badge" class="hidden absolute -top-1 -right-1 w-3 h-3 rounded-full bg-red-500 pointer-events-none"></span></button>
+
   <!-- Build/version stamp: always visible, dim, so the running build can be
        confirmed at a glance. Bump BUILD_VERSION (below) on every change.
-       Shifted down to make room for the leaderboard button above. -->
-  <div id="build-stamp" class="pointer-events-none fixed top-24 right-3 z-20 text-[11px] text-zinc-300/70 bg-black/40 rounded px-2 py-1 font-mono"></div>
+       Shifted down to make room for the leaderboard and friends buttons above. -->
+  <div id="build-stamp" class="pointer-events-none fixed top-36 right-3 z-20 text-[11px] text-zinc-300/70 bg-black/40 rounded px-2 py-1 font-mono"></div>
 
   <!-- Badges panel: lists all 10 badges with earned/locked state. Hidden by
        default; toggled by the trophy button. -->
@@ -228,6 +232,9 @@
 
   <!-- Badge toast container: toasts stack above the palette, bottom-centre. -->
   <div id="badge-toasts" class="pointer-events-none fixed left-1/2 -translate-x-1/2 z-40 flex flex-col-reverse items-center gap-2" style="bottom: 5.5rem"></div>
+
+  <!-- Login Streak HUD: compact pill above the daily challenge bar. Bottom set by JS. -->
+  <div id="streak-hud" class="hidden pointer-events-none fixed right-3 z-20 rounded-lg bg-black/55 px-2 py-1.5 text-xs text-white/90 font-semibold whitespace-nowrap"></div>
 
   <!-- Daily Challenge HUD: bottom position set by JS (touch devices are raised
        to clear the on-screen action cluster). Hidden until init() loads data. -->
@@ -264,6 +271,22 @@
       <button id="leaderboard-close" aria-label="Close leaderboard" class="text-zinc-400 hover:text-zinc-100 cursor-pointer leading-none">✕</button>
     </div>
     <div id="leaderboard-content" class="text-zinc-400 text-center py-2 text-xs">Loading…</div>
+  </div>
+
+  <!-- Friends panel: friend list with online/offline sections and pending requests.
+       Hidden by default; toggled by the 👥 button. -->
+  <div id="friends-panel" class="hidden fixed top-28 right-3 z-30 w-72 max-w-[90vw] rounded-xl bg-black/70 backdrop-blur p-4 text-sm text-zinc-200 shadow-xl">
+    <div class="flex items-center justify-between mb-3">
+      <h2 class="font-bold text-zinc-100">Friends</h2>
+      <button id="friends-close" aria-label="Close friends" class="text-zinc-400 hover:text-zinc-100 cursor-pointer leading-none">✕</button>
+    </div>
+    <div id="friends-content" class="text-zinc-400 text-center py-2 text-xs">Loading…</div>
+    <div class="mt-3 pt-3 border-t border-zinc-700/60 flex gap-2">
+      <input id="friends-input" type="text" placeholder="Add by username…" maxlength="100" autocomplete="off"
+             class="flex-1 min-w-0 bg-zinc-800 text-zinc-100 text-xs rounded px-2 py-1.5 border border-zinc-700 focus:border-violet-500 outline-none placeholder-zinc-500">
+      <button id="friends-add-btn" class="shrink-0 px-3 py-1.5 bg-violet-600 hover:bg-violet-500 active:bg-violet-700 text-white text-xs font-semibold rounded cursor-pointer transition-colors">Add</button>
+    </div>
+    <div id="friends-add-status" class="mt-1 text-xs text-center min-h-[1.2em]"></div>
   </div>
 
   <!-- Touch controls: translucent on-screen overlay shown only on touch devices
@@ -354,9 +377,19 @@
     const headers = token ? { 'x-usernode-token': token } : {};
     const statusEl = document.getElementById('status');
 
+    // Decode the JWT payload (base64url) to get the current user's username for
+    // self-exclusion in the online list friend buttons. Read-only — no sensitive use.
+    let myUsername = null;
+    try {
+      if (token) {
+        const payload = JSON.parse(atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
+        myUsername = payload.username || null;
+      }
+    } catch (_) {}
+
     // Build identifier — bump this (to the deploying commit short SHA) on every
     // change so the top-right stamp confirms exactly which code is running.
-    const BUILD_VERSION = 'power-ups+hold-queue+achievements-badges+chat+daily-challenge+leaderboard+online-presence+block-attribution+audio-sfx';
+    const BUILD_VERSION = 'power-ups+hold-queue+achievements-badges+chat+daily-challenge+leaderboard+online-presence+block-attribution+audio-sfx+next-piece-preview+friends';
 
     // Badge definitions — mirror of the server-side BADGES array, extended with
     // a `hint` field shown in the panel for unearned badges.
@@ -371,6 +404,10 @@
       { id: 'glowmaster',      name: 'Glowmaster',      icon: '💡', flavour: 'Placed a Glowstone block!',       hint: 'Place a Glowstone block' },
       { id: 'shadow_sculptor', name: 'Shadow Sculptor', icon: '🌑', flavour: 'Placed an Obsidian block!',       hint: 'Place an Obsidian block' },
       { id: 'material_artist', name: 'Material Artist', icon: '🎨', flavour: 'Used 8+ different block types!', hint: 'Use 8 or more different block types' },
+      { id: 'streak_3',        name: 'Hot Start',       icon: '🔥', flavour: 'Logged in 3 days in a row!',     hint: 'Log in 3 days in a row' },
+      { id: 'streak_7',        name: 'Week Warrior',    icon: '🗓️', flavour: 'A full week of building!',       hint: 'Log in 7 days in a row' },
+      { id: 'streak_14',       name: 'Fortnight Pro',   icon: '🏆', flavour: 'Two weeks of daily play!',       hint: 'Log in 14 days in a row' },
+      { id: 'streak_30',       name: 'Monthly Master',  icon: '👑', flavour: 'A full month on the block!',     hint: 'Log in 30 days in a row' },
     ];
 
     // Touch capability: drives (a) the on-screen control overlay, (b) skipping
@@ -561,6 +598,19 @@
     // the on-screen fly/build action cluster that lives at bottom-right.
     const challengeHudEl = document.getElementById('challenge-hud');
     challengeHudEl.style.bottom = isTouch ? '10rem' : '1rem';
+
+    // Streak HUD pill sits above the challenge HUD.
+    const streakHudEl = document.getElementById('streak-hud');
+    const CHALLENGE_HUD_HEIGHT_PX = 54; // approx rendered height (px) of challenge pill
+    const STREAK_GAP_PX = 6;
+    const challengeHudBottomPx = isTouch ? 160 : 16; // 10rem=160px, 1rem=16px
+    streakHudEl.style.bottom = (challengeHudBottomPx + CHALLENGE_HUD_HEIGHT_PX + STREAK_GAP_PX) + 'px';
+
+    function updateStreakHud(current) {
+      if (current <= 0) return;
+      streakHudEl.textContent = current === 1 ? '🔥 Day 1' : '🔥 ' + current + ' day streak';
+      streakHudEl.classList.remove('hidden');
+    }
 
     // ---- World/runtime state ----
     let DIMS = { w: 32, d: 32, h: 24 };
@@ -1523,6 +1573,11 @@
         if (e.key === 'Escape') { e.preventDefault(); closeChat(); }
         return;
       }
+      // While the friends add-by-username input is focused, only Escape is handled.
+      if (document.activeElement === friendsInputEl) {
+        if (e.key === 'Escape') { e.preventDefault(); closeFriends(); }
+        return;
+      }
       // Escape closes the chat drawer if it is open (before the existing
       // Escape handler that would otherwise return to the overlay).
       if (e.key === 'Escape' && chatOpen) { e.preventDefault(); closeChat(); return; }
@@ -1554,12 +1609,14 @@
       // L toggles the leaderboard panel.
       if (e.code === 'KeyL') toggleLeaderboard();
       if (e.code === 'KeyM') { muteBtnEl.textContent = audio.toggleMute() ? '🔇' : '🔊'; }
-      // Escape: close the leaderboard if open, otherwise handle mode exit.
+      // Escape: close overlays in priority order, then handle mode exit.
       // In native (locked) mode the browser handles Esc and fires
       // pointerlockchange, which restores the overlay there.
       if (e.code === 'Escape') {
         if (!leaderboardEl.classList.contains('hidden')) {
           closeLeaderboard();
+        } else if (!friendsPanelEl.classList.contains('hidden')) {
+          closeFriends();
         } else if (dragMode && playing) {
           if (gameMode === 'timeattack') {
             endTimeAttack();
@@ -1731,6 +1788,166 @@
     }
     document.getElementById('leaderboard-btn').addEventListener('click', toggleLeaderboard);
     document.getElementById('leaderboard-close').addEventListener('click', closeLeaderboard);
+
+    // ---- Friends panel ----
+    const friendsPanelEl = document.getElementById('friends-panel');
+    const friendsContentEl = document.getElementById('friends-content');
+    const friendsBadgeEl = document.getElementById('friends-badge');
+    const friendsInputEl = document.getElementById('friends-input');
+    const friendsAddStatusEl = document.getElementById('friends-add-status');
+    let friendsCache = null; // { friends, incoming, outgoing }
+
+    function closeFriends() { friendsPanelEl.classList.add('hidden'); }
+    function toggleFriends() {
+      if (friendsPanelEl.classList.contains('hidden')) {
+        friendsPanelEl.classList.remove('hidden');
+        friendsBadgeEl.classList.add('hidden');
+        fetchFriends();
+      } else {
+        closeFriends();
+      }
+    }
+
+    async function fetchFriends() {
+      friendsContentEl.innerHTML = '<span class="text-zinc-500">Loading…</span>';
+      try {
+        const res = await fetch('/api/friends', { headers });
+        if (!res.ok) throw new Error('fetch failed');
+        const data = await res.json();
+        friendsCache = data;
+        renderFriendsPanel(data);
+        if (data.incoming.length > 0 && friendsPanelEl.classList.contains('hidden')) {
+          friendsBadgeEl.classList.remove('hidden');
+        } else {
+          friendsBadgeEl.classList.add('hidden');
+        }
+      } catch (_) {
+        friendsContentEl.innerHTML = '<span class="text-zinc-500">Couldn\'t load friends.</span>';
+      }
+    }
+
+    function renderFriendsPanel({ friends, incoming, outgoing }) {
+      const online = friends.filter((f) => f.online);
+      const offline = friends.filter((f) => !f.online);
+      let html = '';
+
+      if (online.length) {
+        html += '<div class="mb-2"><div class="text-zinc-500 text-[10px] font-semibold uppercase tracking-wide mb-1">Online</div>';
+        html += online.map((f) =>
+          '<div class="group flex items-center gap-1.5 py-0.5">' +
+          '<span class="inline-block w-2 h-2 rounded-full bg-green-400 shrink-0"></span>' +
+          '<span class="flex-1 truncate">' + escapeHtml(f.username) + '</span>' +
+          '<button class="remove-friend-btn ' + (isTouch ? '' : 'opacity-0 group-hover:opacity-100 ') + 'transition-opacity text-zinc-500 hover:text-red-400 leading-none cursor-pointer text-xs" data-id="' + f.id + '" title="Remove friend">✕</button>' +
+          '</div>'
+        ).join('');
+        html += '</div>';
+      }
+
+      if (offline.length) {
+        html += '<div class="mb-2"><div class="text-zinc-500 text-[10px] font-semibold uppercase tracking-wide mb-1">Offline</div>';
+        html += offline.map((f) =>
+          '<div class="group flex items-center gap-1.5 py-0.5 text-zinc-400">' +
+          '<span class="inline-block w-2 h-2 rounded-full bg-zinc-600 shrink-0"></span>' +
+          '<span class="flex-1 truncate">' + escapeHtml(f.username) + '</span>' +
+          '<button class="remove-friend-btn ' + (isTouch ? '' : 'opacity-0 group-hover:opacity-100 ') + 'transition-opacity text-zinc-500 hover:text-red-400 leading-none cursor-pointer text-xs" data-id="' + f.id + '" title="Remove friend">✕</button>' +
+          '</div>'
+        ).join('');
+        html += '</div>';
+      }
+
+      if (!online.length && !offline.length) {
+        html += '<p class="text-zinc-500 text-xs py-1">No friends yet — add someone below!</p>';
+      }
+
+      if (incoming.length || outgoing.length) {
+        html += '<div class="border-t border-zinc-700/60 mt-2 pt-2"><div class="text-zinc-500 text-[10px] font-semibold uppercase tracking-wide mb-1">Requests</div>';
+        html += incoming.map((r) =>
+          '<div class="flex items-center gap-1 py-0.5">' +
+          '<span class="flex-1 truncate text-zinc-300">' + escapeHtml(r.username) + '</span>' +
+          '<button class="accept-req-btn shrink-0 px-2 py-0.5 rounded text-[10px] font-semibold bg-violet-600 hover:bg-violet-500 text-white cursor-pointer" data-id="' + r.id + '">Accept</button>' +
+          '<button class="decline-req-btn shrink-0 px-2 py-0.5 rounded text-[10px] font-semibold bg-zinc-700 hover:bg-zinc-600 text-zinc-200 cursor-pointer ml-1" data-id="' + r.id + '">Decline</button>' +
+          '</div>'
+        ).join('');
+        html += outgoing.map((r) =>
+          '<div class="flex items-center gap-1.5 py-0.5 text-zinc-400">' +
+          '<span class="flex-1 truncate">' + escapeHtml(r.username) + '</span>' +
+          '<span class="text-[10px] text-zinc-500 shrink-0">sent</span>' +
+          '</div>'
+        ).join('');
+        html += '</div>';
+      }
+
+      friendsContentEl.innerHTML = html;
+
+      for (const btn of friendsContentEl.querySelectorAll('.remove-friend-btn')) {
+        btn.addEventListener('click', () => removeFriend(Number(btn.dataset.id)));
+      }
+      for (const btn of friendsContentEl.querySelectorAll('.accept-req-btn')) {
+        btn.addEventListener('click', () => acceptRequest(Number(btn.dataset.id)));
+      }
+      for (const btn of friendsContentEl.querySelectorAll('.decline-req-btn')) {
+        btn.addEventListener('click', () => declineRequest(Number(btn.dataset.id)));
+      }
+    }
+
+    async function sendFriendRequest(username) {
+      friendsAddStatusEl.textContent = '';
+      try {
+        const res = await fetch('/api/friends/request', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...headers },
+          body: JSON.stringify({ username }),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          friendsAddStatusEl.textContent = data.error || 'Failed';
+          friendsAddStatusEl.className = 'mt-1 text-xs text-center text-red-400';
+        } else {
+          friendsAddStatusEl.textContent = 'Request sent!';
+          friendsAddStatusEl.className = 'mt-1 text-xs text-center text-green-400';
+          friendsInputEl.value = '';
+          fetchFriends();
+        }
+      } catch (_) {
+        friendsAddStatusEl.textContent = 'Network error';
+        friendsAddStatusEl.className = 'mt-1 text-xs text-center text-red-400';
+      }
+    }
+
+    async function acceptRequest(id) {
+      try {
+        await fetch('/api/friends/' + id + '/accept', { method: 'POST', headers });
+        fetchFriends();
+      } catch (_) {}
+    }
+
+    async function declineRequest(id) {
+      try {
+        await fetch('/api/friends/' + id + '/decline', { method: 'POST', headers });
+        fetchFriends();
+      } catch (_) {}
+    }
+
+    async function removeFriend(id) {
+      try {
+        await fetch('/api/friends/' + id, { method: 'DELETE', headers });
+        fetchFriends();
+      } catch (_) {}
+    }
+
+    document.getElementById('friends-btn').addEventListener('click', toggleFriends);
+    document.getElementById('friends-close').addEventListener('click', closeFriends);
+    document.getElementById('friends-add-btn').addEventListener('click', () => {
+      const u = friendsInputEl.value.trim();
+      if (u) sendFriendRequest(u);
+    });
+    friendsInputEl.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        const u = friendsInputEl.value.trim();
+        if (u) sendFriendRequest(u);
+      }
+    });
 
     // ---- Palette UI ----
     function selectType(id) {
@@ -1926,8 +2143,18 @@
     async function heartbeat() {
       if (!token) return;
       try {
-        await fetch('/api/presence/ping', { method: 'POST', headers });
-      } catch (_) { /* fire-and-forget */ }
+        const res = await fetch('/api/presence/ping', { method: 'POST', headers });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (data.streak) updateStreakHud(data.streak.current);
+        if (data.newly_earned_badges && data.newly_earned_badges.length) {
+          for (const badge of data.newly_earned_badges) {
+            earnedBadges.set(badge.id, { earned_at: badge.earned_at });
+            showBadgeToast(badge);
+          }
+          renderBadgesPanel();
+        }
+      } catch (_) { /* transient */ }
     }
 
     const onlineListEl = document.getElementById('online-list');
@@ -1942,12 +2169,53 @@
           return;
         }
         onlineListEl.innerHTML = '<div class="mb-1 text-zinc-500 text-xs font-semibold uppercase tracking-wide">Online now</div>' +
-          users.map((u) =>
-            '<div class="flex items-center gap-1.5 py-0.5">' +
-            '<span class="inline-block w-2 h-2 rounded-full bg-green-400 shrink-0"></span>' +
-            '<span>' + u.username.replace(/&/g, '&amp;').replace(/</g, '&lt;') + '</span>' +
-            '</div>'
-          ).join('');
+          users.map((u) => {
+            const safe = u.username.replace(/&/g, '&amp;').replace(/</g, '&lt;');
+            const isSelf = myUsername && u.username.toLowerCase() === myUsername.toLowerCase();
+            let statusHtml = '';
+            if (!isSelf && friendsCache) {
+              const lc = u.username.toLowerCase();
+              const isFriend = friendsCache.friends.some((f) => f.username.toLowerCase() === lc);
+              const isOutgoing = friendsCache.outgoing.some((r) => r.username.toLowerCase() === lc);
+              const isIncoming = friendsCache.incoming.some((r) => r.username.toLowerCase() === lc);
+              if (isFriend) {
+                statusHtml = '<span class="text-green-400 text-xs ml-1">✓</span>';
+              } else if (isOutgoing) {
+                statusHtml = '<span class="text-zinc-500 text-xs ml-1">pending</span>';
+              } else if (isIncoming) {
+                statusHtml = '<button class="ol-accept-btn text-xs ml-1 px-1.5 py-0.5 rounded bg-violet-600 hover:bg-violet-500 text-white cursor-pointer" data-username="' + safe + '">Accept</button>';
+              } else {
+                statusHtml = '<button class="ol-add-btn text-xs ml-1 px-1.5 py-0.5 rounded bg-zinc-700 hover:bg-zinc-600 text-zinc-200 cursor-pointer" data-username="' + safe + '">+ Add</button>';
+              }
+            } else if (!isSelf && !friendsCache) {
+              statusHtml = '<button class="ol-add-btn text-xs ml-1 px-1.5 py-0.5 rounded bg-zinc-700 hover:bg-zinc-600 text-zinc-200 cursor-pointer" data-username="' + safe + '">+ Add</button>';
+            }
+            return '<div class="flex items-center gap-1.5 py-0.5">' +
+              '<span class="inline-block w-2 h-2 rounded-full bg-green-400 shrink-0"></span>' +
+              '<span>' + safe + '</span>' +
+              statusHtml +
+              '</div>';
+          }).join('');
+
+        // Event delegation for Add / Accept buttons in the online list
+        onlineListEl.onclick = (e) => {
+          const addBtn = e.target.closest('.ol-add-btn');
+          const acceptBtn = e.target.closest('.ol-accept-btn');
+          if (addBtn) {
+            addBtn.textContent = '…';
+            addBtn.disabled = true;
+            sendFriendRequest(addBtn.dataset.username).then(() => pollPresence());
+          } else if (acceptBtn) {
+            const incomingReq = friendsCache && friendsCache.incoming.find(
+              (r) => r.username.toLowerCase() === acceptBtn.dataset.username.toLowerCase()
+            );
+            if (incomingReq) {
+              acceptBtn.textContent = '…';
+              acceptBtn.disabled = true;
+              acceptRequest(incomingReq.id).then(() => pollPresence());
+            }
+          }
+        };
       } catch (_) { /* transient */ }
     }
 
@@ -2113,10 +2381,23 @@
       } catch (_) { /* non-critical; panel will populate on first badge earned */ }
       await loadChat();
 
+      // Load friends once so the badge is correct and the online list
+      // can show friend status on first render. Non-fatal if unavailable.
+      fetchFriends().catch(() => {});
+
       // Load today's challenge progress (non-fatal if unavailable).
       try {
         const cr = await fetch('/api/challenge/today', { headers });
         if (cr.ok) syncChallenge(await cr.json());
+      } catch (_) {}
+
+      // Load login streak so the HUD shows immediately without waiting for heartbeat.
+      try {
+        const sr = await fetch('/api/streak', { headers });
+        if (sr.ok) {
+          const sd = await sr.json();
+          if (sd.current_streak > 0) updateStreakHud(sd.current_streak);
+        }
       } catch (_) {}
 
 
