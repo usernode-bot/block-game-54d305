@@ -50,6 +50,68 @@ const BLOCK_POINTS = {
   17: 5,  // Rainbow Block
 };
 
+// Dev-authored puzzle levels. Definitions are hardcoded here; cells are
+// absolute world coordinates. Any block type satisfies a cell — only
+// position matters for the win condition.
+const PUZZLES = [
+  {
+    id: 1,
+    name: 'Line',
+    description: 'Place 5 blocks in a straight row',
+    cells: [
+      { x: 16, y: 1, z: 12 }, { x: 16, y: 1, z: 13 }, { x: 16, y: 1, z: 14 },
+      { x: 16, y: 1, z: 15 }, { x: 16, y: 1, z: 16 },
+    ],
+  },
+  {
+    id: 2,
+    name: 'L-Shape',
+    description: 'Build an L-shaped formation',
+    cells: [
+      { x: 14, y: 1, z: 16 }, { x: 15, y: 1, z: 16 }, { x: 16, y: 1, z: 16 },
+      { x: 17, y: 1, z: 16 }, { x: 18, y: 1, z: 16 },
+      { x: 14, y: 1, z: 17 }, { x: 14, y: 1, z: 18 }, { x: 14, y: 1, z: 19 },
+    ],
+  },
+  {
+    id: 3,
+    name: 'Cross',
+    description: 'Fill a plus-sign cross shape',
+    cells: [
+      { x: 16, y: 1, z: 13 }, { x: 16, y: 1, z: 14 }, { x: 16, y: 1, z: 15 },
+      { x: 16, y: 1, z: 16 },
+      { x: 16, y: 1, z: 17 }, { x: 16, y: 1, z: 18 }, { x: 16, y: 1, z: 19 },
+      { x: 13, y: 1, z: 16 }, { x: 14, y: 1, z: 16 }, { x: 15, y: 1, z: 16 },
+      { x: 17, y: 1, z: 16 }, { x: 18, y: 1, z: 16 }, { x: 19, y: 1, z: 16 },
+    ],
+  },
+  {
+    id: 4,
+    name: 'Staircase',
+    description: 'Build a 4-step ascending staircase',
+    cells: [
+      { x: 14, y: 1, z: 16 }, { x: 15, y: 1, z: 16 }, { x: 16, y: 1, z: 16 },
+      { x: 14, y: 2, z: 15 }, { x: 15, y: 2, z: 15 }, { x: 16, y: 2, z: 15 },
+      { x: 14, y: 3, z: 14 }, { x: 15, y: 3, z: 14 }, { x: 16, y: 3, z: 14 },
+      { x: 14, y: 4, z: 13 }, { x: 15, y: 4, z: 13 }, { x: 16, y: 4, z: 13 },
+    ],
+  },
+  {
+    id: 5,
+    name: 'Ring',
+    description: 'Outline a hollow 5x5 square ring',
+    cells: [
+      { x: 14, y: 1, z: 14 }, { x: 15, y: 1, z: 14 }, { x: 16, y: 1, z: 14 },
+      { x: 17, y: 1, z: 14 }, { x: 18, y: 1, z: 14 },
+      { x: 14, y: 1, z: 15 }, { x: 18, y: 1, z: 15 },
+      { x: 14, y: 1, z: 16 }, { x: 18, y: 1, z: 16 },
+      { x: 14, y: 1, z: 17 }, { x: 18, y: 1, z: 17 },
+      { x: 14, y: 1, z: 18 }, { x: 15, y: 1, z: 18 }, { x: 16, y: 1, z: 18 },
+      { x: 17, y: 1, z: 18 }, { x: 18, y: 1, z: 18 },
+    ],
+  },
+];
+
 // Sentinel "user" id for staging seed rows so they never reference a real user.
 const SEED_USER_ID = 0;
 
@@ -304,6 +366,51 @@ app.get('/api/block/:x/:y/:z', async (req, res) => {
   }
 });
 
+// ---- Puzzle: list all puzzle definitions with cells ----
+app.get('/api/puzzles', (_req, res) => {
+  res.json({
+    puzzles: PUZZLES.map((p) => ({
+      id: p.id,
+      name: p.name,
+      description: p.description,
+      cells: p.cells,
+      cellCount: p.cells.length,
+    })),
+  });
+});
+
+// ---- Puzzle: record a completion for the calling user (idempotent) ----
+app.post('/api/puzzle/complete', async (req, res) => {
+  try {
+    const puzzleId = Number(req.body.puzzleId);
+    if (!PUZZLES.find((p) => p.id === puzzleId)) {
+      return res.status(400).json({ error: 'unknown puzzleId' });
+    }
+    await pool.query(
+      `INSERT INTO puzzle_completions (user_id, puzzle_id, completed_at)
+       VALUES ($1, $2, NOW())
+       ON CONFLICT (user_id, puzzle_id) DO NOTHING`,
+      [req.user.id, puzzleId]
+    );
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- Puzzle: which levels has the caller already completed? ----
+app.get('/api/puzzle/progress', async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT puzzle_id FROM puzzle_completions WHERE user_id = $1`,
+      [req.user.id]
+    );
+    res.json({ completed: rows.map((r) => r.puzzle_id) });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.use(express.static(path.join(__dirname, 'public'), {
   setHeaders(res, filePath) {
     // The entire game is inline in index.html, so a cached shell hides a
@@ -413,6 +520,22 @@ async function seedStaging() {
       [s.id, s.username, s.total_score, s.blocks_placed, s.best_combo]
     );
   }
+
+  // Seed puzzle completions so the level list shows a realistic mix of
+  // completed / uncompleted levels for the staging fake users.
+  const fakeCompletions = [
+    { userId: -1, puzzleId: 1 }, { userId: -1, puzzleId: 2 },
+    { userId: -2, puzzleId: 1 },
+    { userId: -3, puzzleId: 1 }, { userId: -3, puzzleId: 2 }, { userId: -3, puzzleId: 3 },
+  ];
+  for (const c of fakeCompletions) {
+    await pool.query(
+      `INSERT INTO puzzle_completions (user_id, puzzle_id, completed_at)
+       VALUES ($1, $2, NOW())
+       ON CONFLICT (user_id, puzzle_id) DO NOTHING`,
+      [c.userId, c.puzzleId]
+    );
+  }
 }
 
 async function start() {
@@ -449,6 +572,15 @@ async function start() {
       user_id  INTEGER PRIMARY KEY,
       username VARCHAR(255) NOT NULL,
       last_seen TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS puzzle_completions (
+      user_id    INTEGER NOT NULL,
+      puzzle_id  SMALLINT NOT NULL,
+      completed_at TIMESTAMPTZ DEFAULT NOW(),
+      PRIMARY KEY (user_id, puzzle_id)
     )
   `);
 

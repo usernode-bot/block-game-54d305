@@ -118,13 +118,32 @@
        player-placed block. Hidden by default; shown/hidden by JS. -->
   <div id="attribution" class="hidden pointer-events-none fixed left-1/2 z-10 text-xs text-white/90 bg-black/55 rounded px-2 py-1 font-medium whitespace-nowrap" style="top: calc(50% + 20px); transform: translateX(-50%);"></div>
 
+  <!-- Puzzle hint: flashes briefly when player tries to place outside target area -->
+  <div id="puzzle-hint" class="hidden pointer-events-none fixed left-1/2 z-10 text-xs text-amber-300 bg-black/65 rounded px-2 py-1 font-medium whitespace-nowrap" style="top: calc(50% + 44px); transform: translateX(-50%);">Place inside the highlighted area</div>
+
   <!-- Click-to-play overlay -->
   <div id="overlay" class="fixed inset-0 z-30 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-    <div class="max-w-md p-8 text-center">
+    <div class="max-w-md w-full mx-4 p-8 text-center">
       <h1 class="text-2xl font-bold mb-2">block-game</h1>
       <p class="text-zinc-300 mb-1">A shared 3D world everyone builds together.</p>
-      <p id="overlay-help" class="text-zinc-500 text-sm mb-6">Click to play — move the mouse to look, press Esc to release. If your browser blocks mouse-lock, you can drag to look instead.</p>
-      <button id="play-btn" class="px-5 py-2 rounded-lg bg-violet-600 hover:bg-violet-500 font-semibold">Click to play</button>
+      <p id="overlay-help" class="text-zinc-500 text-sm mb-6">Choose a mode to start playing.</p>
+
+      <!-- Mode selection -->
+      <div id="mode-select">
+        <div class="flex flex-col sm:flex-row gap-3 justify-center mb-2">
+          <button id="play-btn" class="px-5 py-2 rounded-lg bg-violet-600 hover:bg-violet-500 font-semibold">Free Build</button>
+          <button id="puzzle-mode-btn" class="px-5 py-2 rounded-lg bg-emerald-700 hover:bg-emerald-600 font-semibold">Puzzle Mode</button>
+        </div>
+      </div>
+
+      <!-- Level selection (hidden until Puzzle Mode is clicked) -->
+      <div id="level-select" class="hidden">
+        <div class="mb-3">
+          <button id="back-to-modes" class="text-sm text-zinc-400 hover:text-zinc-200 transition-colors">&larr; Back</button>
+        </div>
+        <div id="level-list" class="text-left space-y-2 max-h-64 overflow-y-auto pr-1"></div>
+      </div>
+
       <div id="status" class="mt-4 text-sm text-zinc-500"></div>
       <div id="online-list" class="mt-4 text-sm text-zinc-400"></div>
     </div>
@@ -152,7 +171,7 @@
 
   <!-- Audio mute toggle: sits to the left of the help button. -->
   <button id="mute-btn" title="Mute/unmute audio (M)" aria-label="Toggle audio"
-          class="fixed top-3 right-14 z-30 w-9 h-9 rounded-full bg-black/50 hover:bg-black/70 text-zinc-100 text-lg leading-none flex items-center justify-center transition-colors cursor-pointer">🔊</button>
+          class="fixed top-3 right-14 z-30 w-9 h-9 rounded-full bg-black/50 hover:bg-black/70 text-zinc-100 text-lg leading-none flex items-center justify-center transition-colors cursor-pointer">&#128266;</button>
 
   <!-- Help/controls toggle: circular "(?)" button fixed in the top-right
        corner. Clicking it does exactly what pressing `h` does — show/hide the
@@ -170,7 +189,7 @@
   <div id="controls" class="hidden fixed top-16 right-3 z-30 w-72 max-w-[90vw] rounded-xl bg-black/70 backdrop-blur p-4 text-sm text-zinc-200 shadow-xl">
     <div class="flex items-center justify-between mb-2">
       <h2 class="font-bold text-zinc-100">Controls</h2>
-      <button id="controls-close" aria-label="Close controls" class="text-zinc-400 hover:text-zinc-100 cursor-pointer leading-none">✕</button>
+      <button id="controls-close" aria-label="Close controls" class="text-zinc-400 hover:text-zinc-100 cursor-pointer leading-none">&#x2715;</button>
     </div>
     <ul class="space-y-1.5">
       <li><span class="font-semibold">WASD</span> / arrows — move</li>
@@ -179,7 +198,7 @@
       <li><span class="font-semibold">Right-click</span> or <span class="font-semibold">G</span> — delete a block</li>
       <li><span class="font-semibold">1–9</span> — pick block type</li>
       <li><span class="font-semibold">H</span> or <span class="font-semibold">(?)</span> — toggle this panel</li>
-      <li><span class="font-semibold">M</span> or <span class="font-semibold">🔊</span> — mute / unmute audio</li>
+      <li><span class="font-semibold">M</span> or speaker — mute / unmute audio</li>
       <li><span class="font-semibold">Esc</span> — release / menu</li>
     </ul>
   </div>
@@ -191,14 +210,14 @@
        once on press. Hidden until JS reveals it on a touch device. -->
   <div id="touch-controls" class="hidden absolute inset-0 z-20 pointer-events-none select-none">
     <!-- Menu / pause (Esc equivalent), top-left -->
-    <button data-act="menu" class="touch-ctrl pointer-events-auto absolute top-3 left-3 px-3 h-9 rounded-lg bg-black/45 active:bg-black/70 text-zinc-100 text-sm font-semibold flex items-center justify-center">☰ Menu</button>
+    <button data-act="menu" class="touch-ctrl pointer-events-auto absolute top-3 left-3 px-3 h-9 rounded-lg bg-black/45 active:bg-black/70 text-zinc-100 text-sm font-semibold flex items-center justify-center">&#9776; Menu</button>
 
     <!-- Move pad (forward/back/left/right), bottom-left -->
     <div class="absolute left-4 bottom-4 grid grid-cols-3 grid-rows-3 gap-1.5 opacity-90">
-      <button data-mv="f" class="touch-ctrl pointer-events-auto col-start-2 row-start-1 w-14 h-14 rounded-xl bg-black/40 active:bg-black/70 text-2xl text-zinc-100 flex items-center justify-center">▲</button>
-      <button data-mv="l" class="touch-ctrl pointer-events-auto col-start-1 row-start-2 w-14 h-14 rounded-xl bg-black/40 active:bg-black/70 text-2xl text-zinc-100 flex items-center justify-center">◀</button>
-      <button data-mv="r" class="touch-ctrl pointer-events-auto col-start-3 row-start-2 w-14 h-14 rounded-xl bg-black/40 active:bg-black/70 text-2xl text-zinc-100 flex items-center justify-center">▶</button>
-      <button data-mv="b" class="touch-ctrl pointer-events-auto col-start-2 row-start-3 w-14 h-14 rounded-xl bg-black/40 active:bg-black/70 text-2xl text-zinc-100 flex items-center justify-center">▼</button>
+      <button data-mv="f" class="touch-ctrl pointer-events-auto col-start-2 row-start-1 w-14 h-14 rounded-xl bg-black/40 active:bg-black/70 text-2xl text-zinc-100 flex items-center justify-center">&#9650;</button>
+      <button data-mv="l" class="touch-ctrl pointer-events-auto col-start-1 row-start-2 w-14 h-14 rounded-xl bg-black/40 active:bg-black/70 text-2xl text-zinc-100 flex items-center justify-center">&#9664;</button>
+      <button data-mv="r" class="touch-ctrl pointer-events-auto col-start-3 row-start-2 w-14 h-14 rounded-xl bg-black/40 active:bg-black/70 text-2xl text-zinc-100 flex items-center justify-center">&#9654;</button>
+      <button data-mv="b" class="touch-ctrl pointer-events-auto col-start-2 row-start-3 w-14 h-14 rounded-xl bg-black/40 active:bg-black/70 text-2xl text-zinc-100 flex items-center justify-center">&#9660;</button>
     </div>
 
     <!-- Fly + build cluster, bottom-right -->
@@ -210,6 +229,25 @@
       <div class="flex gap-2">
         <button data-act="break" class="touch-ctrl pointer-events-auto w-16 h-16 rounded-2xl bg-rose-600/55 active:bg-rose-500/80 text-sm font-bold text-white flex items-center justify-center">Delete</button>
         <button data-act="place" class="touch-ctrl pointer-events-auto w-16 h-16 rounded-2xl bg-emerald-600/55 active:bg-emerald-500/80 text-sm font-bold text-white flex items-center justify-center">Add</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Puzzle HUD: level name + progress counter, top-left while in puzzle mode -->
+  <div id="puzzle-hud" class="hidden pointer-events-none fixed top-3 left-3 z-20 bg-black/55 rounded-lg px-3 py-2">
+    <div id="puzzle-level-label" class="text-sm font-semibold text-zinc-100"></div>
+    <div id="puzzle-progress" class="text-xs text-zinc-400 mt-0.5"></div>
+  </div>
+
+  <!-- Puzzle win overlay: shown when all cells are filled -->
+  <div id="puzzle-win" class="hidden fixed inset-0 z-40 flex items-center justify-center bg-black/75 backdrop-blur-sm">
+    <div class="max-w-sm w-full mx-4 p-8 text-center bg-zinc-900 rounded-2xl shadow-2xl border border-zinc-700">
+      <div class="text-emerald-400 text-sm font-semibold uppercase tracking-wide mb-2">Puzzle Complete</div>
+      <h2 id="puzzle-win-title" class="text-2xl font-bold mb-2 text-zinc-100"></h2>
+      <p id="puzzle-win-count" class="text-zinc-400 mb-6"></p>
+      <div class="flex gap-3 justify-center">
+        <button id="puzzle-next-btn" class="px-5 py-2 rounded-lg bg-violet-600 hover:bg-violet-500 font-semibold transition-colors">Next Level</button>
+        <button id="puzzle-win-menu-btn" class="px-5 py-2 rounded-lg bg-zinc-700 hover:bg-zinc-600 font-semibold transition-colors">Return to Menu</button>
       </div>
     </div>
   </div>
@@ -226,7 +264,7 @@
 
     // Build identifier — bump this (to the deploying commit short SHA) on every
     // change so the top-right stamp confirms exactly which code is running.
-    const BUILD_VERSION = 'online-presence+block-attribution+audio-sfx';
+    const BUILD_VERSION = 'puzzle-mode';
 
     // Touch capability: drives (a) the on-screen control overlay, (b) skipping
     // mouse-lock in favour of direct touch play, and (c) portrait force-rotation.
@@ -421,6 +459,19 @@
     let selectedType = 1;
     const key = (x, y, z) => x + ',' + y + ',' + z;
 
+    // ---- Puzzle state ----
+    let puzzleMode = false;          // true while a puzzle is active
+    let puzzleWon = false;           // true briefly after winning; prevents double-trigger
+    let activePuzzle = null;         // current puzzle definition from /api/puzzles
+    const puzzleBlocks = new Map();  // "x,y,z" -> block_type for this attempt (in-memory only)
+    const puzzleTargetSet = new Set(); // "x,y,z" keys of all target cells
+    let ghostMesh = null;            // InstancedMesh of unfilled target cells
+    let allPuzzles = [];             // fetched once from /api/puzzles
+    let completedPuzzleIds = new Set(); // fetched once from /api/puzzle/progress
+    let pollIntervalId = null;       // stored so it can be paused during puzzle mode
+    let skipExitOnLockRelease = false; // prevents overlay from showing on puzzle-win lock release
+    let _puzzleHintTimer = null;     // fade-out timer for the placement hint
+
     // ---- Three.js scaffold ----
     const canvas = document.getElementById('scene');
     const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
@@ -524,6 +575,34 @@
       }
     }
 
+    // Puzzle block rendering — same pattern as rebuildBlockMeshes but reads
+    // from puzzleBlocks and writes to puzzleBlockGroup (shared world untouched).
+    const puzzleBlockGroup = new THREE.Group();
+    scene.add(puzzleBlockGroup);
+    function rebuildPuzzleBlockMeshes() {
+      puzzleBlockGroup.clear();
+      const byType = new Map();
+      for (const [k, t] of puzzleBlocks) {
+        if (!byType.has(t)) byType.set(t, []);
+        const [x, y, z] = k.split(',').map(Number);
+        byType.get(t).push({ x, y, z });
+      }
+      const dummy = new THREE.Object3D();
+      for (const [t, cells] of byType) {
+        const p = PALETTE.find((q) => q.id === t);
+        if (!p) continue;
+        const mesh = new THREE.InstancedMesh(cube, materialFor(p), cells.length);
+        cells.forEach((c, i) => {
+          dummy.position.set(c.x + 0.5, c.y + 0.5, c.z + 0.5);
+          dummy.updateMatrix();
+          mesh.setMatrixAt(i, dummy.matrix);
+        });
+        mesh.instanceMatrix.needsUpdate = true;
+        mesh.userData.cells = cells;
+        puzzleBlockGroup.add(mesh);
+      }
+    }
+
     // Targeting highlight (thin wireframe box on the aimed cell).
     const highlight = new THREE.LineSegments(
       new THREE.EdgesGeometry(cube),
@@ -535,7 +614,7 @@
     // ---- Raycast from screen center to find the aimed cell + face ----
     const raycaster = new THREE.Raycaster();
     const centre = new THREE.Vector2(0, 0);
-    let target = null; // { cell:{x,y,z}, place:{x,y,z} }
+    let target = null; // { cell:{x,y,z}, place:{x,y,z}, isGhost:bool }
 
     // ---- Block attribution ("Who built this?") ----
     const attributionEl = document.getElementById('attribution');
@@ -580,6 +659,8 @@
     }
 
     function updateAttribution() {
+      // No attribution in puzzle mode — puzzle blocks aren't in the shared DB.
+      if (puzzleMode) { clearAttribution(); return; }
       if (!target || target.cell.y < 1 || !blocks.has(key(target.cell.x, target.cell.y, target.cell.z))) {
         clearAttribution();
       } else {
@@ -590,7 +671,10 @@
 
     function updateTarget() {
       raycaster.setFromCamera(centre, camera);
-      const targets = [groundMesh, ...blockGroup.children].filter(Boolean);
+      // In puzzle mode: include ghost mesh and puzzle block group; hide shared world.
+      const targets = puzzleMode
+        ? [groundMesh, ghostMesh, ...puzzleBlockGroup.children].filter(Boolean)
+        : [groundMesh, ...blockGroup.children].filter(Boolean);
       const hits = raycaster.intersectObjects(targets, false);
       target = null;
       highlight.visible = false;
@@ -603,6 +687,7 @@
       target = {
         cell,
         place: { x: cell.x + n.x, y: cell.y + n.y, z: cell.z + n.z },
+        isGhost: !!(hit.object.userData.isGhost),
       };
       highlight.position.set(cell.x + 0.5, cell.y + 0.5, cell.z + 0.5);
       highlight.visible = true;
@@ -633,8 +718,248 @@
       } catch (e) { /* poll loop will reconcile */ }
     }
 
+    // ---- Ghost block mesh for puzzle mode ----
+    // Rebuilds the ghost mesh showing only unfilled target cells. Old mesh is
+    // removed from scene before creating the new one.
+    function updateGhostMesh() {
+      if (ghostMesh) { scene.remove(ghostMesh); ghostMesh = null; }
+      if (!activePuzzle) return;
+      const unfilled = activePuzzle.cells.filter((c) => !puzzleBlocks.has(key(c.x, c.y, c.z)));
+      if (!unfilled.length) return;
+      const mat = new THREE.MeshLambertMaterial({
+        color: new THREE.Color('#7dd3fc'),
+        transparent: true,
+        opacity: 0.45,
+        depthWrite: false,
+      });
+      const mesh = new THREE.InstancedMesh(cube, mat, unfilled.length);
+      mesh.userData.cells = unfilled;
+      mesh.userData.isGhost = true;
+      mesh.renderOrder = 1;
+      const dummy = new THREE.Object3D();
+      unfilled.forEach((c, i) => {
+        dummy.position.set(c.x + 0.5, c.y + 0.5, c.z + 0.5);
+        dummy.updateMatrix();
+        mesh.setMatrixAt(i, dummy.matrix);
+      });
+      mesh.instanceMatrix.needsUpdate = true;
+      ghostMesh = mesh;
+      scene.add(ghostMesh);
+    }
+
+    // ---- Puzzle placement hint flash ----
+    function flashPuzzleHint() {
+      const el = document.getElementById('puzzle-hint');
+      el.style.transition = 'none';
+      el.style.opacity = '1';
+      el.classList.remove('hidden');
+      if (_puzzleHintTimer) { clearTimeout(_puzzleHintTimer); _puzzleHintTimer = null; }
+      _puzzleHintTimer = setTimeout(() => {
+        el.style.transition = 'opacity 1.5s';
+        el.style.opacity = '0';
+        _puzzleHintTimer = setTimeout(() => {
+          el.classList.add('hidden');
+          _puzzleHintTimer = null;
+        }, 1500);
+      }, 600);
+    }
+
+    function updatePuzzleProgress() {
+      document.getElementById('puzzle-progress').textContent =
+        puzzleBlocks.size + ' / ' + puzzleTargetSet.size + ' filled';
+    }
+
+    // ---- Puzzle win detection ----
+    function checkPuzzleWin() {
+      if (puzzleWon) return;
+      if (puzzleBlocks.size < puzzleTargetSet.size) return;
+      for (const k of puzzleBlocks.keys()) {
+        if (!puzzleTargetSet.has(k)) return; // defensive check
+      }
+      onPuzzleComplete();
+    }
+
+    async function onPuzzleComplete() {
+      puzzleWon = true;
+      // Release pointer lock so the player can click the win overlay buttons.
+      if (locked) {
+        skipExitOnLockRelease = true;
+        document.exitPointerLock();
+      }
+      playing = false;
+      resetMove();
+      canvas.style.cursor = '';
+
+      // Persist completion to server (fire-and-forget — UX is not blocked on it).
+      try {
+        await fetch('/api/puzzle/complete', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...headers },
+          body: JSON.stringify({ puzzleId: activePuzzle.id }),
+        });
+        completedPuzzleIds.add(activePuzzle.id);
+      } catch (_) {}
+
+      const winTitleEl = document.getElementById('puzzle-win-title');
+      const winCountEl = document.getElementById('puzzle-win-count');
+      const nextBtn = document.getElementById('puzzle-next-btn');
+      const menuBtn = document.getElementById('puzzle-win-menu-btn');
+
+      winTitleEl.textContent = 'Level ' + activePuzzle.id + ' Complete!';
+      winCountEl.textContent = 'You filled all ' + puzzleTargetSet.size + ' cells.';
+
+      const nextPuzzle = allPuzzles.find((p) => p.id === activePuzzle.id + 1);
+      if (nextPuzzle) {
+        nextBtn.textContent = 'Next Level';
+        nextBtn.onclick = () => {
+          document.getElementById('puzzle-win').classList.add('hidden');
+          startPuzzle(nextPuzzle);
+        };
+        nextBtn.classList.remove('hidden');
+      } else {
+        nextBtn.textContent = 'All Puzzles Done!';
+        nextBtn.onclick = () => {
+          document.getElementById('puzzle-win').classList.add('hidden');
+          exitPuzzleMode();
+          exitToMenu();
+        };
+        nextBtn.classList.remove('hidden');
+      }
+
+      menuBtn.onclick = () => {
+        document.getElementById('puzzle-win').classList.add('hidden');
+        exitPuzzleMode();
+        exitToMenu();
+      };
+
+      document.getElementById('puzzle-win').classList.remove('hidden');
+    }
+
+    // ---- Enter / exit puzzle mode ----
+    function enterPuzzleMode(puzzle) {
+      puzzleMode = true;
+      puzzleWon = false;
+      skipExitOnLockRelease = false;
+      activePuzzle = puzzle;
+      puzzleBlocks.clear();
+      puzzleTargetSet.clear();
+      for (const c of puzzle.cells) puzzleTargetSet.add(key(c.x, c.y, c.z));
+
+      // Hide shared world blocks; pause delta polling.
+      blockGroup.visible = false;
+      if (pollIntervalId !== null) { clearInterval(pollIntervalId); pollIntervalId = null; }
+
+      // Build ghost mesh and (empty) puzzle block rendering.
+      updateGhostMesh();
+      rebuildPuzzleBlockMeshes();
+
+      // Spawn camera centered on the puzzle's cell centroid.
+      const cx = puzzle.cells.reduce((s, c) => s + c.x, 0) / puzzle.cells.length;
+      const cy = puzzle.cells.reduce((s, c) => s + c.y, 0) / puzzle.cells.length;
+      const cz = puzzle.cells.reduce((s, c) => s + c.z, 0) / puzzle.cells.length;
+      camera.position.set(cx, cy + 6, cz + 10);
+      const tgt = new THREE.Vector3(cx, cy, cz);
+      const dir = tgt.clone().sub(camera.position).normalize();
+      pitch = Math.asin(Math.max(-1, Math.min(1, dir.y)));
+      yaw = Math.atan2(-dir.x, -dir.z);
+      applyLook();
+
+      // Show HUD.
+      document.getElementById('puzzle-hud').classList.remove('hidden');
+      document.getElementById('puzzle-level-label').textContent =
+        'Level ' + puzzle.id + ' · ' + puzzle.name;
+      updatePuzzleProgress();
+    }
+
+    function exitPuzzleMode() {
+      if (!puzzleMode) return;
+      puzzleMode = false;
+      activePuzzle = null;
+      puzzleBlocks.clear();
+      puzzleTargetSet.clear();
+
+      // Remove ghost mesh, clear puzzle blocks.
+      if (ghostMesh) { scene.remove(ghostMesh); ghostMesh = null; }
+      puzzleBlockGroup.clear();
+
+      // Restore shared world and resume delta polling.
+      blockGroup.visible = true;
+      if (pollIntervalId === null) {
+        pollIntervalId = setInterval(poll, 1500);
+      }
+
+      document.getElementById('puzzle-hud').classList.add('hidden');
+      document.getElementById('puzzle-win').classList.add('hidden');
+
+      // Ensure overlay shows mode-select (not level-select) when returning to menu.
+      document.getElementById('mode-select').classList.remove('hidden');
+      document.getElementById('level-select').classList.add('hidden');
+    }
+
+    // ---- Start a puzzle (called from level-select Play button or Next Level) ----
+    function startPuzzle(puzzle) {
+      audio.init();
+      enterPuzzleMode(puzzle);
+      tryPointerLock();
+    }
+
+    // ---- Level-select list rendering ----
+    function renderLevelSelect() {
+      const listEl = document.getElementById('level-list');
+      if (!allPuzzles.length) {
+        listEl.innerHTML = '<p class="text-zinc-500 text-sm py-2">Loading levels…</p>';
+        return;
+      }
+      listEl.innerHTML = allPuzzles.map((p) => {
+        const done = completedPuzzleIds.has(p.id);
+        return '<div class="flex items-center justify-between p-3 rounded-lg bg-white/5 hover:bg-white/10 transition-colors">'
+          + '<div class="min-w-0 pr-2">'
+          + '<div class="font-medium text-zinc-100 text-sm">'
+          + 'Level ' + p.id + ' · ' + p.name
+          + (done ? ' <span class="text-emerald-400 text-xs">&#10003;</span>' : '')
+          + '</div>'
+          + '<div class="text-xs text-zinc-500 mt-0.5">' + p.cellCount + ' blocks · ' + p.description + '</div>'
+          + '</div>'
+          + '<button class="play-level-btn flex-shrink-0 px-3 py-1.5 rounded-lg bg-violet-600 hover:bg-violet-500 text-sm font-semibold transition-colors" data-puzzle-id="' + p.id + '">Play</button>'
+          + '</div>';
+      }).join('');
+
+      for (const btn of listEl.querySelectorAll('.play-level-btn')) {
+        btn.addEventListener('click', () => {
+          const puzzle = allPuzzles.find((p) => p.id === Number(btn.dataset.puzzleId));
+          if (puzzle) startPuzzle(puzzle);
+        });
+      }
+    }
+
     function placeBlock() {
       if (!target) return;
+
+      // ---- Puzzle mode branch ----
+      if (puzzleMode) {
+        const cellKey = key(target.cell.x, target.cell.y, target.cell.z);
+        let fillCell = null;
+        if (target.isGhost && puzzleTargetSet.has(cellKey) && !puzzleBlocks.has(cellKey)) {
+          // Clicked directly on an unfilled ghost cell — fill it.
+          fillCell = target.cell;
+        } else {
+          const placeKey = key(target.place.x, target.place.y, target.place.z);
+          if (puzzleTargetSet.has(placeKey) && !puzzleBlocks.has(placeKey)) {
+            // Adjacent placement lands on a ghost cell — fill it.
+            fillCell = target.place;
+          }
+        }
+        if (!fillCell) { flashPuzzleHint(); return; }
+        puzzleBlocks.set(key(fillCell.x, fillCell.y, fillCell.z), selectedType);
+        updateGhostMesh();
+        rebuildPuzzleBlockMeshes();
+        audio.playPlace();
+        updatePuzzleProgress();
+        checkPuzzleWin();
+        return;
+      }
+
+      // ---- Shared world branch ----
       const { x, y, z } = target.place;
       if (!inBounds(x, y, z)) return;
       if (blocks.get(key(x, y, z)) === selectedType) return;
@@ -644,6 +969,20 @@
     function breakBlock() {
       if (!target) return;
       const { x, y, z } = target.cell;
+
+      // ---- Puzzle mode branch ----
+      if (puzzleMode) {
+        const k = key(x, y, z);
+        if (!puzzleBlocks.has(k)) return;
+        puzzleBlocks.delete(k);
+        updateGhostMesh();
+        rebuildPuzzleBlockMeshes();
+        audio.playBreak();
+        updatePuzzleProgress();
+        return;
+      }
+
+      // ---- Shared world branch ----
       if (y < 1) return; // ground layer is immutable
       if (!blocks.has(key(x, y, z))) return;
       audio.playBreak();
@@ -771,7 +1110,7 @@
       // unavailable this session.
       overlayHelpEl.textContent = lockUnavailable
         ? 'Click to play — drag to look, click to build, press Esc for this menu.'
-        : 'Click to play — move the mouse to look, press Esc to release. If your browser blocks mouse-lock, you can drag to look instead.';
+        : 'Choose a mode to start playing.';
       // The interactive control is only meaningful while the game is running.
       lookModeEl.classList.toggle('hidden', !playing);
     }
@@ -811,6 +1150,7 @@
 
     // Return to the start overlay from touch play (the Esc / "pause" equivalent).
     function exitToMenu() {
+      if (puzzleMode) exitPuzzleMode();
       playing = false;
       resetMove();
       canvas.style.cursor = '';
@@ -869,11 +1209,16 @@
         overlayEl.style.display = 'none';
       } else if (!dragMode) {
         // Lost a native lock (Esc in native mode) and we're not in drag
-        // fallback — return to the overlay menu. Clear held keys so the
-        // camera doesn't keep drifting behind the overlay.
-        playing = false;
-        resetMove();
-        overlayEl.style.display = 'flex';
+        // fallback. If this was a deliberate release after puzzle win, skip
+        // showing the overlay (win overlay is already visible).
+        if (skipExitOnLockRelease) {
+          skipExitOnLockRelease = false;
+        } else {
+          if (puzzleMode) exitPuzzleMode();
+          playing = false;
+          resetMove();
+          overlayEl.style.display = 'flex';
+        }
       }
       refreshControlCopy();
     });
@@ -893,6 +1238,19 @@
     // drag mode (a fresh user gesture, which pointer lock requires).
     lookModeEl.addEventListener('click', () => {
       if (!locked) tryPointerLock();
+    });
+
+    // Puzzle mode button: show level select
+    document.getElementById('puzzle-mode-btn').addEventListener('click', () => {
+      document.getElementById('mode-select').classList.add('hidden');
+      document.getElementById('level-select').classList.remove('hidden');
+      renderLevelSelect();
+    });
+
+    // Back button: return to mode select from level list
+    document.getElementById('back-to-modes').addEventListener('click', () => {
+      document.getElementById('level-select').classList.add('hidden');
+      document.getElementById('mode-select').classList.remove('hidden');
     });
 
     canvas.addEventListener('contextmenu', (e) => e.preventDefault());
@@ -946,6 +1304,7 @@
       // overlay manually. In native (locked) mode the browser handles Esc and
       // fires pointerlockchange, which restores the overlay there.
       if (e.code === 'Escape' && dragMode && playing) {
+        if (puzzleMode) exitPuzzleMode();
         playing = false;
         resetMove();
         canvas.style.cursor = '';
@@ -1027,11 +1386,9 @@
         '<li><span class="font-semibold">Up / Down</span> — fly up / down</li>',
         '<li><span class="font-semibold">Add</span> / <span class="font-semibold">Delete</span> — place / remove a block at the crosshair</li>',
         '<li><span class="font-semibold">Palette</span> — tap a swatch to pick a block</li>',
-        '<li><span class="font-semibold">☰ Menu</span> — back to the start screen</li>',
-        '<li><span class="font-semibold">🔊 / 🔇</span> — tap to mute / unmute audio</li>',
+        '<li><span class="font-semibold">&#9776; Menu</span> — back to the start screen</li>',
+        '<li><span class="font-semibold">speaker</span> — tap to mute / unmute audio</li>',
       ].join('');
-      const playBtn = document.getElementById('play-btn');
-      if (playBtn) playBtn.textContent = 'Tap to play';
     }
     function toggleControls() { controlsEl.classList.toggle('hidden'); }
     document.getElementById('help-btn').addEventListener('click', toggleControls);
@@ -1151,15 +1508,15 @@
     }
     function resize() {
       // When force-rotated, the visible game area is the viewport with width/height
-      // swapped (the rotor is 100vh × 100vw spun 90°).
+      // swapped (the rotor is 100vh x 100vw spun 90 degrees).
       const w = forceRotated ? window.innerHeight : window.innerWidth;
       const h = forceRotated ? window.innerWidth : window.innerHeight;
       // updateStyle MUST stay true (the default): a fixed-position <canvas>
       // with width:auto is a replaced element that falls back to its intrinsic
       // (drawing-buffer) size and ignores `inset:0`, so passing false here let
-      // the canvas display at w·devicePixelRatio — 2× the viewport on HiDPI,
+      // the canvas display at w*devicePixelRatio -- 2x the viewport on HiDPI,
       // breaking aim and making the world appear to "tilt". Let three.js set the
-      // inline CSS size to the viewport while keeping the 2× buffer for sharpness.
+      // inline CSS size to the viewport while keeping the 2x buffer for sharpness.
       renderer.setSize(w, h);
       camera.aspect = w / h;
       camera.updateProjectionMatrix();
@@ -1226,8 +1583,19 @@
       refreshControlCopy();
       const ok = await loadWorld();
       if (!ok) return;
+
+      // Fetch puzzle definitions and user progress in parallel (non-fatal).
+      try {
+        const [puzzlesRes, progressRes] = await Promise.all([
+          fetch('/api/puzzles', { headers }),
+          fetch('/api/puzzle/progress', { headers }),
+        ]);
+        if (puzzlesRes.ok) { const d = await puzzlesRes.json(); allPuzzles = d.puzzles || []; }
+        if (progressRes.ok) { const d = await progressRes.json(); completedPuzzleIds = new Set(d.completed || []); }
+      } catch (_) { /* non-fatal -- puzzle mode degrades gracefully */ }
+
       requestAnimationFrame(loop);
-      setInterval(poll, 1500);
+      pollIntervalId = setInterval(poll, 1500);
       heartbeat();
       setInterval(heartbeat, 30000);
       pollPresence();
