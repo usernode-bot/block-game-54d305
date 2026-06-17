@@ -2,7 +2,7 @@
 <html lang="en" class="dark" id="html-root">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 
   <script>
   // usernode-dev-console@1
@@ -70,6 +70,7 @@
   <script type="importmap">
   { "imports": { "three": "https://unpkg.com/three@0.160.0/build/three.module.js" } }
   </script>
+  <script src="https://social-vibecoding.usernodelabs.org/usernode-bridge/v1/bridge.js"></script>
   <style>
     html, body { margin: 0; height: 100%; overflow: hidden; overscroll-behavior: none; }
     #scene { position: fixed; inset: 0; display: block; }
@@ -91,8 +92,10 @@
     }
 
     /* Touch overlay hygiene: never let look-drags scroll/zoom the page or let
-       button presses select text. */
+       button presses select text. Also prevent stray two-finger gestures outside
+       the canvas from triggering browser pan/pinch. */
     #scene { touch-action: none; }
+    #rotor { touch-action: none; }
     .touch-ctrl {
       touch-action: none;
       user-select: none;
@@ -107,6 +110,41 @@
 
     /* Hold panel swatch transition for locked/unlocked state */
     #hold-swatch { transition: opacity 0.2s; }
+
+    /* Safe-area insets for notched/home-indicator devices.
+       env() values fall back to 0px on devices without cutouts, so these
+       rules are universally safe and have no visual effect on non-notched
+       devices. viewport-fit=cover (in the meta tag) enables these values. */
+    :root {
+      --sai-bottom: env(safe-area-inset-bottom);
+    }
+
+    /* Top-right icon button cluster — override Tailwind top/right positions to
+       add the physical safe-area offset. Specificity (ID > class) wins cleanly. */
+    #help-btn       { top: calc(0.75rem + env(safe-area-inset-top));  right: calc(0.75rem + env(safe-area-inset-right)); }
+    #mute-btn       { top: calc(0.75rem + env(safe-area-inset-top));  right: calc(3.5rem  + env(safe-area-inset-right)); }
+    #turntable-btn  { top: calc(0.75rem + env(safe-area-inset-top));  right: calc(6rem    + env(safe-area-inset-right)); }
+    #badges-btn     { top: calc(0.75rem + env(safe-area-inset-top));  right: calc(6.25rem + env(safe-area-inset-right)); }
+    #leaderboard-btn{ top: calc(3.5rem  + env(safe-area-inset-top));  right: calc(0.75rem + env(safe-area-inset-right)); }
+    #friends-btn    { top: calc(6.25rem + env(safe-area-inset-top));  right: calc(0.75rem + env(safe-area-inset-right)); }
+    #build-stamp    { top: calc(9rem    + env(safe-area-inset-top));  right: calc(0.75rem + env(safe-area-inset-right)); }
+
+    /* Right-edge HUD pills — bottom is computed by JS (which reads --sai-bottom). */
+    #challenge-hud  { right: calc(0.75rem + env(safe-area-inset-right)); }
+    #streak-hud     { right: calc(0.75rem + env(safe-area-inset-right)); }
+    #chat-toggle    { right: calc(0.75rem + env(safe-area-inset-right)); }
+
+    /* Bottom/left/right-edge game HUD elements */
+    #palette        { bottom: calc(1rem + env(safe-area-inset-bottom)); }
+    #hold-panel     { bottom: calc(1rem + env(safe-area-inset-bottom)); left: calc(1rem + env(safe-area-inset-left)); }
+    #powerup-hud    { bottom: calc(6rem + env(safe-area-inset-bottom)); right: calc(1rem + env(safe-area-inset-right)); }
+    #ta-hud         { top:  calc(0.75rem + env(safe-area-inset-top));  left: calc(0.75rem + env(safe-area-inset-left)); }
+    #combo-hud      { top:  calc(0.75rem + env(safe-area-inset-top));  left: calc(0.75rem + env(safe-area-inset-left)); }
+
+    /* Touch control groups inside #touch-controls */
+    #tc-menu    { top:    calc(0.75rem + env(safe-area-inset-top));    left:   calc(0.75rem + env(safe-area-inset-left)); }
+    #tc-movepad { left:   calc(1rem    + env(safe-area-inset-left));   bottom: calc(1rem    + env(safe-area-inset-bottom)); }
+    #tc-actions { right:  calc(1rem    + env(safe-area-inset-right));  bottom: calc(1rem    + env(safe-area-inset-bottom)); }
 
     /* Touch layout: raise palette above on-screen controls and add horizontal
        scroll so all block types are reachable without overlapping buttons. */
@@ -574,7 +612,7 @@
 
   <!-- Badges toggle: sits to the left of the mute button. -->
   <button id="badges-btn" title="Badges" aria-label="Toggle badges"
-          class="fixed top-3 z-30 w-12 h-12 sm:w-9 sm:h-9 rounded-full bg-black/50 hover:bg-black/70 text-zinc-100 text-lg leading-none flex items-center justify-center transition hover:scale-110 active:scale-95 cursor-pointer" style="right: 6.25rem">🏆</button>
+          class="fixed top-3 z-30 w-12 h-12 sm:w-9 sm:h-9 rounded-full bg-black/50 hover:bg-black/70 text-zinc-100 text-lg leading-none flex items-center justify-center transition hover:scale-110 active:scale-95 cursor-pointer">🏆</button>
 
   <!-- Audio mute toggle: sits to the left of the help button. -->
   <button id="mute-btn" title="Mute/unmute audio (M)" aria-label="Toggle audio"
@@ -878,10 +916,10 @@
        once on press. Hidden until JS reveals it on a touch device. -->
   <div id="touch-controls" class="hidden absolute inset-0 z-20 pointer-events-none select-none">
     <!-- Menu / pause (Esc equivalent), top-left -->
-    <button data-act="menu" class="touch-ctrl pointer-events-auto absolute top-3 left-3 px-3 h-9 rounded-lg bg-black/45 active:bg-black/70 active:scale-95 text-zinc-100 text-sm font-semibold flex items-center justify-center">☰ Menu</button>
+    <button id="tc-menu" data-act="menu" class="touch-ctrl pointer-events-auto absolute top-3 left-3 px-3 h-9 rounded-lg bg-black/45 active:bg-black/70 active:scale-95 text-zinc-100 text-sm font-semibold flex items-center justify-center">☰ Menu</button>
 
     <!-- Move pad (forward/back/left/right), bottom-left -->
-    <div class="absolute left-4 bottom-4 grid grid-cols-3 grid-rows-3 gap-1 sm:gap-1.5 opacity-90">
+    <div id="tc-movepad" class="absolute left-4 bottom-4 grid grid-cols-3 grid-rows-3 gap-1 sm:gap-1.5 opacity-90">
       <button data-mv="f" class="touch-ctrl pointer-events-auto col-start-2 row-start-1 w-12 h-12 sm:w-14 sm:h-14 rounded-xl bg-black/40 active:bg-black/70 active:scale-95 text-xl sm:text-2xl text-zinc-100 flex items-center justify-center">▲</button>
       <button data-mv="l" class="touch-ctrl pointer-events-auto col-start-1 row-start-2 w-12 h-12 sm:w-14 sm:h-14 rounded-xl bg-black/40 active:bg-black/70 active:scale-95 text-xl sm:text-2xl text-zinc-100 flex items-center justify-center">◀</button>
       <button data-mv="r" class="touch-ctrl pointer-events-auto col-start-3 row-start-2 w-12 h-12 sm:w-14 sm:h-14 rounded-xl bg-black/40 active:bg-black/70 active:scale-95 text-xl sm:text-2xl text-zinc-100 flex items-center justify-center">▶</button>
@@ -889,7 +927,7 @@
     </div>
 
     <!-- Fly + build cluster, bottom-right -->
-    <div class="absolute right-4 bottom-4 flex flex-col items-end gap-1 sm:gap-2">
+    <div id="tc-actions" class="absolute right-4 bottom-4 flex flex-col items-end gap-1 sm:gap-2">
       <div class="flex gap-1 sm:gap-2">
         <button data-act="hold" class="touch-ctrl pointer-events-auto w-12 h-12 sm:w-14 sm:h-14 rounded-xl bg-violet-700/55 active:bg-violet-500/80 active:scale-95 text-xs font-bold text-white flex items-center justify-center">Hold</button>
         <button data-mv="down" class="touch-ctrl pointer-events-auto w-12 h-12 sm:w-14 sm:h-14 rounded-xl bg-black/40 active:bg-black/70 active:scale-95 text-xs sm:text-sm font-semibold text-zinc-100 flex items-center justify-center">Down</button>
@@ -1702,8 +1740,11 @@
 
     // Daily Challenge HUD element — bottom position raised on touch to clear
     // the on-screen fly/build action cluster that lives at bottom-right.
+    // Incorporates safe-area-inset-bottom so the pill clears the home indicator.
+    const saBottomPx = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--sai-bottom')) || 0;
     const challengeHudEl = document.getElementById('challenge-hud');
-    challengeHudEl.style.bottom = isTouch ? '15rem' : '1rem';
+    const challengeBaseBottomPx = isTouch ? 240 : 16; // 15rem=240px, 1rem=16px
+    challengeHudEl.style.bottom = (challengeBaseBottomPx + saBottomPx) + 'px';
     const blocksPlacedHudEl = document.getElementById('blocks-placed-hud');
     blocksPlacedHudEl.style.bottom = isTouch ? '18rem' : '5.5rem';
 
@@ -1711,8 +1752,7 @@
     const streakHudEl = document.getElementById('streak-hud');
     const CHALLENGE_HUD_HEIGHT_PX = 54; // approx rendered height (px) of challenge pill
     const STREAK_GAP_PX = 6;
-    const challengeHudBottomPx = isTouch ? 240 : 16; // 15rem=240px, 1rem=16px
-    streakHudEl.style.bottom = (challengeHudBottomPx + CHALLENGE_HUD_HEIGHT_PX + STREAK_GAP_PX) + 'px';
+    streakHudEl.style.bottom = (challengeBaseBottomPx + saBottomPx + CHALLENGE_HUD_HEIGHT_PX + STREAK_GAP_PX) + 'px';
 
     // Apply touch-device layout overrides once at startup.
     if (isTouch) {
@@ -6739,6 +6779,7 @@
     function resize() {
       const w = forceRotated ? window.innerHeight : window.innerWidth;
       const h = forceRotated ? window.innerWidth : window.innerHeight;
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
       renderer.setSize(w, h);
       camera.aspect = w / h;
       camera.updateProjectionMatrix();
@@ -7020,6 +7061,26 @@
 
     (async function init() {
       updateOrientation();
+
+      // Register a platform invariant check to catch canvas pixel-dimension
+      // mismatches after orientation changes or DPR shifts. Accounts for the
+      // swapped w/h when the rotor is force-rotated to landscape.
+      if (window.usernode && window.usernode.invariants) {
+        window.usernode.invariants.register('canvas-pixel-dims', function () {
+          const c = document.getElementById('scene');
+          if (!c) return true;
+          const w = forceRotated ? window.innerHeight : window.innerWidth;
+          const h = forceRotated ? window.innerWidth : window.innerHeight;
+          const dpr = Math.min(window.devicePixelRatio, 2);
+          const expW = Math.round(w * dpr);
+          const expH = Math.round(h * dpr);
+          if (c.width !== expW || c.height !== expH) {
+            return 'canvas ' + c.width + 'x' + c.height + ' != expected ' + expW + 'x' + expH;
+          }
+          return true;
+        });
+      }
+
       refreshControlCopy();
       // Initialize audio system and start menu background music. The
       // AudioContext is created here, but browser autoplay policy keeps it
