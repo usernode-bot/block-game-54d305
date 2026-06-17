@@ -158,6 +158,26 @@
       <div id="tournament-teaser" class="hidden mt-3 rounded-xl bg-zinc-900/60 px-4 py-2.5 text-xs text-zinc-300"></div>
       <div id="status" class="mt-3 text-xs text-zinc-500 text-center"></div>
       <div id="online-list" class="mt-3 text-sm text-zinc-400 text-center"></div>
+
+      <!-- Wager step: replaces mode cards when player clicks Play Time Attack -->
+      <div id="wager-panel" class="hidden w-full">
+        <div class="text-center mb-4">
+          <h2 class="text-xl font-bold mb-1">Place Your Wager</h2>
+          <p class="text-zinc-400 text-sm">Bet coins on your Time Attack score.</p>
+          <p id="wager-balance-display" class="text-amber-300 font-semibold text-sm mt-1">🪙 0 coins</p>
+        </div>
+        <div id="wager-tiers" class="grid grid-cols-2 gap-2 mb-3"></div>
+        <div id="wager-amount-row" class="hidden mb-3">
+          <label class="text-zinc-400 text-xs mb-1 block">Bet amount (5–<span id="wager-max-label">100</span> coins)</label>
+          <input id="wager-amount" type="number" min="5" max="100" value="25"
+                 class="w-full bg-zinc-800 text-zinc-100 text-sm rounded px-3 py-2 border border-zinc-700 focus:border-amber-500 outline-none">
+        </div>
+        <div class="flex gap-3">
+          <button id="wager-bet-btn" class="hidden flex-1 px-4 py-2 rounded-lg bg-amber-600 hover:bg-amber-500 font-semibold text-sm transition-colors">Bet &amp; Play</button>
+          <button id="wager-skip-btn" class="flex-1 px-4 py-2 rounded-lg bg-zinc-700 hover:bg-zinc-600 font-semibold text-sm transition-colors">Skip (play free)</button>
+        </div>
+        <div id="wager-error" class="mt-2 text-xs text-red-400 text-center min-h-[1.2em]"></div>
+      </div>
     </div>
   </div>
 
@@ -238,6 +258,9 @@
 
   <!-- Badge toast container: toasts stack above the palette, bottom-centre. -->
   <div id="badge-toasts" class="pointer-events-none fixed left-1/2 -translate-x-1/2 z-40 flex flex-col-reverse items-center gap-2" style="bottom: 5.5rem"></div>
+
+  <!-- Coins HUD: coin balance pill above the streak pill. Bottom set by JS. -->
+  <div id="coins-hud" class="hidden pointer-events-none fixed right-3 z-20 rounded-lg bg-black/55 px-2 py-1.5 text-xs text-amber-300 font-semibold whitespace-nowrap"></div>
 
   <!-- Login Streak HUD: compact pill above the daily challenge bar. Bottom set by JS. -->
   <div id="streak-hud" class="hidden pointer-events-none fixed right-3 z-20 rounded-lg bg-black/55 px-2 py-1.5 text-xs text-white/90 font-semibold whitespace-nowrap"></div>
@@ -356,6 +379,7 @@
   <div id="ta-hud" class="hidden pointer-events-none fixed top-3 left-3 z-20 flex flex-col gap-1">
     <div id="ta-timer" class="text-3xl font-mono font-bold text-white bg-black/50 rounded-xl px-4 py-2 tabular-nums leading-none">1:00</div>
     <div id="ta-score" class="text-sm font-semibold text-zinc-200 bg-black/50 rounded-xl px-4 py-1.5 text-center">0 blocks</div>
+    <div id="ta-wager-pill" class="hidden text-xs font-semibold text-amber-300 bg-black/50 rounded-xl px-3 py-1.5 text-center"></div>
   </div>
 
   <!-- Combo HUD: placement streak multiplier badge shown in Classic mode -->
@@ -367,7 +391,8 @@
   <div id="ta-gameover" class="hidden fixed inset-0 z-30 flex items-center justify-center bg-black/60 backdrop-blur-sm">
     <div class="max-w-sm w-full mx-4 bg-zinc-900/95 rounded-2xl p-8 text-center shadow-xl">
       <h2 class="text-2xl font-bold mb-2">Time's up!</h2>
-      <p id="ta-final-score" class="text-zinc-300 text-lg mb-6">You cleared 0 blocks</p>
+      <p id="ta-final-score" class="text-zinc-300 text-lg mb-4">You cleared 0 blocks</p>
+      <div id="ta-wager-result" class="hidden mb-4 pt-3 border-t border-zinc-700/60 text-sm"></div>
       <div class="flex gap-3 justify-center">
         <button id="ta-play-again" class="px-5 py-2 rounded-lg bg-amber-600 hover:bg-amber-500 font-semibold transition-colors">Play Again</button>
         <button id="ta-back-menu" class="px-5 py-2 rounded-lg bg-zinc-700 hover:bg-zinc-600 font-semibold transition-colors">Back to Menu</button>
@@ -398,7 +423,7 @@
 
     // Build identifier — bump this (to the deploying commit short SHA) on every
     // change so the top-right stamp confirms exactly which code is running.
-    const BUILD_VERSION = 'power-ups+hold-queue+achievements-badges+chat+daily-challenge+leaderboard+online-presence+block-attribution+audio-sfx+next-piece-preview+spectator-mode+weekly-tournament+friends';
+    const BUILD_VERSION = 'power-ups+hold-queue+achievements-badges+chat+daily-challenge+leaderboard+online-presence+block-attribution+audio-sfx+next-piece-preview+spectator-mode+weekly-tournament+friends+betting-system';
 
     // Badge definitions — mirror of the server-side BADGES array, extended with
     // a `hint` field shown in the panel for unearned badges.
@@ -417,6 +442,14 @@
       { id: 'streak_7',        name: 'Week Warrior',    icon: '🗓️', flavour: 'A full week of building!',       hint: 'Log in 7 days in a row' },
       { id: 'streak_14',       name: 'Fortnight Pro',   icon: '🏆', flavour: 'Two weeks of daily play!',       hint: 'Log in 14 days in a row' },
       { id: 'streak_30',       name: 'Monthly Master',  icon: '👑', flavour: 'A full month on the block!',     hint: 'Log in 30 days in a row' },
+    ];
+
+    // Wager tier definitions — mirror of WAGER_TIERS in server.js.
+    const WAGER_TIERS = [
+      { id: 'easy',   label: 'Easy',   target: 20,  multiplier: 1.5 },
+      { id: 'medium', label: 'Medium', target: 50,  multiplier: 2.0 },
+      { id: 'hard',   label: 'Hard',   target: 80,  multiplier: 3.0 },
+      { id: 'expert', label: 'Expert', target: 110, multiplier: 5.0 },
     ];
 
     // Touch capability: drives (a) the on-screen control overlay, (b) skipping
@@ -615,6 +648,26 @@
     const challengeHudBottomPx = isTouch ? 160 : 16; // 10rem=160px, 1rem=16px
     streakHudEl.style.bottom = (challengeHudBottomPx + CHALLENGE_HUD_HEIGHT_PX + STREAK_GAP_PX) + 'px';
 
+    // Coins HUD sits above the streak pill.
+    const coinsHudEl = document.getElementById('coins-hud');
+    const STREAK_HUD_HEIGHT_PX = 28;
+    coinsHudEl.style.bottom = (challengeHudBottomPx + CHALLENGE_HUD_HEIGHT_PX + STREAK_GAP_PX + STREAK_HUD_HEIGHT_PX + STREAK_GAP_PX) + 'px';
+
+    function updateCoinsHud(balance) {
+      coinsHudEl.textContent = '🪙 ' + balance;
+      coinsHudEl.classList.remove('hidden');
+    }
+
+    async function fetchCoins() {
+      try {
+        const res = await fetch('/api/coins', { headers });
+        if (!res.ok) return;
+        const { balance } = await res.json();
+        coinsBalance = balance;
+        if (balance > 0) updateCoinsHud(balance);
+      } catch (_) {}
+    }
+
     function updateStreakHud(current) {
       if (current <= 0) return;
       streakHudEl.textContent = current === 1 ? '🔥 Day 1' : '🔥 ' + current + ' day streak';
@@ -654,6 +707,12 @@
     let challengeTarget = 0;         // today's placement goal
     let challengePlaced = 0;         // blocks placed today by this user
     let challengeCompleted = false;  // true once placed >= target
+
+    // ---- Coin / wager state ----
+    let coinsBalance = 0;
+    let pendingWagerId   = null; // wager_id of active wager, or null
+    let pendingWagerInfo = null; // { id, label, bet_amount, target_blocks, multiplier }
+    let selectedWagerTier = null; // currently selected tier id in the wager panel
 
     // ---- Game mode state ----
     let gameMode = null;           // null | 'classic' | 'timeattack'
@@ -1322,6 +1381,12 @@
 
       document.getElementById('ta-hud').classList.remove('hidden');
       document.getElementById('palette').classList.add('hidden');
+      if (pendingWagerId && pendingWagerInfo) {
+        const pill = document.getElementById('ta-wager-pill');
+        pill.textContent = '🎲 ' + pendingWagerInfo.label + ' · ' +
+          pendingWagerInfo.bet_amount + '🪙 · Need ' + pendingWagerInfo.target_blocks;
+        pill.classList.remove('hidden');
+      }
       updateTaTimerDisplay();
       updateTaScoreDisplay();
 
@@ -1339,8 +1404,24 @@
       if (locked) { try { document.exitPointerLock(); } catch (_) {} }
 
       document.getElementById('ta-hud').classList.add('hidden');
+      document.getElementById('ta-wager-pill').classList.add('hidden');
       const fs = document.getElementById('ta-final-score');
       fs.textContent = 'You cleared ' + taScore + ' block' + (taScore === 1 ? '' : 's');
+
+      const wagerResultEl = document.getElementById('ta-wager-result');
+      if (pendingWagerId) {
+        wagerResultEl.classList.remove('hidden');
+        wagerResultEl.innerHTML = '<div class="text-zinc-400 text-xs animate-pulse">Resolving wager…</div>';
+        const wid = pendingWagerId;
+        const winfo = pendingWagerInfo;
+        const finalBlocks = taScore;
+        pendingWagerId   = null;
+        pendingWagerInfo = null;
+        resolveWager(wid, finalBlocks, winfo, wagerResultEl, 0);
+      } else {
+        wagerResultEl.classList.add('hidden');
+      }
+
       document.getElementById('ta-gameover').classList.remove('hidden');
 
       refreshControlCopy();
@@ -1363,6 +1444,7 @@
         document.getElementById('palette').classList.add('hidden');
         document.getElementById('hold-panel').classList.add('hidden');
         challengeHudEl.classList.add('hidden');
+        coinsHudEl.classList.add('hidden');
         document.getElementById('crosshair').style.opacity = '0.3';
         // Immediately ping presence as a spectator so the online list updates fast.
         heartbeat();
@@ -1456,11 +1538,13 @@
       rebuildBlockMeshes(); // gameMode is now null → renders classic blocks
 
       document.getElementById('ta-hud').classList.add('hidden');
+      document.getElementById('ta-wager-pill').classList.add('hidden');
       document.getElementById('ta-gameover').classList.add('hidden');
       document.getElementById('palette').classList.remove('hidden');
       document.getElementById('hold-panel').classList.remove('hidden');
       document.getElementById('crosshair').style.opacity = '';
       hideComboHud();
+      showModeCards();
 
       overlayEl.style.display = 'flex';
       refreshControlCopy();
@@ -1529,8 +1613,173 @@
     });
     document.addEventListener('pointerlockerror', onLockFail);
 
+    // ---- Wager panel helpers ----
+    const wagerPanelEl     = document.getElementById('wager-panel');
+    const wagerTiersEl     = document.getElementById('wager-tiers');
+    const wagerAmountRowEl = document.getElementById('wager-amount-row');
+    const wagerAmountEl    = document.getElementById('wager-amount');
+    const wagerBetBtnEl    = document.getElementById('wager-bet-btn');
+    const wagerSkipBtnEl   = document.getElementById('wager-skip-btn');
+    const wagerErrorEl     = document.getElementById('wager-error');
+    const wagerBalanceEl   = document.getElementById('wager-balance-display');
+    const wagerMaxLabelEl  = document.getElementById('wager-max-label');
+    // The mode cards container (first .flex child inside .max-w-lg)
+    const modeCardsEl = document.querySelector('#overlay .max-w-lg > .flex');
+
+    function showModeCards() {
+      wagerPanelEl.classList.add('hidden');
+      if (modeCardsEl) modeCardsEl.style.display = '';
+      selectedWagerTier = null;
+    }
+
+    function renderWagerTiers() {
+      wagerTiersEl.innerHTML = '';
+      const canBet = coinsBalance > 0;
+      for (const tier of WAGER_TIERS) {
+        const btn = document.createElement('button');
+        const isSelected = selectedWagerTier === tier.id;
+        const disabled = !canBet;
+        btn.className = 'rounded-xl px-3 py-3 text-left border transition-colors cursor-pointer ' +
+          (disabled ? 'opacity-40 cursor-not-allowed border-zinc-700 bg-zinc-900/60' :
+            isSelected ? 'border-amber-500 bg-amber-900/40 text-white' :
+            'border-zinc-700 bg-zinc-900/60 hover:border-zinc-500 text-zinc-200');
+        btn.disabled = disabled;
+        btn.innerHTML =
+          '<div class="font-semibold text-sm">' + escapeHtml(tier.label) + '</div>' +
+          '<div class="text-xs text-zinc-400 mt-0.5">≥' + tier.target + ' blocks · ' + tier.multiplier + '×</div>';
+        if (!disabled) {
+          btn.addEventListener('click', () => {
+            selectedWagerTier = (selectedWagerTier === tier.id) ? null : tier.id;
+            renderWagerTiers();
+            updateWagerAmountRow();
+          });
+        }
+        wagerTiersEl.appendChild(btn);
+      }
+    }
+
+    function updateWagerAmountRow() {
+      if (!selectedWagerTier) {
+        wagerAmountRowEl.classList.add('hidden');
+        wagerBetBtnEl.classList.add('hidden');
+        return;
+      }
+      const maxBet = Math.min(100, coinsBalance);
+      wagerMaxLabelEl.textContent = maxBet;
+      wagerAmountEl.max = maxBet;
+      if (Number(wagerAmountEl.value) > maxBet) wagerAmountEl.value = maxBet;
+      if (Number(wagerAmountEl.value) < 5) wagerAmountEl.value = 5;
+      wagerAmountRowEl.classList.remove('hidden');
+      wagerBetBtnEl.classList.remove('hidden');
+    }
+
+    function openWagerPanel() {
+      selectedWagerTier = null;
+      wagerErrorEl.textContent = '';
+      wagerBalanceEl.textContent = '🪙 ' + coinsBalance + ' coins';
+      if (modeCardsEl) modeCardsEl.style.display = 'none';
+      wagerPanelEl.classList.remove('hidden');
+      renderWagerTiers();
+      // If balance is 0, show a hint
+      if (coinsBalance === 0) {
+        wagerErrorEl.textContent = 'Earn coins by placing blocks in Classic mode or logging in daily.';
+        wagerErrorEl.className = 'mt-2 text-xs text-zinc-400 text-center';
+      }
+      updateWagerAmountRow();
+    }
+
+    wagerSkipBtnEl.addEventListener('click', () => {
+      showModeCards();
+      startMode('timeattack');
+    });
+
+    wagerBetBtnEl.addEventListener('click', async () => {
+      const tier = selectedWagerTier;
+      const bet = Number(wagerAmountEl.value);
+      if (!tier) return;
+      if (!Number.isInteger(bet) || bet < 5 || bet > Math.min(100, coinsBalance)) {
+        wagerErrorEl.textContent = 'Enter a valid amount (5–' + Math.min(100, coinsBalance) + ').';
+        wagerErrorEl.className = 'mt-2 text-xs text-red-400 text-center';
+        return;
+      }
+      wagerBetBtnEl.disabled = true;
+      wagerBetBtnEl.textContent = 'Placing bet…';
+      wagerErrorEl.textContent = '';
+      try {
+        const res = await fetch('/api/wager', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...headers },
+          body: JSON.stringify({ bet_amount: bet, tier }),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          wagerErrorEl.textContent = data.error || 'Failed to place wager.';
+          wagerErrorEl.className = 'mt-2 text-xs text-red-400 text-center';
+          wagerBetBtnEl.disabled = false;
+          wagerBetBtnEl.textContent = 'Bet & Play';
+          return;
+        }
+        const tierDef = WAGER_TIERS.find((t) => t.id === tier);
+        pendingWagerId   = data.wager_id;
+        pendingWagerInfo = { id: tier, label: tierDef.label, bet_amount: bet,
+                             target_blocks: tierDef.target, multiplier: tierDef.multiplier };
+        coinsBalance = data.balance;
+        updateCoinsHud(coinsBalance);
+        showModeCards();
+        startMode('timeattack');
+      } catch (_) {
+        wagerErrorEl.textContent = 'Network error — try again.';
+        wagerErrorEl.className = 'mt-2 text-xs text-red-400 text-center';
+        wagerBetBtnEl.disabled = false;
+        wagerBetBtnEl.textContent = 'Bet & Play';
+      }
+    });
+
+    wagerAmountEl.addEventListener('input', () => {
+      const max = Math.min(100, coinsBalance);
+      const v = Number(wagerAmountEl.value);
+      if (v > max) wagerAmountEl.value = max;
+      if (v < 1) wagerAmountEl.value = 1;
+    });
+
+    // ---- Active wager resolution ----
+    async function resolveWager(wagerId, finalBlocks, wagerInfo, resultEl, retryCount) {
+      try {
+        const res = await fetch('/api/timeattack/result', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...headers },
+          body: JSON.stringify({ wager_id: wagerId, final_blocks: finalBlocks }),
+        });
+        if (!res.ok) throw new Error('status ' + res.status);
+        const data = await res.json();
+        coinsBalance = data.balance;
+        updateCoinsHud(coinsBalance);
+        const won = data.outcome === 'won';
+        const netGain = won ? data.payout - wagerInfo.bet_amount : wagerInfo.bet_amount;
+        if (won) {
+          resultEl.innerHTML =
+            '<div class="text-green-400 font-semibold">🎉 Target hit! +' + netGain + '🪙</div>' +
+            '<div class="text-zinc-400 text-xs mt-0.5">' +
+              escapeHtml(wagerInfo.label) + ' · ' + finalBlocks + ' blocks · Balance: ' + data.balance + '🪙' +
+            '</div>';
+        } else {
+          resultEl.innerHTML =
+            '<div class="text-zinc-300 font-semibold">💸 −' + netGain + '🪙</div>' +
+            '<div class="text-zinc-500 text-xs mt-0.5">' +
+              'Needed ' + wagerInfo.target_blocks + ', got ' + finalBlocks + ' · Balance: ' + data.balance + '🪙' +
+            '</div>';
+        }
+      } catch (_) {
+        if ((retryCount || 0) < 2) {
+          setTimeout(() => resolveWager(wagerId, finalBlocks, wagerInfo, resultEl, (retryCount || 0) + 1), 1500);
+        } else {
+          resultEl.innerHTML = '<div class="text-zinc-400 text-xs">Wager pending… will sync when online.</div>';
+        }
+      }
+    }
+
     document.getElementById('play-classic-btn').addEventListener('click', () => { audio.init(); startMode('classic'); });
-    document.getElementById('play-ta-btn').addEventListener('click', () => { audio.init(); startMode('timeattack'); });
+    document.getElementById('play-ta-btn').addEventListener('click', () => { audio.init(); openWagerPanel(); });
     document.getElementById('play-spectate-btn').addEventListener('click', () => { audio.init(); startMode('spectate'); });
 
     document.getElementById('ta-play-again').addEventListener('click', () => {
@@ -2293,6 +2542,7 @@
         if (!res.ok) return;
         const data = await res.json();
         if (data.streak) updateStreakHud(data.streak.current);
+        if (typeof data.coins_balance === 'number') updateCoinsHud(data.coins_balance);
         if (data.newly_earned_badges && data.newly_earned_badges.length) {
           for (const badge of data.newly_earned_badges) {
             earnedBadges.set(badge.id, { earned_at: badge.earned_at });
@@ -2560,6 +2810,9 @@
           if (sd.current_streak > 0) updateStreakHud(sd.current_streak);
         }
       } catch (_) {}
+
+      // Load coin balance so HUD shows before first heartbeat.
+      fetchCoins().catch(() => {});
 
       requestAnimationFrame(loop);
       // Poll is started per-mode in onPlayEntered(), not here.

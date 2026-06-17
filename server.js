@@ -78,6 +78,14 @@ const STREAK_BADGE_MILESTONES = [
   { days: 30, id: 'streak_30' },
 ];
 
+// Wager tier definitions (authoritative; mirrored to the client).
+const WAGER_TIERS = {
+  easy:   { target: 20,  multiplier: 1.5 },
+  medium: { target: 50,  multiplier: 2.0 },
+  hard:   { target: 80,  multiplier: 3.0 },
+  expert: { target: 110, multiplier: 5.0 },
+};
+
 // Returns badges from BADGES that are newly earned given updated leaderboard
 // totals, the block type just placed, and distinct type count.
 function checkBadges({ lb, justPlacedType, typeCount }, earnedIds) {
@@ -304,6 +312,17 @@ app.post('/api/block', async (req, res) => {
         [weekStart(now), req.user.id, req.user.username, earned]
       );
 
+      // Award 1 coin per placement. First-ever placement inserts 51 (50 starter + 1).
+      await pool.query(
+        `INSERT INTO player_coins (user_id, username, balance, updated_at)
+         VALUES ($1, $2, 51, NOW())
+         ON CONFLICT (user_id) DO UPDATE SET
+           balance = player_coins.balance + 1,
+           username = EXCLUDED.username,
+           updated_at = NOW()`,
+        [req.user.id, req.user.username]
+      );
+
       // Track which block types this player has ever placed.
       await pool.query(
         `INSERT INTO player_type_usage (user_id, block_type) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
@@ -450,10 +469,30 @@ app.post('/api/presence/ping', async (req, res) => {
       }
     }
 
+    // Daily coin login bonus: +10 per UTC day; +60 for brand-new players (50 starter + 10).
+    const coinLoginRes = await pool.query(
+      `INSERT INTO player_coins (user_id, username, balance, last_coin_login_date, updated_at)
+       VALUES ($1, $2, 60, CURRENT_DATE, NOW())
+       ON CONFLICT (user_id) DO UPDATE SET
+         balance = CASE
+           WHEN player_coins.last_coin_login_date IS NULL
+             OR player_coins.last_coin_login_date < CURRENT_DATE
+           THEN player_coins.balance + 10
+           ELSE player_coins.balance
+         END,
+         last_coin_login_date = CURRENT_DATE,
+         username = EXCLUDED.username,
+         updated_at = NOW()
+       RETURNING balance`,
+      [req.user.id, req.user.username]
+    );
+    const coins_balance = Number(coinLoginRes.rows[0].balance);
+
     res.json({
       ok: true,
       streak: { current: current_streak, longest: longest_streak },
       newly_earned_badges: newlyEarnedBadges,
+      coins_balance,
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -887,6 +926,172 @@ app.delete('/api/friends/:id', async (req, res) => {
   }
 });
 
+// ---- Coins: current player's balance ----
+app.get('/api/coins', async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT balance FROM player_coins WHERE user_id = $1`,
+      [req.user.id]
+    );
+    res.json({ balance: rows.length ? Number(rows[0].balance) : 0 });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- Wager: place a bet before a Time Attack round ----
+app.post('/api/wager', async (req, res) => {
+  try {
+    const bet_amount = Number(req.body.bet_amount);
+    const tier = req.body.tier;
+
+    if (!WAGER_TIERS[tier]) return res.status(400).json({ error: 'invalid tier' });
+    if (!Number.isInteger(bet_amount) || bet_amount < 5 || bet_amount > 100) {
+      return res.status(400).json({ error: 'bet_amount must be between 5 and 100' });
+    }
+
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+
+      // One pending wager at a time.
+      const pendingCheck = await client.query(
+        `SELECT id FROM wager_history WHERE user_id = $1 AND outcome = 'pending'`,
+        [req.user.id]
+      );
+      if (pendingCheck.rows.length) {
+        await client.query('ROLLBACK');
+        return res.status(409).json({ error: 'pending wager already exists' });
+      }
+
+      // Ensure a coin row exists (0-balance placeholder) before deducting.
+      await client.query(
+        `INSERT INTO player_coins (user_id, username, balance, updated_at)
+         VALUES ($1, $2, 0, NOW())
+         ON CONFLICT (user_id) DO NOTHING`,
+        [req.user.id, req.user.username]
+      );
+
+      // Atomic deduct — WHERE balance >= bet guards against overspending.
+      const deductRes = await client.query(
+        `UPDATE player_coins SET
+           balance    = balance - $1,
+           username   = $2,
+           updated_at = NOW()
+         WHERE user_id = $3 AND balance >= $1
+         RETURNING balance`,
+        [bet_amount, req.user.username, req.user.id]
+      );
+      if (!deductRes.rows.length) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ error: 'insufficient coins' });
+      }
+      const newBalance = Number(deductRes.rows[0].balance);
+
+      const td = WAGER_TIERS[tier];
+      const { rows } = await client.query(
+        `INSERT INTO wager_history
+           (user_id, username, bet_amount, tier, target_blocks, payout_multiplier)
+         VALUES ($1, $2, $3, $4, $5, $6)
+         RETURNING id`,
+        [req.user.id, req.user.username, bet_amount, tier, td.target, td.multiplier]
+      );
+
+      await client.query('COMMIT');
+      res.json({ wager_id: Number(rows[0].id), balance: newBalance });
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- Time Attack result: resolve a pending wager ----
+app.post('/api/timeattack/result', async (req, res) => {
+  try {
+    const wager_id    = Number(req.body.wager_id);
+    const final_blocks = Number(req.body.final_blocks);
+
+    if (!Number.isInteger(wager_id) || wager_id <= 0) {
+      return res.status(400).json({ error: 'invalid wager_id' });
+    }
+    // Cap at 150 — the TA layout scatters exactly 150 blocks.
+    if (!Number.isInteger(final_blocks) || final_blocks < 0 || final_blocks > 150) {
+      return res.status(400).json({ error: 'invalid final_blocks' });
+    }
+
+    const wagerRes = await pool.query(
+      `SELECT id, user_id, bet_amount, tier, target_blocks, payout_multiplier, outcome, payout
+       FROM wager_history WHERE id = $1`,
+      [wager_id]
+    );
+    if (!wagerRes.rows.length) return res.status(404).json({ error: 'wager not found' });
+
+    const wager = wagerRes.rows[0];
+    if (Number(wager.user_id) !== req.user.id) {
+      return res.status(403).json({ error: 'not your wager' });
+    }
+
+    // Already resolved — return existing outcome (idempotent retry).
+    if (wager.outcome !== 'pending') {
+      const balRes = await pool.query(
+        `SELECT balance FROM player_coins WHERE user_id = $1`, [req.user.id]
+      );
+      return res.json({
+        outcome: wager.outcome,
+        payout:  Number(wager.payout),
+        balance: balRes.rows.length ? Number(balRes.rows[0].balance) : 0,
+      });
+    }
+
+    const won    = final_blocks >= Number(wager.target_blocks);
+    const payout = won ? Math.round(Number(wager.bet_amount) * Number(wager.payout_multiplier)) : 0;
+    const outcome = won ? 'won' : 'lost';
+
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+
+      await client.query(
+        `UPDATE wager_history SET
+           outcome = $1, payout = $2, final_blocks = $3, resolved_at = NOW()
+         WHERE id = $4`,
+        [outcome, payout, final_blocks, wager_id]
+      );
+
+      let newBalance;
+      if (won) {
+        const balRes = await client.query(
+          `UPDATE player_coins SET balance = balance + $1, updated_at = NOW()
+           WHERE user_id = $2
+           RETURNING balance`,
+          [payout, req.user.id]
+        );
+        newBalance = Number(balRes.rows[0].balance);
+      } else {
+        const balRes = await client.query(
+          `SELECT balance FROM player_coins WHERE user_id = $1`, [req.user.id]
+        );
+        newBalance = balRes.rows.length ? Number(balRes.rows[0].balance) : 0;
+      }
+
+      await client.query('COMMIT');
+      res.json({ outcome, payout, balance: newBalance });
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.use(express.static(path.join(__dirname, 'public'), {
   setHeaders(res, filePath) {
     // The entire game is inline in index.html, so a cached shell hides a
@@ -1216,6 +1421,53 @@ async function seedStreaks() {
   }
 }
 
+async function seedCoins() {
+  const coinSeeds = [
+    { user_id: -1, username: 'Staging demo Alice',   balance: 340, loginOffset: 1 },
+    { user_id: -2, username: 'Staging demo Bob',     balance:  80, loginOffset: 0 },
+    { user_id: -3, username: 'Staging demo Charlie', balance:   5, loginOffset: null },
+    { user_id: -4, username: 'Staging demo Dana',    balance: 200, loginOffset: 0 },
+    { user_id: -5, username: 'Staging demo Eli',     balance:  50, loginOffset: null },
+    { user_id: -6, username: 'Staging demo Faye',    balance:   0, loginOffset: null },
+  ];
+  for (const s of coinSeeds) {
+    const loginDate = s.loginOffset !== null
+      ? `CURRENT_DATE - ${s.loginOffset}`
+      : 'NULL';
+    await pool.query(
+      `INSERT INTO player_coins (user_id, username, balance, last_coin_login_date, updated_at)
+       VALUES ($1, $2, $3, ${loginDate}, NOW())
+       ON CONFLICT (user_id) DO NOTHING`,
+      [s.user_id, s.username, s.balance]
+    );
+  }
+
+  // Wager history seed — explicit IDs for idempotency
+  const wagerSeeds = [
+    { id: 1, user_id: -1, username: 'Staging demo Alice', bet: 100, tier: 'expert', target: 110, mult: 5.0, final: 117, outcome: 'won',     payout: 500 },
+    { id: 2, user_id: -2, username: 'Staging demo Bob',   bet:  50, tier: 'hard',   target:  80, mult: 3.0, final:  62, outcome: 'lost',    payout:   0 },
+    { id: 3, user_id: -4, username: 'Staging demo Dana',  bet:  25, tier: 'medium', target:  50, mult: 2.0, final:  55, outcome: 'won',     payout:  50 },
+    { id: 4, user_id: -4, username: 'Staging demo Dana',  bet:  40, tier: 'easy',   target:  20, mult: 1.5, final: null, outcome: 'pending', payout: null },
+  ];
+  for (const w of wagerSeeds) {
+    const resolvedAt = w.outcome !== 'pending' ? `NOW() - INTERVAL '2 days'` : 'NULL';
+    await pool.query(
+      `INSERT INTO wager_history
+         (id, user_id, username, bet_amount, tier, target_blocks, payout_multiplier,
+          final_blocks, outcome, payout, created_at, resolved_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
+               NOW() - INTERVAL '2 days', ${resolvedAt})
+       ON CONFLICT (id) DO NOTHING`,
+      [w.id, w.user_id, w.username, w.bet, w.tier, w.target, w.mult,
+       w.final, w.outcome, w.payout]
+    );
+  }
+  // Advance sequence past seed IDs
+  await pool.query(
+    `SELECT setval('wager_history_id_seq', GREATEST((SELECT MAX(id) FROM wager_history), 4))`
+  );
+}
+
 async function start() {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS blocks (
@@ -1370,6 +1622,39 @@ async function start() {
   await pool.query(`CREATE INDEX IF NOT EXISTS friendships_addressee_status_idx ON friendships (addressee_id, status)`);
   await pool.query(`CREATE INDEX IF NOT EXISTS friendships_requester_status_idx ON friendships (requester_id, status)`);
 
+  // Coin wallet: one row per player. Balance is a game stat (not sensitive) — public.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS player_coins (
+      user_id              INTEGER PRIMARY KEY,
+      username             VARCHAR(255) NOT NULL,
+      balance              BIGINT NOT NULL DEFAULT 0,
+      last_coin_login_date DATE,
+      updated_at           TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+
+  // Wager history: append-only log of every bet placed. Public.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS wager_history (
+      id                BIGSERIAL PRIMARY KEY,
+      user_id           INTEGER      NOT NULL,
+      username          VARCHAR(255) NOT NULL,
+      bet_amount        INTEGER      NOT NULL,
+      tier              VARCHAR(20)  NOT NULL,
+      target_blocks     INTEGER      NOT NULL,
+      payout_multiplier NUMERIC(4,2) NOT NULL,
+      final_blocks      INTEGER,
+      outcome           VARCHAR(10)  NOT NULL DEFAULT 'pending',
+      payout            INTEGER,
+      created_at        TIMESTAMPTZ  DEFAULT NOW(),
+      resolved_at       TIMESTAMPTZ
+    )
+  `);
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS wager_history_user_created_idx
+    ON wager_history (user_id, created_at DESC)
+  `);
+
 
   if (IS_STAGING) {
     try { await seedStaging(); }
@@ -1382,6 +1667,8 @@ async function start() {
     catch (err) { console.error('tournament seed failed', err); }
     try { await seedStreaks(); }
     catch (err) { console.error('streak seed failed', err); }
+    try { await seedCoins(); }
+    catch (err) { console.error('coins seed failed', err); }
     try {
       // Two fake spectators so the eye-icon path is exercisable in staging.
       await pool.query(
