@@ -733,6 +733,13 @@
        to clear the on-screen action cluster). Hidden until init() loads data. -->
   <div id="challenge-hud" class="hidden pointer-events-none fixed right-3 z-20 w-36 rounded-lg bg-black/55 px-2 py-1.5 text-xs text-white/90"></div>
 
+  <!-- Blocks Placed HUD: personal lifetime stat, bottom-left corner.
+       Bottom position set by JS (raised on touch to clear movement pad). -->
+  <div id="blocks-placed-hud" class="hidden pointer-events-none fixed left-3 z-20 rounded-lg bg-black/55 px-2 py-1.5 text-white/90">
+    <div class="text-[9px] font-bold uppercase tracking-widest text-white/60 leading-tight">Blocks Placed</div>
+    <div id="blocks-placed-count" class="text-lg font-mono font-bold leading-tight tabular-nums">0</div>
+  </div>
+
   <!-- Player HP HUD: shown in Classic mode only. -->
   <div id="hp-hud" class="hidden pointer-events-none fixed bottom-24 left-4 z-20 rounded-lg bg-black/55 px-2 py-1.5 text-xs text-white/90 font-semibold whitespace-nowrap">&#10084; <span id="hp-value">10</span></div>
 
@@ -1040,7 +1047,7 @@
 
     // Build identifier — bump this (to the deploying commit short SHA) on every
     // change so the top-right stamp confirms exactly which code is running.
-    const BUILD_VERSION = 'power-ups+hold-queue+achievements-badges+chat+daily-challenge+leaderboard+online-presence+block-attribution+audio-sfx+next-piece-preview+spectator-mode+weekly-tournament+friends+day-night-cycle+minimap+ai-coach+daily-theme-voting+natural-disasters+undo-redo-history+pastel-chrome+mobs';
+    const BUILD_VERSION = 'power-ups+hold-queue+achievements-badges+chat+daily-challenge+leaderboard+online-presence+block-attribution+audio-sfx+next-piece-preview+spectator-mode+weekly-tournament+friends+blocks-placed-hud+day-night-cycle+minimap+ai-coach+daily-theme-voting+natural-disasters+undo-redo-history+pastel-chrome+mobs';
 
     // Badge definitions — mirror of the server-side BADGES array, extended with
     // a `hint` field shown in the panel for unearned badges.
@@ -1673,6 +1680,8 @@
     // the on-screen fly/build action cluster that lives at bottom-right.
     const challengeHudEl = document.getElementById('challenge-hud');
     challengeHudEl.style.bottom = isTouch ? '10rem' : '1rem';
+    const blocksPlacedHudEl = document.getElementById('blocks-placed-hud');
+    blocksPlacedHudEl.style.bottom = isTouch ? '13rem' : '5.5rem';
 
     // Streak HUD pill sits above the challenge HUD.
     const streakHudEl = document.getElementById('streak-hud');
@@ -1785,6 +1794,9 @@
     let playerHp           = PLAYER_MAX_HP;
     let lastDamagedAt      = 0;   // ms; 2-second inter-hit immunity
     let deathInvincibleUntil = 0; // ms; 5-second post-respawn invincibility
+
+    // ---- Blocks placed (lifetime) ----
+    let myBlocksPlaced = 0;
 
     // ---- Game mode state ----
     let gameMode = null;           // null | 'classic' | 'timeattack' | 'endless' | 'learn' | 'tutorial' | 'time-attack-60'
@@ -2748,6 +2760,10 @@
       if (gameMode !== 'spectate') challengeHudEl.classList.remove('hidden');
     }
 
+    function renderBlocksPlacedHud() {
+      document.getElementById('blocks-placed-count').textContent = myBlocksPlaced.toLocaleString();
+    }
+
     async function sendEdit(x, y, z, t, prevType) {
       if (!undoInProgress && gameMode === 'classic' && prevType !== undefined) {
         pushUndo(x, y, z, prevType, t);
@@ -2809,6 +2825,11 @@
             buildPalette(); // re-render palette so the newly unlocked swatch activates
           }
           if (data.challenge) syncChallenge(data.challenge);
+          if (t !== 0) {
+            myBlocksPlaced++;
+            renderBlocksPlacedHud();
+            blocksPlacedHudEl.classList.remove('hidden');
+          }
         }
       } catch (e) { /* poll loop will reconcile */ }
     }
@@ -5365,7 +5386,13 @@
         try {
           const res = await fetch('/api/leaderboard', { headers });
           if (!res.ok) throw new Error('fetch failed');
-          const { entries } = await res.json();
+          const lbData = await res.json();
+          const { entries } = lbData;
+          if (lbData.self != null) {
+            myBlocksPlaced = lbData.self.blocks_placed;
+            renderBlocksPlacedHud();
+            blocksPlacedHudEl.classList.remove('hidden');
+          }
           if (!entries.length) {
             leaderboardContentEl.innerHTML = '<p class="py-1">No builders yet — be the first!</p>';
           } else {
@@ -6913,6 +6940,9 @@
           if (sd.current_streak > 0) updateStreakHud(sd.current_streak);
         }
       } catch (_) {}
+
+      // Load initial blocks-placed count from leaderboard self row.
+      fetchLeaderboard().catch(() => {});
 
       // Load today's build theme (non-fatal).
       fetchTheme().catch(() => {});
