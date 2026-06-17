@@ -730,6 +730,7 @@
         <button id="accessibility-link" class="text-xs text-zinc-400 hover:text-zinc-100 underline underline-offset-2 cursor-pointer transition-colors">♿ Accessibility</button>
       </div>
       <div id="online-list" class="mt-3 text-sm text-zinc-400 text-center"></div>
+      <div id="attract-label" class="hidden mt-3 text-center text-xs text-zinc-400 transition-opacity duration-1000 opacity-0">Demo — click a mode to play</div>
 
       <!-- Wager step: replaces mode cards when player clicks Play Time Attack -->
       <div id="wager-panel" class="hidden w-full">
@@ -750,7 +751,6 @@
         </div>
         <div id="wager-error" class="mt-2 text-xs text-red-400 text-center min-h-[1.2em]"></div>
       </div>
-
       <div id="footer" class="mt-4 pt-3 border-t border-zinc-700/60 text-xs text-zinc-500 text-center">
         <p class="mb-1" id="footer-copyright">© 2026 block-game</p>
         <p id="footer-credit">Built with Three.js and Tailwind CSS</p>
@@ -1644,6 +1644,9 @@
     </div>
   </div>
 
+  <!-- Weather HUD: shows current weather condition. Hidden during Time Attack (TA timer owns top-left). -->
+  <div id="weather-hud" class="pointer-events-none fixed top-3 left-3 z-20 flex items-center gap-1.5 rounded-lg bg-black/45 px-2.5 py-1 text-xs text-zinc-200"></div>
+
   </div><!-- /#rotor -->
 
   <script type="module">
@@ -1666,7 +1669,7 @@
 
     // Build identifier — bump this (to the deploying commit short SHA) on every
     // change so the top-right stamp confirms exactly which code is running.
-    const BUILD_VERSION = 'speedrun-mode+power-ups+hold-queue+achievements-badges+chat+daily-challenge+leaderboard+online-presence+block-attribution+audio-sfx+next-piece-preview+spectator-mode+weekly-tournament+friends+betting-system+blocks-placed-hud+day-night-cycle+minimap+ai-coach+nft-skins+player-stats+leaderboard-daily+new-badges+daily-theme-voting+natural-disasters+community-monuments+undo-redo-history+pastel-chrome+mobs+message-in-a-block+accessibility-panel+pixel-pets+versus-mode';
+    const BUILD_VERSION = 'speedrun-mode+power-ups+hold-queue+achievements-badges+chat+daily-challenge+leaderboard+online-presence+block-attribution+audio-sfx+next-piece-preview+spectator-mode+weekly-tournament+friends+betting-system+blocks-placed-hud+weather-system+day-night-cycle+minimap+ai-coach+nft-skins+player-stats+leaderboard-daily+new-badges+daily-theme-voting+natural-disasters+community-monuments+undo-redo-history+pastel-chrome+mobs+message-in-a-block+accessibility-panel+pixel-pets+versus-mode';
 
     // Badge definitions — mirror of the server-side BADGES array, extended with
     // a `hint` field shown in the panel for unearned badges.
@@ -2431,6 +2434,23 @@
     let unlockedTypes = new Set(); // block type IDs earned by the current user
     const key = (x, y, z) => x + ',' + y + ',' + z;
 
+    // ---- Weather state ----
+    const WEATHER_STATES = ['clear', 'clear', 'rain', 'clear', 'fog'];
+    const WEATHER_CYCLE_MS = 8 * 60 * 1000;  // 8 min per slot → 40 min full cycle
+    const DAY_CYCLE_MS = 20 * 60 * 1000;     // 20 min full day/night loop
+    const WEATHER_CFG = {
+      clear: { sky: '#8ec7ff', fog: '#8ec7ff', fogNear: 40, fogFar: 90, ambient: 0.65, sun: 0.90 },
+      rain:  { sky: '#637282', fog: '#637282', fogNear: 18, fogFar: 55, ambient: 0.35, sun: 0.15 },
+      fog:   { sky: '#b8bfc8', fog: '#c0c8d2', fogNear: 5,  fogFar: 28, ambient: 0.50, sun: 0.05 },
+    };
+    // Initialize to the current weather slot so the first frame shows
+    // the correct state without a transition.
+    const _initWeatherIdx = Math.floor(Date.now() / WEATHER_CYCLE_MS) % WEATHER_STATES.length;
+    let weatherPrevState = WEATHER_STATES[_initWeatherIdx];
+    let weatherCurrState = WEATHER_STATES[_initWeatherIdx];
+    let weatherTransitionT = 1.0;
+    let lastWeatherIdx = _initWeatherIdx;
+
     // ---- Game mode ----
     // 'menu' = overlay visible, not playing
     // 'normal' = playing the shared collaborative world
@@ -2946,6 +2966,42 @@
     const sun = new THREE.DirectionalLight(0xffffff, 0.9);
     sun.position.set(30, 60, 20);
     scene.add(sun);
+
+    // ---- Weather lerp helpers & pre-allocated color temps ----
+    const _skyA = new THREE.Color();
+    const _skyB = new THREE.Color();
+    const _NIGHT_SKY = new THREE.Color('#0a0f2a');
+    function lerpNum(a, b, t) { return a + (b - a) * t; }
+    function _smoothstepW(edge0, edge1, x) {
+      const t = Math.max(0, Math.min(1, (x - edge0) / (edge1 - edge0)));
+      return t * t * (3 - 2 * t);
+    }
+    function computeNightFactor(dayT) {
+      if (dayT >= 0.15 && dayT <= 0.65) return 0;           // full day
+      if (dayT >= 0.80 || dayT <= 0.05) return 1;           // full night
+      if (dayT > 0.65 && dayT < 0.80) return _smoothstepW(0.65, 0.80, dayT);   // dusk
+      return 1 - _smoothstepW(0.05, 0.15, dayT);            // dawn
+    }
+
+    // ---- Rain particle system ----
+    // 2,000 streaks (1,000 on touch); each streak = 2 endpoints × 3 floats.
+    const RAIN_COUNT = isTouch ? 1000 : 2000;
+    const rainPositions = new Float32Array(RAIN_COUNT * 6);
+    const rainGeo = new THREE.BufferGeometry();
+    (function initRain() {
+      for (let i = 0; i < RAIN_COUNT; i++) {
+        const vi = i * 6;
+        const x = (Math.random() - 0.5) * 60 + DIMS.w / 2;
+        const y = (Math.random() - 0.5) * 50 + DIMS.h / 2;
+        const z = (Math.random() - 0.5) * 60 + DIMS.d / 2;
+        rainPositions[vi]     = x; rainPositions[vi + 1] = y + 0.4; rainPositions[vi + 2] = z;
+        rainPositions[vi + 3] = x; rainPositions[vi + 4] = y;       rainPositions[vi + 5] = z;
+      }
+    })();
+    rainGeo.setAttribute('position', new THREE.BufferAttribute(rainPositions, 3));
+    const rainMaterial = new THREE.LineBasicMaterial({ color: 0x9bc4e0, transparent: true, opacity: 0 });
+    const rainMesh = new THREE.LineSegments(rainGeo, rainMaterial);
+    scene.add(rainMesh);
 
     // ---- Fog of War: instanced dark slabs over unrevealed (x,z) columns ----
     const fogGeom = new THREE.BoxGeometry(1, 0.05, 1);
@@ -4037,6 +4093,20 @@
       if (html !== _lastHudHtml) { powerupHudEl.innerHTML = html; _lastHudHtml = html; }
     }
 
+    // ---- Weather HUD ----
+    const weatherHudEl = document.getElementById('weather-hud');
+    let _lastWeatherHudKey = '';
+    const _WEATHER_ICONS  = { clear: '☀️', rain: '🌧', fog: '🌫️' };
+    const _WEATHER_LABELS = { clear: 'Clear', rain: 'Rainy', fog: 'Foggy' };
+    function updateWeatherHud(state, nightFactor) {
+      const isNight = nightFactor > 0.5;
+      const key = state + (isNight ? ':night' : ':day');
+      if (key === _lastWeatherHudKey) return;
+      _lastWeatherHudKey = key;
+      const icon  = isNight ? '🌙' : (_WEATHER_ICONS[state]  || '☀️');
+      const label = isNight ? 'Night'         : (_WEATHER_LABELS[state] || 'Clear');
+      weatherHudEl.innerHTML = icon + ' <span>' + label + '</span>';
+    }
     // ---- Mini-map rendering ----
     function renderMinimap() {
       const SCALE = 4; // px per world unit (128px / 32 units)
@@ -5297,6 +5367,10 @@
     let paused = false;
     let turntableEnabled = true;
     let turntableAngle = 0;
+    const ATTRACT_IDLE_MS = 8000;
+    let attractMode = false;
+    let attractT = 0;
+    let idleTimer = null;
     let dragMode = false;
     let lockUnavailable = false;
     let lockTimer = null;
@@ -5503,6 +5577,35 @@
       turntableEnabled = !turntableEnabled;
       syncTurntableBtn();
     });
+
+    const attractLabelEl = document.getElementById('attract-label');
+    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+    function enterAttract() {
+      if (playing || !turntableEnabled || reducedMotion) return;
+      attractMode = true;
+      attractT = 0;
+      overlayEl.classList.remove('bg-black/60', 'backdrop-blur-sm');
+      overlayEl.classList.add('bg-black/75', 'backdrop-blur');
+      attractLabelEl.classList.remove('hidden');
+      // Defer opacity change by one frame so the CSS transition fires.
+      requestAnimationFrame(() => attractLabelEl.classList.remove('opacity-0'));
+    }
+
+    function exitAttract() {
+      attractMode = false;
+      overlayEl.classList.remove('bg-black/75', 'backdrop-blur');
+      overlayEl.classList.add('bg-black/60', 'backdrop-blur-sm');
+      attractLabelEl.classList.add('hidden', 'opacity-0');
+    }
+
+    function resetIdle() {
+      if (idleTimer !== null) { clearTimeout(idleTimer); idleTimer = null; }
+      if (attractMode) exitAttract();
+      if (!playing && turntableEnabled && !reducedMotion) {
+        idleTimer = setTimeout(enterAttract, ATTRACT_IDLE_MS);
+      }
+    }
 
     // Profile panel (badges-btn): toggle + tabs.
     const badgesBtnEl = document.getElementById('badges-btn');
@@ -6580,6 +6683,8 @@
     }
 
     function startMode(mode) {
+      if (idleTimer !== null) { clearTimeout(idleTimer); idleTimer = null; }
+      if (attractMode) exitAttract();
       gameMode = mode;
       if (mode === 'timeattack') pendingTaInit = true;
       if (mode === 'time-attack-60') pendingTa60Init = true;
@@ -6746,6 +6851,7 @@
       energyDisplayEl.classList.add('hidden');
       refreshControlCopy();
       updateTouchControlsVisibility();
+      resetIdle();
     }
 
     function updateTouchControlsVisibility() {
@@ -7387,6 +7493,7 @@
       Space: 'up', ShiftLeft: 'down', ShiftRight: 'down',
     };
     window.addEventListener('keydown', (e) => {
+      resetIdle();
       // While the chat input is focused, only Escape is handled globally
       // (to close the drawer); all other keys are for typing.
       if (document.activeElement === chatInputEl) {
@@ -7503,6 +7610,13 @@
       if (codeMap[e.code]) move[codeMap[e.code]] = false;
       if (e.code === 'KeyF') placeHeld = false;
     });
+
+    // ---- Idle detection for attract mode ----
+    window.addEventListener('mousemove', (e) => {
+      if (Math.abs(e.movementX) + Math.abs(e.movementY) > 12) resetIdle();
+    });
+    window.addEventListener('mousedown', () => resetIdle());
+    window.addEventListener('touchstart', () => resetIdle(), { passive: true });
 
     // ---- Touch input ----
     let lookTouchId = null, lookLastX = 0, lookLastY = 0;
@@ -9900,6 +10014,58 @@
 
       updateDayNightCycle(now);
 
+      // ---- Weather & day/night update ----
+      const newWeatherIdx = Math.floor(Date.now() / WEATHER_CYCLE_MS) % WEATHER_STATES.length;
+      if (newWeatherIdx !== lastWeatherIdx) {
+        weatherPrevState = weatherCurrState;
+        weatherCurrState = WEATHER_STATES[newWeatherIdx];
+        weatherTransitionT = 0;
+        lastWeatherIdx = newWeatherIdx;
+      }
+      weatherTransitionT = Math.min(1, weatherTransitionT + dt / 4.0);
+
+      const wPrev = WEATHER_CFG[weatherPrevState];
+      const wCurr = WEATHER_CFG[weatherCurrState];
+      // Lerp fog color + density
+      _skyA.set(wPrev.fog); _skyB.set(wCurr.fog); _skyA.lerp(_skyB, weatherTransitionT);
+      scene.fog.color.copy(_skyA);
+      scene.fog.near = lerpNum(wPrev.fogNear, wCurr.fogNear, weatherTransitionT);
+      scene.fog.far  = lerpNum(wPrev.fogFar,  wCurr.fogFar,  weatherTransitionT);
+      const wAmbient = lerpNum(wPrev.ambient, wCurr.ambient, weatherTransitionT);
+      const wSun     = lerpNum(wPrev.sun,     wCurr.sun,     weatherTransitionT);
+
+      // Day/night overlay (stacks on top of weather)
+      const _dayT = (Date.now() % DAY_CYCLE_MS) / DAY_CYCLE_MS;
+      const nightFactor = computeNightFactor(_dayT);
+      scene.fog.color.lerp(_NIGHT_SKY, nightFactor * 0.5);
+      ambientLight.intensity = wAmbient * (1 - nightFactor * 0.45);
+      sun.intensity          = wSun     * (1 - nightFactor * 0.80);
+
+      // Rain particles: fade in/out with weatherTransitionT
+      const rainTargetOpacity = weatherCurrState === 'rain'
+        ? weatherTransitionT * 0.55
+        : (weatherPrevState === 'rain' ? (1 - weatherTransitionT) * 0.55 : 0);
+      rainMaterial.opacity = rainTargetOpacity;
+      if (rainTargetOpacity > 0) {
+        for (let ri = 0; ri < RAIN_COUNT; ri++) {
+          const vi = ri * 6;
+          rainPositions[vi + 1] -= dt * 24;
+          rainPositions[vi + 4] -= dt * 24;
+          if (rainPositions[vi + 4] < camera.position.y - 32) {
+            const nx = camera.position.x + (Math.random() - 0.5) * 60;
+            const ny = camera.position.y + 20 + Math.random() * 10;
+            const nz = camera.position.z + (Math.random() - 0.5) * 60;
+            rainPositions[vi]     = nx; rainPositions[vi + 1] = ny + 0.4; rainPositions[vi + 2] = nz;
+            rainPositions[vi + 3] = nx; rainPositions[vi + 4] = ny;       rainPositions[vi + 5] = nz;
+          }
+        }
+        rainGeo.attributes.position.needsUpdate = true;
+      }
+
+      // Weather HUD: hidden in TA mode (TA timer occupies top-left)
+      weatherHudEl.classList.toggle('hidden', gameMode === 'timeattack');
+      updateWeatherHud(weatherCurrState, nightFactor);
+
       // Expire old buffs so the HUD and multipliers are always current.
       // (only expire while not paused so pause freezes countdown timers)
       if (!paused) {
@@ -9909,10 +10075,20 @@
       }
 
       if (!playing && turntableEnabled) {
-        turntableAngle += dt * 0.25;
         const cx = DIMS.w / 2, cz = DIMS.d / 2;
-        camera.position.set(cx + 8 * Math.sin(turntableAngle), 3.5, cz + 8 * Math.cos(turntableAngle));
-        camera.lookAt(cx, 1.5, cz);
+        if (attractMode) {
+          attractT += dt;
+          turntableAngle += dt * 0.18;
+          const r = 8 + 3 * Math.sin(attractT * 0.07);
+          const h = 2 + 4 * Math.abs(Math.sin(attractT * 0.05));
+          const lookY = 1.5 + 2 * Math.sin(attractT * 0.04);
+          camera.position.set(cx + r * Math.sin(turntableAngle), h, cz + r * Math.cos(turntableAngle));
+          camera.lookAt(cx, lookY, cz);
+        } else {
+          turntableAngle += dt * 0.25;
+          camera.position.set(cx + 8 * Math.sin(turntableAngle), 3.5, cz + 8 * Math.cos(turntableAngle));
+          camera.lookAt(cx, 1.5, cz);
+        }
       } else if (playing && (locked || dragMode)) {
         fwd.set(-Math.sin(yaw), 0, -Math.cos(yaw));
         right.set(Math.cos(yaw), 0, -Math.sin(yaw));
@@ -10305,6 +10481,8 @@
       fetchTheme().catch(() => {});
 
       requestAnimationFrame(loop);
+      resetIdle();
+      // Poll is started per-mode in onPlayEntered(), not here.
       setInterval(poll, 1500);
       heartbeat();
       setInterval(heartbeat, 30000);
