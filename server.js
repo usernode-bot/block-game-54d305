@@ -117,6 +117,17 @@ function dailyTarget(dateObj) {
   return 20 + ((y * 31 + m * 7 + d) % 81);
 }
 
+// Returns the ISO date string (YYYY-MM-DD) for the Monday that starts the
+// UTC week containing dateObj. Deterministic — same as dailyTarget's UTC approach.
+function weekStart(dateObj) {
+  const day = dateObj.getUTCDay(); // 0 = Sun, 1 = Mon, …, 6 = Sat
+  const offset = day === 0 ? 6 : day - 1; // days since last Monday
+  const monday = new Date(Date.UTC(
+    dateObj.getUTCFullYear(), dateObj.getUTCMonth(), dateObj.getUTCDate() - offset
+  ));
+  return monday.toISOString().slice(0, 10);
+}
+
 app.use(express.json());
 
 // Verify platform-issued JWT if one was passed, then enforce auth on
@@ -274,11 +285,24 @@ app.post('/api/block', async (req, res) => {
          RETURNING total_score, blocks_placed, best_combo`,
         [req.user.id, req.user.username, earned, combo_tier]
       );
+
       const lb = {
         total_score:   Number(lbRes.rows[0].total_score),
         blocks_placed: Number(lbRes.rows[0].blocks_placed),
         best_combo:    lbRes.rows[0].best_combo,
       };
+
+      // Upsert weekly tournament score (same formula; window = current UTC week)
+      await pool.query(
+        `INSERT INTO tournament_scores (week_start, user_id, username, score, blocks_placed, updated_at)
+         VALUES ($1, $2, $3, $4, 1, NOW())
+         ON CONFLICT (week_start, user_id) DO UPDATE SET
+           score         = tournament_scores.score + EXCLUDED.score,
+           blocks_placed = tournament_scores.blocks_placed + 1,
+           username      = EXCLUDED.username,
+           updated_at    = NOW()`,
+        [weekStart(now), req.user.id, req.user.username, earned]
+      );
 
       // Track which block types this player has ever placed.
       await pool.query(
@@ -632,6 +656,68 @@ app.get('/api/challenge/today', async (req, res) => {
       target,
       placed: row ? row.blocks_placed : 0,
       completed_at: row ? row.completed_at : null,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- Weekly Tournament: current week top-10 + self row + last week's top-3 ----
+app.get('/api/tournament', async (req, res) => {
+  try {
+    const now = new Date();
+    const curWeek = weekStart(now);
+    const weekStartDate = new Date(curWeek + 'T00:00:00Z');
+    const weekEndDate = new Date(weekStartDate.getTime() + 6 * 24 * 60 * 60 * 1000);
+    const curWeekEnd = weekEndDate.toISOString().slice(0, 10);
+    const prevWeekDate = new Date(weekStartDate.getTime() - 7 * 24 * 60 * 60 * 1000);
+    const prevWeek = prevWeekDate.toISOString().slice(0, 10);
+
+    const topRes = await pool.query(
+      `SELECT rank() OVER (ORDER BY score DESC) AS rank,
+              user_id, username, score, blocks_placed
+       FROM tournament_scores
+       WHERE week_start = $1
+       ORDER BY score DESC
+       LIMIT 10`,
+      [curWeek]
+    );
+    const selfRes = await pool.query(
+      `SELECT * FROM (
+         SELECT rank() OVER (ORDER BY score DESC) AS rank,
+                user_id, username, score, blocks_placed
+         FROM tournament_scores
+         WHERE week_start = $1
+       ) ranked WHERE user_id = $2`,
+      [curWeek, req.user.id]
+    );
+    const prevRes = await pool.query(
+      `SELECT rank() OVER (ORDER BY score DESC) AS rank,
+              user_id, username, score, blocks_placed
+       FROM tournament_scores
+       WHERE week_start = $1
+       ORDER BY score DESC
+       LIMIT 3`,
+      [prevWeek]
+    );
+
+    const toRow = (r) => ({
+      rank: Number(r.rank),
+      user_id: Number(r.user_id),
+      username: r.username,
+      score: Number(r.score),
+      blocks_placed: Number(r.blocks_placed),
+    });
+
+    res.json({
+      week_start: curWeek,
+      week_end: curWeekEnd,
+      entries: topRes.rows.map(toRow),
+      self: selfRes.rows.length ? toRow(selfRes.rows[0]) : null,
+      last_week: {
+        week_start: prevWeek,
+        entries: prevRes.rows.map(toRow),
+      },
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -1066,6 +1152,37 @@ async function seedChat() {
   );
 }
 
+async function seedTournament() {
+  const now = new Date();
+  const curWeek = weekStart(now);
+  const prevWeekDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+  const prevWeek = weekStart(prevWeekDate);
+
+  const seeds = [
+    { userId: -1, username: 'Staging demo Alice',   score: 320, blocks: 85 },
+    { userId: -2, username: 'Staging demo Bob',     score: 210, blocks: 60 },
+    { userId: -3, username: 'Staging demo Charlie', score: 155, blocks: 45 },
+    { userId: -4, username: 'Staging demo Dana',    score: 90,  blocks: 30 },
+    { userId: -5, username: 'Staging demo Eli',     score: 40,  blocks: 18 },
+    { userId: -6, username: 'Staging demo Faye',    score: 15,  blocks: 8  },
+  ];
+
+  for (const s of seeds) {
+    await pool.query(
+      `INSERT INTO tournament_scores (week_start, user_id, username, score, blocks_placed, updated_at)
+       VALUES ($1, $2, $3, $4, $5, NOW())
+       ON CONFLICT (week_start, user_id) DO NOTHING`,
+      [curWeek, s.userId, s.username, s.score, s.blocks]
+    );
+    await pool.query(
+      `INSERT INTO tournament_scores (week_start, user_id, username, score, blocks_placed, updated_at)
+       VALUES ($1, $2, $3, $4, $5, NOW())
+       ON CONFLICT (week_start, user_id) DO NOTHING`,
+      [prevWeek, s.userId, s.username, Math.round(s.score * 0.75), Math.round(s.blocks * 0.75)]
+    );
+  }
+}
+
 async function seedStreaks() {
   // Negative user IDs so they never collide with real platform user IDs (positive integers).
   const rows = [
@@ -1193,6 +1310,21 @@ async function start() {
   `);
 
   await pool.query(`
+    CREATE TABLE IF NOT EXISTS tournament_scores (
+      week_start    DATE         NOT NULL,
+      user_id       INTEGER      NOT NULL,
+      username      VARCHAR(255) NOT NULL,
+      score         BIGINT       NOT NULL DEFAULT 0,
+      blocks_placed BIGINT       NOT NULL DEFAULT 0,
+      updated_at    TIMESTAMPTZ  DEFAULT NOW(),
+      PRIMARY KEY (week_start, user_id)
+    )
+  `);
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS tournament_scores_week_score_idx
+    ON tournament_scores (week_start, score DESC)
+  `);
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS powerups (
       id SERIAL PRIMARY KEY,
       type VARCHAR(20) NOT NULL,
@@ -1246,6 +1378,8 @@ async function start() {
     catch (err) { console.error('staging chat seed failed', err); }
     try { await seedLeaderboard(); }
     catch (err) { console.error('leaderboard seed failed', err); }
+    try { await seedTournament(); }
+    catch (err) { console.error('tournament seed failed', err); }
     try { await seedStreaks(); }
     catch (err) { console.error('streak seed failed', err); }
     try {
