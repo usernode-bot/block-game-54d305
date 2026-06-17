@@ -471,7 +471,7 @@ app.get('/api/chat', async (req, res) => {
 app.post('/api/presence/ping', async (req, res) => {
   try {
     const rawMode = req.body && req.body.mode;
-    const mode = ['classic', 'spectate'].includes(rawMode) ? rawMode : 'classic';
+    const mode = ['classic', 'spectate', 'story'].includes(rawMode) ? rawMode : 'classic';
     await pool.query(
       `INSERT INTO user_presence (user_id, username, last_seen, mode)
        VALUES ($1, $2, NOW(), $3)
@@ -1030,6 +1030,50 @@ app.post('/api/coach/tip', async (req, res) => {
   } catch (err) {
     console.error('coach tip error', err.message);
     return res.status(500).json({ error: 'unavailable' });
+  }
+});
+
+// ---- Story Mode Progress ----
+
+app.get('/api/story/progress', async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT chapter_id, stars, best_time_ms, completed_at
+       FROM story_progress WHERE user_id = $1 ORDER BY chapter_id`,
+      [req.user.id]
+    );
+    res.json({ progress: rows });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/story/progress', async (req, res) => {
+  const { chapter_id, stars, time_ms } = req.body || {};
+  if (!Number.isInteger(chapter_id) || chapter_id < 1 || chapter_id > 7) {
+    return res.status(400).json({ error: 'invalid chapter_id' });
+  }
+  if (!Number.isInteger(stars) || stars < 1 || stars > 3) {
+    return res.status(400).json({ error: 'invalid stars' });
+  }
+  try {
+    const { rows } = await pool.query(
+      `INSERT INTO story_progress (user_id, chapter_id, stars, best_time_ms, completed_at, updated_at)
+       VALUES ($1, $2, $3, $4, NOW(), NOW())
+       ON CONFLICT (user_id, chapter_id) DO UPDATE SET
+         stars        = GREATEST(story_progress.stars, EXCLUDED.stars),
+         best_time_ms = CASE
+           WHEN story_progress.best_time_ms IS NULL THEN EXCLUDED.best_time_ms
+           WHEN EXCLUDED.best_time_ms IS NULL THEN story_progress.best_time_ms
+           ELSE LEAST(story_progress.best_time_ms, EXCLUDED.best_time_ms)
+         END,
+         updated_at   = NOW()
+       RETURNING chapter_id, stars, best_time_ms, completed_at`,
+      [req.user.id, chapter_id, stars, time_ms || null]
+    );
+    res.json({ progress: rows[0] });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 
@@ -1667,6 +1711,20 @@ async function start() {
     )
   `);
 
+  // Per-user story mode chapter progress. Public table — chapter completion
+  // data is not sensitive.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS story_progress (
+      user_id      TEXT        NOT NULL,
+      chapter_id   INTEGER     NOT NULL,
+      stars        INTEGER     NOT NULL DEFAULT 1,
+      best_time_ms INTEGER,
+      completed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (user_id, chapter_id)
+    )
+  `);
+
   // Prime the schedule on first boot; subsequent boots leave the existing row intact.
   const disasterInitDelay = IS_STAGING ? '10 seconds' : '60 seconds';
   await pool.query(
@@ -1689,6 +1747,16 @@ async function start() {
     catch (err) { console.error('streak seed failed', err); }
     // Staging spectators are now surfaced via the STAGING_DEMO_USERS constant
     // appended in GET /api/presence/online, so no DB seed is needed here.
+    try {
+      await pool.query(`
+        INSERT INTO story_progress (user_id, chapter_id, stars, best_time_ms, completed_at, updated_at)
+        VALUES
+          ('staging-demo-user', 1, 3, 38000,  NOW(), NOW()),
+          ('staging-demo-user', 2, 2, 71000,  NOW(), NOW()),
+          ('staging-demo-user', 3, 1, 104000, NOW(), NOW())
+        ON CONFLICT DO NOTHING
+      `);
+    } catch (err) { console.error('story_progress seed failed', err); }
   }
 
   await ensurePowerUps();
