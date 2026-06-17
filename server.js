@@ -367,7 +367,7 @@ app.get('/api/chat', async (req, res) => {
 app.post('/api/presence/ping', async (req, res) => {
   try {
     const rawMode = req.body && req.body.mode;
-    const mode = ['classic', 'spectate'].includes(rawMode) ? rawMode : 'classic';
+    const mode = ['classic', 'spectate', 'survival'].includes(rawMode) ? rawMode : 'classic';
     await pool.query(
       `INSERT INTO user_presence (user_id, username, last_seen, mode)
        VALUES ($1, $2, NOW(), $3)
@@ -801,6 +801,62 @@ app.delete('/api/friends/:id', async (req, res) => {
   }
 });
 
+// ---- Survival Mode: leaderboard of best runs per player ----
+app.get('/api/survival/scores', async (req, res) => {
+  try {
+    const topRes = await pool.query(`
+      SELECT rank() OVER (ORDER BY best_time DESC) AS rank,
+             user_id, username, best_time AS survival_time_sec
+      FROM (
+        SELECT DISTINCT ON (user_id) user_id, username, survival_time_sec AS best_time
+        FROM survival_scores
+        ORDER BY user_id, survival_time_sec DESC
+      ) sub
+      ORDER BY best_time DESC
+      LIMIT 10
+    `);
+    const selfRes = await pool.query(`
+      SELECT rank() OVER (ORDER BY best_time DESC) AS rank,
+             user_id, username, best_time AS survival_time_sec
+      FROM (
+        SELECT DISTINCT ON (user_id) user_id, username, survival_time_sec AS best_time
+        FROM survival_scores
+        ORDER BY user_id, survival_time_sec DESC
+      ) sub
+      WHERE user_id = $1
+    `, [req.user.id]);
+    const toRow = (r) => ({
+      rank: Number(r.rank),
+      user_id: r.user_id,
+      username: r.username,
+      survival_time_sec: Number(r.survival_time_sec),
+    });
+    res.json({
+      entries: topRes.rows.map(toRow),
+      self: selfRes.rows.length ? toRow(selfRes.rows[0]) : null,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- Survival Mode: record a completed run ----
+app.post('/api/survival/score', async (req, res) => {
+  try {
+    const t = Number(req.body.survival_time_sec);
+    if (!Number.isInteger(t) || t < 0 || t > 86400) {
+      return res.status(400).json({ error: 'invalid survival_time_sec' });
+    }
+    await pool.query(
+      `INSERT INTO survival_scores (user_id, username, survival_time_sec) VALUES ($1, $2, $3)`,
+      [req.user.id, req.user.username, t]
+    );
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.use(express.static(path.join(__dirname, 'public'), {
   setHeaders(res, filePath) {
     // The entire game is inline in index.html, so a cached shell hides a
@@ -993,6 +1049,20 @@ async function seedStaging() {
         ('speed_boost', 5, 2, 16),
         ('super_jump',  28, 2, 16),
         ('rapid_place', 16, 2, 28)
+    `);
+  }
+
+  // Survival leaderboard seed: 5 runs across 3 personas so the panel has
+  // visible content in staging. Skipped if any rows already exist.
+  const { rows: svCount } = await pool.query(`SELECT COUNT(*) AS n FROM survival_scores`);
+  if (Number(svCount[0].n) === 0) {
+    await pool.query(`
+      INSERT INTO survival_scores (user_id, username, survival_time_sec) VALUES
+        (-1, 'Staging demo alice', 212),
+        (-1, 'Staging demo alice', 187),
+        (-2, 'Staging demo bob',   95),
+        (-3, 'Staging demo carol', 43),
+        (-2, 'Staging demo bob',   31)
     `);
   }
 }
@@ -1238,6 +1308,18 @@ async function start() {
   await pool.query(`CREATE INDEX IF NOT EXISTS friendships_addressee_status_idx ON friendships (addressee_id, status)`);
   await pool.query(`CREATE INDEX IF NOT EXISTS friendships_requester_status_idx ON friendships (requester_id, status)`);
 
+  // Survival mode run history: public (scores are not sensitive).
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS survival_scores (
+      id                BIGSERIAL    PRIMARY KEY,
+      user_id           INTEGER      NOT NULL,
+      username          VARCHAR(255) NOT NULL,
+      survival_time_sec INTEGER      NOT NULL,
+      created_at        TIMESTAMPTZ  DEFAULT NOW()
+    )
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS survival_scores_user_idx ON survival_scores (user_id)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS survival_scores_time_idx ON survival_scores (survival_time_sec DESC)`);
 
   if (IS_STAGING) {
     try { await seedStaging(); }

@@ -132,27 +132,32 @@
 
   <!-- Mode-select / start overlay -->
   <div id="overlay" class="fixed inset-0 z-30 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-    <div class="max-w-lg w-full px-4">
+    <div class="max-w-2xl w-full px-4">
       <div class="text-center mb-5">
         <h1 class="text-2xl font-bold mb-1">block-game</h1>
         <p class="text-zinc-300 text-sm">A shared 3D world — build, challenge, or just watch.</p>
         <p id="overlay-help" class="text-zinc-500 text-xs mt-1">Choose a mode to start.</p>
       </div>
-      <div class="flex flex-col sm:flex-row gap-4">
-        <div class="flex-1 bg-zinc-900/80 rounded-xl p-5">
+      <div class="grid grid-cols-2 gap-4">
+        <div class="bg-zinc-900/80 rounded-xl p-5">
           <h2 class="font-semibold text-zinc-100 mb-1">Classic Mode</h2>
           <p class="text-zinc-400 text-xs mb-4">Fly around a shared 3D world. Place and break blocks with other players. No timer, no score.</p>
           <button id="play-classic-btn" class="w-full px-4 py-2 rounded-lg bg-violet-600 hover:bg-violet-500 font-semibold text-sm transition-colors">Play Classic</button>
         </div>
-        <div class="flex-1 bg-zinc-900/80 rounded-xl p-5">
+        <div class="bg-zinc-900/80 rounded-xl p-5">
           <h2 class="font-semibold text-zinc-100 mb-1">Time Attack</h2>
           <p class="text-zinc-400 text-xs mb-4">Break as many blocks as you can in 60 seconds. Solo challenge, fresh layout every run.</p>
           <button id="play-ta-btn" class="w-full px-4 py-2 rounded-lg bg-amber-600 hover:bg-amber-500 font-semibold text-sm transition-colors">Play Time Attack</button>
         </div>
-        <div class="flex-1 bg-zinc-900/80 rounded-xl p-5">
+        <div class="bg-zinc-900/80 rounded-xl p-5">
           <h2 class="font-semibold text-zinc-100 mb-1">Watch</h2>
           <p class="text-zinc-400 text-xs mb-4">Fly through the world as a spectator. No building required — just explore and chat.</p>
           <button id="play-spectate-btn" class="w-full px-4 py-2 rounded-lg bg-teal-600 hover:bg-teal-500 font-semibold text-sm transition-colors">Watch World</button>
+        </div>
+        <div class="bg-zinc-900/80 rounded-xl p-5">
+          <h2 class="font-semibold text-zinc-100 mb-1">Survival</h2>
+          <p class="text-zinc-400 text-xs mb-4">Enemies are coming. Place blocks to destroy them and survive as long as you can. Difficulty ramps with time.</p>
+          <button id="play-survival-btn" class="w-full px-4 py-2 rounded-lg bg-rose-600 hover:bg-rose-500 font-semibold text-sm transition-colors">Play Survival</button>
         </div>
       </div>
       <div id="status" class="mt-3 text-xs text-zinc-500 text-center"></div>
@@ -275,6 +280,10 @@
       <h2 class="font-bold text-zinc-100">Leaderboard</h2>
       <button id="leaderboard-close" aria-label="Close leaderboard" class="text-zinc-400 hover:text-zinc-100 cursor-pointer leading-none">✕</button>
     </div>
+    <div class="flex gap-1 mb-3">
+      <button id="lb-tab-classic" class="flex-1 py-1 text-xs font-semibold rounded bg-violet-600 text-white">Classic</button>
+      <button id="lb-tab-survival" class="flex-1 py-1 text-xs font-semibold rounded bg-zinc-700 hover:bg-zinc-600 text-zinc-300">Survival</button>
+    </div>
     <div id="leaderboard-content" class="text-zinc-400 text-center py-2 text-xs">Loading…</div>
   </div>
 
@@ -371,6 +380,25 @@
     </div>
   </div>
 
+  <!-- Survival HUD: timer + lives shown only during Survival mode -->
+  <div id="sv-hud" class="hidden pointer-events-none fixed top-3 left-3 z-20 flex flex-col gap-1">
+    <div id="sv-timer" class="text-3xl font-mono font-bold text-white bg-black/50 rounded-xl px-4 py-2 tabular-nums leading-none">0:00</div>
+    <div id="sv-lives" class="text-2xl font-semibold text-center bg-black/50 rounded-xl px-4 py-1.5 leading-none">❤️❤️❤️</div>
+  </div>
+
+  <!-- Survival game-over overlay -->
+  <div id="sv-gameover" class="hidden fixed inset-0 z-30 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+    <div class="max-w-sm w-full mx-4 bg-zinc-900/95 rounded-2xl p-8 text-center shadow-xl">
+      <h2 class="text-2xl font-bold mb-2">Game Over</h2>
+      <p id="sv-final-time" class="text-zinc-300 text-lg mb-1">You survived 0:00</p>
+      <p id="sv-best-row" class="text-zinc-500 text-sm mb-6"></p>
+      <div class="flex gap-3 justify-center">
+        <button id="sv-play-again" class="px-5 py-2 rounded-lg bg-rose-600 hover:bg-rose-500 font-semibold transition-colors">Play Again</button>
+        <button id="sv-back-menu" class="px-5 py-2 rounded-lg bg-zinc-700 hover:bg-zinc-600 font-semibold transition-colors">Back to Menu</button>
+      </div>
+    </div>
+  </div>
+
 
   </div><!-- /#rotor -->
 
@@ -394,7 +422,7 @@
 
     // Build identifier — bump this (to the deploying commit short SHA) on every
     // change so the top-right stamp confirms exactly which code is running.
-    const BUILD_VERSION = 'power-ups+hold-queue+achievements-badges+chat+daily-challenge+leaderboard+online-presence+block-attribution+audio-sfx+next-piece-preview+spectator-mode+friends';
+    const BUILD_VERSION = 'power-ups+hold-queue+achievements-badges+chat+daily-challenge+leaderboard+online-presence+block-attribution+audio-sfx+next-piece-preview+spectator-mode+friends+survival-mode';
 
     // Badge definitions — mirror of the server-side BADGES array, extended with
     // a `hint` field shown in the panel for unearned badges.
@@ -652,13 +680,24 @@
     let challengeCompleted = false;  // true once placed >= target
 
     // ---- Game mode state ----
-    let gameMode = null;           // null | 'classic' | 'timeattack'
+    let gameMode = null;           // null | 'classic' | 'timeattack' | 'survival'
     const taBlocks = new Map();    // TA layout: client-only, never written to server
     let taScore = 0;
     let taTimeLeft = 60;
     let taTimerHandle = null;
     let pollHandle = null;         // classic-mode server poll interval
     let pendingTaInit = false;     // true while waiting for play-entry to fire initTimeAttack
+
+    // Survival mode state
+    const survivalBlocks = new Map(); // client-only blocks for survival mode
+    let survivalEnemies = [];         // array of enemy objects
+    let survivalLives = 3;
+    let survivalElapsed = 0;          // seconds survived
+    let survivalTimerHandle = null;
+    let survivalSpawnHandle = null;
+    let survivalInvincibleUntil = 0;  // Date.now() ms
+    let nextEnemyId = 0;
+    let pendingSurvivalInit = false;
 
     // ---- Three.js scaffold ----
     const canvas = document.getElementById('scene');
@@ -700,6 +739,12 @@
     }
     const powerupGroup = new THREE.Group();
     scene.add(powerupGroup);
+
+    // Enemy geometry: red capsule-like box representing an enemy unit
+    const enemyGeom = new THREE.BoxGeometry(0.7, 1.4, 0.7);
+    const enemyMat = new THREE.MeshLambertMaterial({ color: 0xcc2222 });
+    const enemyGroup = new THREE.Group();
+    scene.add(enemyGroup);
 
     // Ground = immutable grass layer at y = 0 (one InstancedMesh, raycastable
     // so blocks can be placed on top, but never breakable).
@@ -747,7 +792,7 @@
     scene.add(blockGroup);
     function rebuildBlockMeshes() {
       blockGroup.clear();
-      const source = gameMode === 'timeattack' ? taBlocks : blocks;
+      const source = gameMode === 'timeattack' ? taBlocks : gameMode === 'survival' ? survivalBlocks : blocks;
       const byType = new Map();
       for (const [k, t] of source) {
         if (!byType.has(t)) byType.set(t, []);
@@ -1127,6 +1172,24 @@
         rebuildBlockMeshes();
         return;
       }
+      if (gameMode === 'survival') {
+        const k = key(x, y, z);
+        if (survivalBlocks.has(k)) return;
+        survivalBlocks.set(k, selectedType);
+        // Check if any enemy is destroyed by this block (within 0.6 units)
+        const cx = x + 0.5, cy = y + 0.5, cz = z + 0.5;
+        for (let i = survivalEnemies.length - 1; i >= 0; i--) {
+          const e = survivalEnemies[i];
+          const dx = e.x - cx, dy = (e.y + 0.7) - cy, dz = e.z - cz;
+          if (Math.sqrt(dx * dx + dy * dy + dz * dz) < 0.6) {
+            enemyGroup.remove(e.mesh);
+            survivalEnemies.splice(i, 1);
+            break;
+          }
+        }
+        rebuildBlockMeshes();
+        return;
+      }
       if (blocks.get(key(x, y, z)) === selectedType) return;
       audio.playPlace();
       sendEdit(x, y, z, selectedType);
@@ -1146,6 +1209,13 @@
         taScore++;
         rebuildBlockMeshes();
         updateTaScoreDisplay();
+        return;
+      }
+      if (gameMode === 'survival') {
+        const k = key(x, y, z);
+        if (!survivalBlocks.has(k)) return;
+        survivalBlocks.delete(k);
+        rebuildBlockMeshes();
         return;
       }
       if (!blocks.has(key(x, y, z))) return;
@@ -1343,6 +1413,112 @@
       updateTouchControlsVisibility();
     }
 
+    // ---- Survival mode ----
+
+    function formatSurvivalTime(sec) {
+      const m = Math.floor(sec / 60);
+      const s = sec % 60;
+      return m + ':' + String(s).padStart(2, '0');
+    }
+
+    function updateSurvivalTimerDisplay() {
+      document.getElementById('sv-timer').textContent = formatSurvivalTime(survivalElapsed);
+    }
+
+    function updateSurvivalLivesDisplay() {
+      document.getElementById('sv-lives').textContent = '❤️'.repeat(Math.max(0, survivalLives));
+    }
+
+    function tickSurvivalTimer() {
+      survivalElapsed++;
+      updateSurvivalTimerDisplay();
+      // Restart spawn interval when difficulty tier changes (every 30s)
+      if (survivalElapsed % 30 === 0) restartSurvivalSpawn();
+    }
+
+    function restartSurvivalSpawn() {
+      if (survivalSpawnHandle) { clearInterval(survivalSpawnHandle); survivalSpawnHandle = null; }
+      const tier = Math.floor(survivalElapsed / 30);
+      const interval = Math.max(1500, 5000 - 500 * tier);
+      survivalSpawnHandle = setInterval(spawnEnemy, interval);
+    }
+
+    function spawnEnemy() {
+      if (!playing || gameMode !== 'survival') return;
+      // Spawn on a random edge of the world at ground level
+      const edge = Math.floor(Math.random() * 4);
+      let x, z;
+      if (edge === 0) { x = Math.random() * DIMS.w; z = 0; }
+      else if (edge === 1) { x = Math.random() * DIMS.w; z = DIMS.d; }
+      else if (edge === 2) { x = 0; z = Math.random() * DIMS.d; }
+      else { x = DIMS.w; z = Math.random() * DIMS.d; }
+      const mesh = new THREE.Mesh(enemyGeom, enemyMat);
+      mesh.position.set(x, 0.7, z);
+      enemyGroup.add(mesh);
+      survivalEnemies.push({ id: nextEnemyId++, x, y: 0, z, mesh });
+    }
+
+    function takeDamage() {
+      const now = performance.now();
+      if (now < survivalInvincibleUntil) return;
+      survivalInvincibleUntil = now + 3000;
+      survivalLives--;
+      updateSurvivalLivesDisplay();
+      if (survivalLives <= 0) endSurvival();
+    }
+
+    function initSurvival() {
+      survivalBlocks.clear();
+      for (const e of survivalEnemies) enemyGroup.remove(e.mesh);
+      survivalEnemies = [];
+      survivalLives = 3;
+      survivalElapsed = 0;
+      survivalInvincibleUntil = 0;
+      nextEnemyId = 0;
+      updateSurvivalTimerDisplay();
+      updateSurvivalLivesDisplay();
+      document.getElementById('sv-hud').classList.remove('hidden');
+      document.getElementById('sv-gameover').classList.add('hidden');
+      rebuildBlockMeshes();
+      survivalTimerHandle = setInterval(tickSurvivalTimer, 1000);
+      restartSurvivalSpawn();
+    }
+
+    async function endSurvival() {
+      if (survivalTimerHandle) { clearInterval(survivalTimerHandle); survivalTimerHandle = null; }
+      if (survivalSpawnHandle) { clearInterval(survivalSpawnHandle); survivalSpawnHandle = null; }
+      playing = false;
+      dragMode = false;
+      resetMove();
+      canvas.style.cursor = '';
+      if (locked) { try { document.exitPointerLock(); } catch (_) {} }
+
+      document.getElementById('sv-hud').classList.add('hidden');
+      document.getElementById('sv-final-time').textContent = 'You survived ' + formatSurvivalTime(survivalElapsed);
+
+      // Submit score then show personal best
+      try {
+        await fetch('/api/survival/score', {
+          method: 'POST',
+          headers: { ...headers, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ survival_time_sec: survivalElapsed }),
+        });
+        const res = await fetch('/api/survival/scores', { headers });
+        if (res.ok) {
+          const data = await res.json();
+          if (data.self) {
+            document.getElementById('sv-best-row').textContent =
+              'Personal best: ' + formatSurvivalTime(data.self.survival_time_sec) +
+              ' (rank #' + data.self.rank + ')';
+          }
+        }
+      } catch (_) {}
+
+      document.getElementById('sv-gameover').classList.remove('hidden');
+      refreshControlCopy();
+      updateTouchControlsVisibility();
+    }
+
     // ---- Mode entry ----
 
     // Called once play is actually entered (lock acquired or drag/touch started).
@@ -1352,6 +1528,9 @@
       if (pendingTaInit) {
         pendingTaInit = false;
         initTimeAttack();
+      } else if (pendingSurvivalInit) {
+        pendingSurvivalInit = false;
+        initSurvival();
       } else if (gameMode === 'classic') {
         if (!pollHandle) pollHandle = setInterval(poll, 1500);
       } else if (gameMode === 'spectate') {
@@ -1368,6 +1547,7 @@
     function startMode(mode) {
       gameMode = mode;
       if (mode === 'timeattack') pendingTaInit = true;
+      if (mode === 'survival') pendingSurvivalInit = true;
       tryPointerLock();
     }
 
@@ -1437,8 +1617,16 @@
         endTimeAttack();
         return;
       }
+      // In survival mode, if still actively playing, end the run first.
+      if (gameMode === 'survival' && playing) {
+        endSurvival();
+        return;
+      }
       // Stop any lingering TA timer.
       if (taTimerHandle) { clearInterval(taTimerHandle); taTimerHandle = null; }
+      // Stop any lingering survival timers.
+      if (survivalTimerHandle) { clearInterval(survivalTimerHandle); survivalTimerHandle = null; }
+      if (survivalSpawnHandle) { clearInterval(survivalSpawnHandle); survivalSpawnHandle = null; }
       // Stop classic poll.
       if (pollHandle) { clearInterval(pollHandle); pollHandle = null; }
 
@@ -1449,10 +1637,15 @@
       canvas.style.cursor = '';
 
       taBlocks.clear();
+      survivalBlocks.clear();
+      for (const e of survivalEnemies) enemyGroup.remove(e.mesh);
+      survivalEnemies = [];
       rebuildBlockMeshes(); // gameMode is now null → renders classic blocks
 
       document.getElementById('ta-hud').classList.add('hidden');
       document.getElementById('ta-gameover').classList.add('hidden');
+      document.getElementById('sv-hud').classList.add('hidden');
+      document.getElementById('sv-gameover').classList.add('hidden');
       document.getElementById('palette').classList.remove('hidden');
       document.getElementById('hold-panel').classList.remove('hidden');
       document.getElementById('crosshair').style.opacity = '';
@@ -1513,13 +1706,17 @@
           // Esc pressed mid-TA run in native-lock mode — end the game.
           endTimeAttack();
           return; // endTimeAttack calls refreshControlCopy
-        } else if (gameMode !== 'timeattack') {
+        } else if (gameMode === 'survival' && playing) {
+          // Esc pressed mid-survival run — end the game.
+          endSurvival();
+          return;
+        } else if (gameMode !== 'timeattack' && gameMode !== 'survival') {
           playing = false;
           resetMove();
           hideComboHud();
           overlayEl.style.display = 'flex';
         }
-        // gameMode === 'timeattack' && !playing: endTimeAttack already ran, nothing to do.
+        // gameMode === 'timeattack'/'survival' && !playing: end already ran, nothing to do.
       }
       refreshControlCopy();
     });
@@ -1528,6 +1725,7 @@
     document.getElementById('play-classic-btn').addEventListener('click', () => { audio.init(); startMode('classic'); });
     document.getElementById('play-ta-btn').addEventListener('click', () => { audio.init(); startMode('timeattack'); });
     document.getElementById('play-spectate-btn').addEventListener('click', () => { audio.init(); startMode('spectate'); });
+    document.getElementById('play-survival-btn').addEventListener('click', () => { audio.init(); startMode('survival'); });
 
     document.getElementById('ta-play-again').addEventListener('click', () => {
       document.getElementById('ta-gameover').classList.add('hidden');
@@ -1535,6 +1733,15 @@
     });
     document.getElementById('ta-back-menu').addEventListener('click', () => {
       document.getElementById('ta-gameover').classList.add('hidden');
+      exitToMenu();
+    });
+
+    document.getElementById('sv-play-again').addEventListener('click', () => {
+      document.getElementById('sv-gameover').classList.add('hidden');
+      startMode('survival');
+    });
+    document.getElementById('sv-back-menu').addEventListener('click', () => {
+      document.getElementById('sv-gameover').classList.add('hidden');
       exitToMenu();
     });
 
@@ -1638,6 +1845,8 @@
         } else if (dragMode && playing) {
           if (gameMode === 'timeattack') {
             endTimeAttack();
+          } else if (gameMode === 'survival') {
+            endSurvival();
           } else {
             playing = false;
             resetMove();
@@ -1748,6 +1957,8 @@
       if (taBtn) taBtn.textContent = 'Tap to play';
       const spectateBtn = document.getElementById('play-spectate-btn');
       if (spectateBtn) spectateBtn.textContent = 'Tap to watch';
+      const survivalBtn = document.getElementById('play-survival-btn');
+      if (survivalBtn) survivalBtn.textContent = 'Tap to play';
     }
     function toggleControls() { controlsEl.classList.toggle('hidden'); }
     document.getElementById('help-btn').addEventListener('click', toggleControls);
@@ -1759,6 +1970,7 @@
     const leaderboardEl = document.getElementById('leaderboard');
     const leaderboardContentEl = document.getElementById('leaderboard-content');
     let leaderboardTimer = null;
+    let leaderboardView = 'classic'; // 'classic' | 'survival'
 
     function closeLeaderboard() {
       leaderboardEl.classList.add('hidden');
@@ -1772,6 +1984,19 @@
         closeLeaderboard();
       }
     }
+    function setLeaderboardTab(view) {
+      leaderboardView = view;
+      const classicTabEl = document.getElementById('lb-tab-classic');
+      const survivalTabEl = document.getElementById('lb-tab-survival');
+      if (view === 'classic') {
+        classicTabEl.className = 'flex-1 py-1 text-xs font-semibold rounded bg-violet-600 text-white';
+        survivalTabEl.className = 'flex-1 py-1 text-xs font-semibold rounded bg-zinc-700 hover:bg-zinc-600 text-zinc-300';
+      } else {
+        survivalTabEl.className = 'flex-1 py-1 text-xs font-semibold rounded bg-rose-600 text-white';
+        classicTabEl.className = 'flex-1 py-1 text-xs font-semibold rounded bg-zinc-700 hover:bg-zinc-600 text-zinc-300';
+      }
+      fetchLeaderboard();
+    }
     function escapeHtml(s) {
       return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
     }
@@ -1779,25 +2004,51 @@
       clearTimeout(leaderboardTimer);
       leaderboardTimer = null;
       try {
-        const res = await fetch('/api/leaderboard', { headers });
-        if (!res.ok) throw new Error('fetch failed');
-        const { entries } = await res.json();
-        if (!entries.length) {
-          leaderboardContentEl.innerHTML = '<p class="py-1">No builders yet — be the first!</p>';
+        if (leaderboardView === 'survival') {
+          const res = await fetch('/api/survival/scores', { headers });
+          if (!res.ok) throw new Error('fetch failed');
+          const { entries, self } = await res.json();
+          if (!entries.length) {
+            leaderboardContentEl.innerHTML = '<p class="py-1">No survivors yet — be the first!</p>';
+          } else {
+            const selfHtml = self
+              ? '<p class="mt-2 text-zinc-400 text-xs">Your best: ' + escapeHtml(formatSurvivalTime(self.survival_time_sec)) + ' (rank #' + self.rank + ')</p>'
+              : '';
+            leaderboardContentEl.innerHTML =
+              '<table class="w-full text-xs">' +
+              '<thead><tr class="text-zinc-500 uppercase border-b border-zinc-700">' +
+              '<th class="text-left pb-1 w-6">#</th>' +
+              '<th class="text-left pb-1 pl-2">Player</th>' +
+              '<th class="text-right pb-1">Time</th></tr></thead><tbody>' +
+              entries.map(e =>
+                '<tr class="border-b border-zinc-800/60 last:border-0">' +
+                '<td class="py-1 text-zinc-500">' + e.rank + '</td>' +
+                '<td class="py-1 pl-2 max-w-[140px] truncate">' + escapeHtml(e.username) + '</td>' +
+                '<td class="py-1 text-right font-mono text-zinc-100">' + escapeHtml(formatSurvivalTime(e.survival_time_sec)) + '</td></tr>'
+              ).join('') +
+              '</tbody></table>' + selfHtml;
+          }
         } else {
-          leaderboardContentEl.innerHTML =
-            '<table class="w-full text-xs">' +
-            '<thead><tr class="text-zinc-500 uppercase border-b border-zinc-700">' +
-            '<th class="text-left pb-1 w-6">#</th>' +
-            '<th class="text-left pb-1 pl-2">Player</th>' +
-            '<th class="text-right pb-1">Blocks</th></tr></thead><tbody>' +
-            entries.map(e =>
-              '<tr class="border-b border-zinc-800/60 last:border-0">' +
-              '<td class="py-1 text-zinc-500">' + e.rank + '</td>' +
-              '<td class="py-1 pl-2 max-w-[180px] truncate">' + escapeHtml(e.username) + '</td>' +
-              '<td class="py-1 text-right font-mono text-zinc-100">' + e.count + '</td></tr>'
-            ).join('') +
-            '</tbody></table>';
+          const res = await fetch('/api/leaderboard', { headers });
+          if (!res.ok) throw new Error('fetch failed');
+          const { entries } = await res.json();
+          if (!entries.length) {
+            leaderboardContentEl.innerHTML = '<p class="py-1">No builders yet — be the first!</p>';
+          } else {
+            leaderboardContentEl.innerHTML =
+              '<table class="w-full text-xs">' +
+              '<thead><tr class="text-zinc-500 uppercase border-b border-zinc-700">' +
+              '<th class="text-left pb-1 w-6">#</th>' +
+              '<th class="text-left pb-1 pl-2">Player</th>' +
+              '<th class="text-right pb-1">Blocks</th></tr></thead><tbody>' +
+              entries.map(e =>
+                '<tr class="border-b border-zinc-800/60 last:border-0">' +
+                '<td class="py-1 text-zinc-500">' + e.rank + '</td>' +
+                '<td class="py-1 pl-2 max-w-[180px] truncate">' + escapeHtml(e.username) + '</td>' +
+                '<td class="py-1 text-right font-mono text-zinc-100">' + e.count + '</td></tr>'
+              ).join('') +
+              '</tbody></table>';
+          }
         }
       } catch (_) {
         leaderboardContentEl.innerHTML = '<p class="py-1 text-zinc-500">Couldn\'t load leaderboard.</p>';
@@ -1808,6 +2059,8 @@
     }
     document.getElementById('leaderboard-btn').addEventListener('click', toggleLeaderboard);
     document.getElementById('leaderboard-close').addEventListener('click', closeLeaderboard);
+    document.getElementById('lb-tab-classic').addEventListener('click', () => setLeaderboardTab('classic'));
+    document.getElementById('lb-tab-survival').addEventListener('click', () => setLeaderboardTab('survival'));
 
     // ---- Friends panel ----
     const friendsPanelEl = document.getElementById('friends-panel');
@@ -2163,7 +2416,7 @@
     async function heartbeat() {
       if (!token) return;
       try {
-        const presenceMode = gameMode === 'spectate' ? 'spectate' : 'classic';
+        const presenceMode = gameMode === 'spectate' ? 'spectate' : gameMode === 'survival' ? 'survival' : 'classic';
         const res = await fetch('/api/presence/ping', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', ...headers },
@@ -2389,6 +2642,35 @@
           pu.mesh.position.y = pu.mesh.userData.baseY
             + Math.sin(now * 0.002 + pu.mesh.userData.phase) * 0.12;
           pu.mesh.rotation.y += dt;
+        }
+      }
+
+      // Survival enemy movement and player collision
+      if (gameMode === 'survival' && playing) {
+        const tier = Math.floor(survivalElapsed / 30);
+        const enemySpeed = 2.5 + 0.5 * tier;
+        const px = camera.position.x, pz = camera.position.z;
+        for (let i = survivalEnemies.length - 1; i >= 0; i--) {
+          const e = survivalEnemies[i];
+          const dx = px - e.x, dz = pz - e.z;
+          const dist = Math.sqrt(dx * dx + dz * dz);
+          if (dist < 0.5) {
+            // Enemy reached player
+            takeDamage();
+            enemyGroup.remove(e.mesh);
+            survivalEnemies.splice(i, 1);
+            continue;
+          }
+          // Move toward player, but stop if a survival block is in the way
+          const step = enemySpeed * dt;
+          const nx = e.x + (dx / dist) * step;
+          const nz = e.z + (dz / dist) * step;
+          const checkKey = key(Math.floor(nx), 1, Math.floor(nz));
+          if (!survivalBlocks.has(checkKey)) {
+            e.x = nx;
+            e.z = nz;
+            e.mesh.position.set(e.x, 0.7, e.z);
+          }
         }
       }
 
