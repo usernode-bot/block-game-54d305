@@ -1098,6 +1098,39 @@
     const isTouch = (window.matchMedia && window.matchMedia('(pointer: coarse)').matches)
       || ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
 
+    // ---- Fullscreen and orientation locking ----
+    // Request fullscreen and lock orientation to landscape for mobile gameplay.
+    async function initFullscreenAndOrientation() {
+      if (!isTouch) return;
+
+      const doc = document.documentElement;
+      const requestFullscreen = doc.requestFullscreen || doc.webkitRequestFullscreen || doc.mozRequestFullScreen || doc.msRequestFullscreen;
+
+      if (requestFullscreen) {
+        try {
+          await requestFullscreen.call(doc);
+        } catch (e) {
+          // Fullscreen request may be denied by user, browser policy, or iframe restrictions.
+        }
+      }
+
+      // Try to lock viewport to landscape using Screen Orientation API.
+      if (screen.orientation && screen.orientation.lock) {
+        try {
+          await screen.orientation.lock('landscape-primary').catch(() => {
+            // Fallback: try either landscape orientation.
+            return screen.orientation.lock('landscape');
+          });
+        } catch (e) {
+          // Orientation lock failed: may be unsupported, denied, or the device is already locked.
+        }
+      }
+    }
+
+    // Call on app init and on first user interaction (due to autoplay policies).
+    window.addEventListener('pointerdown', initFullscreenAndOrientation, { once: true });
+    window.addEventListener('touchstart', initFullscreenAndOrientation, { once: true });
+
     // ---- Audio system ----
     // All audio generated with Web Audio API — no external files.
     // AudioContext is created lazily on first user gesture (browser autoplay policy).
@@ -1895,6 +1928,9 @@
     const camera = new THREE.PerspectiveCamera(70, 1, 0.1, 500);
     camera.up.set(0, 1, 0);
     camera.position.set(DIMS.w / 2, 3.5, DIMS.d / 2 + 8);
+
+    // Request fullscreen and lock orientation on app init (may be denied, so try again on first user input).
+    initFullscreenAndOrientation();
 
     const ambientLight = new THREE.AmbientLight(0xffffff, 0.65);
     scene.add(ambientLight);
