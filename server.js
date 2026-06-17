@@ -53,6 +53,20 @@ const BLOCK_POINTS = {
 // Sentinel "user" id for staging seed rows so they never reference a real user.
 const SEED_USER_ID = 0;
 
+// AI opponent constants.
+const AI_USER_ID = -100;
+const AI_USERNAME = '🤖 BlockBot';
+const AI_DIFFICULTY_MAP = { easy: 15000, medium: 6000, hard: 3000 };
+const AI_INTERVAL_MS = AI_DIFFICULTY_MAP[process.env.AI_DIFFICULTY] || AI_DIFFICULTY_MAP.medium;
+
+// Demo users always injected into the online list in staging.
+// The two spectators are also seeded to user_presence on boot, but that row
+// expires after 60s — this constant keeps them visible indefinitely in staging.
+const STAGING_DEMO_USERS = IS_STAGING ? [
+  { username: 'Staging demo spectator — Alice', mode: 'spectate' },
+  { username: 'Staging demo spectator — Bob',   mode: 'spectate' },
+] : [];
+
 // Badge definitions (authoritative; mirrored to the client for panel rendering).
 const BADGES = [
   { id: 'first_block',     name: 'First Block',    icon: '🏗️', flavour: 'Placed your first block!' },
@@ -170,6 +184,158 @@ app.get('/api/world', async (_req, res) => {
   }
 });
 
+// ---- Shared block-placement logic used by both the HTTP handler and the AI loop ----
+// Validates, persists, and scores a single placement or break. Returns the same
+// shape the HTTP handler sends to the client. Throws on validation failure
+// (err.statusCode = 400) or DB error.
+async function applyBlock({ userId, username, x, y, z, blockType }) {
+  const intIn = (v, lo, hi) => Number.isInteger(v) && v >= lo && v <= hi;
+  if (!intIn(x, 0, DIMS.w - 1) || !intIn(z, 0, DIMS.d - 1)) {
+    const e = new Error('coordinate out of bounds'); e.statusCode = 400; throw e;
+  }
+  if (!intIn(y, 1, DIMS.h - 1)) {
+    const e = new Error('y out of buildable range'); e.statusCode = 400; throw e;
+  }
+  if (blockType !== 0 && !VALID_TYPES.has(blockType)) {
+    const e = new Error('unknown block_type'); e.statusCode = 400; throw e;
+  }
+
+  const { rows } = await pool.query(
+    `INSERT INTO blocks (x, y, z, block_type, seq, updated_by_user_id, updated_by_username, updated_at)
+     VALUES ($1, $2, $3, $4, nextval('block_seq'), $5, $6, NOW())
+     ON CONFLICT (x, y, z) DO UPDATE SET
+       block_type = EXCLUDED.block_type,
+       seq = EXCLUDED.seq,
+       updated_by_user_id = EXCLUDED.updated_by_user_id,
+       updated_by_username = EXCLUDED.updated_by_username,
+       updated_at = NOW()
+     RETURNING seq`,
+    [x, y, z, blockType, userId, username]
+  );
+  const seq = Number(rows[0].seq);
+
+  let challenge = null;
+  let earned = 0, combo_multiplier = 1, rainbow_multiplier = 1, combo_tier = 1;
+  let newly_earned_badges = [];
+
+  if (blockType !== 0) {
+    const now = new Date();
+    const dateStr = now.toISOString().slice(0, 10);
+    const target = dailyTarget(now);
+    const cr = await pool.query(
+      `INSERT INTO daily_challenge_progress
+         (challenge_date, user_id, username, blocks_placed, completed_at, updated_at)
+       VALUES ($1, $2, $3, 1,
+         CASE WHEN 1 >= $4 THEN NOW() ELSE NULL END,
+         NOW())
+       ON CONFLICT (challenge_date, user_id) DO UPDATE SET
+         blocks_placed = daily_challenge_progress.blocks_placed + 1,
+         username = EXCLUDED.username,
+         completed_at = CASE
+           WHEN daily_challenge_progress.completed_at IS NOT NULL
+             THEN daily_challenge_progress.completed_at
+           WHEN daily_challenge_progress.blocks_placed + 1 >= $4
+             THEN NOW()
+           ELSE NULL
+         END,
+         updated_at = NOW()
+       RETURNING blocks_placed, completed_at`,
+      [dateStr, userId, username, target]
+    );
+    const cr0 = cr.rows[0];
+    challenge = { placed: cr0.blocks_placed, target, completed_at: cr0.completed_at };
+
+    const base = BLOCK_POINTS[blockType] || 1;
+
+    // Combo: count placements this user made in the last 10 seconds
+    // (exclude the just-inserted cell to avoid double-counting).
+    const comboRes = await pool.query(
+      `SELECT COUNT(*)::int AS recent
+       FROM blocks
+       WHERE updated_by_user_id = $1
+         AND block_type <> 0
+         AND updated_at > NOW() - INTERVAL '10 seconds'
+         AND NOT (x = $2 AND y = $3 AND z = $4)`,
+      [userId, x, y, z]
+    );
+    const recent = comboRes.rows[0].recent;
+    if (recent >= 10) { combo_multiplier = 5; combo_tier = 4; }
+    else if (recent >= 6) { combo_multiplier = 3; combo_tier = 3; }
+    else if (recent >= 3) { combo_multiplier = 2; combo_tier = 2; }
+
+    // Rainbow power-up: did this user place a Rainbow Block in the last 30s?
+    const rainbowRes = await pool.query(
+      `SELECT 1 FROM blocks
+       WHERE updated_by_user_id = $1
+         AND block_type = 17
+         AND updated_at > NOW() - INTERVAL '30 seconds'
+       LIMIT 1`,
+      [userId]
+    );
+    if (rainbowRes.rows.length > 0) rainbow_multiplier = 2;
+
+    earned = Math.round(base * combo_multiplier * rainbow_multiplier);
+
+    const lbRes = await pool.query(
+      `INSERT INTO leaderboard (user_id, username, total_score, blocks_placed, best_combo, updated_at)
+       VALUES ($1, $2, $3, 1, $4, NOW())
+       ON CONFLICT (user_id) DO UPDATE SET
+         total_score   = leaderboard.total_score + EXCLUDED.total_score,
+         blocks_placed = leaderboard.blocks_placed + 1,
+         best_combo    = GREATEST(leaderboard.best_combo, EXCLUDED.best_combo),
+         username      = EXCLUDED.username,
+         updated_at    = NOW()
+       RETURNING total_score, blocks_placed, best_combo`,
+      [userId, username, earned, combo_tier]
+    );
+
+    const lb = {
+      total_score:   Number(lbRes.rows[0].total_score),
+      blocks_placed: Number(lbRes.rows[0].blocks_placed),
+      best_combo:    lbRes.rows[0].best_combo,
+    };
+
+    await pool.query(
+      `INSERT INTO tournament_scores (week_start, user_id, username, score, blocks_placed, updated_at)
+       VALUES ($1, $2, $3, $4, 1, NOW())
+       ON CONFLICT (week_start, user_id) DO UPDATE SET
+         score         = tournament_scores.score + EXCLUDED.score,
+         blocks_placed = tournament_scores.blocks_placed + 1,
+         username      = EXCLUDED.username,
+         updated_at    = NOW()`,
+      [weekStart(now), userId, username, earned]
+    );
+
+    await pool.query(
+      `INSERT INTO player_type_usage (user_id, block_type) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+      [userId, blockType]
+    );
+
+    const earnedRes = await pool.query(
+      `SELECT badge_id FROM player_badges WHERE user_id = $1`,
+      [userId]
+    );
+    const earnedIds = new Set(earnedRes.rows.map((r) => r.badge_id));
+
+    const typeCountRes = await pool.query(
+      `SELECT COUNT(*)::int AS type_count FROM player_type_usage WHERE user_id = $1`,
+      [userId]
+    );
+    const typeCount = typeCountRes.rows[0].type_count;
+
+    const newBadges = checkBadges({ lb, justPlacedType: blockType, typeCount }, earnedIds);
+    for (const badge of newBadges) {
+      await pool.query(
+        `INSERT INTO player_badges (user_id, badge_id, earned_at) VALUES ($1, $2, NOW()) ON CONFLICT DO NOTHING`,
+        [userId, badge.id]
+      );
+    }
+    newly_earned_badges = newBadges.map((b) => ({ id: b.id, name: b.name, icon: b.icon, flavour: b.flavour }));
+  }
+
+  return { seq, ...(challenge ? { challenge } : {}), earned, combo_multiplier, rainbow_multiplier, newly_earned_badges };
+}
+
 // ---- Place / break a single block. block_type 0 means break (air). ----
 // Air-as-row: breaking writes block_type = 0 (never DELETE) with a bumped
 // seq, so the change feed below can surface breaks to other clients.
@@ -180,164 +346,10 @@ app.post('/api/block', async (req, res) => {
     const y = Number(req.body.y);
     const z = Number(req.body.z);
     const t = Number(req.body.block_type);
-
-    // Strict server-side validation — the only guard against a client
-    // writing garbage cells into the shared, persistent world.
-    const intIn = (v, lo, hi) => Number.isInteger(v) && v >= lo && v <= hi;
-    if (!intIn(x, 0, DIMS.w - 1) || !intIn(z, 0, DIMS.d - 1)) {
-      return res.status(400).json({ error: 'coordinate out of bounds' });
-    }
-    // y = 0 is the immutable ground layer; buildable range is [1, h-1].
-    if (!intIn(y, 1, DIMS.h - 1)) {
-      return res.status(400).json({ error: 'y out of buildable range' });
-    }
-    if (t !== 0 && !VALID_TYPES.has(t)) {
-      return res.status(400).json({ error: 'unknown block_type' });
-    }
-
-    const { rows } = await pool.query(
-      `INSERT INTO blocks (x, y, z, block_type, seq, updated_by_user_id, updated_by_username, updated_at)
-       VALUES ($1, $2, $3, $4, nextval('block_seq'), $5, $6, NOW())
-       ON CONFLICT (x, y, z) DO UPDATE SET
-         block_type = EXCLUDED.block_type,
-         seq = EXCLUDED.seq,
-         updated_by_user_id = EXCLUDED.updated_by_user_id,
-         updated_by_username = EXCLUDED.updated_by_username,
-         updated_at = NOW()
-       RETURNING seq`,
-      [x, y, z, t, req.user.id, req.user.username]
-    );
-    const seq = Number(rows[0].seq);
-
-    // Track challenge progress for placements only (breaks don't count).
-    let challenge = null;
-    // ---- Scoring (placements only; breaks earn 0) ----
-    let earned = 0, combo_multiplier = 1, rainbow_multiplier = 1, combo_tier = 1;
-    let newly_earned_badges = [];
-    if (t !== 0) {
-      const now = new Date();
-      const dateStr = now.toISOString().slice(0, 10);
-      const target = dailyTarget(now);
-      const cr = await pool.query(
-        `INSERT INTO daily_challenge_progress
-           (challenge_date, user_id, username, blocks_placed, completed_at, updated_at)
-         VALUES ($1, $2, $3, 1,
-           CASE WHEN 1 >= $4 THEN NOW() ELSE NULL END,
-           NOW())
-         ON CONFLICT (challenge_date, user_id) DO UPDATE SET
-           blocks_placed = daily_challenge_progress.blocks_placed + 1,
-           username = EXCLUDED.username,
-           completed_at = CASE
-             WHEN daily_challenge_progress.completed_at IS NOT NULL
-               THEN daily_challenge_progress.completed_at
-             WHEN daily_challenge_progress.blocks_placed + 1 >= $4
-               THEN NOW()
-             ELSE NULL
-           END,
-           updated_at = NOW()
-         RETURNING blocks_placed, completed_at`,
-        [dateStr, req.user.id, req.user.username, target]
-      );
-      const cr0 = cr.rows[0];
-      challenge = { placed: cr0.blocks_placed, target, completed_at: cr0.completed_at };
-
-      const base = BLOCK_POINTS[t] || 1;
-
-      // Combo: count placements this user made in the last 10 seconds
-      // (exclude the just-inserted cell to avoid double-counting).
-      const comboRes = await pool.query(
-        `SELECT COUNT(*)::int AS recent
-         FROM blocks
-         WHERE updated_by_user_id = $1
-           AND block_type <> 0
-           AND updated_at > NOW() - INTERVAL '10 seconds'
-           AND NOT (x = $2 AND y = $3 AND z = $4)`,
-        [req.user.id, x, y, z]
-      );
-      const recent = comboRes.rows[0].recent;
-      if (recent >= 10) { combo_multiplier = 5; combo_tier = 4; }
-      else if (recent >= 6) { combo_multiplier = 3; combo_tier = 3; }
-      else if (recent >= 3) { combo_multiplier = 2; combo_tier = 2; }
-
-      // Rainbow power-up: did this user place a Rainbow Block in the last 30s?
-      const rainbowRes = await pool.query(
-        `SELECT 1 FROM blocks
-         WHERE updated_by_user_id = $1
-           AND block_type = 17
-           AND updated_at > NOW() - INTERVAL '30 seconds'
-         LIMIT 1`,
-        [req.user.id]
-      );
-      if (rainbowRes.rows.length > 0) rainbow_multiplier = 2;
-
-      earned = Math.round(base * combo_multiplier * rainbow_multiplier);
-
-      // Upsert leaderboard — RETURNING gives post-upsert totals for badge checks.
-      const lbRes = await pool.query(
-        `INSERT INTO leaderboard (user_id, username, total_score, blocks_placed, best_combo, updated_at)
-         VALUES ($1, $2, $3, 1, $4, NOW())
-         ON CONFLICT (user_id) DO UPDATE SET
-           total_score   = leaderboard.total_score + EXCLUDED.total_score,
-           blocks_placed = leaderboard.blocks_placed + 1,
-           best_combo    = GREATEST(leaderboard.best_combo, EXCLUDED.best_combo),
-           username      = EXCLUDED.username,
-           updated_at    = NOW()
-         RETURNING total_score, blocks_placed, best_combo`,
-        [req.user.id, req.user.username, earned, combo_tier]
-      );
-
-      const lb = {
-        total_score:   Number(lbRes.rows[0].total_score),
-        blocks_placed: Number(lbRes.rows[0].blocks_placed),
-        best_combo:    lbRes.rows[0].best_combo,
-      };
-
-      // Upsert weekly tournament score (same formula; window = current UTC week)
-      await pool.query(
-        `INSERT INTO tournament_scores (week_start, user_id, username, score, blocks_placed, updated_at)
-         VALUES ($1, $2, $3, $4, 1, NOW())
-         ON CONFLICT (week_start, user_id) DO UPDATE SET
-           score         = tournament_scores.score + EXCLUDED.score,
-           blocks_placed = tournament_scores.blocks_placed + 1,
-           username      = EXCLUDED.username,
-           updated_at    = NOW()`,
-        [weekStart(now), req.user.id, req.user.username, earned]
-      );
-
-      // Track which block types this player has ever placed.
-      await pool.query(
-        `INSERT INTO player_type_usage (user_id, block_type) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
-        [req.user.id, t]
-      );
-
-      // Fetch already-earned badge IDs for this user.
-      const earnedRes = await pool.query(
-        `SELECT badge_id FROM player_badges WHERE user_id = $1`,
-        [req.user.id]
-      );
-      const earnedIds = new Set(earnedRes.rows.map((r) => r.badge_id));
-
-      // Count distinct block types used (post-insert, so current placement counts).
-      const typeCountRes = await pool.query(
-        `SELECT COUNT(*)::int AS type_count FROM player_type_usage WHERE user_id = $1`,
-        [req.user.id]
-      );
-      const typeCount = typeCountRes.rows[0].type_count;
-
-      // Evaluate predicates and insert any newly-earned badges.
-      const newBadges = checkBadges({ lb, justPlacedType: t, typeCount }, earnedIds);
-      for (const badge of newBadges) {
-        await pool.query(
-          `INSERT INTO player_badges (user_id, badge_id, earned_at) VALUES ($1, $2, NOW()) ON CONFLICT DO NOTHING`,
-          [req.user.id, badge.id]
-        );
-      }
-      newly_earned_badges = newBadges.map((b) => ({ id: b.id, name: b.name, icon: b.icon, flavour: b.flavour }));
-    }
-
-    res.json({ ok: true, seq, ...(challenge ? { challenge } : {}), earned, combo_multiplier, rainbow_multiplier, newly_earned_badges });
+    const result = await applyBlock({ userId: req.user.id, username: req.user.username, x, y, z, blockType: t });
+    res.json({ ok: true, ...result });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(err.statusCode || 500).json({ error: err.message });
   }
 });
 
@@ -1067,6 +1079,44 @@ async function seedStaging() {
     [todayStr, targetToday]
   );
 
+  // BlockBot leaderboard entry — placed mid-table so it's clearly visible.
+  await pool.query(
+    `INSERT INTO leaderboard (user_id, username, total_score, blocks_placed, best_combo, updated_at)
+     VALUES ($1, $2, 720, 160, 3, NOW())
+     ON CONFLICT (user_id) DO NOTHING`,
+    [AI_USER_ID, AI_USERNAME]
+  );
+
+  // BlockBot tournament entry for the current week.
+  const botNow = new Date();
+  await pool.query(
+    `INSERT INTO tournament_scores (week_start, user_id, username, score, blocks_placed, updated_at)
+     VALUES ($1, $2, $3, 210, 50, NOW())
+     ON CONFLICT (week_start, user_id) DO NOTHING`,
+    [weekStart(botNow), AI_USER_ID, AI_USERNAME]
+  );
+
+  // BlockBot world blocks — scattered in the open area at x 9–13, z 1–4, y=1
+  // (clear of alice/bob/charlie/dave patches at x 1–8, z 1–12).
+  const botBlocks = [
+    { x: 9,  z: 1, t: 1  }, { x: 10, z: 1, t: 15 }, { x: 11, z: 1, t: 17 },
+    { x: 12, z: 1, t: 1  }, { x: 13, z: 1, t: 15 },
+    { x: 9,  z: 2, t: 3  }, { x: 10, z: 2, t: 1  }, { x: 11, z: 2, t: 15 },
+    { x: 12, z: 2, t: 17 }, { x: 13, z: 2, t: 1  },
+    { x: 9,  z: 3, t: 17 }, { x: 10, z: 3, t: 3  }, { x: 11, z: 3, t: 1  },
+    { x: 12, z: 3, t: 15 }, { x: 13, z: 3, t: 3  },
+    { x: 9,  z: 4, t: 1  }, { x: 10, z: 4, t: 17 }, { x: 11, z: 4, t: 3  },
+    { x: 12, z: 4, t: 1  }, { x: 13, z: 4, t: 15 },
+  ];
+  for (const b of botBlocks) {
+    await pool.query(
+      `INSERT INTO blocks (x, y, z, block_type, seq, updated_by_user_id, updated_by_username, updated_at)
+       VALUES ($1, 1, $2, $3, nextval('block_seq'), $4, $5, NOW())
+       ON CONFLICT (x, y, z) DO NOTHING`,
+      [b.x, b.z, b.t, AI_USER_ID, AI_USERNAME]
+    );
+  }
+
   // Seed one of each power-up type at fixed, open positions so testers can
   // immediately see and collect them. Skipped if any unclaimed power-ups
   // already exist (e.g. after a hot-reload during the same staging run).
@@ -1106,6 +1156,60 @@ async function seedLeaderboard() {
       );
     }
   }
+}
+
+// ---- AI opponent loop ----
+// Runs entirely server-side after the server starts listening. Two intervals:
+//   1. Placement: pick a random empty cell at y 1-3 and place a random block.
+//   2. Presence: keep BlockBot visible in the online list (expires after 60s).
+function startAiLoop() {
+  const PALETTE_IDS = PALETTE.map((p) => p.id);
+
+  async function pingPresence() {
+    try {
+      await pool.query(
+        `INSERT INTO user_presence (user_id, username, last_seen, mode)
+         VALUES ($1, $2, NOW(), 'classic')
+         ON CONFLICT (user_id) DO UPDATE
+           SET username = EXCLUDED.username, last_seen = NOW(), mode = 'classic'`,
+        [AI_USER_ID, AI_USERNAME]
+      );
+    } catch (err) {
+      console.error('AI presence ping failed:', err.message);
+    }
+  }
+
+  async function placeTick() {
+    try {
+      const { rows: occupied } = await pool.query(
+        `SELECT x, y, z FROM blocks WHERE block_type != 0`
+      );
+      const occupiedSet = new Set(occupied.map((r) => `${r.x},${r.y},${r.z}`));
+
+      let target = null;
+      for (let attempt = 0; attempt < 10; attempt++) {
+        const x = Math.floor(Math.random() * DIMS.w);
+        const z = Math.floor(Math.random() * DIMS.d);
+        for (let y = 1; y <= 3; y++) {
+          if (!occupiedSet.has(`${x},${y},${z}`)) {
+            target = { x, y, z };
+            break;
+          }
+        }
+        if (target) break;
+      }
+      if (!target) return; // all attempts collided — skip this tick
+
+      const blockType = PALETTE_IDS[Math.floor(Math.random() * PALETTE_IDS.length)];
+      await applyBlock({ userId: AI_USER_ID, username: AI_USERNAME, ...target, blockType });
+    } catch (err) {
+      console.error('AI placement tick failed:', err.message);
+    }
+  }
+
+  pingPresence(); // immediate on boot
+  setInterval(placeTick, AI_INTERVAL_MS);
+  setInterval(pingPresence, 30000);
 }
 
 // ---- Ensure at least one of each power-up type is live in the world ----
@@ -1395,7 +1499,10 @@ async function start() {
 
   await ensurePowerUps();
 
-  app.listen(port, () => console.log(`Listening on :${port}`));
+  app.listen(port, () => {
+    console.log(`Listening on :${port}`);
+    startAiLoop();
+  });
 }
 
 start().catch((err) => { console.error(err); process.exit(1); });

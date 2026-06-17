@@ -1,5 +1,12 @@
 {
-  "secrets": [],
+  "secrets": [
+    {
+      "key": "AI_DIFFICULTY",
+      "description": "BlockBot placement speed: easy (15s per block), medium (6s), hard (3s). Defaults to medium.",
+      "required": false,
+      "default": "medium"
+    }
+  ],
   "visibility": {
     "build": "public",
     "view": "public"
