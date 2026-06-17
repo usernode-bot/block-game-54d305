@@ -5,10 +5,25 @@ const jwt = require('jsonwebtoken');
 
 const app = express();
 const port = process.env.PORT || 3000;
+
+// Validate required environment variables
+if (!process.env.DATABASE_URL) {
+  console.error('FATAL: DATABASE_URL environment variable is not set. Cannot start.');
+  process.exit(1);
+}
+
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 const JWT_SECRET = process.env.JWT_SECRET;
 const IS_STAGING = process.env.USERNODE_ENV === 'staging';
 const LLM_ENABLED = !!process.env.USERNODE_LLM_PROXY_TOKEN;
+
+// Daily energy system configuration
+const ENERGY_TICKETS_PER_DAY = 5;
+const ENERGY_COST_POINTS_PER_TICKET = 100;
+
+// Startup flag to track when initialization completes
+let startupComplete = false;
+let startupError = null;
 
 // Hardcoded demo presence entries for staging so the online list is always
 // populated regardless of whether the seeded user_presence rows are still
@@ -48,6 +63,14 @@ const PALETTE = [
   { id: 16, name: 'Obsidian',      color: '#2d1555', material: 'standard', metalness: 0.3, roughness: 0.1 },
   { id: 17, name: 'Rainbow Block', color: '#ff1493', powerup: true },
   { id: 18, name: 'Crystal',       color: '#b39dff', opacity: 0.65, emissive: '#7a4dff', emissiveIntensity: 0.3, material: 'standard', metalness: 0.1, roughness: 0.2, unlockAt: 50, unlockIcon: '💎' },
+  { id: 19, name: 'Ice',           color: '#aadeef', opacity: 0.55 },
+  { id: 20, name: 'Lava',          color: '#e8540f', emissive: '#ff2200', emissiveIntensity: 0.8 },
+  { id: 21, name: 'Lime',          color: '#78de3e' },
+  { id: 22, name: 'Orange',        color: '#f08030' },
+  { id: 23, name: 'Purple',        color: '#8a2fc8' },
+  { id: 24, name: 'Cyan',          color: '#29b8b8' },
+  { id: 25, name: 'Iron Block',    color: '#d4d4dc', material: 'standard', metalness: 0.9, roughness: 0.3 },
+  { id: 26, name: 'Terracotta',    color: '#c5694a' },
 ];
 const VALID_TYPES = new Set(PALETTE.map((p) => p.id)); // does NOT include 0
 
@@ -60,7 +83,12 @@ const BLOCK_POINTS = {
   15: 3,  // Glowstone
   16: 4,  // Obsidian
   17: 5,  // Rainbow Block
-  18: 3,  // Crystal Block
+  18: 3,  // Crystal
+  19: 2,  // Ice
+  20: 3,  // Lava
+  21: 2, 22: 2, 23: 2, 24: 2, // Lime, Orange, Purple, Cyan
+  25: 4,  // Iron Block
+  26: 1,  // Terracotta
 };
 
 // Sentinel "user" id for staging seed rows so they never reference a real user.
@@ -173,6 +201,41 @@ const STREAK_BADGE_MILESTONES = [
   { days: 7,  id: 'streak_7' },
   { days: 14, id: 'streak_14' },
   { days: 30, id: 'streak_30' },
+];
+
+// Creative prompts shown to players each day. Rotated deterministically by date
+// (same UTC approach as dailyTarget). Add more entries freely — modulo adjusts.
+const DAILY_PROMPTS = [
+  'Build a lighthouse',
+  'Build a bridge',
+  'Make a cosy cottage',
+  'Sculpt a tower',
+  'Design a market stall',
+  'Build a fountain',
+  'Create a castle gate',
+  'Make a garden',
+  'Build a treehouse',
+  'Design a windmill',
+  'Sculpt a pyramid',
+  'Build a ship',
+  'Create a campsite',
+  'Make a clock tower',
+  'Build a greenhouse',
+  'Design a cave entrance',
+  'Create an arch',
+  'Build an observatory',
+  'Make a barn',
+  'Design a waterfall',
+  'Build a fortress wall',
+  'Create a monument',
+  'Make a mine entrance',
+  'Build a dock',
+  'Design a shrine',
+  'Create a maze',
+  'Build an amphitheater',
+  'Make a snowfort',
+  'Design a portal',
+  'Build a volcano',
 ];
 
 // ---- Daily Build Theme Voting ----
@@ -293,6 +356,16 @@ function dailyTarget(dateObj) {
   return 20 + ((y * 31 + m * 7 + d) % 81);
 }
 
+// Returns today's creative building prompt, derived deterministically from the
+// UTC date using a different multiplier from dailyTarget to avoid correlation.
+function dailyPrompt(dateObj) {
+  const y = dateObj.getUTCFullYear();
+  const m = dateObj.getUTCMonth() + 1;
+  const d = dateObj.getUTCDate();
+  const idx = ((y * 31 + m * 7 + d) * 13) % DAILY_PROMPTS.length;
+  return DAILY_PROMPTS[idx];
+}
+
 // Returns the ISO date string (YYYY-MM-DD) for the Monday that starts the
 // UTC week containing dateObj. Deterministic — same as dailyTarget's UTC approach.
 function weekStart(dateObj) {
@@ -330,9 +403,20 @@ app.get('/health', (_req, res) => res.json({ status: 'ok' }));
 
 // ---- World bootstrap: dimensions, palette, current blocks, poll cursor ----
 app.get('/api/world', async (req, res) => {
+  if (!startupComplete) {
+    if (startupError) {
+      return res.status(500).json({ error: 'Server initialization failed: ' + startupError });
+    }
+    return res.status(503).json({ error: 'Server is still initializing. Please try again in a moment.' });
+  }
   try {
     const { rows } = await pool.query(
-      `SELECT x, y, z, block_type FROM blocks WHERE block_type <> 0`
+      `SELECT b.x, b.y, b.z, b.block_type,
+              (bm.x IS NOT NULL) AS has_message
+       FROM blocks b
+       LEFT JOIN block_messages bm
+         ON bm.x = b.x AND bm.y = b.y AND bm.z = b.z AND bm.found_at IS NULL
+       WHERE b.block_type <> 0`
     );
     const cur = await pool.query(`SELECT COALESCE(MAX(seq), 0) AS cursor FROM blocks`);
     const maxDisasterRes = await pool.query(`SELECT COALESCE(MAX(id), 0) AS max_disaster_id FROM disasters`);
@@ -354,7 +438,7 @@ app.get('/api/world', async (req, res) => {
     res.json({
       dims: DIMS,
       palette: PALETTE,
-      blocks: rows.map((r) => ({ x: r.x, y: r.y, z: r.z, t: r.block_type })),
+      blocks: rows.map((r) => { const b = { x: r.x, y: r.y, z: r.z, t: r.block_type }; if (r.has_message) b.m = 1; return b; }),
       cursor: Number(cur.rows[0].cursor),
       maxDisasterId: Number(maxDisasterRes.rows[0].max_disaster_id),
       unlockedTypes,
@@ -363,7 +447,7 @@ app.get('/api/world', async (req, res) => {
       tutorial_completed,
     });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Failed to load world data: ' + err.message });
   }
 });
 
@@ -404,6 +488,10 @@ app.post('/api/block', async (req, res) => {
       }
     }
 
+    // Remove any existing hidden message at this coordinate (handles both
+    // overwrites and breaks — a new placer starts with a clean slate).
+    await pool.query(`DELETE FROM block_messages WHERE x = $1 AND y = $2 AND z = $3`, [x, y, z]);
+
     const { rows } = await pool.query(
       `INSERT INTO blocks (x, y, z, block_type, seq, updated_by_user_id, updated_by_username, updated_at)
        VALUES ($1, $2, $3, $4, nextval('block_seq'), $5, $6, NOW())
@@ -417,6 +505,19 @@ app.post('/api/block', async (req, res) => {
       [x, y, z, t, req.user.id, req.user.username]
     );
     const seq = Number(rows[0].seq);
+
+    // Optionally attach a hidden message to the newly placed block.
+    if (t !== 0) {
+      const rawMsg = typeof req.body.message === 'string' ? req.body.message.trim() : '';
+      if (rawMsg.length > 0 && rawMsg.length <= 200) {
+        await pool.query(
+          `INSERT INTO block_messages (x, y, z, author_user_id, author_username, body, hidden_at)
+           VALUES ($1, $2, $3, $4, $5, $6, NOW())
+           ON CONFLICT (x, y, z) DO NOTHING`,
+          [x, y, z, req.user.id, req.user.username, rawMsg]
+        );
+      }
+    }
 
     // Track challenge progress for placements only (breaks don't count).
     let challenge = null;
@@ -688,14 +789,20 @@ app.get('/api/world/changes', async (req, res) => {
     // For shared world, poll the blocks table; for custom worlds, return empty changes
     // (custom world block updates happen via POST /api/worlds/:id/blocks)
     let changes = [];
+    let cursor = since;
     if (world_id === 0) {
       const { rows } = await pool.query(
-        `SELECT x, y, z, block_type, seq FROM blocks WHERE seq > $1 ORDER BY seq`,
+        `SELECT b.x, b.y, b.z, b.block_type, b.seq,
+                (bm.x IS NOT NULL) AS has_message
+         FROM blocks b
+         LEFT JOIN block_messages bm
+           ON bm.x = b.x AND bm.y = b.y AND bm.z = b.z AND bm.found_at IS NULL
+         WHERE b.seq > $1 ORDER BY b.seq`,
         [since]
       );
-      changes = rows.map((r) => ({ x: r.x, y: r.y, z: r.z, t: r.block_type }));
+      changes = rows.map((r) => { const c = { x: r.x, y: r.y, z: r.z, t: r.block_type }; if (r.has_message) c.m = 1; return c; });
+      cursor = rows.length ? Number(rows[rows.length - 1].seq) : since;
     }
-    const cursor = changes.length ? Math.max(...changes.map(c => Number(c.seq) || 0)) : since;
 
     const monRes = await pool.query(
       `SELECT id, name, sector_x, sector_z, block_count, contributor_count, crowned_at
@@ -931,6 +1038,209 @@ app.get('/api/player/coins', async (req, res) => {
     );
     const coins = rows.length ? Number(rows[0].coins_balance) : 0;
     res.json({ coins });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- Daily Energy: get current energy status ----
+app.get('/api/energy/status', async (req, res) => {
+  try {
+    const now = new Date();
+    const todayStr = now.toISOString().slice(0, 10);
+
+    // Get today's energy row; if no row for today exists, assume 5 free tickets available
+    const energyRes = await pool.query(
+      `SELECT tickets_used, points_burned, tokens_burned FROM player_daily_energy
+       WHERE user_id = $1 AND energy_date = $2`,
+      [req.user.id, todayStr]
+    );
+
+    const ticketsUsed = energyRes.rows.length ? Number(energyRes.rows[0].tickets_used) : 0;
+    const pointsBurned = energyRes.rows.length ? Number(energyRes.rows[0].points_burned) : 0;
+    const ticketsRemaining = Math.max(0, ENERGY_TICKETS_PER_DAY - ticketsUsed);
+
+    // Get user's current points from leaderboard
+    const lbRes = await pool.query(
+      `SELECT total_score FROM leaderboard WHERE user_id = $1`,
+      [req.user.id]
+    );
+    const pointsAvailable = lbRes.rows.length ? Number(lbRes.rows[0].total_score) : 0;
+
+    // Calculate next reset time (midnight UTC tomorrow)
+    const tomorrow = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1));
+    const nextResetUtc = tomorrow.toISOString();
+    const secondsUntilReset = Math.max(0, Math.floor((tomorrow.getTime() - now.getTime()) / 1000));
+
+    res.json({
+      date: todayStr,
+      tickets_remaining: ticketsRemaining,
+      tickets_limit: ENERGY_TICKETS_PER_DAY,
+      points_available: pointsAvailable,
+      cost_per_ticket_points: ENERGY_COST_POINTS_PER_TICKET,
+      tokens_available: 0,
+      cost_per_ticket_tokens: null,
+      next_reset_utc: nextResetUtc,
+      seconds_until_reset: secondsUntilReset,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- Daily Energy: attempt to consume a ticket and start a game ----
+app.post('/api/energy/start-game', async (req, res) => {
+  try {
+    const { mode, spend_type } = req.body || {};
+    const now = new Date();
+    const todayStr = now.toISOString().slice(0, 10);
+
+    if (!['free', 'points', 'tokens'].includes(spend_type)) {
+      return res.status(400).json({ error: 'Invalid spend_type' });
+    }
+
+    if (spend_type === 'free') {
+      // Consume a free ticket
+      const result = await pool.query(
+        `INSERT INTO player_daily_energy (user_id, energy_date, tickets_used, points_burned, tokens_burned, updated_at)
+         VALUES ($1, $2, 1, 0, 0, NOW())
+         ON CONFLICT (user_id, energy_date) DO UPDATE SET
+           tickets_used = player_daily_energy.tickets_used + 1,
+           updated_at = NOW()
+         WHERE player_daily_energy.tickets_used < $3
+         RETURNING tickets_used`,
+        [req.user.id, todayStr, ENERGY_TICKETS_PER_DAY]
+      );
+
+      if (!result.rows.length) {
+        // Conflict: user has no free tickets left
+        const energyRes = await pool.query(
+          `SELECT tickets_used FROM player_daily_energy WHERE user_id = $1 AND energy_date = $2`,
+          [req.user.id, todayStr]
+        );
+        const ticketsUsed = energyRes.rows.length ? Number(energyRes.rows[0].tickets_used) : 0;
+        const ticketsRemaining = Math.max(0, ENERGY_TICKETS_PER_DAY - ticketsUsed);
+
+        const lbRes = await pool.query(`SELECT total_score FROM leaderboard WHERE user_id = $1`, [req.user.id]);
+        const pointsAvailable = lbRes.rows.length ? Number(lbRes.rows[0].total_score) : 0;
+
+        const tomorrow = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1));
+
+        return res.status(400).json({
+          ok: false,
+          error: 'No tickets remaining',
+          tickets_remaining: ticketsRemaining,
+          points_available: pointsAvailable,
+          next_reset_utc: tomorrow.toISOString(),
+        });
+      }
+
+      const ticketsUsed = Number(result.rows[0].tickets_used);
+      const ticketsRemaining = Math.max(0, ENERGY_TICKETS_PER_DAY - ticketsUsed);
+
+      return res.json({
+        ok: true,
+        tickets_remaining: ticketsRemaining,
+        points_burned: null,
+        tokens_burned: null,
+      });
+    } else if (spend_type === 'points') {
+      // User wants to burn points; this endpoint handles the start-game call
+      // The actual burning will be done in /api/energy/burn-points before calling this again
+      // For now, we'll allow the game to start and the UI will handle the burn flow
+      const energyRes = await pool.query(
+        `SELECT tickets_used FROM player_daily_energy WHERE user_id = $1 AND energy_date = $2`,
+        [req.user.id, todayStr]
+      );
+      const ticketsUsed = energyRes.rows.length ? Number(energyRes.rows[0].tickets_used) : 0;
+      const ticketsRemaining = Math.max(0, ENERGY_TICKETS_PER_DAY - ticketsUsed);
+
+      if (ticketsRemaining > 0) {
+        // Still have free tickets; consume one
+        const result = await pool.query(
+          `UPDATE player_daily_energy SET tickets_used = tickets_used + 1, updated_at = NOW()
+           WHERE user_id = $1 AND energy_date = $2 AND tickets_used < $3
+           RETURNING tickets_used`,
+          [req.user.id, todayStr, ENERGY_TICKETS_PER_DAY]
+        );
+        if (result.rows.length) {
+          const newTicketsUsed = Number(result.rows[0].tickets_used);
+          return res.json({
+            ok: true,
+            tickets_remaining: Math.max(0, ENERGY_TICKETS_PER_DAY - newTicketsUsed),
+            points_burned: null,
+            tokens_burned: null,
+          });
+        }
+      }
+
+      // No free tickets left; user must burn points
+      return res.status(400).json({
+        ok: false,
+        error: 'Must burn points to play',
+      });
+    }
+
+    res.status(400).json({ error: 'Unimplemented spend_type' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- Daily Energy: burn points to grant a ticket ----
+app.post('/api/energy/burn-points', async (req, res) => {
+  try {
+    const { points } = req.body || {};
+    const pointsToBurn = Number(points) || ENERGY_COST_POINTS_PER_TICKET;
+    const now = new Date();
+    const todayStr = now.toISOString().slice(0, 10);
+
+    // Get user's current points
+    const lbRes = await pool.query(
+      `SELECT total_score FROM leaderboard WHERE user_id = $1`,
+      [req.user.id]
+    );
+    const pointsAvailable = lbRes.rows.length ? Number(lbRes.rows[0].total_score) : 0;
+
+    if (pointsAvailable < pointsToBurn) {
+      return res.status(400).json({
+        ok: false,
+        error: 'Insufficient points',
+        points_available: pointsAvailable,
+        points_needed: pointsToBurn,
+      });
+    }
+
+    // Deduct points and insert/update energy record with burned points tracked
+    // First deduct points from leaderboard
+    await pool.query(
+      `UPDATE leaderboard SET total_score = total_score - $1, updated_at = NOW()
+       WHERE user_id = $2`,
+      [pointsToBurn, req.user.id]
+    );
+
+    // Then update energy record
+    const energyResult = await pool.query(
+      `INSERT INTO player_daily_energy (user_id, energy_date, tickets_used, points_burned, tokens_burned, updated_at)
+       VALUES ($1, $2, 0, $3, 0, NOW())
+       ON CONFLICT (user_id, energy_date) DO UPDATE SET
+         points_burned = player_daily_energy.points_burned + EXCLUDED.points_burned,
+         updated_at = NOW()
+       RETURNING tickets_used, points_burned`,
+      [req.user.id, todayStr, pointsToBurn]
+    );
+
+    const ticketsUsed = Number(energyResult.rows[0].tickets_used);
+    const pointsBurned = Number(energyResult.rows[0].points_burned);
+    const ticketsRemaining = Math.max(0, ENERGY_TICKETS_PER_DAY - ticketsUsed);
+    const newPointsAvailable = pointsAvailable - pointsToBurn;
+
+    res.json({
+      ok: true,
+      points_available: newPointsAvailable,
+      tickets_remaining: ticketsRemaining,
+      points_burned_today: pointsBurned,
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -1868,13 +2178,73 @@ app.get('/api/block/:x/:y/:z', async (req, res) => {
     const z = Number(req.params.z);
     if (y < 1) return res.json(null);
     const { rows } = await pool.query(
-      `SELECT updated_by_username, updated_at
-       FROM blocks
-       WHERE x = $1 AND y = $2 AND z = $3 AND block_type <> 0`,
+      `SELECT b.updated_by_username, b.updated_at,
+              bm.author_user_id, bm.hidden_at,
+              bm.found_at, bm.found_by_username
+       FROM blocks b
+       LEFT JOIN block_messages bm ON bm.x = b.x AND bm.y = b.y AND bm.z = b.z
+       WHERE b.x = $1 AND b.y = $2 AND b.z = $3 AND b.block_type <> 0`,
       [x, y, z]
     );
     if (!rows.length || !rows[0].updated_by_username) return res.json(null);
-    res.json({ username: rows[0].updated_by_username, updated_at: rows[0].updated_at });
+    const row = rows[0];
+    const result = { username: row.updated_by_username, updated_at: row.updated_at };
+    if (row.author_user_id !== null && row.author_user_id !== undefined) {
+      if (Number(row.author_user_id) === req.user.id) {
+        result.ownMessage = row.found_at
+          ? { found: true, found_by_username: row.found_by_username, found_at: row.found_at, hidden_at: row.hidden_at }
+          : { found: false, hidden_at: row.hidden_at };
+      } else if (!row.found_at) {
+        result.hasMessage = true;
+      }
+    }
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- Block message reveal: claim the hidden message in a block ----
+app.post('/api/block/:x/:y/:z/reveal', async (req, res) => {
+  try {
+    const x = Number(req.params.x);
+    const y = Number(req.params.y);
+    const z = Number(req.params.z);
+
+    const blockRes = await pool.query(
+      `SELECT 1 FROM blocks WHERE x = $1 AND y = $2 AND z = $3 AND block_type <> 0`,
+      [x, y, z]
+    );
+    if (!blockRes.rows.length) return res.status(404).json({ error: 'No block at this position' });
+
+    const msgRes = await pool.query(
+      `SELECT author_user_id, author_username, body, hidden_at
+       FROM block_messages WHERE x = $1 AND y = $2 AND z = $3 AND found_at IS NULL`,
+      [x, y, z]
+    );
+    if (!msgRes.rows.length) return res.status(404).json({ error: 'No hidden message here' });
+
+    if (Number(msgRes.rows[0].author_user_id) === req.user.id) {
+      return res.status(403).json({ error: 'Cannot reveal your own message' });
+    }
+
+    const updateRes = await pool.query(
+      `UPDATE block_messages
+       SET found_by_user_id = $4, found_by_username = $5, found_at = NOW()
+       WHERE x = $1 AND y = $2 AND z = $3 AND found_at IS NULL
+       RETURNING body, author_username, hidden_at, found_by_username, found_at`,
+      [x, y, z, req.user.id, req.user.username]
+    );
+    if (!updateRes.rows.length) return res.status(404).json({ error: 'Message already found' });
+
+    const r = updateRes.rows[0];
+    res.json({
+      body: r.body,
+      author_username: r.author_username,
+      hidden_at: r.hidden_at,
+      found_by_username: r.found_by_username,
+      found_at: r.found_at,
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -2491,6 +2861,77 @@ app.post('/api/coach/tip', async (req, res) => {
   }
 });
 
+// ---- Daily Prompt: today's prompt + eligible builders + vote state ----
+app.get('/api/prompt/today', async (req, res) => {
+  try {
+    const now = new Date();
+    const dateStr = now.toISOString().slice(0, 10);
+    const prompt = dailyPrompt(now);
+
+    const yesterday = new Date(Date.UTC(
+      now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - 1
+    ));
+    const yesterdayStr = yesterday.toISOString().slice(0, 10);
+
+    const [yesterdayRes, myVoteRes, buildersRes] = await Promise.all([
+      pool.query(
+        `SELECT voted_for_username, COUNT(*)::int AS vote_count
+         FROM daily_prompt_votes
+         WHERE vote_date = $1
+         GROUP BY voted_for_user_id, voted_for_username
+         ORDER BY vote_count DESC
+         LIMIT 1`,
+        [yesterdayStr]
+      ),
+      pool.query(
+        `SELECT voted_for_user_id, voted_for_username
+         FROM daily_prompt_votes
+         WHERE vote_date = $1 AND voter_user_id = $2`,
+        [dateStr, req.user.id]
+      ),
+      pool.query(
+        `SELECT dcp.user_id, dcp.username,
+                COALESCE(v.vote_count, 0) AS vote_count
+         FROM daily_challenge_progress dcp
+         LEFT JOIN (
+           SELECT voted_for_user_id, COUNT(*)::int AS vote_count
+           FROM daily_prompt_votes
+           WHERE vote_date = $1
+           GROUP BY voted_for_user_id
+         ) v ON dcp.user_id = v.voted_for_user_id
+         WHERE dcp.challenge_date = $1
+           AND dcp.blocks_placed >= 1
+           AND dcp.user_id <> $2
+         ORDER BY vote_count DESC, dcp.username ASC`,
+        [dateStr, SEED_USER_ID]
+      ),
+    ]);
+
+    const yesterdayWinner = yesterdayRes.rows.length
+      ? { username: yesterdayRes.rows[0].voted_for_username, vote_count: yesterdayRes.rows[0].vote_count }
+      : null;
+
+    const myVote = myVoteRes.rows.length
+      ? { voted_for_user_id: myVoteRes.rows[0].voted_for_user_id, voted_for_username: myVoteRes.rows[0].voted_for_username }
+      : null;
+
+    res.json({
+      date: dateStr,
+      prompt,
+      my_vote: myVote,
+      eligible_builders: buildersRes.rows.map((r) => ({
+        user_id: r.user_id,
+        username: r.username,
+        vote_count: Number(r.vote_count),
+        is_self: r.user_id === req.user.id,
+      })),
+      yesterday_winner: yesterdayWinner,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ---- Share Score API ----
 app.post('/api/share-score', async (req, res) => {
   try {
@@ -2660,6 +3101,48 @@ app.get('/api/theme/today', async (req, res) => {
         anchor: yesterdayAnchor || null,
       } : null,
     });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- Daily Prompt: cast or change a vote ----
+app.post('/api/prompt/vote', async (req, res) => {
+  try {
+    const voted_for_user_id = Number(req.body.voted_for_user_id);
+    const voted_for_username = (typeof req.body.voted_for_username === 'string'
+      ? req.body.voted_for_username : '').trim();
+
+    if (!voted_for_user_id || !voted_for_username) {
+      return res.status(400).json({ error: 'voted_for_user_id and voted_for_username are required' });
+    }
+    if (voted_for_user_id === req.user.id) {
+      return res.status(400).json({ error: 'Cannot vote for yourself' });
+    }
+
+    const now = new Date();
+    const dateStr = now.toISOString().slice(0, 10);
+
+    const eligRes = await pool.query(
+      `SELECT 1 FROM daily_challenge_progress
+       WHERE challenge_date = $1 AND user_id = $2 AND blocks_placed >= 1`,
+      [dateStr, voted_for_user_id]
+    );
+    if (!eligRes.rows.length) {
+      return res.status(400).json({ error: 'That player has not built anything today' });
+    }
+
+    await pool.query(
+      `INSERT INTO daily_prompt_votes
+         (vote_date, voter_user_id, voter_username, voted_for_user_id, voted_for_username, created_at)
+       VALUES ($1, $2, $3, $4, $5, NOW())
+       ON CONFLICT (vote_date, voter_user_id) DO UPDATE SET
+         voted_for_user_id   = EXCLUDED.voted_for_user_id,
+         voted_for_username  = EXCLUDED.voted_for_username,
+         created_at          = NOW()`,
+      [dateStr, req.user.id, req.user.username, voted_for_user_id, voted_for_username]
+    );
+    res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -3233,6 +3716,33 @@ async function seedStreaks() {
   }
 }
 
+async function seedPromptVotes() {
+  const now = new Date();
+  const todayStr = now.toISOString().slice(0, 10);
+  const yesterday = new Date(Date.UTC(
+    now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - 1
+  ));
+  const yesterdayStr = yesterday.toISOString().slice(0, 10);
+
+  // Today: alice gets 2 votes (from bob and charlie), bob gets 1 (from alice).
+  // Yesterday: alice wins (1 vote from bob) — surfaces as "Yesterday's winner".
+  const votes = [
+    { vote_date: todayStr,     voter_id: -2, voter_username: 'Staging demo Bob',     voted_for_id: -1, voted_for_username: 'Staging demo Alice'   },
+    { vote_date: todayStr,     voter_id: -3, voter_username: 'Staging demo Charlie', voted_for_id: -1, voted_for_username: 'Staging demo Alice'   },
+    { vote_date: todayStr,     voter_id: -1, voter_username: 'Staging demo Alice',   voted_for_id: -2, voted_for_username: 'Staging demo Bob'     },
+    { vote_date: yesterdayStr, voter_id: -2, voter_username: 'Staging demo Bob',     voted_for_id: -1, voted_for_username: 'Staging demo Alice'   },
+  ];
+  for (const v of votes) {
+    await pool.query(
+      `INSERT INTO daily_prompt_votes
+         (vote_date, voter_user_id, voter_username, voted_for_user_id, voted_for_username)
+       VALUES ($1, $2, $3, $4, $5)
+       ON CONFLICT (vote_date, voter_user_id) DO NOTHING`,
+      [v.vote_date, v.voter_id, v.voter_username, v.voted_for_id, v.voted_for_username]
+    );
+  }
+}
+
 async function seedTheme() {
   const now = new Date();
   const todayStr = now.toISOString().slice(0, 10);
@@ -3442,6 +3952,25 @@ async function seedPuzzleScores() {
   }
 }
 
+// Seed daily energy state for staging demo users showing mid-day energy consumption.
+async function seedDailyEnergy() {
+  const now = new Date();
+  const todayStr = now.toISOString().slice(0, 10);
+  const seeds = [
+    { userId: -1, ticketsUsed: 2, pointsBurned: 0 },
+    { userId: -2, ticketsUsed: 3, pointsBurned: 100 },
+    { userId: -3, ticketsUsed: 1, pointsBurned: 0 },
+  ];
+  for (const s of seeds) {
+    await pool.query(
+      `INSERT INTO player_daily_energy (user_id, energy_date, tickets_used, points_burned, tokens_burned, updated_at)
+       VALUES ($1, $2, $3, $4, 0, NOW())
+       ON CONFLICT (user_id, energy_date) DO NOTHING`,
+      [s.userId, todayStr, s.ticketsUsed, s.pointsBurned]
+    );
+  }
+}
+
 // ---- Natural Disaster trigger (called from GET /api/world/changes) ----
 // Uses SELECT ... FOR UPDATE SKIP LOCKED on disaster_schedule so that only one
 // concurrent request can trigger at a time. Returns the fired disaster row or null.
@@ -3513,6 +4042,24 @@ async function maybeFireDisaster() {
     const delRes = await client.query(deleteQuery, deleteParams);
     const blocks_destroyed = delRes.rows.length;
 
+    // Remove hidden messages on destroyed blocks
+    if (type === 'earthquake') {
+      await client.query(
+        `DELETE FROM block_messages WHERE x BETWEEN $1 AND $2 AND z BETWEEN $3 AND $4`,
+        [params.x0, params.x1, params.z0, params.z1]
+      );
+    } else if (type === 'eruption') {
+      await client.query(
+        `DELETE FROM block_messages WHERE (x-$1)*(x-$1)+(z-$2)*(z-$2) <= $3`,
+        [origin_x, origin_z, params.radius * params.radius]
+      );
+    } else {
+      await client.query(
+        `DELETE FROM block_messages WHERE (x-$1)*(x-$1)+(y-$2)*(y-$2)+(z-$3)*(z-$3) <= $4`,
+        [origin_x, params.oy, origin_z, params.radius * params.radius]
+      );
+    }
+
     // Append count to chat message (keep under 200 chars)
     const countSuffix = ` ${blocks_destroyed} blocks destroyed.`;
     const fullMsg = (chatMsg + countSuffix).slice(0, 200);
@@ -3563,9 +4110,26 @@ async function maybeFireDisaster() {
   }
 }
 
+async function seedBlockMessages() {
+  // Unfound message on the Gold Block (20, 1, 10) — hidden by staging-demo-dave
+  await pool.query(
+    `INSERT INTO block_messages (x, y, z, author_user_id, author_username, body, hidden_at)
+     VALUES (20, 1, 10, -4, 'staging-demo-dave', 'Staging demo hidden treasure: Who will find this gold? 🔍', NOW() - INTERVAL '1 hour')
+     ON CONFLICT (x, y, z) DO NOTHING`
+  );
+  // Already-found message on the Glowstone (21, 1, 10) — found by staging-demo-alice
+  await pool.query(
+    `INSERT INTO block_messages (x, y, z, author_user_id, author_username, body, hidden_at, found_by_user_id, found_by_username, found_at)
+     VALUES (21, 1, 10, -5, 'staging-demo-eve', 'Staging demo found message: This glowstone marks the start. ✨', NOW() - INTERVAL '2 hours', -1, 'staging-demo-alice', NOW() - INTERVAL '30 minutes')
+     ON CONFLICT (x, y, z) DO NOTHING`
+  );
+}
+
 async function start() {
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS blocks (
+  try {
+    console.log('[startup] Initializing database tables...');
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS blocks (
       x SMALLINT NOT NULL,
       y SMALLINT NOT NULL,
       z SMALLINT NOT NULL,
@@ -3766,6 +4330,24 @@ async function start() {
     )
   `);
 
+  // Daily prompt votes: one row per (date, voter). Public — vote counts and
+  // usernames for a given day are not sensitive.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS daily_prompt_votes (
+      vote_date             DATE          NOT NULL,
+      voter_user_id         INTEGER       NOT NULL,
+      voter_username        VARCHAR(255)  NOT NULL,
+      voted_for_user_id     INTEGER       NOT NULL,
+      voted_for_username    VARCHAR(255)  NOT NULL,
+      created_at            TIMESTAMPTZ   DEFAULT NOW(),
+      PRIMARY KEY (vote_date, voter_user_id)
+    )
+  `);
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS daily_prompt_votes_voted_for_idx
+    ON daily_prompt_votes (vote_date, voted_for_user_id)
+  `);
+
   // Daily login rewards: tracks which players have claimed their daily reward and the date.
   await pool.query(`
     CREATE TABLE IF NOT EXISTS login_rewards (
@@ -3787,6 +4369,21 @@ async function start() {
       updated_at     TIMESTAMPTZ DEFAULT NOW()
     )
   `);
+
+  // Daily energy system: tracks daily ticket usage and point/token spending.
+  // Public table — holds only gameplay resource tracking, no sensitive data.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS player_daily_energy (
+      user_id       INTEGER NOT NULL,
+      energy_date   DATE NOT NULL,
+      tickets_used  INTEGER NOT NULL DEFAULT 0,
+      points_burned BIGINT NOT NULL DEFAULT 0,
+      tokens_burned BIGINT NOT NULL DEFAULT 0,
+      updated_at    TIMESTAMPTZ DEFAULT NOW(),
+      PRIMARY KEY (user_id, energy_date)
+    )
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS player_daily_energy_date_idx ON player_daily_energy (energy_date, user_id)`);
 
   // Social graph: friend requests and accepted friendships.
   // Marked staging:private — the friend relationships between real users must
@@ -3886,6 +4483,25 @@ async function start() {
     )
   `);
 
+  // Hidden messages that players can attach to blocks. Marked staging:private
+  // so real messages are never copied into staging containers.
+  // No FK to blocks intentionally — blocks is public, this is private.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS block_messages (
+      x                  SMALLINT     NOT NULL,
+      y                  SMALLINT     NOT NULL,
+      z                  SMALLINT     NOT NULL,
+      author_user_id     INTEGER      NOT NULL,
+      author_username    VARCHAR(255) NOT NULL,
+      body               VARCHAR(200) NOT NULL,
+      hidden_at          TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+      found_by_user_id   INTEGER,
+      found_by_username  VARCHAR(255),
+      found_at           TIMESTAMPTZ,
+      PRIMARY KEY (x, y, z)
+    )
+  `);
+  await pool.query(`COMMENT ON TABLE block_messages IS 'staging:private'`);
   await pool.query(`
     CREATE TABLE IF NOT EXISTS monuments (
       id                SERIAL PRIMARY KEY,
@@ -3957,6 +4573,10 @@ async function start() {
     catch (err) { console.error('endless-scores seed failed', err); }
     try { await seedStreaks(); }
     catch (err) { console.error('streak seed failed', err); }
+    try { await seedPromptVotes(); }
+    catch (err) { console.error('prompt votes seed failed', err); }
+    try { await seedBlockMessages(); }
+    catch (err) { console.error('block messages seed failed', err); }
     try { await seedTheme(); }
     catch (err) { console.error('theme seed failed', err); }
     try { await seedLoginRewards(); }
@@ -3967,6 +4587,8 @@ async function start() {
     catch (err) { console.error('puzzle-levels seed failed', err); }
     try { await seedPuzzleScores(); }
     catch (err) { console.error('puzzle-scores seed failed', err); }
+    try { await seedDailyEnergy(); }
+    catch (err) { console.error('daily-energy seed failed', err); }
     // Staging spectators are now surfaced via the STAGING_DEMO_USERS constant
     // appended in GET /api/presence/online, so no DB seed is needed here.
   }
@@ -3974,7 +4596,16 @@ async function start() {
   await ensurePowerUps();
   initMobs();
 
-  app.listen(port, () => console.log(`Listening on :${port}`));
+    console.log('[startup] Database initialization complete.');
+    startupComplete = true;
+    app.listen(port, () => console.log(`[startup] Listening on :${port}`));
+  } catch (err) {
+    const msg = err.message || String(err);
+    console.error('[startup] FATAL: Database initialization failed:', msg);
+    startupError = msg;
+    // Keep the app running but report errors when requested
+    app.listen(port, () => console.log(`[startup] Listening on :${port} (with startup error)`));
+  }
 }
 
 start().catch((err) => { console.error(err); process.exit(1); });
