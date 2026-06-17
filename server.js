@@ -10,6 +10,8 @@ const JWT_SECRET = process.env.JWT_SECRET;
 const IS_STAGING = process.env.USERNODE_ENV === 'staging';
 const LLM_ENABLED = !!process.env.USERNODE_LLM_PROXY_TOKEN;
 
+let dbReady = false;
+
 // Hardcoded demo presence entries for staging so the online list is always
 // populated regardless of whether the seeded user_presence rows are still
 // within their 60-second expiry window.
@@ -181,10 +183,18 @@ app.use((req, res, next) => {
   next();
 });
 
+// Helper: middleware to check database readiness for endpoints that require it
+function requireDb(req, res, next) {
+  if (!dbReady) {
+    return res.status(503).json({ error: 'Database not yet initialized. Please retry.' });
+  }
+  next();
+}
+
 app.get('/health', (_req, res) => res.json({ status: 'ok' }));
 
 // ---- World bootstrap: dimensions, palette, current blocks, poll cursor ----
-app.get('/api/world', async (req, res) => {
+app.get('/api/world', requireDb, async (req, res) => {
   try {
     const { rows } = await pool.query(
       `SELECT x, y, z, block_type FROM blocks WHERE block_type <> 0`
@@ -214,7 +224,7 @@ app.get('/api/world', async (req, res) => {
 // Air-as-row: breaking writes block_type = 0 (never DELETE) with a bumped
 // seq, so the change feed below can surface breaks to other clients.
 // Placements (block_type > 0) also increment the player's daily challenge counter.
-app.post('/api/block', async (req, res) => {
+app.post('/api/block', requireDb, async (req, res) => {
   try {
     const x = Number(req.body.x);
     const y = Number(req.body.y);
@@ -494,7 +504,7 @@ app.post('/api/block', async (req, res) => {
 // ---- Delta feed: every cell changed since the client's cursor, including
 // breaks (block_type 0). Powers near-realtime collaborative editing.
 // Supports world_id parameter: 0 = shared world, >0 = custom world (no disasters)
-app.get('/api/world/changes', async (req, res) => {
+app.get('/api/world/changes', requireDb, async (req, res) => {
   try {
     const since = Number(req.query.since) || 0;
     const eventsSince = Number(req.query.events_since) || 0;
@@ -550,7 +560,7 @@ app.get('/api/world/changes', async (req, res) => {
 // On initial load (since=0), returns the 50 most recent messages so the
 // history doesn't dump the entire table. Delta polls are unbounded since
 // the cursor bounds them naturally.
-app.get('/api/chat', async (req, res) => {
+app.get('/api/chat', requireDb, async (req, res) => {
   try {
     const since = Number(req.query.since) || 0;
     const limit = since === 0 ? 50 : 500;
@@ -574,7 +584,7 @@ app.get('/api/chat', async (req, res) => {
 });
 
 // ---- Tutorial: check completion status ----
-app.get('/api/tutorial/status', async (req, res) => {
+app.get('/api/tutorial/status', requireDb, async (req, res) => {
   try {
     const { rows } = await pool.query(
       `SELECT user_id FROM player_tutorial_completed WHERE user_id = $1`,
@@ -587,7 +597,7 @@ app.get('/api/tutorial/status', async (req, res) => {
 });
 
 // ---- Tutorial: mark as completed ----
-app.post('/api/tutorial/complete', async (req, res) => {
+app.post('/api/tutorial/complete', requireDb, async (req, res) => {
   try {
     await pool.query(
       `INSERT INTO player_tutorial_completed (user_id, completed_at)
@@ -602,7 +612,7 @@ app.post('/api/tutorial/complete', async (req, res) => {
 });
 
 // ---- Presence: heartbeat ping ----
-app.post('/api/presence/ping', async (req, res) => {
+app.post('/api/presence/ping', requireDb, async (req, res) => {
   try {
     const rawMode = req.body && req.body.mode;
     const mode = ['classic', 'spectate'].includes(rawMode) ? rawMode : 'classic';
@@ -718,7 +728,7 @@ app.post('/api/presence/ping', async (req, res) => {
 });
 
 // ---- Streak: current user's login streak ----
-app.get('/api/streak', async (req, res) => {
+app.get('/api/streak', requireDb, async (req, res) => {
   try {
     const { rows } = await pool.query(
       `SELECT current_streak, longest_streak FROM login_streaks WHERE user_id = $1`,
@@ -735,7 +745,7 @@ app.get('/api/streak', async (req, res) => {
 });
 
 // ---- Player coins: current user's coin balance ----
-app.get('/api/player/coins', async (req, res) => {
+app.get('/api/player/coins', requireDb, async (req, res) => {
   try {
     const { rows } = await pool.query(
       `SELECT coins_balance FROM player_coins WHERE user_id = $1`,
@@ -749,7 +759,7 @@ app.get('/api/player/coins', async (req, res) => {
 });
 
 // ---- Presence: who is online (seen in the last 60s), optionally filtered by world ----
-app.get('/api/presence/online', async (req, res) => {
+app.get('/api/presence/online', requireDb, async (req, res) => {
   try {
     const current_world_id = req.query.current_world_id ? Number(req.query.current_world_id) : null;
 
@@ -771,7 +781,7 @@ app.get('/api/presence/online', async (req, res) => {
 });
 
 // ---- Leaderboard: top 10 + caller's own row ----
-app.get('/api/leaderboard', async (req, res) => {
+app.get('/api/leaderboard', requireDb, async (req, res) => {
   try {
     const topRes = await pool.query(
       `SELECT rank() OVER (ORDER BY total_score DESC) AS rank,
@@ -808,7 +818,7 @@ app.get('/api/leaderboard', async (req, res) => {
 // ---- Time Attack: submit a completed run ----
 // Body: { cleared, difficulty }. Keeps only the best run per user — the
 // upsert overwrites the stored row only when this run beats best_cleared.
-app.post('/api/ta-score', async (req, res) => {
+app.post('/api/ta-score', requireDb, async (req, res) => {
   try {
     const cleared = Number(req.body.cleared);
     const difficulty = Number(req.body.difficulty);
@@ -852,7 +862,7 @@ app.post('/api/ta-score', async (req, res) => {
 });
 
 // ---- Time Attack leaderboard: top 10 by best run + caller's own best ----
-app.get('/api/ta-leaderboard', async (req, res) => {
+app.get('/api/ta-leaderboard', requireDb, async (req, res) => {
   try {
     const topRes = await pool.query(
       `SELECT rank() OVER (ORDER BY best_cleared DESC) AS rank,
@@ -886,7 +896,7 @@ app.get('/api/ta-leaderboard', async (req, res) => {
 
 // ---- Time Attack (60s): submit a completed run ----
 // Body: { cleared }. Keeps only the best run per user.
-app.post('/api/ta-60-score', async (req, res) => {
+app.post('/api/ta-60-score', requireDb, async (req, res) => {
   try {
     const cleared = Number(req.body.cleared);
     if (!Number.isInteger(cleared) || cleared < 0) {
@@ -921,7 +931,7 @@ app.post('/api/ta-60-score', async (req, res) => {
 });
 
 // ---- Time Attack (60s) leaderboard: top 10 by best run + caller's own best ----
-app.get('/api/ta-60-leaderboard', async (req, res) => {
+app.get('/api/ta-60-leaderboard', requireDb, async (req, res) => {
   try {
     const topRes = await pool.query(
       `SELECT rank() OVER (ORDER BY best_cleared DESC) AS rank,
@@ -954,7 +964,7 @@ app.get('/api/ta-60-leaderboard', async (req, res) => {
 
 // ---- Endless Mode: submit a completed run ----
 // Body: { placed, moves_survived }. Keeps only the best run per user.
-app.post('/api/endless-score', async (req, res) => {
+app.post('/api/endless-score', requireDb, async (req, res) => {
   try {
     const placed = Number(req.body.placed);
     const moves_survived = Number(req.body.moves_survived);
@@ -994,7 +1004,7 @@ app.post('/api/endless-score', async (req, res) => {
 });
 
 // ---- Endless Mode leaderboard: top 10 by best blocks placed + caller's entry ----
-app.get('/api/endless-leaderboard', async (req, res) => {
+app.get('/api/endless-leaderboard', requireDb, async (req, res) => {
   try {
     const topRes = await pool.query(
       `SELECT rank() OVER (ORDER BY best_placed DESC) AS rank,
@@ -1027,7 +1037,7 @@ app.get('/api/endless-leaderboard', async (req, res) => {
 });
 
 // ---- Badges: current player's earned badges ----
-app.get('/api/badges', async (req, res) => {
+app.get('/api/badges', requireDb, async (req, res) => {
   try {
     const { rows } = await pool.query(
       `SELECT badge_id, earned_at FROM player_badges WHERE user_id = $1 ORDER BY earned_at`,
@@ -1042,7 +1052,7 @@ app.get('/api/badges', async (req, res) => {
 });
 
 // ---- Public player profile: fetch stats across all modes ----
-app.get('/api/profile/:username', async (req, res) => {
+app.get('/api/profile/:username', requireDb, async (req, res) => {
   try {
     const username = req.params.username.toLowerCase();
 
@@ -1197,7 +1207,7 @@ app.get('/api/profile/:username', async (req, res) => {
 });
 
 // ---- Chat: post a new message ----
-app.post('/api/chat', async (req, res) => {
+app.post('/api/chat', requireDb, async (req, res) => {
   try {
     const body = (typeof req.body.body === 'string' ? req.body.body : '').trim();
     if (!body) return res.status(400).json({ error: 'message body is required' });
@@ -1214,7 +1224,7 @@ app.post('/api/chat', async (req, res) => {
 });
 
 // ---- Custom Worlds: list user's saved worlds ----
-app.get('/api/worlds', async (req, res) => {
+app.get('/api/worlds', requireDb, async (req, res) => {
   try {
     const { rows } = await pool.query(
       `SELECT id, world_name, blocks_count, created_at, owner_username
@@ -1239,7 +1249,7 @@ app.get('/api/worlds', async (req, res) => {
 });
 
 // ---- Custom Worlds: save current (shared) world as a custom snapshot ----
-app.post('/api/worlds', async (req, res) => {
+app.post('/api/worlds', requireDb, async (req, res) => {
   try {
     const world_name = (typeof req.body.world_name === 'string' ? req.body.world_name : '').trim();
     if (!world_name) return res.status(400).json({ error: 'world_name required' });
@@ -1268,7 +1278,7 @@ app.post('/api/worlds', async (req, res) => {
 });
 
 // ---- Custom Worlds: get blocks from a world (world_id = 0 is shared world) ----
-app.get('/api/worlds/:id/blocks', async (req, res) => {
+app.get('/api/worlds/:id/blocks', requireDb, async (req, res) => {
   try {
     const world_id = Number(req.params.id);
     let blocks;
@@ -1296,7 +1306,7 @@ app.get('/api/worlds/:id/blocks', async (req, res) => {
 });
 
 // ---- Custom Worlds: place/break a block in a custom world ----
-app.post('/api/worlds/:id/blocks', async (req, res) => {
+app.post('/api/worlds/:id/blocks', requireDb, async (req, res) => {
   try {
     const world_id = Number(req.params.id);
     const x = Number(req.body.x);
@@ -1436,7 +1446,7 @@ app.post('/api/worlds/:id/blocks', async (req, res) => {
 });
 
 // ---- Custom Worlds: rename or update a world ----
-app.put('/api/worlds/:id', async (req, res) => {
+app.put('/api/worlds/:id', requireDb, async (req, res) => {
   try {
     const world_id = Number(req.params.id);
     const world_name = typeof req.body.world_name === 'string' ? req.body.world_name.trim() : null;
@@ -1463,7 +1473,7 @@ app.put('/api/worlds/:id', async (req, res) => {
 });
 
 // ---- Custom Worlds: delete a world ----
-app.delete('/api/worlds/:id', async (req, res) => {
+app.delete('/api/worlds/:id', requireDb, async (req, res) => {
   try {
     const world_id = Number(req.params.id);
 
@@ -1482,7 +1492,7 @@ app.delete('/api/worlds/:id', async (req, res) => {
 // ---- Block attribution: who placed the block at (x, y, z) and when. ----
 // Returns { username, updated_at } for a placed block, or null for empty /
 // ground cells. Ground (y < 1) is the immutable grass layer — never stored.
-app.get('/api/block/:x/:y/:z', async (req, res) => {
+app.get('/api/block/:x/:y/:z', requireDb, async (req, res) => {
   try {
     const x = Number(req.params.x);
     const y = Number(req.params.y);
@@ -1518,7 +1528,7 @@ async function pickSpawnPosition() {
 }
 
 // ---- Power-ups: list all unclaimed items ----
-app.get('/api/powerups', async (_req, res) => {
+app.get('/api/powerups', requireDb, async (_req, res) => {
   try {
     const { rows } = await pool.query(
       `SELECT id, type, x, y, z FROM powerups WHERE claimed_at IS NULL`
@@ -1530,7 +1540,7 @@ app.get('/api/powerups', async (_req, res) => {
 });
 
 // ---- Power-ups: collect one (atomic claim + spawn replacement) ----
-app.post('/api/powerups/:id/collect', async (req, res) => {
+app.post('/api/powerups/:id/collect', requireDb, async (req, res) => {
   try {
     const id = Number(req.params.id);
     const { rows } = await pool.query(
@@ -1557,7 +1567,7 @@ app.post('/api/powerups/:id/collect', async (req, res) => {
 // ---- Daily Challenge: today's goal and the requesting user's progress. ----
 // Target is derived deterministically from the UTC date — no DB write needed.
 // Returns { date, target, placed, completed_at, streak }.
-app.get('/api/challenge/today', async (req, res) => {
+app.get('/api/challenge/today', requireDb, async (req, res) => {
   try {
     const now = new Date();
     const dateStr = now.toISOString().slice(0, 10);
@@ -1587,7 +1597,7 @@ app.get('/api/challenge/today', async (req, res) => {
 });
 
 // ---- Daily Challenge: leaderboard for a specific date ----
-app.get('/api/challenge/leaderboard', async (req, res) => {
+app.get('/api/challenge/leaderboard', requireDb, async (req, res) => {
   try {
     const now = new Date();
     const dateStr = (req.query.date || now.toISOString().slice(0, 10));
@@ -1633,7 +1643,7 @@ app.get('/api/challenge/leaderboard', async (req, res) => {
 });
 
 // ---- Daily Challenge: complete (trigger streak tracking and rewards) ----
-app.post('/api/challenge/complete', async (req, res) => {
+app.post('/api/challenge/complete', requireDb, async (req, res) => {
   try {
     const now = new Date();
     const dateStr = now.toISOString().slice(0, 10);
@@ -1759,7 +1769,7 @@ app.post('/api/challenge/complete', async (req, res) => {
 });
 
 // ---- Daily Challenge: user's all-time statistics ----
-app.get('/api/challenge/stats', async (req, res) => {
+app.get('/api/challenge/stats', requireDb, async (req, res) => {
   try {
     const completionsRes = await pool.query(
       `SELECT COUNT(*) as total FROM daily_challenge_rewards WHERE user_id = $1`,
@@ -1800,7 +1810,7 @@ app.get('/api/challenge/stats', async (req, res) => {
 });
 
 // ---- Weekly Tournament: current week top-10 + self row + last week's top-3 ----
-app.get('/api/tournament', async (req, res) => {
+app.get('/api/tournament', requireDb, async (req, res) => {
   try {
     const now = new Date();
     const curWeek = weekStart(now);
@@ -1862,7 +1872,7 @@ app.get('/api/tournament', async (req, res) => {
 });
 
 // ---- Friends: list accepted friends + pending requests ----
-app.get('/api/friends', async (req, res) => {
+app.get('/api/friends', requireDb, async (req, res) => {
   const uid = req.user.id;
   try {
     const { rows: friendRows } = await pool.query(
@@ -1926,7 +1936,7 @@ app.get('/api/friends', async (req, res) => {
 });
 
 // ---- Friends: send a friend request by username ----
-app.post('/api/friends/request', async (req, res) => {
+app.post('/api/friends/request', requireDb, async (req, res) => {
   const uid = req.user.id;
   const uname = req.user.username;
   const targetUsername = (typeof req.body.username === 'string' ? req.body.username : '').trim();
@@ -1970,7 +1980,7 @@ app.post('/api/friends/request', async (req, res) => {
 });
 
 // ---- Friends: accept an incoming request ----
-app.post('/api/friends/:id/accept', async (req, res) => {
+app.post('/api/friends/:id/accept', requireDb, async (req, res) => {
   const rowId = Number(req.params.id);
   if (IS_STAGING && rowId < 0) return res.json({ ok: true });
   try {
@@ -1989,7 +1999,7 @@ app.post('/api/friends/:id/accept', async (req, res) => {
 
 // ---- Friends: decline an incoming request ----
 // The row is kept (status = 'declined') so the requester can't immediately spam again.
-app.post('/api/friends/:id/decline', async (req, res) => {
+app.post('/api/friends/:id/decline', requireDb, async (req, res) => {
   const rowId = Number(req.params.id);
   if (IS_STAGING && rowId < 0) return res.json({ ok: true });
   try {
@@ -2007,7 +2017,7 @@ app.post('/api/friends/:id/decline', async (req, res) => {
 });
 
 // ---- Friends: remove an accepted friendship or cancel an outgoing request ----
-app.delete('/api/friends/:id', async (req, res) => {
+app.delete('/api/friends/:id', requireDb, async (req, res) => {
   const rowId = Number(req.params.id);
   if (IS_STAGING && rowId < 0) return res.json({ ok: true });
   try {
@@ -2036,7 +2046,7 @@ const CANNED_TIPS = {
   disaster:           'A disaster just struck the world! Rebuild quickly to earn points.',
 };
 
-app.post('/api/coach/tip', async (req, res) => {
+app.post('/api/coach/tip', requireDb, async (req, res) => {
   const { trigger, mode, blocks_placed, score, unlocked_types_count, combo_tier, active_buffs, challenge_progress, badge_name } = req.body || {};
 
   if (!LLM_ENABLED) {
@@ -3078,7 +3088,15 @@ async function start() {
 
   await ensurePowerUps();
 
-  app.listen(port, () => console.log(`Listening on :${port}`));
+  dbReady = true;
 }
 
-start().catch((err) => { console.error(err); process.exit(1); });
+// Start HTTP server immediately, initialize database asynchronously
+app.listen(port, () => console.log(`Listening on :${port}`));
+
+// Initialize database in the background (do not block server startup)
+start().catch((err) => {
+  console.error('Database initialization failed:', err);
+  // Log the error but do NOT exit — allow the server to continue running
+  // so the client can at least load the menu (with limited functionality)
+});
