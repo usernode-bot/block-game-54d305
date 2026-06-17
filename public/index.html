@@ -6379,6 +6379,16 @@
       body.textContent = ' ' + m.body;
       row.appendChild(name);
       row.appendChild(body);
+      // Muted local HH:MM timestamp, derived from the stored created_at.
+      if (m.created_at) {
+        const d = new Date(m.created_at);
+        if (!isNaN(d)) {
+          const time = document.createElement('span');
+          time.className = 'text-zinc-500 text-[10px] ml-1.5 align-baseline';
+          time.textContent = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+          row.appendChild(time);
+        }
+      }
       chatMessagesEl.appendChild(row);
       // Auto-scroll to latest when the drawer is open.
       if (chatOpen) chatMessagesEl.scrollTop = chatMessagesEl.scrollHeight;
