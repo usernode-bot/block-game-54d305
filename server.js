@@ -14,10 +14,10 @@ const LLM_ENABLED = !!process.env.USERNODE_LLM_PROXY_TOKEN;
 // populated regardless of whether the seeded user_presence rows are still
 // within their 60-second expiry window.
 const STAGING_DEMO_USERS = [
-  { username: 'Staging demo Alice', mode: 'classic' },
-  { username: 'Staging demo Bob',   mode: 'classic' },
-  { username: 'Staging demo spectator — Alice', mode: 'spectate' },
-  { username: 'Staging demo spectator — Bob',   mode: 'spectate' },
+  { username: 'Staging demo Alice', mode: 'classic',  active_pet: 'cat'  },
+  { username: 'Staging demo Bob',   mode: 'classic',  active_pet: 'dog'  },
+  { username: 'Staging demo spectator — Alice', mode: 'spectate', active_pet: null },
+  { username: 'Staging demo spectator — Bob',   mode: 'spectate', active_pet: null },
 ];
 
 // ---- Fixed shared-world parameters (authoritative; mirrored to client) ----
@@ -91,6 +91,17 @@ const STREAK_BADGE_MILESTONES = [
   { days: 14, id: 'streak_14' },
   { days: 30, id: 'streak_30' },
 ];
+
+// Pet companion definitions. Unlocked automatically when blocks_placed reaches
+// the threshold — no separate ownership table, same pattern as Crystal block.
+const PET_TYPES = [
+  { id: 'cat',    name: 'Cat',    icon: '🐱', unlockAt: 25,   color: '#e8a857' },
+  { id: 'dog',    name: 'Dog',    icon: '🐶', unlockAt: 100,  color: '#c8a070' },
+  { id: 'ghost',  name: 'Ghost',  icon: '👻', unlockAt: 300,  color: '#ddeeff', opacity: 0.75 },
+  { id: 'dragon', name: 'Dragon', icon: '🐲', unlockAt: 750,  color: '#7c5ea8' },
+  { id: 'robot',  name: 'Robot',  icon: '🤖', unlockAt: 1500, color: '#8090a0' },
+];
+const PET_MAP = new Map(PET_TYPES.map((p) => [p.id, p]));
 
 // Returns badges from BADGES that are newly earned given updated leaderboard
 // totals, the block type just placed, and distinct type count.
@@ -177,12 +188,18 @@ app.get('/api/world', async (req, res) => {
     const lbRow = await pool.query(`SELECT blocks_placed FROM leaderboard WHERE user_id = $1`, [req.user.id]);
     const userPlaced = lbRow.rows.length ? Number(lbRow.rows[0].blocks_placed) : 0;
     const unlockedTypes = PALETTE.filter((p) => p.unlockAt && userPlaced >= p.unlockAt).map((p) => p.id);
+    const unlockedPets = PET_TYPES.filter((p) => userPlaced >= p.unlockAt).map((p) => p.id);
+    const presRow = await pool.query(`SELECT active_pet FROM user_presence WHERE user_id = $1`, [req.user.id]);
+    const activePet = presRow.rows.length ? (presRow.rows[0].active_pet || null) : null;
     res.json({
       dims: DIMS,
       palette: PALETTE,
+      petTypes: PET_TYPES,
       blocks: rows.map((r) => ({ x: r.x, y: r.y, z: r.z, t: r.block_type })),
       cursor: Number(cur.rows[0].cursor),
       unlockedTypes,
+      unlockedPets,
+      activePet,
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -246,6 +263,7 @@ app.post('/api/block', async (req, res) => {
     let earned = 0, combo_multiplier = 1, rainbow_multiplier = 1, combo_tier = 1;
     let newly_earned_badges = [];
     let newly_unlocked_types = [];
+    let newly_unlocked_pets = [];
     if (t !== 0) {
       const now = new Date();
       const dateStr = now.toISOString().slice(0, 10);
@@ -373,9 +391,16 @@ app.post('/api/block', async (req, res) => {
           newly_unlocked_types.push({ id: up.id, name: up.name, icon: up.unlockIcon || '✨', description: 'A translucent gem-like block, earned through dedication.' });
         }
       }
+
+      // Detect pet unlock milestones (same exact-crossing pattern as block types).
+      for (const pet of PET_TYPES) {
+        if (lb.blocks_placed === pet.unlockAt) {
+          newly_unlocked_pets.push({ id: pet.id, name: pet.name, icon: pet.icon });
+        }
+      }
     }
 
-    res.json({ ok: true, seq, ...(challenge ? { challenge } : {}), earned, combo_multiplier, rainbow_multiplier, newly_earned_badges, newly_unlocked_types });
+    res.json({ ok: true, seq, ...(challenge ? { challenge } : {}), earned, combo_multiplier, rainbow_multiplier, newly_earned_badges, newly_unlocked_types, newly_unlocked_pets });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -517,15 +542,40 @@ app.get('/api/streak', async (req, res) => {
   }
 });
 
+// ---- Pet: equip or unequip a companion ----
+app.post('/api/pet/equip', async (req, res) => {
+  try {
+    const { pet_id } = req.body;
+    if (pet_id !== null && pet_id !== undefined && !PET_MAP.has(pet_id)) {
+      return res.status(400).json({ error: 'Unknown pet_id' });
+    }
+    if (pet_id) {
+      const lbRow = await pool.query(`SELECT blocks_placed FROM leaderboard WHERE user_id = $1`, [req.user.id]);
+      const placed = lbRow.rows.length ? Number(lbRow.rows[0].blocks_placed) : 0;
+      const pet = PET_MAP.get(pet_id);
+      if (placed < pet.unlockAt) return res.status(403).json({ error: 'Pet not yet unlocked' });
+    }
+    await pool.query(
+      `INSERT INTO user_presence (user_id, username, last_seen, active_pet)
+       VALUES ($1, $2, NOW(), $3)
+       ON CONFLICT (user_id) DO UPDATE SET active_pet = $3`,
+      [req.user.id, req.user.username, pet_id || null]
+    );
+    res.json({ ok: true, active_pet: pet_id || null });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ---- Presence: who is online (seen in the last 60s) ----
 app.get('/api/presence/online', async (req, res) => {
   try {
     const { rows } = await pool.query(
-      `SELECT username, mode FROM user_presence
+      `SELECT username, mode, active_pet FROM user_presence
        WHERE last_seen > NOW() - INTERVAL '60 seconds'
        ORDER BY username`
     );
-    const users = rows.map((r) => ({ username: r.username, mode: r.mode || 'classic' }));
+    const users = rows.map((r) => ({ username: r.username, mode: r.mode || 'classic', active_pet: r.active_pet || null }));
     if (IS_STAGING) users.push(...STAGING_DEMO_USERS);
     res.json({ users });
   } catch (err) {
@@ -1401,6 +1451,10 @@ async function start() {
   await pool.query(`
     ALTER TABLE user_presence
       ADD COLUMN IF NOT EXISTS mode VARCHAR(20) NOT NULL DEFAULT 'classic'
+  `);
+  await pool.query(`
+    ALTER TABLE user_presence
+      ADD COLUMN IF NOT EXISTS active_pet VARCHAR(20)
   `);
 
   // Daily challenge progress: one row per (date, user). Public table —

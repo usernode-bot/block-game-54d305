@@ -198,6 +198,10 @@
   <button id="badges-btn" title="Badges" aria-label="Toggle badges"
           class="fixed top-3 z-30 w-9 h-9 rounded-full bg-black/50 hover:bg-black/70 text-zinc-100 text-lg leading-none flex items-center justify-center transition-colors cursor-pointer" style="right: 6.25rem">🏆</button>
 
+  <!-- Pet companion toggle: sits to the left of the badges button. -->
+  <button id="pet-btn" title="Pet Companions" aria-label="Toggle pet companions"
+          class="fixed top-3 z-30 w-9 h-9 rounded-full bg-black/50 hover:bg-black/70 text-zinc-100 text-lg leading-none flex items-center justify-center transition-colors cursor-pointer" style="right: 9.5rem">🐾</button>
+
   <!-- Audio mute toggle: sits to the left of the help button. -->
   <button id="mute-btn" title="Mute/unmute audio (M)" aria-label="Toggle audio"
           class="fixed top-3 right-14 z-30 w-9 h-9 rounded-full bg-black/50 hover:bg-black/70 text-zinc-100 text-lg leading-none flex items-center justify-center transition-colors cursor-pointer">🔊</button>
@@ -260,6 +264,16 @@
       <button id="badges-close" aria-label="Close badges" class="text-zinc-400 hover:text-zinc-100 cursor-pointer leading-none">✕</button>
     </div>
     <div id="badges-list" class="space-y-1.5 max-h-96 overflow-y-auto pr-0.5"></div>
+  </div>
+
+  <!-- Pet companions panel: equip / unequip pixel pet. Hidden by default. -->
+  <div id="pet-panel" class="hidden fixed top-16 z-30 w-80 max-w-[90vw] rounded-xl bg-black/70 backdrop-blur p-4 text-sm text-zinc-200 shadow-xl" style="right: 3rem">
+    <div class="flex items-center justify-between mb-3">
+      <h2 class="font-bold text-zinc-100">Pet Companions</h2>
+      <button id="pet-close" aria-label="Close pets" class="text-zinc-400 hover:text-zinc-100 cursor-pointer leading-none">✕</button>
+    </div>
+    <div id="pet-grid" class="grid grid-cols-3 gap-2"></div>
+    <p id="pet-hint" class="mt-3 text-xs text-zinc-400 text-center">Place more blocks to unlock companions!</p>
   </div>
 
   <!-- Badge toast container: toasts stack above the palette, bottom-centre. -->
@@ -424,7 +438,7 @@
 
     // Build identifier — bump this (to the deploying commit short SHA) on every
     // change so the top-right stamp confirms exactly which code is running.
-    const BUILD_VERSION = 'power-ups+hold-queue+achievements-badges+chat+daily-challenge+leaderboard+online-presence+block-attribution+audio-sfx+next-piece-preview+spectator-mode+weekly-tournament+friends+day-night-cycle+minimap+ai-coach';
+    const BUILD_VERSION = 'power-ups+hold-queue+achievements-badges+chat+daily-challenge+leaderboard+online-presence+block-attribution+audio-sfx+next-piece-preview+spectator-mode+weekly-tournament+friends+day-night-cycle+minimap+ai-coach+pixel-pets';
 
     // Badge definitions — mirror of the server-side BADGES array, extended with
     // a `hint` field shown in the panel for unearned badges.
@@ -691,6 +705,13 @@
     let coachDismissTimer = null;
     let sessionBlocksPlaced = 0;     // placements this session, for milestone trigger
     let sessionScore = 0;
+
+    // ---- Pet companion state ----
+    let petTypes = [];              // full PET_TYPES array from /api/world
+    let unlockedPets = new Set();   // pet ids the player has earned
+    let activePet = null;           // currently equipped pet id, or null
+    let petMesh = null;             // THREE.Group for the active pet, added to scene
+    let petPanelOpen = false;
 
     // ---- Game mode state ----
     let gameMode = null;           // null | 'classic' | 'timeattack'
@@ -1244,6 +1265,72 @@
       if (!toastShowing) showNextToast();
     }
 
+    // ---- Pixel pet mesh builder ----
+    function buildPetMesh(petDef) {
+      const g = new THREE.Group();
+      const c = new THREE.Color(petDef.color || '#e8a857');
+      const op = petDef.opacity !== undefined ? petDef.opacity : 1.0;
+      const transparent = op < 1;
+
+      function box(w, h, d, col, alpha) {
+        const mat = (alpha !== undefined && alpha < 1)
+          ? new THREE.MeshLambertMaterial({ color: new THREE.Color(col || c), transparent: true, opacity: alpha })
+          : new THREE.MeshLambertMaterial({ color: col ? new THREE.Color(col) : c });
+        return new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
+      }
+
+      const body = box(0.40, 0.30, 0.22, null, op);
+      body.position.set(0, 0, 0);
+      g.add(body);
+
+      const head = box(0.26, 0.26, 0.26, null, op);
+      head.position.set(0, 0.30, 0);
+      g.add(head);
+
+      if (petDef.id === 'cat') {
+        const earL = box(0.08, 0.13, 0.05, null, op); earL.position.set(-0.08, 0.30 + 0.19, 0); g.add(earL);
+        const earR = box(0.08, 0.13, 0.05, null, op); earR.position.set( 0.08, 0.30 + 0.19, 0); g.add(earR);
+      } else if (petDef.id === 'dog') {
+        const earL = box(0.10, 0.06, 0.18, null, op); earL.position.set(-0.19, 0.30 - 0.04, 0); g.add(earL);
+        const earR = box(0.10, 0.06, 0.18, null, op); earR.position.set( 0.19, 0.30 - 0.04, 0); g.add(earR);
+      } else if (petDef.id === 'ghost') {
+        body.scale.y = 1.5;
+        body.position.y = 0.08;
+        head.scale.y = 0.9;
+        const eyeL = box(0.06, 0.06, 0.04, '#1a1a2e', 1); eyeL.position.set(-0.07, 0.30, 0.13); g.add(eyeL);
+        const eyeR = box(0.06, 0.06, 0.04, '#1a1a2e', 1); eyeR.position.set( 0.07, 0.30, 0.13); g.add(eyeR);
+      } else if (petDef.id === 'dragon') {
+        const wingL = box(0.18, 0.08, 0.04, null, op); wingL.position.set(-0.31, 0.06, 0); g.add(wingL);
+        const wingR = box(0.18, 0.08, 0.04, null, op); wingR.position.set( 0.31, 0.06, 0); g.add(wingR);
+        const horn  = box(0.05, 0.10, 0.05, null, op); horn.position.set( 0, 0.30 + 0.18, 0); g.add(horn);
+      } else if (petDef.id === 'robot') {
+        head.material = new THREE.MeshStandardMaterial({ color: c, metalness: 0.6, roughness: 0.25, transparent, opacity: op });
+        const antenna = new THREE.Mesh(
+          new THREE.BoxGeometry(0.04, 0.10, 0.04),
+          new THREE.MeshStandardMaterial({ color: c, metalness: 0.6, roughness: 0.25 })
+        );
+        antenna.position.set(0, 0.30 + 0.18, 0);
+        g.add(antenna);
+        const eyeL = box(0.06, 0.04, 0.04, '#00ffcc', 1); eyeL.position.set(-0.06, 0.30, 0.13); g.add(eyeL);
+        const eyeR = box(0.06, 0.04, 0.04, '#00ffcc', 1); eyeR.position.set( 0.06, 0.30, 0.13); g.add(eyeR);
+      }
+
+      return g;
+    }
+
+    // ---- Pet tick: bob + trail behind camera. Called every RAF from loop(). ----
+    const _petTarget = new THREE.Vector3();
+    function tickPet(now) {
+      if (!petMesh) return;
+      const offsetX = -Math.sin(yaw) * 1.2;
+      const offsetZ = -Math.cos(yaw) * 1.2;
+      const baseY   = Math.max(0.55, camera.position.y - 1.1);
+      const bobY    = baseY + Math.sin(now * 0.003) * 0.08;
+      _petTarget.set(camera.position.x + offsetX, bobY, camera.position.z + offsetZ);
+      petMesh.position.lerp(_petTarget, 0.10);
+      petMesh.rotation.y = yaw;
+    }
+
     function clearAttribution() {
       if (_attrTimer !== null) { clearTimeout(_attrTimer); _attrTimer = null; }
       if (_attrAbort !== null) { _attrAbort.abort(); _attrAbort = null; }
@@ -1515,6 +1602,13 @@
             }
             buildPalette(); // re-render palette so the newly unlocked swatch activates
           }
+          if (data.newly_unlocked_pets && data.newly_unlocked_pets.length) {
+            for (const pet of data.newly_unlocked_pets) {
+              unlockedPets.add(pet.id);
+              showUnlockToast({ icon: pet.icon, name: pet.name, description: `${pet.name} companion unlocked! Equip it from the 🐾 menu.` });
+            }
+            if (petPanelOpen) renderPetPanel();
+          }
           if (data.challenge) syncChallenge(data.challenge);
         }
       } catch (e) { /* poll loop will reconcile */ }
@@ -1674,6 +1768,79 @@
     document.getElementById('badges-close').addEventListener('click', () => {
       badgesOpen = false;
       badgesPanelEl.classList.add('hidden');
+    });
+
+    // ---- Pet panel ----
+    const petBtnEl    = document.getElementById('pet-btn');
+    const petPanelEl  = document.getElementById('pet-panel');
+    const petGridEl   = document.getElementById('pet-grid');
+    const petHintEl   = document.getElementById('pet-hint');
+
+    function equipPetMesh(petId) {
+      if (petMesh) { scene.remove(petMesh); petMesh = null; }
+      if (!petId) return;
+      const def = petTypes.find((p) => p.id === petId);
+      if (!def) return;
+      petMesh = buildPetMesh(def);
+      petMesh.position.copy(camera.position);
+      scene.add(petMesh);
+    }
+
+    function renderPetPanel() {
+      petGridEl.innerHTML = '';
+      const totalUnlocked = petTypes.filter((p) => unlockedPets.has(p.id)).length;
+      petHintEl.classList.toggle('hidden', totalUnlocked > 0);
+
+      // None option
+      const noneCard = document.createElement('button');
+      noneCard.className = 'flex flex-col items-center gap-1 p-2 rounded-lg cursor-pointer transition-colors ' +
+        (!activePet ? 'bg-violet-700/80 ring-1 ring-violet-400' : 'bg-zinc-800/80 hover:bg-zinc-700/80');
+      noneCard.innerHTML = '<span class="text-2xl leading-none">🚫</span><span class="text-xs text-zinc-300">None</span>';
+      noneCard.addEventListener('click', async () => {
+        activePet = null;
+        equipPetMesh(null);
+        renderPetPanel();
+        await fetch('/api/pet/equip', { method: 'POST', headers: { 'Content-Type': 'application/json', ...headers }, body: JSON.stringify({ pet_id: null }) });
+      });
+      petGridEl.appendChild(noneCard);
+
+      for (const pet of petTypes) {
+        const unlocked = unlockedPets.has(pet.id);
+        const isActive = activePet === pet.id;
+        const card = document.createElement('button');
+        card.disabled = !unlocked;
+        card.className = 'flex flex-col items-center gap-1 p-2 rounded-lg transition-colors ' +
+          (isActive ? 'bg-violet-700/80 ring-1 ring-violet-400 cursor-pointer' :
+            unlocked ? 'bg-zinc-800/80 hover:bg-zinc-700/80 cursor-pointer' :
+            'bg-zinc-800/30 opacity-50 cursor-not-allowed');
+        const lockIcon = unlocked ? '' : '<span class="text-[9px] text-zinc-500 leading-none">🔒 ' + pet.unlockAt + '</span>';
+        card.innerHTML = '<span class="text-2xl leading-none">' + pet.icon + '</span>' +
+          '<span class="text-xs text-zinc-300">' + pet.name + '</span>' +
+          (unlocked ? '' : lockIcon);
+        if (unlocked) {
+          card.addEventListener('click', async () => {
+            activePet = pet.id;
+            equipPetMesh(pet.id);
+            renderPetPanel();
+            await fetch('/api/pet/equip', { method: 'POST', headers: { 'Content-Type': 'application/json', ...headers }, body: JSON.stringify({ pet_id: pet.id }) });
+          });
+        }
+        petGridEl.appendChild(card);
+      }
+    }
+
+    petBtnEl.addEventListener('click', () => {
+      petPanelOpen = !petPanelOpen;
+      if (petPanelOpen) {
+        renderPetPanel();
+        petPanelEl.classList.remove('hidden');
+      } else {
+        petPanelEl.classList.add('hidden');
+      }
+    });
+    document.getElementById('pet-close').addEventListener('click', () => {
+      petPanelOpen = false;
+      petPanelEl.classList.add('hidden');
     });
 
     // Reusable temporaries + one-shot roll diagnostic state for applyLook().
@@ -2110,6 +2277,9 @@
           closeLeaderboard();
         } else if (!friendsPanelEl.classList.contains('hidden')) {
           closeFriends();
+        } else if (petPanelOpen) {
+          petPanelOpen = false;
+          petPanelEl.classList.add('hidden');
         } else if (dragMode && playing) {
           if (gameMode === 'timeattack') {
             endTimeAttack();
@@ -2878,6 +3048,11 @@
       selectedType = PALETTE[0] ? PALETTE[0].id : 1;
       blocks.clear();
       for (const b of data.blocks) blocks.set(key(b.x, b.y, b.z), b.t);
+      // Pet state
+      petTypes = data.petTypes || [];
+      unlockedPets = new Set(data.unlockedPets || []);
+      activePet = data.activePet || null;
+      equipPetMesh(activePet);
       buildGround();
       buildGroundGrid();
       buildPalette();
@@ -2942,16 +3117,20 @@
           } else if (!isSelf && !friendsCache) {
             statusHtml = '<button class="ol-add-btn text-xs ml-1 px-1.5 py-0.5 rounded bg-zinc-700 hover:bg-zinc-600 text-zinc-200 cursor-pointer" data-username="' + safe + '">+ Add</button>';
           }
+          const petIcon = u.active_pet
+            ? (petTypes.find((p) => p.id === u.active_pet) || {}).icon || ''
+            : '';
+          const petHtml = petIcon ? '<span class="text-xs shrink-0 leading-none" title="' + u.active_pet + ' companion">' + petIcon + '</span>' : '';
           if (isSpectator) {
             return '<div class="flex items-center gap-1.5 py-0.5">' +
               '<span class="text-xs shrink-0 leading-none" title="Spectating">👁</span>' +
               '<span class="text-zinc-500">' + safe + '</span>' +
-              statusHtml + '</div>';
+              petHtml + statusHtml + '</div>';
           }
           return '<div class="flex items-center gap-1.5 py-0.5">' +
             '<span class="inline-block w-2 h-2 rounded-full bg-green-400 shrink-0"></span>' +
             '<span>' + safe + '</span>' +
-            statusHtml + '</div>';
+            petHtml + statusHtml + '</div>';
         };
         let html = '<div class="mb-1 text-zinc-500 text-xs font-semibold uppercase tracking-wide">Online now</div>';
         for (const u of builders) html += makeRow(u, false);
@@ -3124,6 +3303,7 @@
       }
 
       tickParticles(dt);
+      tickPet(now);
       updateTarget();
       updateAttribution();
       // Animate Crystal block emissive glow: gentle 0.2→0.4 pulse (~7.9s period).
