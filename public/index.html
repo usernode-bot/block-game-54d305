@@ -1705,6 +1705,11 @@
     let shakeEndTime = 0;            // ms timestamp when camera shake ends
     let shakeMag = 0;                // shake amplitude (world units)
     let shakeFreq = 0;               // shake frequency (rad/ms)
+
+    // ---- Fog of War state (Classic mode only) ----
+    const revealedCells = new Set(); // "x,z" strings of permanently revealed columns
+    const pendingReveal = new Set(); // newly revealed since last server sync
+    let fogDirty = false;            // true when revealedCells changed and fogMesh needs rebuild
     let selectedType = 1;
     let unlockedTypes = new Set(); // block type IDs earned by the current user
     const key = (x, y, z) => x + ',' + y + ',' + z;
@@ -1865,6 +1870,15 @@
     const sun = new THREE.DirectionalLight(0xffffff, 0.9);
     sun.position.set(30, 60, 20);
     scene.add(sun);
+
+    // ---- Fog of War: instanced dark slabs over unrevealed (x,z) columns ----
+    const fogGeom = new THREE.BoxGeometry(1, 0.05, 1);
+    const fogMat = new THREE.MeshBasicMaterial({ color: 0x050510, transparent: true, opacity: 0.75, depthWrite: false });
+    const fogMesh = new THREE.InstancedMesh(fogGeom, fogMat, 1024);
+    fogMesh.visible = false;
+    fogMesh.renderOrder = 1;
+    scene.add(fogMesh);
+    const _fogDummy = new THREE.Object3D();
 
     // ---- Day/night cycle ----
     const DAY_DURATION_MS = 600_000; // 10 minutes per full cycle
@@ -2626,6 +2640,18 @@
       minimapCtx.beginPath();
       minimapCtx.arc(mx, mz, 3.5, 0, Math.PI * 2);
       minimapCtx.fill();
+
+      // Fog of War overlay: darken unrevealed cells (Classic mode only).
+      if (gameMode === 'classic') {
+        minimapCtx.fillStyle = 'rgba(10,10,20,0.82)';
+        for (let x = 0; x < DIMS.w; x++) {
+          for (let z = 0; z < DIMS.d; z++) {
+            if (!revealedCells.has(x + ',' + z)) {
+              minimapCtx.fillRect(x * SCALE, z * SCALE, SCALE, SCALE);
+            }
+          }
+        }
+      }
     }
 
     // ---- Power-up world sync ----
@@ -4237,6 +4263,8 @@
         hpHudEl.classList.remove('hidden');
         updateHpHud();
         mobGroup.visible = true;
+        fogMesh.visible = true;
+        loadFogRevealed();
         if (!lsGet('blockgame-tutorial-seen', false)) {
           setTimeout(showTutorial, 600);
         } else {
@@ -4382,6 +4410,7 @@
       playerHp = PLAYER_MAX_HP;
       deathInvincibleUntil = 0;
       mobGroup.visible = false;
+      fogMesh.visible = false;
       hideMinimap();
       // Dismiss any active coach tip and restore coach button.
       coachBubbleEl.classList.add('hidden');
@@ -6480,6 +6509,52 @@
       } catch (_) { /* transient */ }
     }
 
+    // ---- Fog of War: load revealed cells on Classic mode entry ----
+    async function loadFogRevealed() {
+      if (!token) return;
+      revealedCells.clear();
+      pendingReveal.clear();
+      try {
+        const res = await fetch('/api/fog/revealed', { headers });
+        if (res.ok) {
+          const { cells } = await res.json();
+          for (const [x, z] of cells) revealedCells.add(x + ',' + z);
+        }
+      } catch (_) { /* transient — will reveal from scratch */ }
+      // Pre-reveal spawn area (radius 5) so new players aren't completely blind.
+      const spawnX = Math.floor(camera.position.x);
+      const spawnZ = Math.floor(camera.position.z);
+      const SR = 5, SR2 = SR * SR;
+      for (let dx = -SR; dx <= SR; dx++) {
+        for (let dz = -SR; dz <= SR; dz++) {
+          if (dx * dx + dz * dz > SR2) continue;
+          const nx = Math.max(0, Math.min(31, spawnX + dx));
+          const nz = Math.max(0, Math.min(31, spawnZ + dz));
+          const ck = nx + ',' + nz;
+          if (!revealedCells.has(ck)) { revealedCells.add(ck); pendingReveal.add(ck); }
+        }
+      }
+      fogDirty = true;
+    }
+
+    // ---- Fog of War: flush pending reveals to the server ----
+    async function flushFogReveal() {
+      if (!token || pendingReveal.size === 0 || gameMode !== 'classic') return;
+      const cells = Array.from(pendingReveal).map((k) => k.split(',').map(Number));
+      pendingReveal.clear();
+      try {
+        await fetch('/api/fog/reveal', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...headers },
+          body: JSON.stringify({ cells }),
+        });
+      } catch (_) { /* transient; cells re-revealed next visit */ }
+    }
+
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'hidden') flushFogReveal();
+    });
+
     const onlineListEl = document.getElementById('online-list');
     async function pollPresence() {
       if (!token) return;
@@ -6695,6 +6770,44 @@
             break;
           }
         }
+      }
+
+      // Fog of War: reveal cells near the player each frame (Classic mode only).
+      if (playing && gameMode === 'classic') {
+        const cx = Math.floor(camera.position.x);
+        const cz = Math.floor(camera.position.z);
+        const R = 3, R2 = R * R;
+        for (let dx = -R; dx <= R; dx++) {
+          for (let dz = -R; dz <= R; dz++) {
+            if (dx * dx + dz * dz > R2) continue;
+            const nx = cx + dx, nz = cz + dz;
+            if (nx < 0 || nx > 31 || nz < 0 || nz > 31) continue;
+            const ck = nx + ',' + nz;
+            if (!revealedCells.has(ck)) {
+              revealedCells.add(ck);
+              pendingReveal.add(ck);
+              fogDirty = true;
+            }
+          }
+        }
+      }
+
+      // Rebuild fog InstancedMesh when the revealed set changed.
+      if (fogDirty) {
+        fogDirty = false;
+        let count = 0;
+        for (let x = 0; x < DIMS.w; x++) {
+          for (let z = 0; z < DIMS.d; z++) {
+            if (!revealedCells.has(x + ',' + z)) {
+              _fogDummy.position.set(x + 0.5, 0.55, z + 0.5);
+              _fogDummy.updateMatrix();
+              fogMesh.setMatrixAt(count, _fogDummy.matrix);
+              count++;
+            }
+          }
+        }
+        fogMesh.count = count;
+        fogMesh.instanceMatrix.needsUpdate = true;
       }
 
       // Animate power-up meshes every frame (even when the overlay is showing).
@@ -6951,6 +7064,7 @@
       // Poll is started per-mode in onPlayEntered(), not here.
       heartbeat();
       setInterval(heartbeat, 30000);
+      setInterval(flushFogReveal, 15000);
       pollPresence();
       setInterval(pollPresence, 15000);
       pollPowerUps();

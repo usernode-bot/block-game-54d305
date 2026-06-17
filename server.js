@@ -845,6 +845,42 @@ app.get('/api/presence/online', async (req, res) => {
   }
 });
 
+// ---- Fog of War: get all revealed (x,z) cells for the current user ----
+app.get('/api/fog/revealed', async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT x, z FROM player_fog_revealed WHERE user_id = $1`,
+      [req.user.id]
+    );
+    res.json({ cells: rows.map((r) => [r.x, r.z]) });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- Fog of War: batch-reveal newly visited (x,z) cells ----
+app.post('/api/fog/reveal', async (req, res) => {
+  try {
+    const cells = req.body && Array.isArray(req.body.cells) ? req.body.cells : [];
+    if (cells.length > 1024) return res.status(400).json({ error: 'too many cells' });
+    const valid = cells.filter(
+      (c) => Array.isArray(c) && Number.isInteger(c[0]) && Number.isInteger(c[1])
+            && c[0] >= 0 && c[0] <= 31 && c[1] >= 0 && c[1] <= 31
+    );
+    if (valid.length === 0) return res.json({ ok: true });
+    const values = valid.map((_, i) => `($1, $${i * 2 + 2}, $${i * 2 + 3})`).join(', ');
+    const params = [req.user.id, ...valid.flat()];
+    await pool.query(
+      `INSERT INTO player_fog_revealed (user_id, x, z) VALUES ${values}
+       ON CONFLICT (user_id, x, z) DO NOTHING`,
+      params
+    );
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ---- Leaderboard: top 10 + caller's own row ----
 app.get('/api/leaderboard', async (req, res) => {
   try {
@@ -3718,6 +3754,21 @@ async function start() {
     CREATE INDEX IF NOT EXISTS user_worlds_owner_idx ON user_worlds (owner_id, updated_at DESC)
   `);
 
+  // Fog of War: per-player revealed (x, z) columns in the shared Classic world.
+  // Public table — revealed cell coordinates are no more sensitive than leaderboard positions.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS player_fog_revealed (
+      user_id     INTEGER  NOT NULL,
+      x           SMALLINT NOT NULL,
+      z           SMALLINT NOT NULL,
+      revealed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (user_id, x, z)
+    )
+  `);
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS fog_revealed_user_idx ON player_fog_revealed (user_id)
+  `);
+
   // Prime the schedule on first boot; subsequent boots leave the existing row intact.
   const disasterInitDelay = IS_STAGING ? '10 seconds' : '60 seconds';
   await pool.query(
@@ -3756,6 +3807,19 @@ async function start() {
     catch (err) { console.error('puzzle-scores seed failed', err); }
     // Staging spectators are now surfaced via the STAGING_DEMO_USERS constant
     // appended in GET /api/presence/online, so no DB seed is needed here.
+
+    // Fog of War: pre-reveal the 5×5 centre patch (overlapping the staging hut)
+    // for the sentinel seed user so the minimap shows a meaningful partial reveal.
+    try {
+      await pool.query(`
+        INSERT INTO player_fog_revealed (user_id, x, z)
+        SELECT $1, x, z
+          FROM generate_series(14, 18) AS x,
+               generate_series(14, 18) AS z
+        ON CONFLICT (user_id, x, z) DO NOTHING`,
+        [SEED_USER_ID]
+      );
+    } catch (err) { console.error('fog seed failed', err); }
   }
 
   await ensurePowerUps();
