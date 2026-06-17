@@ -77,6 +77,12 @@ const DISASTER_DEFS = {
   meteor:     { label: 'Meteor Strike',     icon: '☄️', radiusMin: 3, radiusMax: 5 },
 };
 
+// ---- Community Monuments ----
+const SECTOR_SIZE = 4;
+const MONUMENT_BLOCK_THRESHOLD = 15;
+const MONUMENT_CONTRIBUTOR_THRESHOLD = 3;
+function sectorCoord(v) { return Math.floor(v / SECTOR_SIZE) * SECTOR_SIZE; }
+
 // Badge definitions (authoritative; mirrored to the client for panel rendering).
 const BADGES = [
   { id: 'first_block',     name: 'First Block',    icon: '🏗️', flavour: 'Placed your first block!' },
@@ -126,6 +132,71 @@ function checkBadges({ lb, justPlacedType, typeCount }, earnedIds) {
     if (earned) newBadges.push(badge);
   }
   return newBadges;
+}
+
+// Recomputes the monument status for the 4×4 sector whose top-left corner is (sx, sz).
+// Returns the monument row (with is_new flag) if thresholds are met, or null.
+async function recomputeMonument(sx, sz) {
+  const statsRes = await pool.query(
+    `SELECT COUNT(*)::int AS block_count,
+            COUNT(DISTINCT updated_by_user_id)::int AS contributor_count
+     FROM blocks
+     WHERE x >= $1 AND x < $2
+       AND z >= $3 AND z < $4
+       AND block_type <> 0
+       AND updated_by_user_id > 0`,
+    [sx, sx + SECTOR_SIZE, sz, sz + SECTOR_SIZE]
+  );
+  const { block_count, contributor_count } = statsRes.rows[0];
+
+  if (block_count >= MONUMENT_BLOCK_THRESHOLD && contributor_count >= MONUMENT_CONTRIBUTOR_THRESHOLD) {
+    const typeRes = await pool.query(
+      `SELECT block_type, COUNT(*)::int AS cnt
+       FROM blocks
+       WHERE x >= $1 AND x < $2
+         AND z >= $3 AND z < $4
+         AND block_type <> 0
+       GROUP BY block_type
+       ORDER BY cnt DESC, block_type DESC
+       LIMIT 1`,
+      [sx, sx + SECTOR_SIZE, sz, sz + SECTOR_SIZE]
+    );
+    const topType = typeRes.rows.length ? typeRes.rows[0].block_type : 1;
+    const palEntry = PALETTE.find((p) => p.id === topType);
+    const name = (palEntry ? palEntry.name : 'Block') + ' Monument';
+
+    const existRes = await pool.query(
+      `SELECT id FROM monuments WHERE sector_x = $1 AND sector_z = $2`,
+      [sx, sz]
+    );
+    const alreadyExisted = existRes.rows.length > 0;
+
+    const upsertRes = await pool.query(
+      `INSERT INTO monuments (sector_x, sector_z, name, block_count, contributor_count, crowned_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
+       ON CONFLICT (sector_x, sector_z) DO UPDATE SET
+         name              = EXCLUDED.name,
+         block_count       = EXCLUDED.block_count,
+         contributor_count = EXCLUDED.contributor_count,
+         updated_at        = NOW()
+       RETURNING id, sector_x, sector_z, name, block_count, contributor_count, crowned_at`,
+      [sx, sz, name, block_count, contributor_count]
+    );
+    const row = upsertRes.rows[0];
+    return {
+      id: Number(row.id),
+      name: row.name,
+      sector_x: row.sector_x,
+      sector_z: row.sector_z,
+      block_count: Number(row.block_count),
+      contributor_count: Number(row.contributor_count),
+      crowned_at: row.crowned_at,
+      is_new: !alreadyExisted,
+    };
+  } else {
+    await pool.query(`DELETE FROM monuments WHERE sector_x = $1 AND sector_z = $2`, [sx, sz]);
+    return null;
+  }
 }
 
 // Paths that stay open without authentication. Add a path here (and add it
@@ -189,6 +260,16 @@ app.get('/api/world', async (req, res) => {
     const lbRow = await pool.query(`SELECT blocks_placed FROM leaderboard WHERE user_id = $1`, [req.user.id]);
     const userPlaced = lbRow.rows.length ? Number(lbRow.rows[0].blocks_placed) : 0;
     const unlockedTypes = PALETTE.filter((p) => p.unlockAt && userPlaced >= p.unlockAt).map((p) => p.id);
+    const monumentsRes = await pool.query(
+      `SELECT id, name, sector_x, sector_z, block_count, contributor_count, crowned_at
+       FROM monuments ORDER BY block_count DESC`
+    );
+    const monuments = monumentsRes.rows.map((r) => ({
+      id: Number(r.id), name: r.name,
+      sector_x: r.sector_x, sector_z: r.sector_z,
+      block_count: Number(r.block_count), contributor_count: Number(r.contributor_count),
+      crowned_at: r.crowned_at,
+    }));
     res.json({
       dims: DIMS,
       palette: PALETTE,
@@ -196,6 +277,7 @@ app.get('/api/world', async (req, res) => {
       cursor: Number(cur.rows[0].cursor),
       maxDisasterId: Number(maxDisasterRes.rows[0].max_disaster_id),
       unlockedTypes,
+      monuments,
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -388,7 +470,12 @@ app.post('/api/block', async (req, res) => {
       }
     }
 
-    res.json({ ok: true, seq, ...(challenge ? { challenge } : {}), earned, combo_multiplier, rainbow_multiplier, newly_earned_badges, newly_unlocked_types });
+    // Recompute monument for the sector containing the placed/broken block.
+    let newly_crowned_monuments = [];
+    const monument = await recomputeMonument(sectorCoord(x), sectorCoord(z));
+    if (monument && monument.is_new) newly_crowned_monuments = [{ id: monument.id, name: monument.name, sector_x: monument.sector_x, sector_z: monument.sector_z }];
+
+    res.json({ ok: true, seq, ...(challenge ? { challenge } : {}), earned, combo_multiplier, rainbow_multiplier, newly_earned_badges, newly_unlocked_types, newly_crowned_monuments });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -429,11 +516,23 @@ app.get('/api/world/changes', async (req, res) => {
     }));
     const eventsCursor = events.length ? events[events.length - 1].id : eventsSince;
 
+    const monRes = await pool.query(
+      `SELECT id, name, sector_x, sector_z, block_count, contributor_count, crowned_at
+       FROM monuments ORDER BY block_count DESC`
+    );
+    const monuments = monRes.rows.map((r) => ({
+      id: Number(r.id), name: r.name,
+      sector_x: r.sector_x, sector_z: r.sector_z,
+      block_count: Number(r.block_count), contributor_count: Number(r.contributor_count),
+      crowned_at: r.crowned_at,
+    }));
+
     res.json({
       changes: rows.map((r) => ({ x: r.x, y: r.y, z: r.z, t: r.block_type })),
       cursor,
       events,
       eventsCursor,
+      monuments,
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -602,6 +701,26 @@ app.get('/api/leaderboard', async (req, res) => {
     res.json({
       entries: topRes.rows.map(toRow),
       self: selfRes.rows.length ? toRow(selfRes.rows[0]) : null,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- Community Monuments: ranked list of all crowned sectors ----
+app.get('/api/monuments', async (_req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT id, name, sector_x, sector_z, block_count, contributor_count, crowned_at
+       FROM monuments ORDER BY block_count DESC`
+    );
+    res.json({
+      monuments: rows.map((r) => ({
+        id: Number(r.id), name: r.name,
+        sector_x: r.sector_x, sector_z: r.sector_z,
+        block_count: Number(r.block_count), contributor_count: Number(r.contributor_count),
+        crowned_at: r.crowned_at,
+      })),
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -1221,6 +1340,16 @@ async function seedStaging() {
     [todayStr, targetToday]
   );
 
+  // Seed monument rows for staging so the leaderboard tab and 3D beacons
+  // are visible immediately without waiting for live block thresholds.
+  await pool.query(`
+    INSERT INTO monuments (sector_x, sector_z, name, block_count, contributor_count, crowned_at, updated_at) VALUES
+      (12, 12, 'Stone Monument', 47, 3, NOW() - INTERVAL '2 days', NOW()),
+      (20, 20, 'Leaf Monument',  19, 3, NOW() - INTERVAL '1 day',  NOW()),
+      ( 0,  0, 'Grass Monument', 32, 4, NOW() - INTERVAL '3 days', NOW())
+    ON CONFLICT (sector_x, sector_z) DO NOTHING
+  `);
+
   // Seed one of each power-up type at fixed, open positions so testers can
   // immediately see and collect them. Skipped if any unclaimed power-ups
   // already exist (e.g. after a hot-reload during the same staging run).
@@ -1482,6 +1611,20 @@ async function maybeFireDisaster() {
     );
 
     await client.query('COMMIT');
+
+    // Recompute monuments for all sectors whose blocks were destroyed.
+    // Runs outside the transaction — uses pool, not client.
+    if (delRes.rows.length > 0) {
+      const affectedSectors = new Set();
+      for (const row of delRes.rows) {
+        affectedSectors.add(sectorCoord(row.x) + ',' + sectorCoord(row.z));
+      }
+      for (const key of affectedSectors) {
+        const [sx, sz] = key.split(',').map(Number);
+        try { await recomputeMonument(sx, sz); } catch (_) {}
+      }
+    }
+
     return { id: Number(disaster.id), type, label: def.label, icon: def.icon, origin_x, origin_z, params, blocks_destroyed, triggered_at: disaster.triggered_at };
   } catch (err) {
     try { await client.query('ROLLBACK'); } catch (_) {}
@@ -1664,6 +1807,20 @@ async function start() {
       id        INTEGER PRIMARY KEY CHECK (id = 1),
       fire_at   TIMESTAMPTZ  NOT NULL,
       next_type VARCHAR(20)  NOT NULL
+    )
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS monuments (
+      id                SERIAL PRIMARY KEY,
+      sector_x          SMALLINT NOT NULL,
+      sector_z          SMALLINT NOT NULL,
+      name              VARCHAR(100) NOT NULL,
+      block_count       INTEGER NOT NULL DEFAULT 0,
+      contributor_count INTEGER NOT NULL DEFAULT 0,
+      crowned_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE (sector_x, sector_z)
     )
   `);
 

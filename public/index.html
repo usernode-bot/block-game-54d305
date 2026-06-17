@@ -305,6 +305,7 @@
       <div class="flex gap-1">
         <button id="tab-alltime" class="px-2 py-0.5 rounded text-xs font-semibold bg-zinc-700 text-zinc-100 cursor-pointer">All-time</button>
         <button id="tab-tournament" class="px-2 py-0.5 rounded text-xs font-semibold text-zinc-400 hover:text-zinc-200 cursor-pointer">This Week</button>
+        <button id="tab-monuments" class="px-2 py-0.5 rounded text-xs font-semibold text-zinc-400 hover:text-zinc-200 cursor-pointer">Monuments</button>
       </div>
       <button id="leaderboard-close" aria-label="Close leaderboard" class="text-zinc-400 hover:text-zinc-100 cursor-pointer leading-none">✕</button>
     </div>
@@ -427,7 +428,7 @@
 
     // Build identifier — bump this (to the deploying commit short SHA) on every
     // change so the top-right stamp confirms exactly which code is running.
-    const BUILD_VERSION = 'power-ups+hold-queue+achievements-badges+chat+daily-challenge+leaderboard+online-presence+block-attribution+audio-sfx+next-piece-preview+spectator-mode+weekly-tournament+friends+day-night-cycle+minimap+ai-coach+natural-disasters';
+    const BUILD_VERSION = 'power-ups+hold-queue+achievements-badges+chat+daily-challenge+leaderboard+online-presence+block-attribution+audio-sfx+next-piece-preview+spectator-mode+weekly-tournament+friends+day-night-cycle+minimap+ai-coach+natural-disasters+community-monuments';
 
     // Badge definitions — mirror of the server-side BADGES array, extended with
     // a `hint` field shown in the panel for unearned badges.
@@ -1009,6 +1010,35 @@
     const powerupGroup = new THREE.Group();
     scene.add(powerupGroup);
 
+    // ---- Community Monument beacons ----
+    const monumentGroup = new THREE.Group();
+    scene.add(monumentGroup);
+    const monumentOrbs = []; // animated each frame
+    let lastMonumentHash = '';
+    const monumentShaftGeom = new THREE.CylinderGeometry(0.08, 0.08, 17, 8);
+    const monumentOrbGeom = new THREE.SphereGeometry(0.35, 8, 8);
+    const monumentShaftMat = new THREE.MeshBasicMaterial({ color: '#f5c842', transparent: true, opacity: 0.45, fog: false });
+    const monumentOrbMat = new THREE.MeshBasicMaterial({ color: '#f5c842', fog: false });
+
+    function rebuildMonumentMeshes(monuments) {
+      monumentGroup.clear();
+      monumentOrbs.length = 0;
+      for (const m of monuments) {
+        const cx = m.sector_x + 2;
+        const cz = m.sector_z + 2;
+        const shaft = new THREE.Mesh(monumentShaftGeom, monumentShaftMat);
+        shaft.position.set(cx, 9.5, cz);
+        monumentGroup.add(shaft);
+        const orb = new THREE.Mesh(monumentOrbGeom, monumentOrbMat);
+        orb.userData.baseY = 18;
+        orb.userData.phase = (m.id * 2.39996) % (Math.PI * 2);
+        orb.position.set(cx, 18, cz);
+        monumentGroup.add(orb);
+        monumentOrbs.push(orb);
+      }
+      lastMonumentHash = monuments.map(m => m.id).sort().join(',');
+    }
+
     // ---- Particle system ----
     const PARTICLE_POOL_SIZE = 150;
     const particleGeom = new THREE.BoxGeometry(0.1, 0.1, 0.1);
@@ -1281,7 +1311,8 @@
       const toast = document.createElement('div');
       toast.className = 'flex items-center gap-3 bg-black/85 backdrop-blur rounded-xl px-4 py-2.5 text-sm text-zinc-100 shadow-xl' +
         (badge._isUnlock ? ' ring-2 ring-violet-500/60' : '') +
-        (badge._isDisaster ? ' ring-2 ring-red-500/60' : '');
+        (badge._isDisaster ? ' ring-2 ring-red-500/60' : '') +
+        (badge._isMonument ? ' ring-2 ring-yellow-500/60' : '');
       toast.style.cssText = 'opacity:0;transition:opacity 0.3s;';
       const iconSpan = document.createElement('span');
       iconSpan.className = 'text-2xl leading-none flex-shrink-0';
@@ -1634,6 +1665,11 @@
               showUnlockToast(ut);
             }
             buildPalette(); // re-render palette so the newly unlocked swatch activates
+          }
+          if (data.newly_crowned_monuments && data.newly_crowned_monuments.length) {
+            for (const m of data.newly_crowned_monuments) {
+              showBadgeToast({ icon: '🏛️', name: m.name, flavour: 'Community monument crowned!', _isMonument: true });
+            }
           }
           if (data.challenge) syncChallenge(data.challenge);
         }
@@ -2377,12 +2413,16 @@
       leaderboardTab = tab;
       const atEl = document.getElementById('tab-alltime');
       const tEl = document.getElementById('tab-tournament');
+      const mEl = document.getElementById('tab-monuments');
       atEl.classList.toggle('bg-zinc-700', tab === 'alltime');
       atEl.classList.toggle('text-zinc-100', tab === 'alltime');
       atEl.classList.toggle('text-zinc-400', tab !== 'alltime');
       tEl.classList.toggle('bg-zinc-700', tab === 'tournament');
       tEl.classList.toggle('text-zinc-100', tab === 'tournament');
       tEl.classList.toggle('text-zinc-400', tab !== 'tournament');
+      mEl.classList.toggle('bg-zinc-700', tab === 'monuments');
+      mEl.classList.toggle('text-zinc-100', tab === 'monuments');
+      mEl.classList.toggle('text-zinc-400', tab !== 'monuments');
       fetchLeaderboard();
     }
 
@@ -2476,6 +2516,28 @@
       } catch (_) { /* non-fatal */ }
     }
 
+    function renderMonuments({ monuments }) {
+      if (!monuments || !monuments.length) {
+        leaderboardContentEl.innerHTML = '<p class="py-1 text-center text-zinc-400">No monuments yet — build together to create one!</p>';
+        return;
+      }
+      leaderboardContentEl.innerHTML =
+        '<table class="w-full text-xs">' +
+        '<thead><tr class="text-zinc-500 uppercase border-b border-zinc-700">' +
+        '<th class="text-left pb-1 w-6">#</th>' +
+        '<th class="text-left pb-1 pl-2">Monument</th>' +
+        '<th class="text-right pb-1">Builders</th>' +
+        '<th class="text-right pb-1 pl-2">Blocks</th></tr></thead><tbody>' +
+        monuments.map((m, i) =>
+          '<tr class="border-b border-zinc-800/60 last:border-0">' +
+          '<td class="py-1 text-zinc-500">' + (i + 1) + '</td>' +
+          '<td class="py-1 pl-2 max-w-[120px] truncate">' + escapeHtml(m.name) + '</td>' +
+          '<td class="py-1 text-right font-mono text-zinc-100">' + m.contributor_count + '</td>' +
+          '<td class="py-1 text-right font-mono text-zinc-100 pl-2">' + m.block_count + '</td></tr>'
+        ).join('') +
+        '</tbody></table>';
+    }
+
     async function fetchLeaderboard() {
       clearTimeout(leaderboardTimer);
       leaderboardTimer = null;
@@ -2486,6 +2548,14 @@
           renderTournament(await res.json());
         } catch (_) {
           leaderboardContentEl.innerHTML = '<p class="py-1 text-zinc-500">Couldn\'t load tournament.</p>';
+        }
+      } else if (leaderboardTab === 'monuments') {
+        try {
+          const res = await fetch('/api/monuments', { headers });
+          if (!res.ok) throw new Error('fetch failed');
+          renderMonuments(await res.json());
+        } catch (_) {
+          leaderboardContentEl.innerHTML = '<p class="py-1 text-zinc-500">Couldn\'t load monuments.</p>';
         }
       } else {
         try {
@@ -2521,6 +2591,7 @@
     document.getElementById('leaderboard-close').addEventListener('click', closeLeaderboard);
     document.getElementById('tab-alltime').addEventListener('click', () => setLeaderboardTab('alltime'));
     document.getElementById('tab-tournament').addEventListener('click', () => setLeaderboardTab('tournament'));
+    document.getElementById('tab-monuments').addEventListener('click', () => setLeaderboardTab('monuments'));
 
     // ---- Friends panel ----
     const friendsPanelEl = document.getElementById('friends-panel');
@@ -3003,6 +3074,7 @@
       buildGroundGrid();
       buildPalette();
       rebuildBlockMeshes();
+      rebuildMonumentMeshes(data.monuments || []);
       spawnCamera();
       return true;
     }
@@ -3124,6 +3196,10 @@
           if (events && events.length) {
             if (ec) eventsCursor = ec;
             for (const ev of events) handleDisasterEvent(ev);
+          }
+          if (data.monuments) {
+            const newHash = data.monuments.map(m => m.id).sort().join(',');
+            if (newHash !== lastMonumentHash) rebuildMonumentMeshes(data.monuments);
           }
         }
       } catch (e) { /* transient; next tick retries */ }
@@ -3247,6 +3323,11 @@
             + Math.sin(now * 0.002 + pu.mesh.userData.phase) * 0.12;
           pu.mesh.rotation.y += dt;
         }
+      }
+
+      // Animate monument orbs — gentle slow bob
+      for (const orb of monumentOrbs) {
+        orb.position.y = orb.userData.baseY + Math.sin(now * 0.0015 + orb.userData.phase) * 0.2;
       }
 
       tickParticles(dt);
