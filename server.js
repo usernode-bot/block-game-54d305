@@ -45,24 +45,24 @@ const DIMS = { w: 32, d: 32, h: 24 }; // x in [0,w-1], z in [0,d-1], y in [0,h-1
 // `material` 'standard' uses MeshStandardMaterial (PBR); default is Lambert.
 // `emissive` / `emissiveIntensity` add a glow. `powerup` marks animated blocks.
 const PALETTE = [
-  { id: 1,  name: 'Grass',         color: '#3dd847' },
-  { id: 2,  name: 'Dirt',          color: '#b8643e' },
-  { id: 3,  name: 'Stone',         color: '#a8aeb8' },
-  { id: 4,  name: 'Wood',          color: '#d4944f' },
-  { id: 5,  name: 'Leaves',        color: '#2ac142' },
-  { id: 6,  name: 'Sand',          color: '#fce67f' },
-  { id: 7,  name: 'Brick',         color: '#f04a38' },
-  { id: 8,  name: 'Glass',         color: '#6fe3ff', opacity: 0.45 },
-  { id: 9,  name: 'Red',           color: '#ff2626' },
-  { id: 10, name: 'Blue',          color: '#2563ff' },
-  { id: 11, name: 'Yellow',        color: '#ffd600' },
-  { id: 12, name: 'White',         color: '#f4f4f8' },
-  { id: 13, name: 'Snow',          color: '#d0e8ff' },
-  { id: 14, name: 'Gold Block',    color: '#ffb800', material: 'standard', metalness: 0.85, roughness: 0.2 },
-  { id: 15, name: 'Glowstone',     color: '#ffb43d', emissive: '#ff6a00', emissiveIntensity: 0.6 },
-  { id: 16, name: 'Obsidian',      color: '#2d1555', material: 'standard', metalness: 0.3, roughness: 0.1 },
-  { id: 17, name: 'Rainbow Block', color: '#ff1493', powerup: true },
-  { id: 18, name: 'Crystal',       color: '#b39dff', opacity: 0.65, emissive: '#7a4dff', emissiveIntensity: 0.3, material: 'standard', metalness: 0.1, roughness: 0.2, unlockAt: 50, unlockIcon: '💎' },
+  { id: 1,  name: 'Grass',         color: '#7ed98a' },
+  { id: 2,  name: 'Dirt',          color: '#c9917a' },
+  { id: 3,  name: 'Stone',         color: '#c2c6cf' },
+  { id: 4,  name: 'Wood',          color: '#ddb680' },
+  { id: 5,  name: 'Leaves',        color: '#6ec67a' },
+  { id: 6,  name: 'Sand',          color: '#fdf0a8' },
+  { id: 7,  name: 'Brick',         color: '#e88c82' },
+  { id: 8,  name: 'Glass',         color: '#b3e8f5', opacity: 0.45 },
+  { id: 9,  name: 'Red',           color: '#f09090' },
+  { id: 10, name: 'Blue',          color: '#80a8f0' },
+  { id: 11, name: 'Yellow',        color: '#ffe580' },
+  { id: 12, name: 'White',         color: '#f8f6ff' },
+  { id: 13, name: 'Snow',          color: '#e4eeff' },
+  { id: 14, name: 'Gold Block',    color: '#f5d27a', material: 'standard', metalness: 0.85, roughness: 0.2 },
+  { id: 15, name: 'Glowstone',     color: '#ffd099', emissive: '#f0a870', emissiveIntensity: 0.6 },
+  { id: 16, name: 'Obsidian',      color: '#6b5588', material: 'standard', metalness: 0.3, roughness: 0.1 },
+  { id: 17, name: 'Rainbow Block', color: '#f0a8c5', powerup: true },
+  { id: 18, name: 'Crystal',       color: '#d4c8ff', opacity: 0.65, emissive: '#b0a0ff', emissiveIntensity: 0.3, material: 'standard', metalness: 0.1, roughness: 0.2, unlockAt: 50, unlockIcon: '💎' },
   { id: 19, name: 'Ice',           color: '#aadeef', opacity: 0.55 },
   { id: 20, name: 'Lava',          color: '#e8540f', emissive: '#ff2200', emissiveIntensity: 0.8 },
   { id: 21, name: 'Lime',          color: '#78de3e' },
@@ -71,6 +71,7 @@ const PALETTE = [
   { id: 24, name: 'Cyan',          color: '#29b8b8' },
   { id: 25, name: 'Iron Block',    color: '#d4d4dc', material: 'standard', metalness: 0.9, roughness: 0.3 },
   { id: 26, name: 'Terracotta',    color: '#c5694a' },
+  { id: 27, name: 'Gold Star',     color: '#ffd700', wildcard: true, material: 'standard', metalness: 0.85, roughness: 0.12, emissive: '#ffa500', emissiveIntensity: 0.4, unlockIcon: '⭐' },
 ];
 const VALID_TYPES = new Set(PALETTE.map((p) => p.id)); // does NOT include 0
 
@@ -89,6 +90,7 @@ const BLOCK_POINTS = {
   21: 2, 22: 2, 23: 2, 24: 2, // Lime, Orange, Purple, Cyan
   25: 4,  // Iron Block
   26: 1,  // Terracotta
+  27: 5,  // Gold Star
 };
 
 // Sentinel "user" id for staging seed rows so they never reference a real user.
@@ -4115,6 +4117,7 @@ function generatePuzzleBlocks(levelNumber) {
 
   const blockCount = 20 + levelNumber * 8; // Increases with level
   const blockTypes = [1, 2, 3, 4, 5, 6, 7, 9, 10, 11]; // Color variety, exclude glass/special
+  if (levelNumber >= 3) blockTypes.push(27); // Gold Star wildcard appears from level 3
 
   for (let i = 0; i < blockCount; i++) {
     const x = Math.floor(nextRandom() * 32);
@@ -4139,6 +4142,8 @@ async function seedPuzzleLevels() {
 
   for (const { level, target } of levelSeeds) {
     const blocks = generatePuzzleBlocks(level);
+    // Guarantee at least one Gold Star wildcard is visible in the level-3 staging seed.
+    if (level === 3) blocks.push({ x: 5, y: 4, z: 5, t: 27 });
     await pool.query(
       `INSERT INTO puzzle_level_definitions (level_number, block_snapshot, target_blocks_to_clear)
        VALUES ($1, $2, $3)
