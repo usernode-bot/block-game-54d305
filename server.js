@@ -10,14 +10,8 @@ const JWT_SECRET = process.env.JWT_SECRET;
 const IS_STAGING = process.env.USERNODE_ENV === 'staging';
 
 // ---- Fixed shared-world parameters (authoritative; mirrored to client) ----
-// Coordinates are integer cell indices. y is up. y = 0 is the immutable
-// ground/base layer and is NOT stored as rows — buildable cells are y >= 1.
-const DIMS = { w: 32, d: 32, h: 24 }; // x in [0,w-1], z in [0,d-1], y in [0,h-1]
+const DIMS = { w: 32, d: 32, h: 24 };
 
-// Block palette (authoritative). id 0 is reserved for "air" (a broken cell).
-// `opacity` < 1 renders semi-transparent (glass). Colors are hex strings.
-// `material` 'standard' uses MeshStandardMaterial (PBR); default is Lambert.
-// `emissive` / `emissiveIntensity` add a glow. `powerup` marks animated blocks.
 const PALETTE = [
   { id: 1,  name: 'Grass',         color: '#5fae3a' },
   { id: 2,  name: 'Dirt',          color: '#8a5a32' },
@@ -37,42 +31,39 @@ const PALETTE = [
   { id: 16, name: 'Obsidian',      color: '#18082a', material: 'standard', metalness: 0.3, roughness: 0.1 },
   { id: 17, name: 'Rainbow Block', color: '#ff4488', powerup: true },
 ];
-const VALID_TYPES = new Set(PALETTE.map((p) => p.id)); // does NOT include 0
+const VALID_TYPES = new Set(PALETTE.map((p) => p.id));
 
-// Points awarded per block placed (type 0 = break = 0 points).
 const BLOCK_POINTS = {
-  1: 1, 2: 1, 3: 1, 4: 1, 5: 1, 6: 1,   // Grass, Dirt, Stone, Wood, Leaves, Sand
-  7: 2, 8: 2, 9: 2, 10: 2, 11: 2, 12: 2, // Brick, Glass, Red, Blue, Yellow, White
-  13: 2,  // Snow
-  14: 5,  // Gold Block
-  15: 3,  // Glowstone
-  16: 4,  // Obsidian
-  17: 5,  // Rainbow Block
+  1: 1, 2: 1, 3: 1, 4: 1, 5: 1, 6: 1,
+  7: 2, 8: 2, 9: 2, 10: 2, 11: 2, 12: 2,
+  13: 2,
+  14: 5,
+  15: 3,
+  16: 4,
+  17: 5,
 };
 
-// Sentinel "user" id for staging seed rows so they never reference a real user.
 const SEED_USER_ID = 0;
 
-// Paths that stay open without authentication. Add a path here (and add it
-// with `app.get`/`app.post` below) if you deliberately want it public.
-// Everything else requires a valid platform-issued JWT.
+// ---- Speed Run levels (authoritative, sent to client on session start) ----
+// Zones are non-overlapping and spread across the world to require navigation.
+const SPEEDRUN_LEVELS = [
+  { id: 1, name: 'Platform', zone: { x: [1, 4],   y: [1, 1],  z: [1, 4]   }, required: 16 },
+  { id: 2, name: 'Tower',    zone: { x: [7, 8],   y: [1, 7],  z: [7, 8]   }, required: 28 },
+  { id: 3, name: 'Causeway', zone: { x: [12, 12], y: [1, 1],  z: [10, 25] }, required: 16 },
+  { id: 4, name: 'Fortress', zone: { x: [18, 23], y: [1, 2],  z: [18, 23] }, required: 36 },
+  { id: 5, name: 'Spire',    zone: { x: [25, 30], y: [1, 10], z: [25, 30] }, required: 50 },
+];
+
 const PUBLIC_API_PATHS = new Set(['/health']);
 
 app.use(express.json());
 
-// Verify platform-issued JWT if one was passed, then enforce auth on
-// anything not explicitly marked public. The iframe adds `?token=…`
-// on load; the frontend script forwards the token via `x-usernode-token`
-// on subsequent fetches.
 app.use((req, res, next) => {
   const token = req.query.token || req.headers['x-usernode-token'];
   if (token && JWT_SECRET) {
     try { req.user = jwt.verify(token, JWT_SECRET); } catch {}
   }
-
-  // Static assets (CSS/JS/images) are always served; the API and the HTML
-  // shell are gated so direct hits to the staging/prod subdomain don't
-  // leak app data to the public internet.
   if (req.method !== 'GET' || req.path.startsWith('/api/')) {
     if (PUBLIC_API_PATHS.has(req.path)) return next();
     if (!req.user) return res.status(401).json({ error: 'Not authenticated' });
@@ -82,12 +73,10 @@ app.use((req, res, next) => {
 
 app.get('/health', (_req, res) => res.json({ status: 'ok' }));
 
-// ---- World bootstrap: dimensions, palette, current blocks, poll cursor ----
+// ---- World bootstrap ----
 app.get('/api/world', async (_req, res) => {
   try {
-    const { rows } = await pool.query(
-      `SELECT x, y, z, block_type FROM blocks WHERE block_type <> 0`
-    );
+    const { rows } = await pool.query(`SELECT x, y, z, block_type FROM blocks WHERE block_type <> 0`);
     const cur = await pool.query(`SELECT COALESCE(MAX(seq), 0) AS cursor FROM blocks`);
     res.json({
       dims: DIMS,
@@ -100,9 +89,7 @@ app.get('/api/world', async (_req, res) => {
   }
 });
 
-// ---- Place / break a single block. block_type 0 means break (air). ----
-// Air-as-row: breaking writes block_type = 0 (never DELETE) with a bumped
-// seq, so the change feed below can surface breaks to other clients.
+// ---- Place / break a single block ----
 app.post('/api/block', async (req, res) => {
   try {
     const x = Number(req.body.x);
@@ -110,13 +97,10 @@ app.post('/api/block', async (req, res) => {
     const z = Number(req.body.z);
     const t = Number(req.body.block_type);
 
-    // Strict server-side validation — the only guard against a client
-    // writing garbage cells into the shared, persistent world.
     const intIn = (v, lo, hi) => Number.isInteger(v) && v >= lo && v <= hi;
     if (!intIn(x, 0, DIMS.w - 1) || !intIn(z, 0, DIMS.d - 1)) {
       return res.status(400).json({ error: 'coordinate out of bounds' });
     }
-    // y = 0 is the immutable ground layer; buildable range is [1, h-1].
     if (!intIn(y, 1, DIMS.h - 1)) {
       return res.status(400).json({ error: 'y out of buildable range' });
     }
@@ -138,18 +122,13 @@ app.post('/api/block', async (req, res) => {
     );
     const seq = Number(rows[0].seq);
 
-    // ---- Scoring (placements only; breaks earn 0) ----
     let earned = 0, combo_multiplier = 1, rainbow_multiplier = 1, combo_tier = 1;
     if (t !== 0) {
       const base = BLOCK_POINTS[t] || 1;
 
-      // Combo: count placements this user made in the last 10 seconds
-      // (exclude the just-inserted cell to avoid double-counting).
       const comboRes = await pool.query(
-        `SELECT COUNT(*)::int AS recent
-         FROM blocks
-         WHERE updated_by_user_id = $1
-           AND block_type <> 0
+        `SELECT COUNT(*)::int AS recent FROM blocks
+         WHERE updated_by_user_id = $1 AND block_type <> 0
            AND updated_at > NOW() - INTERVAL '10 seconds'
            AND NOT (x = $2 AND y = $3 AND z = $4)`,
         [req.user.id, x, y, z]
@@ -159,20 +138,15 @@ app.post('/api/block', async (req, res) => {
       else if (recent >= 6) { combo_multiplier = 2; combo_tier = 2; }
       else if (recent >= 3) { combo_multiplier = 1.5; combo_tier = 2; }
 
-      // Rainbow power-up: did this user place a Rainbow Block in the last 30s?
       const rainbowRes = await pool.query(
-        `SELECT 1 FROM blocks
-         WHERE updated_by_user_id = $1
-           AND block_type = 17
-           AND updated_at > NOW() - INTERVAL '30 seconds'
-         LIMIT 1`,
+        `SELECT 1 FROM blocks WHERE updated_by_user_id = $1 AND block_type = 17
+         AND updated_at > NOW() - INTERVAL '30 seconds' LIMIT 1`,
         [req.user.id]
       );
       if (rainbowRes.rows.length > 0) rainbow_multiplier = 2;
 
       earned = Math.round(base * combo_multiplier * rainbow_multiplier);
 
-      // Upsert leaderboard
       await pool.query(
         `INSERT INTO leaderboard (user_id, username, total_score, blocks_placed, best_combo, updated_at)
          VALUES ($1, $2, $3, 1, $4, NOW())
@@ -192,8 +166,7 @@ app.post('/api/block', async (req, res) => {
   }
 });
 
-// ---- Delta feed: every cell changed since the client's cursor, including
-// breaks (block_type 0). Powers near-realtime collaborative editing. ----
+// ---- Delta feed ----
 app.get('/api/world/changes', async (req, res) => {
   try {
     const since = Number(req.query.since) || 0;
@@ -202,10 +175,7 @@ app.get('/api/world/changes', async (req, res) => {
       [since]
     );
     const cursor = rows.length ? Number(rows[rows.length - 1].seq) : since;
-    res.json({
-      changes: rows.map((r) => ({ x: r.x, y: r.y, z: r.z, t: r.block_type })),
-      cursor,
-    });
+    res.json({ changes: rows.map((r) => ({ x: r.x, y: r.y, z: r.z, t: r.block_type })), cursor });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -217,47 +187,31 @@ app.get('/api/leaderboard', async (req, res) => {
     const topRes = await pool.query(
       `SELECT rank() OVER (ORDER BY total_score DESC) AS rank,
               user_id, username, total_score, blocks_placed, best_combo
-       FROM leaderboard
-       ORDER BY total_score DESC
-       LIMIT 10`
+       FROM leaderboard ORDER BY total_score DESC LIMIT 10`
     );
     const selfRes = await pool.query(
       `SELECT rank() OVER (ORDER BY total_score DESC) AS rank,
               user_id, username, total_score, blocks_placed, best_combo
-       FROM leaderboard
-       WHERE user_id = $1`,
+       FROM leaderboard WHERE user_id = $1`,
       [req.user.id]
     );
     const toRow = (r) => ({
-      rank: Number(r.rank),
-      user_id: r.user_id,
-      username: r.username,
-      total_score: Number(r.total_score),
-      blocks_placed: Number(r.blocks_placed),
-      best_combo: r.best_combo,
+      rank: Number(r.rank), user_id: r.user_id, username: r.username,
+      total_score: Number(r.total_score), blocks_placed: Number(r.blocks_placed), best_combo: r.best_combo,
     });
-    res.json({
-      top: topRes.rows.map(toRow),
-      self: selfRes.rows.length ? toRow(selfRes.rows[0]) : null,
-    });
+    res.json({ top: topRes.rows.map(toRow), self: selfRes.rows.length ? toRow(selfRes.rows[0]) : null });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// ---- Block attribution: who placed the block at (x, y, z) and when. ----
-// Returns { username, updated_at } for a placed block, or null for empty /
-// ground cells. Ground (y < 1) is the immutable grass layer — never stored.
+// ---- Block attribution ----
 app.get('/api/block/:x/:y/:z', async (req, res) => {
   try {
-    const x = Number(req.params.x);
-    const y = Number(req.params.y);
-    const z = Number(req.params.z);
+    const x = Number(req.params.x), y = Number(req.params.y), z = Number(req.params.z);
     if (y < 1) return res.json(null);
     const { rows } = await pool.query(
-      `SELECT updated_by_username, updated_at
-       FROM blocks
-       WHERE x = $1 AND y = $2 AND z = $3 AND block_type <> 0`,
+      `SELECT updated_by_username, updated_at FROM blocks WHERE x=$1 AND y=$2 AND z=$3 AND block_type<>0`,
       [x, y, z]
     );
     if (!rows.length || !rows[0].updated_by_username) return res.json(null);
@@ -267,17 +221,214 @@ app.get('/api/block/:x/:y/:z', async (req, res) => {
   }
 });
 
+// ---- Speed Run: start a new run ----
+app.post('/api/speedrun/start', async (req, res) => {
+  try {
+    // Auto-abandon any existing active session for this user.
+    await pool.query(
+      `UPDATE speedrun_sessions SET status='abandoned' WHERE user_id=$1 AND status='active'`,
+      [req.user.id]
+    );
+    const { rows } = await pool.query(
+      `INSERT INTO speedrun_sessions (user_id, username, current_level, status)
+       VALUES ($1, $2, 1, 'active') RETURNING id, started_at`,
+      [req.user.id, req.user.username]
+    );
+    res.json({ session_id: Number(rows[0].id), started_at: rows[0].started_at, levels: SPEEDRUN_LEVELS });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- Speed Run: place a block in the run's private world ----
+app.post('/api/speedrun/block', async (req, res) => {
+  try {
+    const session_id = Number(req.body.session_id);
+    const x = Number(req.body.x);
+    const y = Number(req.body.y);
+    const z = Number(req.body.z);
+    const t = Number(req.body.block_type);
+
+    if (!Number.isInteger(session_id) || session_id <= 0) {
+      return res.status(400).json({ error: 'invalid session_id' });
+    }
+    const intIn = (v, lo, hi) => Number.isInteger(v) && v >= lo && v <= hi;
+    if (!intIn(x, 0, DIMS.w - 1) || !intIn(z, 0, DIMS.d - 1) || !intIn(y, 1, DIMS.h - 1)) {
+      return res.status(400).json({ error: 'coordinate out of bounds' });
+    }
+    // Break action — not tracked server-side; client handles visual removal.
+    if (t === 0) return res.json({ already_placed: false, level_progress: null, level_complete: false, run_complete: false });
+    if (!VALID_TYPES.has(t)) return res.status(400).json({ error: 'unknown block_type' });
+
+    const sessRes = await pool.query(
+      `SELECT id, user_id, current_level, status, started_at FROM speedrun_sessions WHERE id=$1`,
+      [session_id]
+    );
+    if (!sessRes.rows.length) return res.status(404).json({ error: 'session not found' });
+    const sess = sessRes.rows[0];
+    if (sess.user_id !== req.user.id) return res.status(403).json({ error: 'forbidden' });
+    if (sess.status !== 'active') return res.status(409).json({ error: 'session not active', status: sess.status });
+
+    const level = SPEEDRUN_LEVELS[sess.current_level - 1];
+    const { zone, required } = level;
+    const inZone = x >= zone.x[0] && x <= zone.x[1] &&
+                   y >= zone.y[0] && y <= zone.y[1] &&
+                   z >= zone.z[0] && z <= zone.z[1];
+
+    const insertRes = await pool.query(
+      `INSERT INTO speedrun_blocks (session_id, x, y, z, block_type)
+       VALUES ($1, $2, $3, $4, $5)
+       ON CONFLICT (session_id, x, y, z) DO NOTHING RETURNING session_id`,
+      [session_id, x, y, z, t]
+    );
+    const already_placed = insertRes.rows.length === 0;
+
+    // Count how many cells in this level's zone have been filled.
+    const countRes = await pool.query(
+      `SELECT COUNT(*)::int AS placed FROM speedrun_blocks
+       WHERE session_id=$1 AND x BETWEEN $2 AND $3 AND y BETWEEN $4 AND $5 AND z BETWEEN $6 AND $7`,
+      [session_id, zone.x[0], zone.x[1], zone.y[0], zone.y[1], zone.z[0], zone.z[1]]
+    );
+    const placed = countRes.rows[0].placed;
+
+    let level_complete = false, run_complete = false, elapsed_ms = null;
+    let is_personal_best = false, completed_level = null;
+    let level_progress = { level: sess.current_level, placed, required };
+
+    if (inZone && !already_placed && placed >= required) {
+      level_complete = true;
+      completed_level = sess.current_level;
+
+      if (sess.current_level >= 5) {
+        // Complete the entire run atomically.
+        const complRes = await pool.query(
+          `UPDATE speedrun_sessions
+           SET status='complete', completed_at=NOW(),
+               elapsed_ms=EXTRACT(EPOCH FROM (NOW()-started_at))*1000, current_level=5
+           WHERE id=$1 AND status='active' RETURNING elapsed_ms`,
+          [session_id]
+        );
+        if (complRes.rows.length) {
+          run_complete = true;
+          elapsed_ms = Number(complRes.rows[0].elapsed_ms);
+          level_progress = { level: 5, placed, required };
+
+          await pool.query(
+            `INSERT INTO speedrun_best_times (user_id, username, best_ms, achieved_at, session_id)
+             VALUES ($1, $2, $3, NOW(), $4)
+             ON CONFLICT (user_id) DO UPDATE SET
+               username    = EXCLUDED.username,
+               best_ms     = CASE WHEN EXCLUDED.best_ms < speedrun_best_times.best_ms
+                                  THEN EXCLUDED.best_ms ELSE speedrun_best_times.best_ms END,
+               achieved_at = CASE WHEN EXCLUDED.best_ms < speedrun_best_times.best_ms
+                                  THEN NOW() ELSE speedrun_best_times.achieved_at END,
+               session_id  = CASE WHEN EXCLUDED.best_ms < speedrun_best_times.best_ms
+                                  THEN EXCLUDED.session_id ELSE speedrun_best_times.session_id END`,
+            [req.user.id, req.user.username, elapsed_ms, session_id]
+          );
+
+          const pbRes = await pool.query(`SELECT best_ms FROM speedrun_best_times WHERE user_id=$1`, [req.user.id]);
+          is_personal_best = pbRes.rows.length > 0 && Number(pbRes.rows[0].best_ms) === elapsed_ms;
+        }
+      } else {
+        // Advance to the next level.
+        await pool.query(
+          `UPDATE speedrun_sessions SET current_level=current_level+1 WHERE id=$1 AND status='active'`,
+          [session_id]
+        );
+        const next = SPEEDRUN_LEVELS[sess.current_level]; // 0-indexed → next level def
+        level_progress = { level: sess.current_level + 1, placed: 0, required: next.required };
+      }
+    }
+
+    res.json({ already_placed, level_progress, level_complete, completed_level, run_complete, elapsed_ms, is_personal_best });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- Speed Run: get current active session (for resume after refresh) ----
+app.get('/api/speedrun/session', async (req, res) => {
+  try {
+    const sessRes = await pool.query(
+      `SELECT id, started_at, current_level FROM speedrun_sessions
+       WHERE user_id=$1 AND status='active' ORDER BY started_at DESC LIMIT 1`,
+      [req.user.id]
+    );
+    if (!sessRes.rows.length) return res.json(null);
+
+    const sess = sessRes.rows[0];
+    const level = SPEEDRUN_LEVELS[sess.current_level - 1];
+    const { zone, required } = level;
+
+    const countRes = await pool.query(
+      `SELECT COUNT(*)::int AS placed FROM speedrun_blocks
+       WHERE session_id=$1 AND x BETWEEN $2 AND $3 AND y BETWEEN $4 AND $5 AND z BETWEEN $6 AND $7`,
+      [sess.id, zone.x[0], zone.x[1], zone.y[0], zone.y[1], zone.z[0], zone.z[1]]
+    );
+    const filledRes = await pool.query(
+      `SELECT x, y, z, block_type FROM speedrun_blocks
+       WHERE session_id=$1 AND x BETWEEN $2 AND $3 AND y BETWEEN $4 AND $5 AND z BETWEEN $6 AND $7`,
+      [sess.id, zone.x[0], zone.x[1], zone.y[0], zone.y[1], zone.z[0], zone.z[1]]
+    );
+
+    res.json({
+      session_id: Number(sess.id),
+      started_at: sess.started_at,
+      current_level: sess.current_level,
+      levels: SPEEDRUN_LEVELS,
+      level_progress: { level: sess.current_level, placed: countRes.rows[0].placed, required },
+      filled_cells: filledRes.rows.map((r) => ({ x: r.x, y: r.y, z: r.z, block_type: r.block_type })),
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- Speed Run: leaderboard (fastest times) ----
+app.get('/api/speedrun/leaderboard', async (req, res) => {
+  try {
+    const topRes = await pool.query(
+      `SELECT rank() OVER (ORDER BY best_ms ASC) AS rank, user_id, username, best_ms, achieved_at
+       FROM speedrun_best_times ORDER BY best_ms ASC LIMIT 10`
+    );
+    const selfRes = await pool.query(
+      `SELECT rank() OVER (ORDER BY best_ms ASC) AS rank, user_id, username, best_ms
+       FROM speedrun_best_times WHERE user_id=$1`,
+      [req.user.id]
+    );
+    const toRow = (r) => ({ rank: Number(r.rank), username: r.username, best_ms: Number(r.best_ms) });
+    res.json({ top: topRes.rows.map(toRow), self: selfRes.rows.length ? toRow(selfRes.rows[0]) : null });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- Speed Run: abandon active session ----
+app.post('/api/speedrun/abandon', async (req, res) => {
+  try {
+    const session_id = Number(req.body.session_id);
+    if (!Number.isInteger(session_id) || session_id <= 0) {
+      return res.status(400).json({ error: 'invalid session_id' });
+    }
+    const { rowCount } = await pool.query(
+      `UPDATE speedrun_sessions SET status='abandoned'
+       WHERE id=$1 AND user_id=$2 AND status='active'`,
+      [session_id, req.user.id]
+    );
+    if (rowCount === 0) return res.status(404).json({ error: 'active session not found' });
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.use(express.static(path.join(__dirname, 'public'), {
   setHeaders(res, filePath) {
-    // The entire game is inline in index.html, so a cached shell hides a
-    // deploy wholesale. Force the HTML to revalidate every load (304 when
-    // unchanged); other static assets keep Express defaults.
     if (filePath.endsWith('.html')) res.setHeader('Cache-Control', 'no-cache');
   },
 }));
 
-// HTML shell: serve the app if authenticated, otherwise an "open in Usernode"
-// landing page so stray visits to the staging URL don't reveal the app.
 app.get('*', (req, res) => {
   if (!req.user) {
     return res.status(401).send(`<!doctype html><meta charset=utf-8><title>Open in Usernode</title>
@@ -293,10 +444,7 @@ app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-// ---- Staging seed: an obviously-fake starter build so a fresh staging DB
-// has something to render, target, break, and sync. Uses three distinct fake
-// usernames so the "Who built this?" attribution tooltip shows variety.
-// No-op in production. ----
+// ---- Staging seed ----
 function buildSeedCells() {
   const cells = [];
   const DEMO  = { userId: SEED_USER_ID, username: 'Staging demo' };
@@ -306,45 +454,35 @@ function buildSeedCells() {
     const w = who || DEMO;
     cells.push({ x, y, z, t, userId: w.userId, username: w.username });
   };
-  // A 5x5 hollow stone hut near plot center (x 14..18, z 14..18).
-  // Walls: Staging demo. Windows + roof: alice_builder. Tree: reza99.
   const x0 = 14, x1 = 18, z0 = 14, z1 = 18;
   for (let y = 1; y <= 3; y++) {
     for (let x = x0; x <= x1; x++) {
       for (let z = z0; z <= z1; z++) {
         const perimeter = x === x0 || x === x1 || z === z0 || z === z1;
         if (!perimeter) continue;
-        // Door gap on the south wall (z0) at x = 16, lower two rows.
         if (x === 16 && z === z0 && y <= 2) continue;
-        set(x, y, z, 3); // Stone, Staging demo
+        set(x, y, z, 3);
       }
     }
   }
-  // Glass windows on the east/west walls — placed by alice_builder.
   set(x0, 2, 16, 8, ALICE);
   set(x1, 2, 16, 8, ALICE);
-  // Wood roof covering the 5x5 footprint — placed by alice_builder.
   for (let x = x0; x <= x1; x++) {
     for (let z = z0; z <= z1; z++) set(x, 4, z, 4, ALICE);
   }
-  // A small tree to the side: wood trunk + leaf canopy — planted by reza99.
   const tx = 23, tz = 23;
   for (let y = 1; y <= 3; y++) set(tx, y, tz, 4, REZA);
   for (let dx = -1; dx <= 1; dx++) {
-    for (let dz = -1; dz <= 1; dz++) {
-      set(tx + dx, 4, tz + dz, 5, REZA);
-    }
+    for (let dz = -1; dz <= 1; dz++) set(tx + dx, 4, tz + dz, 5, REZA);
   }
   set(tx, 5, tz, 5, REZA);
-  // A short sand path leading to the door — Staging demo.
   set(16, 1, 13, 6);
   set(16, 1, 12, 6);
-  // A few new block types to showcase them.
-  set(20, 1, 10, 14); // Gold Block
-  set(21, 1, 10, 15); // Glowstone
-  set(22, 1, 10, 16); // Obsidian
-  set(23, 1, 10, 17); // Rainbow Block
-  set(20, 1, 11, 13); // Snow
+  set(20, 1, 10, 14);
+  set(21, 1, 10, 15);
+  set(22, 1, 10, 16);
+  set(23, 1, 10, 17);
+  set(20, 1, 11, 13);
   return cells;
 }
 
@@ -359,8 +497,6 @@ async function seedStaging() {
     );
   }
 
-  // Seed leaderboard with obviously-fake entries (negative user IDs avoid
-  // colliding with real platform user IDs, which are positive integers).
   const fakeScores = [
     { id: -1, username: 'staging-demo-alice', total_score: 1450, blocks_placed: 320, best_combo: 3 },
     { id: -2, username: 'staging-demo-bob',   total_score: 980,  blocks_placed: 210, best_combo: 2 },
@@ -371,9 +507,32 @@ async function seedStaging() {
   for (const s of fakeScores) {
     await pool.query(
       `INSERT INTO leaderboard (user_id, username, total_score, blocks_placed, best_combo, updated_at)
-       VALUES ($1, $2, $3, $4, $5, NOW())
-       ON CONFLICT (user_id) DO NOTHING`,
+       VALUES ($1, $2, $3, $4, $5, NOW()) ON CONFLICT (user_id) DO NOTHING`,
       [s.id, s.username, s.total_score, s.blocks_placed, s.best_combo]
+    );
+  }
+
+  // Speed Run staging seed — sessions first (FK dependency), then best_times.
+  const srSeeds = [
+    { sessId: 900001, userId: -11, username: 'staging-speedrun-alice', ms: 83456  },
+    { sessId: 900002, userId: -12, username: 'staging-speedrun-bob',   ms: 105000 },
+    { sessId: 900003, userId: -13, username: 'staging-speedrun-carol', ms: 121234 },
+    { sessId: 900004, userId: -14, username: 'staging-speedrun-dave',  ms: 153789 },
+    { sessId: 900005, userId: -15, username: 'staging-speedrun-eve',   ms: 192000 },
+  ];
+  for (const s of srSeeds) {
+    await pool.query(
+      `INSERT INTO speedrun_sessions (id, user_id, username, started_at, completed_at, elapsed_ms, current_level, status)
+       VALUES ($1, $2, $3, NOW() - ($4 || ' milliseconds')::INTERVAL, NOW(), $4, 5, 'complete')
+       ON CONFLICT (id) DO NOTHING`,
+      [s.sessId, s.userId, s.username, s.ms]
+    );
+  }
+  for (const s of srSeeds) {
+    await pool.query(
+      `INSERT INTO speedrun_best_times (user_id, username, best_ms, achieved_at, session_id)
+       VALUES ($1, $2, $3, NOW(), $4) ON CONFLICT (user_id) DO NOTHING`,
+      [s.userId, s.username, s.ms, s.sessId]
     );
   }
 }
@@ -381,13 +540,9 @@ async function seedStaging() {
 async function start() {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS blocks (
-      x SMALLINT NOT NULL,
-      y SMALLINT NOT NULL,
-      z SMALLINT NOT NULL,
-      block_type SMALLINT NOT NULL,
-      seq BIGINT NOT NULL,
-      updated_by_user_id INTEGER,
-      updated_by_username VARCHAR(255),
+      x SMALLINT NOT NULL, y SMALLINT NOT NULL, z SMALLINT NOT NULL,
+      block_type SMALLINT NOT NULL, seq BIGINT NOT NULL,
+      updated_by_user_id INTEGER, updated_by_username VARCHAR(255),
       updated_at TIMESTAMPTZ DEFAULT NOW(),
       PRIMARY KEY (x, y, z)
     )
@@ -404,6 +559,43 @@ async function start() {
       blocks_placed BIGINT NOT NULL DEFAULT 0,
       best_combo    SMALLINT NOT NULL DEFAULT 1,
       updated_at    TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+
+  // Speed Run tables
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS speedrun_sessions (
+      id            BIGSERIAL PRIMARY KEY,
+      user_id       INTEGER NOT NULL,
+      username      VARCHAR(255) NOT NULL,
+      started_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      completed_at  TIMESTAMPTZ,
+      elapsed_ms    BIGINT,
+      current_level SMALLINT NOT NULL DEFAULT 1,
+      status        VARCHAR(20) NOT NULL DEFAULT 'active'
+    )
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS speedrun_sessions_user_status_idx ON speedrun_sessions (user_id, status)`);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS speedrun_blocks (
+      session_id BIGINT NOT NULL REFERENCES speedrun_sessions(id),
+      x          SMALLINT NOT NULL,
+      y          SMALLINT NOT NULL,
+      z          SMALLINT NOT NULL,
+      block_type SMALLINT NOT NULL,
+      placed_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (session_id, x, y, z)
+    )
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS speedrun_best_times (
+      user_id     INTEGER PRIMARY KEY,
+      username    VARCHAR(255) NOT NULL,
+      best_ms     BIGINT NOT NULL,
+      achieved_at TIMESTAMPTZ NOT NULL,
+      session_id  BIGINT
     )
   `);
 
