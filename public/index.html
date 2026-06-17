@@ -366,6 +366,74 @@
       }
     }
 
+    /* Landscape mode: split gameplay control buttons to corners for two-thumb control.
+       When in landscape orientation, move Undo/Delete to bottom-left, keep Add/Hold at bottom-right. */
+    @media (orientation: landscape) {
+      /* In landscape mode on touch, split the action buttons between left and right corners. */
+
+      /* Position Undo and Delete buttons absolutely at bottom-left. */
+      #touch-controls.landscape-mode #tc-actions > div:nth-child(2) > button:nth-child(1),
+      #touch-controls.landscape-mode #tc-actions > div:nth-child(2) > button:nth-child(2) {
+        position: fixed;
+        bottom: calc(1rem + env(safe-area-inset-bottom));
+        z-index: 20;
+      }
+
+      /* Undo button at bottom-left. */
+      #touch-controls.landscape-mode #tc-actions > div:nth-child(2) > button:nth-child(1) {
+        left: calc(1rem + env(safe-area-inset-left));
+        right: auto;
+      }
+
+      /* Delete button to the right of Undo. Approximately 4rem for button + gap. */
+      #touch-controls.landscape-mode #tc-actions > div:nth-child(2) > button:nth-child(2) {
+        left: calc(4.25rem + env(safe-area-inset-left));
+        right: auto;
+      }
+
+      /* Keep row 2 container visible but only Add will show on the right. */
+      #touch-controls.landscape-mode #tc-actions > div:nth-child(2) {
+        position: relative;
+      }
+
+      /* Main actions container: keep at bottom-right. */
+      #touch-controls.landscape-mode #tc-actions {
+        right: calc(1rem + env(safe-area-inset-right));
+        bottom: calc(1rem + env(safe-area-inset-bottom));
+        flex-direction: column;
+        align-items: flex-end;
+        gap: 0.25rem;
+      }
+
+      /* Row 1 (Hold/Down/Up): show Hold, hide Down and Up. */
+      #touch-controls.landscape-mode #tc-actions > div:nth-child(1) {
+        display: flex;
+        gap: 0.25rem;
+      }
+
+      #touch-controls.landscape-mode #tc-actions > div:nth-child(1) > button:nth-child(2),
+      #touch-controls.landscape-mode #tc-actions > div:nth-child(1) > button:nth-child(3) {
+        display: none;
+      }
+
+      /* Row 2: show in place at right, but Undo/Delete are now positioned at left. */
+      #touch-controls.landscape-mode #tc-actions > div:nth-child(2) {
+        display: flex;
+        gap: 0.25rem;
+      }
+
+      /* Row 3 (Stamp): show on the right. */
+      #touch-controls.landscape-mode #tc-actions > div:nth-child(3) {
+        display: flex;
+        gap: 0.25rem;
+      }
+
+      /* Reduce palette bottom offset to avoid overlap with landscape controls. */
+      #palette.touch-playing {
+        bottom: 8.5rem;
+      }
+    }
+
     #overlay h1 {
       /* Bright light title with an indigo accent glow on the dark scrim. */
       color: #eef0ff;
@@ -8175,6 +8243,12 @@
       const portrait = !!(window.matchMedia && window.matchMedia('(orientation: portrait)').matches);
       forceRotated = isTouch && portrait;
       rotorEl.classList.toggle('rotated', forceRotated);
+      // In landscape mode on touch devices, enable landscape-specific button layout.
+      const touchControlsEl = document.getElementById('touch-controls');
+      const isLandscape = !portrait && isTouch;
+      if (touchControlsEl) {
+        touchControlsEl.classList.toggle('landscape-mode', isLandscape);
+      }
       resize();
     }
     function resize() {
