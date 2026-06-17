@@ -65,6 +65,17 @@ const BADGES = [
   { id: 'glowmaster',      name: 'Glowmaster',      icon: '💡', flavour: 'Placed a Glowstone block!' },
   { id: 'shadow_sculptor', name: 'Shadow Sculptor', icon: '🌑', flavour: 'Placed an Obsidian block!' },
   { id: 'material_artist', name: 'Material Artist', icon: '🎨', flavour: 'Used 8+ different block types!' },
+  { id: 'streak_3',        name: 'Hot Start',       icon: '🔥', flavour: 'Logged in 3 days in a row!' },
+  { id: 'streak_7',        name: 'Week Warrior',     icon: '🗓️', flavour: 'A full week of building!' },
+  { id: 'streak_14',       name: 'Fortnight Pro',    icon: '🏆', flavour: 'Two weeks of daily play!' },
+  { id: 'streak_30',       name: 'Monthly Master',   icon: '👑', flavour: 'A full month on the block!' },
+];
+
+const STREAK_BADGE_MILESTONES = [
+  { days: 3,  id: 'streak_3' },
+  { days: 7,  id: 'streak_7' },
+  { days: 14, id: 'streak_14' },
+  { days: 30, id: 'streak_30' },
 ];
 
 // Returns badges from BADGES that are newly earned given updated leaderboard
@@ -361,7 +372,80 @@ app.post('/api/presence/ping', async (req, res) => {
        ON CONFLICT (user_id) DO UPDATE SET username = EXCLUDED.username, last_seen = NOW()`,
       [req.user.id, req.user.username]
     );
-    res.json({ ok: true });
+
+    // Upsert login streak. Idempotent for the same UTC day.
+    const streakRes = await pool.query(
+      `INSERT INTO login_streaks (user_id, username, last_login_date, current_streak, longest_streak)
+       VALUES ($1, $2, CURRENT_DATE, 1, 1)
+       ON CONFLICT (user_id) DO UPDATE SET
+         username        = EXCLUDED.username,
+         current_streak  = CASE
+           WHEN login_streaks.last_login_date = CURRENT_DATE     THEN login_streaks.current_streak
+           WHEN login_streaks.last_login_date = CURRENT_DATE - 1 THEN login_streaks.current_streak + 1
+           ELSE 1
+         END,
+         longest_streak  = GREATEST(login_streaks.longest_streak, CASE
+           WHEN login_streaks.last_login_date = CURRENT_DATE     THEN login_streaks.current_streak
+           WHEN login_streaks.last_login_date = CURRENT_DATE - 1 THEN login_streaks.current_streak + 1
+           ELSE 1
+         END),
+         last_login_date = CASE
+           WHEN login_streaks.last_login_date = CURRENT_DATE THEN login_streaks.last_login_date
+           ELSE CURRENT_DATE
+         END,
+         updated_at = NOW()
+       RETURNING current_streak, longest_streak`,
+      [req.user.id, req.user.username]
+    );
+    const { current_streak, longest_streak } = streakRes.rows[0];
+
+    // Check which streak milestone badges the user already has.
+    const earnedRes = await pool.query(
+      `SELECT badge_id FROM player_badges WHERE user_id = $1 AND badge_id LIKE 'streak_%'`,
+      [req.user.id]
+    );
+    const earnedStreakIds = new Set(earnedRes.rows.map((r) => r.badge_id));
+
+    // Award any newly crossed milestone badges.
+    const newlyEarnedBadges = [];
+    for (const { days, id } of STREAK_BADGE_MILESTONES) {
+      if (current_streak >= days && !earnedStreakIds.has(id)) {
+        const ins = await pool.query(
+          `INSERT INTO player_badges (user_id, badge_id, earned_at)
+           VALUES ($1, $2, NOW())
+           ON CONFLICT DO NOTHING
+           RETURNING badge_id`,
+          [req.user.id, id]
+        );
+        if (ins.rows.length > 0) {
+          const def = BADGES.find((b) => b.id === id);
+          if (def) newlyEarnedBadges.push({ ...def, earned_at: new Date().toISOString() });
+        }
+      }
+    }
+
+    res.json({
+      ok: true,
+      streak: { current: current_streak, longest: longest_streak },
+      newly_earned_badges: newlyEarnedBadges,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- Streak: current user's login streak ----
+app.get('/api/streak', async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT current_streak, longest_streak FROM login_streaks WHERE user_id = $1`,
+      [req.user.id]
+    );
+    if (!rows.length) return res.json({ current_streak: 0, longest_streak: 0 });
+    res.json({
+      current_streak: rows[0].current_streak,
+      longest_streak: rows[0].longest_streak,
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -479,6 +563,59 @@ app.get('/api/block/:x/:y/:z', async (req, res) => {
   }
 });
 
+// ---- Power-up spawn position: picks an unoccupied cell at y=2 ----
+async function pickSpawnPosition() {
+  let chosen = { x: 1, y: 2, z: 1 };
+  for (let i = 0; i < 10; i++) {
+    const x = 1 + Math.floor(Math.random() * (DIMS.w - 2));
+    const z = 1 + Math.floor(Math.random() * (DIMS.d - 2));
+    chosen = { x, y: 2, z };
+    const { rows } = await pool.query(
+      `SELECT 1 FROM blocks WHERE x = $1 AND y = 2 AND z = $2 AND block_type <> 0`,
+      [x, z]
+    );
+    if (!rows.length) return chosen;
+  }
+  return chosen; // use last attempt even if occupied
+}
+
+// ---- Power-ups: list all unclaimed items ----
+app.get('/api/powerups', async (_req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT id, type, x, y, z FROM powerups WHERE claimed_at IS NULL`
+    );
+    res.json({ powerups: rows });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- Power-ups: collect one (atomic claim + spawn replacement) ----
+app.post('/api/powerups/:id/collect', async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const { rows } = await pool.query(
+      `UPDATE powerups
+         SET claimed_at = NOW(), claimed_by_user_id = $1, claimed_by_username = $2
+       WHERE id = $3 AND claimed_at IS NULL
+       RETURNING type`,
+      [req.user.id, req.user.username, id]
+    );
+    if (!rows.length) return res.status(409).json({ error: 'already claimed' });
+    const type = rows[0].type;
+    // Immediately spawn a replacement of the same type.
+    const pos = await pickSpawnPosition();
+    await pool.query(
+      `INSERT INTO powerups (type, x, y, z) VALUES ($1, $2, $3, $4)`,
+      [type, pos.x, pos.y, pos.z]
+    );
+    res.json({ ok: true, type, duration: 12 });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ---- Daily Challenge: today's goal and the requesting user's progress. ----
 // Target is derived deterministically from the UTC date — no DB write needed.
 // Returns { date, target, placed, completed_at }.
@@ -500,6 +637,169 @@ app.get('/api/challenge/today', async (req, res) => {
       placed: row ? row.blocks_placed : 0,
       completed_at: row ? row.completed_at : null,
     });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- Friends: list accepted friends + pending requests ----
+app.get('/api/friends', async (req, res) => {
+  const uid = req.user.id;
+  try {
+    const { rows: friendRows } = await pool.query(
+      `SELECT f.id,
+              CASE WHEN f.requester_id = $1 THEN f.addressee_id       ELSE f.requester_id       END AS friend_id,
+              CASE WHEN f.requester_id = $1 THEN f.addressee_username  ELSE f.requester_username  END AS friend_username,
+              (up.user_id IS NOT NULL) AS online
+       FROM friendships f
+       LEFT JOIN user_presence up ON (
+         CASE WHEN f.requester_id = $1 THEN f.addressee_id ELSE f.requester_id END = up.user_id
+         AND up.last_seen > NOW() - INTERVAL '60 seconds'
+       )
+       WHERE (f.requester_id = $1 OR f.addressee_id = $1) AND f.status = 'accepted'
+       ORDER BY online DESC NULLS LAST, friend_username`,
+      [uid]
+    );
+    const { rows: incomingRows } = await pool.query(
+      `SELECT id, requester_id, requester_username FROM friendships
+       WHERE addressee_id = $1 AND status = 'pending'
+       ORDER BY created_at ASC`,
+      [uid]
+    );
+    const { rows: outgoingRows } = await pool.query(
+      `SELECT id, addressee_id, addressee_username FROM friendships
+       WHERE requester_id = $1 AND status = 'pending'
+       ORDER BY created_at ASC`,
+      [uid]
+    );
+
+    const friends = friendRows.map((r) => ({
+      id: Number(r.id),
+      friend_id: r.friend_id,
+      username: r.friend_username,
+      online: r.online,
+    }));
+    const incoming = incomingRows.map((r) => ({
+      id: Number(r.id),
+      from_id: r.requester_id,
+      username: r.requester_username,
+    }));
+    const outgoing = outgoingRows.map((r) => ({
+      id: Number(r.id),
+      to_id: r.addressee_id,
+      username: r.addressee_username,
+    }));
+
+    if (IS_STAGING) {
+      friends.push(
+        { id: -10, friend_id: -101, username: 'Staging Friend A', online: true },
+        { id: -11, friend_id: -102, username: 'Staging Friend B', online: false },
+        { id: -12, friend_id: -103, username: 'Staging Friend C', online: false }
+      );
+      incoming.push({ id: -1, from_id: -201, username: 'Staging Requester X' });
+      outgoing.push({ id: -2, to_id: -202, username: 'Staging Pending Y' });
+    }
+
+    res.json({ friends, incoming, outgoing });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- Friends: send a friend request by username ----
+app.post('/api/friends/request', async (req, res) => {
+  const uid = req.user.id;
+  const uname = req.user.username;
+  const targetUsername = (typeof req.body.username === 'string' ? req.body.username : '').trim();
+  if (!targetUsername) return res.status(400).json({ error: 'username required' });
+
+  try {
+    // Look up the target across leaderboard + user_presence (case-insensitive).
+    // user_presence is preferred when both contain the same user since it is fresher.
+    const { rows } = await pool.query(
+      `SELECT user_id, username FROM (
+         SELECT user_id, username, 1 AS priority FROM user_presence
+         UNION
+         SELECT user_id, username, 2 AS priority FROM leaderboard
+       ) u
+       WHERE LOWER(username) = LOWER($1)
+       ORDER BY priority ASC
+       LIMIT 1`,
+      [targetUsername]
+    );
+    if (!rows.length) return res.status(404).json({ error: 'User not found' });
+    const { user_id: tid, username: tusername } = rows[0];
+    if (tid === uid) return res.status(400).json({ error: 'Cannot add yourself' });
+
+    const { rows: existing } = await pool.query(
+      `SELECT id FROM friendships
+       WHERE (requester_id = $1 AND addressee_id = $2)
+          OR (requester_id = $2 AND addressee_id = $1)`,
+      [uid, tid]
+    );
+    if (existing.length) return res.status(409).json({ error: 'Already friends or request pending' });
+
+    const { rows: inserted } = await pool.query(
+      `INSERT INTO friendships (requester_id, addressee_id, requester_username, addressee_username)
+       VALUES ($1, $2, $3, $4) RETURNING id`,
+      [uid, tid, uname, tusername]
+    );
+    res.json({ ok: true, id: Number(inserted[0].id) });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- Friends: accept an incoming request ----
+app.post('/api/friends/:id/accept', async (req, res) => {
+  const rowId = Number(req.params.id);
+  if (IS_STAGING && rowId < 0) return res.json({ ok: true });
+  try {
+    const { rows } = await pool.query(
+      `UPDATE friendships SET status = 'accepted', updated_at = NOW()
+       WHERE id = $1 AND addressee_id = $2 AND status = 'pending'
+       RETURNING id`,
+      [rowId, req.user.id]
+    );
+    if (!rows.length) return res.status(404).json({ error: 'Request not found' });
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- Friends: decline an incoming request ----
+// The row is kept (status = 'declined') so the requester can't immediately spam again.
+app.post('/api/friends/:id/decline', async (req, res) => {
+  const rowId = Number(req.params.id);
+  if (IS_STAGING && rowId < 0) return res.json({ ok: true });
+  try {
+    const { rows } = await pool.query(
+      `UPDATE friendships SET status = 'declined', updated_at = NOW()
+       WHERE id = $1 AND addressee_id = $2 AND status = 'pending'
+       RETURNING id`,
+      [rowId, req.user.id]
+    );
+    if (!rows.length) return res.status(404).json({ error: 'Request not found' });
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- Friends: remove an accepted friendship or cancel an outgoing request ----
+app.delete('/api/friends/:id', async (req, res) => {
+  const rowId = Number(req.params.id);
+  if (IS_STAGING && rowId < 0) return res.json({ ok: true });
+  try {
+    const { rows } = await pool.query(
+      `DELETE FROM friendships
+       WHERE id = $1 AND (requester_id = $2 OR addressee_id = $2)
+       RETURNING id`,
+      [rowId, req.user.id]
+    );
+    if (!rows.length) return res.status(404).json({ error: 'Friendship not found' });
+    res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -684,6 +984,21 @@ async function seedStaging() {
      ON CONFLICT (challenge_date, user_id) DO NOTHING`,
     [todayStr, targetToday]
   );
+
+  // Seed one of each power-up type at fixed, open positions so testers can
+  // immediately see and collect them. Skipped if any unclaimed power-ups
+  // already exist (e.g. after a hot-reload during the same staging run).
+  const { rows: pwCount } = await pool.query(
+    `SELECT COUNT(*) AS n FROM powerups WHERE claimed_at IS NULL`
+  );
+  if (Number(pwCount[0].n) === 0) {
+    await pool.query(`
+      INSERT INTO powerups (type, x, y, z) VALUES
+        ('speed_boost', 5, 2, 16),
+        ('super_jump',  28, 2, 16),
+        ('rapid_place', 16, 2, 28)
+    `);
+  }
 }
 
 // Seed the leaderboard with 6 fake builders so staging shows a populated panel.
@@ -711,6 +1026,26 @@ async function seedLeaderboard() {
   }
 }
 
+// ---- Ensure at least one of each power-up type is live in the world ----
+// Runs on every boot (after staging seed). In production the first boot
+// inserts all three; subsequent boots are no-ops. In staging the seed above
+// takes priority; this is a safety net for any type the seed missed.
+async function ensurePowerUps() {
+  for (const type of ['speed_boost', 'super_jump', 'rapid_place']) {
+    const { rows } = await pool.query(
+      `SELECT 1 FROM powerups WHERE type = $1 AND claimed_at IS NULL LIMIT 1`,
+      [type]
+    );
+    if (!rows.length) {
+      const pos = await pickSpawnPosition();
+      await pool.query(
+        `INSERT INTO powerups (type, x, y, z) VALUES ($1, $2, $3, $4)`,
+        [type, pos.x, pos.y, pos.z]
+      );
+    }
+  }
+}
+
 // ---- Staging seed: a few obviously-fake chat messages so the chat drawer
 // has visible content when a reviewer first opens it. Uses explicit IDs with
 // ON CONFLICT DO NOTHING for idempotency across reboots. ----
@@ -733,6 +1068,39 @@ async function seedChat() {
   await pool.query(
     `SELECT setval('chat_messages_id_seq', GREATEST((SELECT MAX(id) FROM chat_messages), 3))`
   );
+}
+
+async function seedStreaks() {
+  // Negative user IDs so they never collide with real platform user IDs (positive integers).
+  const rows = [
+    { user_id: -1, username: 'Staging demo builder A', current_streak: 3,  longest_streak: 7 },
+    { user_id: -2, username: 'Staging demo builder B', current_streak: 7,  longest_streak: 14 },
+    { user_id: -3, username: 'Staging demo builder C', current_streak: 14, longest_streak: 30 },
+    { user_id: -4, username: 'Staging demo builder D', current_streak: 1,  longest_streak: 3 },
+  ];
+  for (const r of rows) {
+    await pool.query(
+      `INSERT INTO login_streaks (user_id, username, last_login_date, current_streak, longest_streak)
+       VALUES ($1, $2, CURRENT_DATE, $3, $4)
+       ON CONFLICT (user_id) DO NOTHING`,
+      [r.user_id, r.username, r.current_streak, r.longest_streak]
+    );
+  }
+  // Seed streak milestone badges for the demo users so the badge panel shows mixed states.
+  const milestoneSeeds = [
+    { user_id: -1, badge_id: 'streak_3' },
+    { user_id: -2, badge_id: 'streak_3' },
+    { user_id: -2, badge_id: 'streak_7' },
+    { user_id: -3, badge_id: 'streak_3' },
+    { user_id: -3, badge_id: 'streak_7' },
+    { user_id: -3, badge_id: 'streak_14' },
+  ];
+  for (const s of milestoneSeeds) {
+    await pool.query(
+      `INSERT INTO player_badges (user_id, badge_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+      [s.user_id, s.badge_id]
+    );
+  }
 }
 
 async function start() {
@@ -823,6 +1191,53 @@ async function start() {
     ON daily_challenge_progress (challenge_date, blocks_placed DESC)
   `);
 
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS powerups (
+      id SERIAL PRIMARY KEY,
+      type VARCHAR(20) NOT NULL,
+      x SMALLINT NOT NULL,
+      y SMALLINT NOT NULL,
+      z SMALLINT NOT NULL,
+      spawned_at TIMESTAMPTZ DEFAULT NOW(),
+      claimed_at TIMESTAMPTZ,
+      claimed_by_user_id INTEGER,
+      claimed_by_username VARCHAR(255)
+    )
+  `);
+
+  // Login streak tracking: one row per user, updated on each daily first visit.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS login_streaks (
+      user_id        INTEGER PRIMARY KEY,
+      username       VARCHAR(255) NOT NULL,
+      last_login_date DATE NOT NULL,
+      current_streak INTEGER NOT NULL DEFAULT 1,
+      longest_streak INTEGER NOT NULL DEFAULT 1,
+      updated_at     TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+
+  // Social graph: friend requests and accepted friendships.
+  // Marked staging:private — the friend relationships between real users must
+  // not be copied to staging containers.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS friendships (
+      id                 BIGSERIAL PRIMARY KEY,
+      requester_id       INTEGER      NOT NULL,
+      addressee_id       INTEGER      NOT NULL,
+      requester_username VARCHAR(255) NOT NULL,
+      addressee_username VARCHAR(255) NOT NULL,
+      status             VARCHAR(20)  NOT NULL DEFAULT 'pending',
+      created_at         TIMESTAMPTZ  DEFAULT NOW(),
+      updated_at         TIMESTAMPTZ  DEFAULT NOW(),
+      UNIQUE (requester_id, addressee_id)
+    )
+  `);
+  await pool.query(`COMMENT ON TABLE friendships IS 'staging:private'`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS friendships_addressee_status_idx ON friendships (addressee_id, status)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS friendships_requester_status_idx ON friendships (requester_id, status)`);
+
+
   if (IS_STAGING) {
     try { await seedStaging(); }
     catch (err) { console.error('staging blocks seed failed', err); }
@@ -830,7 +1245,11 @@ async function start() {
     catch (err) { console.error('staging chat seed failed', err); }
     try { await seedLeaderboard(); }
     catch (err) { console.error('leaderboard seed failed', err); }
+    try { await seedStreaks(); }
+    catch (err) { console.error('streak seed failed', err); }
   }
+
+  await ensurePowerUps();
 
   app.listen(port, () => console.log(`Listening on :${port}`));
 }
