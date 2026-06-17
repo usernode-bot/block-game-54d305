@@ -142,14 +142,14 @@
         <p class="text-zinc-300 text-sm">A shared 3D world — build, challenge, or just watch.</p>
         <p id="overlay-help" class="text-zinc-500 text-xs mt-1">Choose a mode to start.</p>
       </div>
-      <div class="flex flex-col sm:flex-row gap-4">
-        <div class="flex-1 bg-zinc-900/80 rounded-xl p-5">
+      <div class="grid grid-cols-2 xl:grid-cols-4 gap-3">
+        <div class="bg-zinc-900/80 rounded-xl p-4">
           <canvas id="preview-classic" class="w-full rounded-lg mb-3" height="110"></canvas>
           <h2 class="font-semibold text-zinc-100 mb-1">Classic Mode</h2>
           <p class="text-zinc-400 text-xs mb-4">Fly around a shared 3D world. Place and break blocks with other players. No timer, no score.</p>
           <button id="play-classic-btn" class="w-full px-4 py-2 rounded-lg bg-violet-600 hover:bg-violet-500 font-semibold text-sm transition-colors">Play Classic</button>
         </div>
-        <div class="flex-1 bg-zinc-900/80 rounded-xl p-5">
+        <div class="bg-zinc-900/80 rounded-xl p-4">
           <canvas id="preview-ta" class="w-full rounded-lg mb-3" height="110"></canvas>
           <h2 class="font-semibold text-zinc-100 mb-1">Time Attack</h2>
           <p class="text-zinc-400 text-xs mb-3">Break as many blocks as you can against the clock. Solo challenge, fresh layout every run.</p>
@@ -160,16 +160,64 @@
           </div>
           <button id="play-ta-btn" class="w-full px-4 py-2 rounded-lg bg-amber-600 hover:bg-amber-500 font-semibold text-sm transition-colors">Play Time Attack</button>
         </div>
-        <div class="flex-1 bg-zinc-900/80 rounded-xl p-5">
+        <div class="bg-zinc-900/80 rounded-xl p-4">
           <canvas id="preview-spectate" class="w-full rounded-lg mb-3" height="110"></canvas>
           <h2 class="font-semibold text-zinc-100 mb-1">Watch</h2>
           <p class="text-zinc-400 text-xs mb-4">Fly through the world as a spectator. No building required — just explore and chat.</p>
           <button id="play-spectate-btn" class="w-full px-4 py-2 rounded-lg bg-teal-600 hover:bg-teal-500 font-semibold text-sm transition-colors">Watch World</button>
         </div>
+        <div class="bg-zinc-900/80 rounded-xl p-4">
+          <canvas id="preview-story" class="w-full rounded-lg mb-3" height="110"></canvas>
+          <h2 class="font-semibold text-zinc-100 mb-1">Story Mode</h2>
+          <p class="text-zinc-400 text-xs mb-4">Rebuild what the disasters destroyed — one chapter at a time.</p>
+          <button id="play-story-btn" class="w-full px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 font-semibold text-sm transition-colors">Play Story</button>
+        </div>
       </div>
       <div id="tournament-teaser" class="hidden mt-3 rounded-xl bg-zinc-900/60 px-4 py-2.5 text-xs text-zinc-300"></div>
       <div id="status" class="mt-3 text-xs text-zinc-500 text-center"></div>
       <div id="online-list" class="mt-3 text-sm text-zinc-400 text-center"></div>
+    </div>
+  </div>
+
+  <!-- Story Mode: chapter select overlay -->
+  <div id="story-overlay" class="hidden fixed inset-0 z-30 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+    <div class="max-w-lg w-full px-4">
+      <div class="text-center mb-5">
+        <h1 class="text-2xl font-bold mb-1">Story Mode</h1>
+        <p class="text-zinc-300 text-sm">Rebuild the kingdom, one disaster at a time.</p>
+      </div>
+      <div id="story-chapter-list" class="flex flex-col gap-2 max-h-96 overflow-y-auto pr-1"></div>
+      <div class="mt-4 text-center">
+        <button id="story-back-btn" class="px-5 py-2 rounded-lg bg-zinc-700 hover:bg-zinc-600 font-semibold text-sm transition-colors">← Back</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Story Mode: narrative card (top-centre, auto-dismisses) -->
+  <div id="story-narrative" class="hidden pointer-events-none fixed top-16 left-1/2 -translate-x-1/2 z-20 max-w-sm w-full px-4">
+    <div class="bg-zinc-900/90 rounded-xl px-4 py-3 text-center text-sm text-zinc-200 shadow-lg"></div>
+  </div>
+
+  <!-- Story Mode: in-game HUD (top-left, same area as TA HUD) -->
+  <div id="story-hud" class="hidden pointer-events-none fixed top-3 left-3 z-20 flex flex-col gap-1">
+    <div id="story-chapter-label" class="text-sm font-semibold text-emerald-300 bg-black/50 rounded-xl px-4 py-1.5 text-center">Chapter 1</div>
+    <div id="story-goal-progress" class="text-sm font-semibold text-zinc-200 bg-black/50 rounded-xl px-4 py-1.5 text-center">0 / 20</div>
+    <div id="story-timer" class="text-3xl font-mono font-bold text-white bg-black/50 rounded-xl px-4 py-2 tabular-nums leading-none">0:00</div>
+  </div>
+
+  <!-- Story Mode: chapter complete overlay -->
+  <div id="story-complete" class="hidden fixed inset-0 z-30 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+    <div class="max-w-sm w-full mx-4 bg-zinc-900/95 rounded-2xl p-8 text-center shadow-xl">
+      <div class="text-2xl mb-1">🏗️</div>
+      <h2 id="story-complete-title" class="text-xl font-bold mb-2">Chapter Complete!</h2>
+      <p id="story-complete-outro" class="text-zinc-300 text-sm mb-3"></p>
+      <div id="story-complete-stars" class="flex justify-center gap-2 text-2xl mb-1"></div>
+      <p id="story-complete-star-desc" class="text-zinc-500 text-xs mb-1"></p>
+      <p id="story-complete-newbest" class="text-emerald-400 text-xs font-semibold mb-5 h-4"></p>
+      <div class="flex gap-3 justify-center">
+        <button id="story-next-btn" class="px-5 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 font-semibold transition-colors">Next Chapter →</button>
+        <button id="story-complete-menu-btn" class="px-5 py-2 rounded-lg bg-zinc-700 hover:bg-zinc-600 font-semibold transition-colors">Back to Menu</button>
+      </div>
     </div>
   </div>
 
@@ -796,14 +844,68 @@
       if (el) el.textContent = TA_DIFFICULTY_LEVELS[taDifficulty - 1].label;
     }
 
+    // ---- Story Mode chapter definitions ----
+    const STORY_CHAPTERS = [
+      {
+        id: 1, title: 'The First Stone', parTimeSecs: 60,
+        intro: 'The earthquake brought the old watchtower down. Lay the foundation again.',
+        outro: 'The walls stand firm once more. A good start.',
+        goal: { types: [3, 7], count: 20 },
+      },
+      {
+        id: 2, title: 'The Burned Grove', parTimeSecs: 75,
+        intro: 'Volcanic eruption scorched the forest to the east. Restore it.',
+        outro: 'The grove breathes again. Life returns to the east.',
+        goal: { types: [4, 5], count: 25 },
+      },
+      {
+        id: 3, title: 'The Ruined Forge', parTimeSecs: 100,
+        intro: 'Fire consumed the forge district. Rebuild with heat-resistant materials.',
+        outro: 'The forge roars back to life. Smiths return to their craft.',
+        goal: { thresholds: [{ types: [7], count: 15 }, { types: [16], count: 15 }] },
+      },
+      {
+        id: 4, title: 'Beacon of Hope', parTimeSecs: 90,
+        intro: 'A meteor shattered the beacon tower. Rebuild it tall.',
+        outro: 'The beacon shines again. Travelers can find their way home.',
+        goal: { types: [15], count: 15, minY: 4 },
+      },
+      {
+        id: 5, title: 'The Golden Spire', parTimeSecs: 120,
+        intro: "The castle's golden spire crumbled. Restore it.",
+        outro: "The kingdom's pride gleams once more against the sky.",
+        goal: { types: [14], count: 20, minY: 5 },
+      },
+      {
+        id: 6, title: 'Town Square', parTimeSecs: 150,
+        intro: 'The great disaster leveled the town center. Fill it again.',
+        outro: 'The town square buzzes with life. The heart of the kingdom beats again.',
+        goal: { types: null, count: 60, zone: { x1: 10, z1: 10, x2: 21, z2: 21 } },
+      },
+      {
+        id: 7, title: 'The Crystal Crown', parTimeSecs: 180,
+        intro: 'Finish the reconstruction. Set the crown jewel in place.',
+        outro: 'The kingdom is restored. You did it.',
+        goal: { types: [18], count: 25 },
+      },
+    ];
+
     // ---- Game mode state ----
-    let gameMode = null;           // null | 'classic' | 'timeattack'
+    let gameMode = null;           // null | 'classic' | 'timeattack' | 'story'
     const taBlocks = new Map();    // TA layout: client-only, never written to server
     let taScore = 0;
     let taTimeLeft = 60;
     let taTimerHandle = null;
     let pollHandle = null;         // classic-mode server poll interval
     let pendingTaInit = false;     // true while waiting for play-entry to fire initTimeAttack
+
+    // Story mode state
+    const storyBlocks = new Map(); // story sandbox: client-only, never written to server
+    let storyChapter = null;       // current STORY_CHAPTERS entry
+    let storyElapsedSecs = 0;
+    let storyTimerHandle = null;
+    let storyProgress = [];        // { chapter_id, stars, best_time_ms } from server
+    let pendingStoryChapterId = null; // set by startMode('story') before play-entry
 
     // ---- Three.js scaffold ----
     const canvas = document.getElementById('scene');
@@ -1205,14 +1307,14 @@
     }
 
     // Dynamic blocks: one InstancedMesh per type, rebuilt from the active map.
-    // In TA mode uses taBlocks; otherwise uses the shared blocks map.
+    // In TA mode uses taBlocks; in story mode uses storyBlocks; otherwise uses the shared blocks map.
     const blockGroup = new THREE.Group();
     scene.add(blockGroup);
     let crystalMaterial = null; // tracked for emissive pulse animation in the render loop
     function rebuildBlockMeshes() {
       blockGroup.clear();
       crystalMaterial = null;
-      const source = gameMode === 'timeattack' ? taBlocks : blocks;
+      const source = gameMode === 'timeattack' ? taBlocks : gameMode === 'story' ? storyBlocks : blocks;
       const byType = new Map();
       for (const [k, t] of source) {
         if (!byType.has(t)) byType.set(t, []);
@@ -1471,7 +1573,7 @@
       }
 
       // Topmost player-placed block at each (x, z) overpaints the grass.
-      const source = gameMode === 'timeattack' ? taBlocks : blocks;
+      const source = gameMode === 'timeattack' ? taBlocks : gameMode === 'story' ? storyBlocks : blocks;
       for (let x = 0; x < DIMS.w; x++) {
         for (let z = 0; z < DIMS.d; z++) {
           for (let y = DIMS.h - 1; y >= 1; y--) {
@@ -1722,6 +1824,15 @@
         rebuildBlockMeshes();
         return;
       }
+      if (gameMode === 'story') {
+        const k = key(x, y, z);
+        if (storyBlocks.get(k) === selectedType) return;
+        storyBlocks.set(k, selectedType);
+        emitBlockPlace(x + 0.5, y + 0.5, z + 0.5);
+        rebuildBlockMeshes();
+        checkStoryGoal();
+        return;
+      }
       if (blocks.get(key(x, y, z)) === selectedType) return;
       audio.playPlace();
       emitBlockPlace(x + 0.5, y + 0.5, z + 0.5);
@@ -1744,6 +1855,16 @@
         taScore++;
         rebuildBlockMeshes();
         updateTaScoreDisplay();
+        return;
+      }
+      if (gameMode === 'story') {
+        const k = key(x, y, z);
+        if (!storyBlocks.has(k)) return;
+        const brokenTypeStory = storyBlocks.get(k);
+        storyBlocks.delete(k);
+        emitBlockBreak(x + 0.5, y + 0.5, z + 0.5, brokenTypeStory);
+        rebuildBlockMeshes();
+        updateStoryHud();
         return;
       }
       if (!blocks.has(key(x, y, z))) return;
@@ -1980,12 +2101,244 @@
       updateTouchControlsVisibility();
     }
 
+    // ---- Story Mode logic ----
+
+    function computeStoryGoalCounts() {
+      if (!storyChapter) return { met: false, progressLabel: '' };
+      const g = storyChapter.goal;
+
+      if (g.thresholds) {
+        // Dual-threshold: each threshold independently must be met.
+        const results = g.thresholds.map((t) => {
+          let count = 0;
+          for (const [k, type] of storyBlocks) {
+            if (t.types.includes(type)) count++;
+          }
+          return { count, required: t.count };
+        });
+        const met = results.every((r) => r.count >= r.required);
+        const progressParts = results.map((r) => r.count + '/' + r.required);
+        return { met, progressLabel: progressParts.join(' + ') };
+      }
+
+      let count = 0;
+      for (const [k, type] of storyBlocks) {
+        if (g.types !== null && !g.types.includes(type)) continue;
+        if (g.zone) {
+          const [cx, cy, cz] = k.split(',').map(Number);
+          if (cx < g.zone.x1 || cx > g.zone.x2 || cz < g.zone.z1 || cz > g.zone.z2) continue;
+        }
+        if (g.minY !== undefined) {
+          const [cx, cy, cz] = k.split(',').map(Number);
+          if (cy < g.minY) continue;
+        }
+        count++;
+      }
+      return { met: count >= g.count, progressLabel: count + ' / ' + g.count };
+    }
+
+    function updateStoryHud() {
+      if (!storyChapter) return;
+      const { progressLabel } = computeStoryGoalCounts();
+      document.getElementById('story-goal-progress').textContent = progressLabel;
+    }
+
+    function updateStoryTimerDisplay() {
+      const mins = Math.floor(storyElapsedSecs / 60);
+      const secs = storyElapsedSecs % 60;
+      document.getElementById('story-timer').textContent = mins + ':' + String(secs).padStart(2, '0');
+    }
+
+    function checkStoryGoal() {
+      const { met } = computeStoryGoalCounts();
+      if (met) endStory();
+    }
+
+    function initStory(chapterId) {
+      storyChapter = STORY_CHAPTERS.find((c) => c.id === chapterId);
+      if (!storyChapter) return;
+      storyBlocks.clear();
+      storyElapsedSecs = 0;
+      if (storyTimerHandle) { clearInterval(storyTimerHandle); storyTimerHandle = null; }
+
+      rebuildBlockMeshes();
+      spawnCamera();
+
+      // Show HUD
+      document.getElementById('story-hud').classList.remove('hidden');
+      document.getElementById('story-chapter-label').textContent = 'Ch.' + storyChapter.id + ': ' + storyChapter.title;
+      updateStoryHud();
+      updateStoryTimerDisplay();
+
+      // Show palette (all types unlocked in story mode)
+      document.getElementById('palette').classList.remove('hidden');
+      document.getElementById('ta-hud').classList.add('hidden');
+
+      // Show narrative card, auto-dismiss after 4 s
+      const narEl = document.getElementById('story-narrative');
+      narEl.querySelector('div').textContent = storyChapter.intro;
+      narEl.classList.remove('hidden');
+      narEl.style.opacity = '1';
+      narEl.style.transition = '';
+      const dismissNarrative = () => {
+        narEl.style.transition = 'opacity 0.7s';
+        narEl.style.opacity = '0';
+        setTimeout(() => narEl.classList.add('hidden'), 750);
+      };
+      setTimeout(dismissNarrative, 4000);
+      narEl.addEventListener('click', dismissNarrative, { once: true });
+
+      storyTimerHandle = setInterval(() => {
+        storyElapsedSecs++;
+        updateStoryTimerDisplay();
+      }, 1000);
+    }
+
+    async function endStory() {
+      if (storyTimerHandle) { clearInterval(storyTimerHandle); storyTimerHandle = null; }
+      playing = false;
+      dragMode = false;
+      resetMove();
+      canvas.style.cursor = '';
+      if (locked) { try { document.exitPointerLock(); } catch (_) {} }
+
+      document.getElementById('story-hud').classList.add('hidden');
+
+      // Compute stars
+      let stars = 1;
+      const parMs = storyChapter.parTimeSecs * 1000;
+      const elapsedMs = storyElapsedSecs * 1000;
+      if (elapsedMs <= parMs * 0.6) stars = 3;
+      else if (elapsedMs <= parMs) stars = 2;
+
+      // Check for new best
+      const prev = storyProgress.find((p) => p.chapter_id === storyChapter.id);
+      const prevStars = prev ? prev.stars : 0;
+      const prevTimeMs = prev ? prev.best_time_ms : null;
+      const isNewBest = stars > prevStars || (prevTimeMs !== null && elapsedMs < prevTimeMs) || !prev;
+
+      // Save to server
+      try {
+        const res = await fetch('/api/story/progress', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...headers },
+          body: JSON.stringify({ chapter_id: storyChapter.id, stars, time_ms: elapsedMs }),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          const idx = storyProgress.findIndex((p) => p.chapter_id === storyChapter.id);
+          if (idx >= 0) storyProgress[idx] = data.progress;
+          else storyProgress.push(data.progress);
+        }
+      } catch (_) {}
+
+      // Build star display
+      const starStr = '⭐'.repeat(stars) + '☆'.repeat(3 - stars);
+      const starDescs = ['', 'Goal completed!', 'Completed under par time!', 'Completed in under 60% of par!'];
+      document.getElementById('story-complete-title').textContent = storyChapter.title + ' — Complete!';
+      document.getElementById('story-complete-outro').textContent = storyChapter.outro;
+      document.getElementById('story-complete-stars').textContent = starStr;
+      document.getElementById('story-complete-star-desc').textContent = starDescs[stars] || '';
+      document.getElementById('story-complete-newbest').textContent = isNewBest ? '★ New best!' : '';
+
+      // Next chapter button
+      const nextBtn = document.getElementById('story-next-btn');
+      const nextChapter = STORY_CHAPTERS.find((c) => c.id === storyChapter.id + 1);
+      nextBtn.disabled = !nextChapter;
+      nextBtn.classList.toggle('opacity-40', !nextChapter);
+      nextBtn.classList.toggle('cursor-not-allowed', !nextChapter);
+      nextBtn.onclick = nextChapter ? () => {
+        document.getElementById('story-complete').classList.add('hidden');
+        pendingStoryChapterId = nextChapter.id;
+        tryPointerLock();
+      } : null;
+
+      document.getElementById('story-complete').classList.remove('hidden');
+      refreshControlCopy();
+      updateTouchControlsVisibility();
+    }
+
+    async function openStoryOverlay() {
+      // Fetch latest progress from server
+      try {
+        const res = await fetch('/api/story/progress', { headers });
+        if (res.ok) {
+          const data = await res.json();
+          storyProgress = data.progress || [];
+        }
+      } catch (_) {}
+
+      renderStoryChapterList();
+      overlayEl.style.display = 'none';
+      document.getElementById('story-overlay').classList.remove('hidden');
+    }
+
+    function renderStoryChapterList() {
+      const listEl = document.getElementById('story-chapter-list');
+      listEl.innerHTML = '';
+      for (const ch of STORY_CHAPTERS) {
+        const prog = storyProgress.find((p) => p.chapter_id === ch.id);
+        const prevDone = ch.id === 1 || storyProgress.some((p) => p.chapter_id === ch.id - 1);
+        const isLocked = !prevDone;
+
+        const row = document.createElement('div');
+        row.className = 'flex items-center gap-3 bg-zinc-900/80 rounded-xl px-4 py-3' + (isLocked ? ' opacity-50' : '');
+
+        const info = document.createElement('div');
+        info.className = 'flex-1 min-w-0';
+        const titleEl = document.createElement('div');
+        titleEl.className = 'font-semibold text-sm text-zinc-100';
+        titleEl.textContent = 'Ch.' + ch.id + ': ' + ch.title;
+        const introEl = document.createElement('div');
+        introEl.className = 'text-xs text-zinc-400 truncate mt-0.5';
+        introEl.textContent = ch.intro;
+        info.appendChild(titleEl);
+        info.appendChild(introEl);
+
+        const stars = document.createElement('div');
+        stars.className = 'text-base flex-shrink-0 w-16 text-center';
+        if (prog) {
+          stars.textContent = '⭐'.repeat(prog.stars) + '☆'.repeat(3 - prog.stars);
+        } else {
+          stars.textContent = '☆☆☆';
+          stars.className += ' text-zinc-600';
+        }
+
+        const btn = document.createElement('button');
+        if (isLocked) {
+          btn.textContent = '🔒';
+          btn.className = 'flex-shrink-0 px-3 py-1.5 rounded-lg bg-zinc-700 text-zinc-400 text-sm font-semibold cursor-not-allowed';
+          btn.disabled = true;
+        } else {
+          btn.textContent = prog ? 'Replay' : 'Play';
+          btn.className = 'flex-shrink-0 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-semibold transition-colors cursor-pointer';
+          btn.addEventListener('click', () => {
+            document.getElementById('story-overlay').classList.add('hidden');
+            pendingStoryChapterId = ch.id;
+            tryPointerLock();
+          });
+        }
+
+        row.appendChild(info);
+        row.appendChild(stars);
+        row.appendChild(btn);
+        listEl.appendChild(row);
+      }
+    }
+
     // ---- Mode entry ----
 
     // Called once play is actually entered (lock acquired or drag/touch started).
     // Handles per-mode initialization so it runs at the right moment regardless
     // of whether play was entered via pointer lock, drag fallback, or touch.
     function onPlayEntered() {
+      if (pendingStoryChapterId !== null) {
+        const cid = pendingStoryChapterId;
+        pendingStoryChapterId = null;
+        initStory(cid);
+        coachBtnEl.classList.remove('hidden');
+        return;
+      }
       if (pendingTaInit) {
         pendingTaInit = false;
         initTimeAttack();
@@ -2011,6 +2364,10 @@
 
     function startMode(mode) {
       gameMode = mode;
+      if (mode === 'story') {
+        openStoryOverlay();
+        return;
+      }
       if (mode === 'timeattack') pendingTaInit = true;
       tryPointerLock();
     }
@@ -2083,6 +2440,14 @@
         endTimeAttack();
         return;
       }
+      // In story mode, if playing, exit cleanly (no progress saved for incomplete runs).
+      if (gameMode === 'story' && playing) {
+        if (storyTimerHandle) { clearInterval(storyTimerHandle); storyTimerHandle = null; }
+        storyBlocks.clear();
+        document.getElementById('story-hud').classList.add('hidden');
+        document.getElementById('story-narrative').classList.add('hidden');
+        document.getElementById('story-complete').classList.add('hidden');
+      }
       // Stop any lingering TA timer.
       if (taTimerHandle) { clearInterval(taTimerHandle); taTimerHandle = null; }
       // Stop classic poll.
@@ -2095,10 +2460,13 @@
       canvas.style.cursor = '';
 
       taBlocks.clear();
+      storyBlocks.clear();
       rebuildBlockMeshes(); // gameMode is now null → renders classic blocks
 
       document.getElementById('ta-hud').classList.add('hidden');
       document.getElementById('ta-gameover').classList.add('hidden');
+      document.getElementById('story-hud').classList.add('hidden');
+      document.getElementById('story-complete').classList.add('hidden');
       document.getElementById('palette').classList.remove('hidden');
       document.getElementById('hold-panel').classList.remove('hidden');
       document.getElementById('crosshair').style.opacity = '';
@@ -2166,7 +2534,19 @@
           // Esc pressed mid-TA run in native-lock mode — end the game.
           endTimeAttack();
           return; // endTimeAttack calls refreshControlCopy
-        } else if (gameMode !== 'timeattack') {
+        } else if (gameMode === 'story' && playing) {
+          // Esc pressed mid-story run — cancel without saving, show chapter select.
+          if (storyTimerHandle) { clearInterval(storyTimerHandle); storyTimerHandle = null; }
+          storyBlocks.clear();
+          rebuildBlockMeshes();
+          document.getElementById('story-hud').classList.add('hidden');
+          document.getElementById('story-narrative').classList.add('hidden');
+          playing = false;
+          resetMove();
+          hideMinimap();
+          openStoryOverlay();
+          return;
+        } else if (gameMode !== 'timeattack' && gameMode !== 'story') {
           playing = false;
           resetMove();
           hideComboHud();
@@ -2182,6 +2562,16 @@
     document.getElementById('play-classic-btn').addEventListener('click', () => { audio.init(); startMode('classic'); });
     document.getElementById('play-ta-btn').addEventListener('click', () => { audio.init(); startMode('timeattack'); });
     document.getElementById('play-spectate-btn').addEventListener('click', () => { audio.init(); startMode('spectate'); });
+    document.getElementById('play-story-btn').addEventListener('click', () => { audio.init(); startMode('story'); });
+    document.getElementById('story-back-btn').addEventListener('click', () => {
+      document.getElementById('story-overlay').classList.add('hidden');
+      gameMode = null;
+      overlayEl.style.display = 'flex';
+    });
+    document.getElementById('story-complete-menu-btn').addEventListener('click', () => {
+      document.getElementById('story-complete').classList.add('hidden');
+      exitToMenu();
+    });
 
     document.getElementById('ta-tier-down').addEventListener('click', () => {
       if (taDifficulty > 1) { taDifficulty--; lsSet('ta_difficulty', taDifficulty); updateTaTierPicker(); }
@@ -2300,6 +2690,19 @@
         } else if (dragMode && playing) {
           if (gameMode === 'timeattack') {
             endTimeAttack();
+          } else if (gameMode === 'story') {
+            if (storyTimerHandle) { clearInterval(storyTimerHandle); storyTimerHandle = null; }
+            storyBlocks.clear();
+            rebuildBlockMeshes();
+            document.getElementById('story-hud').classList.add('hidden');
+            document.getElementById('story-narrative').classList.add('hidden');
+            playing = false;
+            dragMode = false;
+            resetMove();
+            canvas.style.cursor = '';
+            hideMinimap();
+            openStoryOverlay();
+            refreshControlCopy();
           } else {
             playing = false;
             resetMove();
@@ -2871,7 +3274,7 @@
     // ---- Palette UI ----
     function selectType(id) {
       const _p = PALETTE.find((q) => q.id === id);
-      if (_p && _p.unlockAt && !unlockedTypes.has(id)) return; // block not yet unlocked
+      if (_p && _p.unlockAt && !unlockedTypes.has(id) && gameMode !== 'story') return; // block not yet unlocked
       selectedType = id;
       for (const el of document.querySelectorAll('#palette [data-id]')) {
         el.classList.toggle('ring-2', Number(el.dataset.id) === id);
@@ -2890,7 +3293,7 @@
       const wrap = document.getElementById('palette');
       wrap.innerHTML = '';
       PALETTE.forEach((p, i) => {
-        const isLocked = !!(p.unlockAt && !unlockedTypes.has(p.id));
+        const isLocked = !!(p.unlockAt && !unlockedTypes.has(p.id) && gameMode !== 'story');
         const btn = document.createElement('button');
         btn.dataset.id = p.id;
         btn.title = isLocked
@@ -3077,7 +3480,7 @@
     async function heartbeat() {
       if (!token) return;
       try {
-        const presenceMode = gameMode === 'spectate' ? 'spectate' : 'classic';
+        const presenceMode = gameMode === 'spectate' ? 'spectate' : gameMode === 'story' ? 'story' : 'classic';
         const res = await fetch('/api/presence/ping', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', ...headers },
@@ -3427,6 +3830,7 @@
       document.getElementById('preview-classic'),
       document.getElementById('preview-ta'),
       document.getElementById('preview-spectate'),
+      document.getElementById('preview-story'),
     ];
     var ctxs = canvases.map(function(c) { return c.getContext('2d'); });
 
@@ -3670,6 +4074,79 @@
         setTimeout(drawSpectate, 50);
       } else {
         requestAnimationFrame(drawSpectate);
+      }
+    })();
+
+    // ---- Story preview ----
+    (function () {
+      var c = canvases[3];
+      var ctx = ctxs[3];
+      // Emerald/crystal-toned palette: ruined then rebuilt blocks
+      var RUINS  = ['#8d8d92','#6b3a1f','#9c4a3c','#ddca8a'];
+      var BUILT  = ['#10b981','#34d399','#6ee7b7','#a7f3d0','#059669'];
+      var BLOCK  = 13;
+      var builtCount = 0;
+      var MAX_BUILT = 14;
+      var grid = null;
+      var frame = 0;
+
+      function buildGrid() {
+        var cols = Math.ceil((c.offsetWidth || 160) / BLOCK) + 1;
+        var rows = Math.ceil(110 / BLOCK) + 1;
+        var g = [];
+        for (var row = 0; row < rows; row++) {
+          g[row] = [];
+          for (var col = 0; col < cols; col++) {
+            g[row][col] = { color: RUINS[Math.floor(Math.random() * RUINS.length)], built: false };
+          }
+        }
+        return g;
+      }
+
+      function drawStory() {
+        if (overlay.classList.contains('hidden')) return;
+        frame++;
+        if (!grid) grid = buildGrid();
+
+        var w = c.offsetWidth || 160, h = 110;
+
+        // Periodically convert a ruin block to a built block
+        if (!reducedMotion && frame % 18 === 0 && builtCount < MAX_BUILT) {
+          var rows = grid.length, cols = grid[0].length;
+          var rx = Math.floor(Math.random() * rows);
+          var cx = Math.floor(Math.random() * cols);
+          if (!grid[rx][cx].built) {
+            grid[rx][cx].color = BUILT[Math.floor(Math.random() * BUILT.length)];
+            grid[rx][cx].built = true;
+            builtCount++;
+          }
+        }
+        if (builtCount >= MAX_BUILT && !reducedMotion && frame % 120 === 0) {
+          // Reset for loop
+          grid = buildGrid();
+          builtCount = 0;
+        }
+
+        // background
+        var bg = ctx.createLinearGradient(0, 0, 0, h);
+        bg.addColorStop(0, '#0c1a12');
+        bg.addColorStop(1, '#071008');
+        ctx.fillStyle = bg;
+        ctx.fillRect(0, 0, w, h);
+
+        for (var row = 0; row < grid.length; row++) {
+          for (var col = 0; col < grid[row].length; col++) {
+            drawBlock(ctx, col * BLOCK, row * BLOCK, BLOCK - 1, grid[row][col].color);
+          }
+        }
+
+        if (!reducedMotion) requestAnimationFrame(drawStory);
+      }
+
+      if (reducedMotion) {
+        setTimeout(drawStory, 50);
+      } else {
+        requestAnimationFrame(drawStory);
       }
     })();
 
