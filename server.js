@@ -162,6 +162,7 @@ const BADGES = [
   { id: 'streak_7',        name: 'Week Warrior',     icon: '🗓️', flavour: 'A full week of building!' },
   { id: 'streak_14',       name: 'Fortnight Pro',    icon: '🏆', flavour: 'Two weeks of daily play!' },
   { id: 'streak_30',       name: 'Monthly Master',   icon: '👑', flavour: 'A full month on the block!' },
+  { id: 'theme_winner',   name: 'Theme Champion',   icon: '🥇', flavour: 'First place in the daily build theme vote!' },
   { id: 'daily_devotee',   name: 'Daily Devotee',   icon: '🌟', flavour: 'Seven days of block-placing dedication!' },
   { id: 'daily_champion',  name: 'Daily Champion',  icon: '👑', flavour: 'Won the Daily Challenge!' },
   { id: 'speedrunner',     name: 'Speedrunner',     icon: '⚡', flavour: 'Blazing fast block placement!' },
@@ -173,6 +174,17 @@ const STREAK_BADGE_MILESTONES = [
   { days: 14, id: 'streak_14' },
   { days: 30, id: 'streak_30' },
 ];
+
+// ---- Daily Build Theme Voting ----
+const DAILY_THEMES = ['Castle', 'Ocean', 'Space', 'Forest', 'City', 'Cave', 'Desert', 'Snow', 'Sky Tower', 'Mountain', 'Dungeon', 'Crystal Palace'];
+
+// Pick today's theme deterministically from a UTC date — same approach as dailyTarget().
+function themeName(dateObj) {
+  const y = dateObj.getUTCFullYear();
+  const m = dateObj.getUTCMonth() + 1;
+  const d = dateObj.getUTCDate();
+  return DAILY_THEMES[(y * 31 + m * 7 + d) % DAILY_THEMES.length];
+}
 
 // Returns badges from BADGES that are newly earned given updated leaderboard
 // totals, the block type just placed, and distinct type count.
@@ -2504,6 +2516,209 @@ app.post('/api/coach/tip', async (req, res) => {
   }
 });
 
+// ---- Daily Build Theme Voting API ----
+
+app.get('/api/theme/today', async (req, res) => {
+  try {
+    const now = new Date();
+    const todayStr = now.toISOString().slice(0, 10);
+    const yesterdayDate = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+    const yesterdayStr = yesterdayDate.toISOString().slice(0, 10);
+
+    // Ensure today's row exists.
+    const theme = themeName(now);
+    await pool.query(
+      `INSERT INTO daily_theme_schedule (theme_date, theme_name)
+       VALUES ($1, $2)
+       ON CONFLICT (theme_date) DO NOTHING`,
+      [todayStr, theme]
+    );
+
+    // Lazy-resolve yesterday's winner if not yet stamped.
+    const { rows: yRows } = await pool.query(
+      `SELECT theme_name, winner_user_id, winner_username, resolved_at
+       FROM daily_theme_schedule WHERE theme_date = $1`,
+      [yesterdayStr]
+    );
+    let yesterday = yRows[0] || null;
+    if (yesterday && !yesterday.resolved_at) {
+      const { rows: vRows } = await pool.query(
+        `SELECT tv.nominee_user_id, COUNT(*) AS votes
+         FROM theme_votes tv
+         WHERE tv.theme_date = $1
+         GROUP BY tv.nominee_user_id
+         ORDER BY votes DESC, MIN(tv.voted_at) ASC
+         LIMIT 1`,
+        [yesterdayStr]
+      );
+      const winnerRow = vRows[0] || null;
+      if (winnerRow) {
+        const { rows: nRows } = await pool.query(
+          `SELECT username FROM theme_nominations WHERE theme_date = $1 AND user_id = $2`,
+          [yesterdayStr, winnerRow.nominee_user_id]
+        );
+        const winnerUsername = nRows[0]?.username || null;
+        await pool.query(
+          `UPDATE daily_theme_schedule
+           SET winner_user_id = $1, winner_username = $2, resolved_at = NOW()
+           WHERE theme_date = $3 AND resolved_at IS NULL`,
+          [winnerRow.nominee_user_id, winnerUsername, yesterdayStr]
+        );
+        // Award theme_winner badge once (first win only).
+        if (Number(winnerRow.nominee_user_id) > 0) {
+          await pool.query(
+            `INSERT INTO player_badges (user_id, badge_id, earned_at)
+             VALUES ($1, 'theme_winner', NOW())
+             ON CONFLICT DO NOTHING`,
+            [winnerRow.nominee_user_id]
+          );
+        }
+        yesterday = { ...yesterday, winner_user_id: winnerRow.nominee_user_id, winner_username: winnerUsername, resolved_at: new Date() };
+      } else {
+        await pool.query(
+          `UPDATE daily_theme_schedule SET resolved_at = NOW()
+           WHERE theme_date = $1 AND resolved_at IS NULL`,
+          [yesterdayStr]
+        );
+        yesterday = { ...yesterday, resolved_at: new Date() };
+      }
+    }
+
+    // Fetch today's nominations with vote counts, ordered by votes desc then submission time.
+    const { rows: nominations } = await pool.query(
+      `SELECT n.user_id, n.username, n.description, n.anchor_x, n.anchor_y, n.anchor_z, n.submitted_at,
+              COUNT(v.voter_user_id)::int AS vote_count
+       FROM theme_nominations n
+       LEFT JOIN theme_votes v ON v.theme_date = n.theme_date AND v.nominee_user_id = n.user_id
+       WHERE n.theme_date = $1
+       GROUP BY n.user_id, n.username, n.description, n.anchor_x, n.anchor_y, n.anchor_z, n.submitted_at
+       ORDER BY vote_count DESC, n.submitted_at ASC`,
+      [todayStr]
+    );
+
+    const myNomination = nominations.find((n) => n.user_id === req.user.id) || null;
+
+    const { rows: myVoteRows } = await pool.query(
+      `SELECT nominee_user_id FROM theme_votes WHERE theme_date = $1 AND voter_user_id = $2`,
+      [todayStr, req.user.id]
+    );
+    const myVote = myVoteRows[0]?.nominee_user_id || null;
+
+    // Fetch winner's nomination anchor for camera-jump.
+    let yesterdayAnchor = null;
+    if (yesterday?.winner_user_id) {
+      const { rows: aRows } = await pool.query(
+        `SELECT anchor_x, anchor_y, anchor_z FROM theme_nominations
+         WHERE theme_date = $1 AND user_id = $2`,
+        [yesterdayStr, yesterday.winner_user_id]
+      );
+      yesterdayAnchor = aRows[0] || null;
+    }
+
+    res.json({
+      theme_date: todayStr,
+      theme_name: theme,
+      nominations: nominations.map((n) => ({
+        user_id: Number(n.user_id),
+        username: n.username,
+        description: n.description,
+        anchor_x: n.anchor_x,
+        anchor_y: n.anchor_y,
+        anchor_z: n.anchor_z,
+        vote_count: Number(n.vote_count),
+        submitted_at: n.submitted_at,
+      })),
+      my_nomination: myNomination ? {
+        user_id: Number(myNomination.user_id),
+        description: myNomination.description,
+        anchor_x: myNomination.anchor_x,
+        anchor_y: myNomination.anchor_y,
+        anchor_z: myNomination.anchor_z,
+        vote_count: Number(myNomination.vote_count),
+      } : null,
+      my_vote: myVote ? Number(myVote) : null,
+      yesterday: yesterday ? {
+        theme_name: yesterday.theme_name,
+        winner_user_id: yesterday.winner_user_id ? Number(yesterday.winner_user_id) : null,
+        winner_username: yesterday.winner_username || null,
+        anchor: yesterdayAnchor || null,
+      } : null,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/theme/nominate', async (req, res) => {
+  try {
+    const now = new Date();
+    const todayStr = now.toISOString().slice(0, 10);
+    const { description, anchor_x, anchor_y, anchor_z } = req.body || {};
+
+    const ax = Math.round(Number(anchor_x));
+    const ay = Math.round(Number(anchor_y));
+    const az = Math.round(Number(anchor_z));
+    if (!Number.isFinite(ax) || ax < 0 || ax > 31) return res.status(400).json({ error: 'anchor_x out of bounds' });
+    if (!Number.isFinite(ay) || ay < 1 || ay > 23) return res.status(400).json({ error: 'anchor_y out of bounds' });
+    if (!Number.isFinite(az) || az < 0 || az > 31) return res.status(400).json({ error: 'anchor_z out of bounds' });
+    if (!description || typeof description !== 'string') return res.status(400).json({ error: 'description required' });
+    const desc = description.trim().slice(0, 80);
+    if (!desc) return res.status(400).json({ error: 'description required' });
+
+    const { rows: schedRows } = await pool.query(
+      `SELECT resolved_at FROM daily_theme_schedule WHERE theme_date = $1`,
+      [todayStr]
+    );
+    if (schedRows[0]?.resolved_at) return res.status(400).json({ error: 'Voting has closed for today' });
+
+    await pool.query(
+      `INSERT INTO theme_nominations (theme_date, user_id, username, description, anchor_x, anchor_y, anchor_z, submitted_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+       ON CONFLICT (theme_date, user_id) DO UPDATE
+         SET description = EXCLUDED.description,
+             anchor_x    = EXCLUDED.anchor_x,
+             anchor_y    = EXCLUDED.anchor_y,
+             anchor_z    = EXCLUDED.anchor_z`,
+      [todayStr, req.user.id, req.user.username, desc, ax, ay, az]
+    );
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/theme/vote', async (req, res) => {
+  try {
+    const now = new Date();
+    const todayStr = now.toISOString().slice(0, 10);
+    const nominee_user_id = Number(req.body?.nominee_user_id);
+    if (!Number.isFinite(nominee_user_id) || nominee_user_id === 0) return res.status(400).json({ error: 'nominee_user_id required' });
+    if (nominee_user_id === req.user.id) return res.status(400).json({ error: 'Cannot vote for yourself' });
+
+    const { rows: schedRows } = await pool.query(
+      `SELECT resolved_at FROM daily_theme_schedule WHERE theme_date = $1`,
+      [todayStr]
+    );
+    if (schedRows[0]?.resolved_at) return res.status(400).json({ error: 'Voting has closed for today' });
+
+    const { rows: nomRows } = await pool.query(
+      `SELECT 1 FROM theme_nominations WHERE theme_date = $1 AND user_id = $2`,
+      [todayStr, nominee_user_id]
+    );
+    if (!nomRows.length) return res.status(400).json({ error: 'Nominee has no nomination today' });
+
+    await pool.query(
+      `INSERT INTO theme_votes (theme_date, voter_user_id, nominee_user_id, voted_at)
+       VALUES ($1, $2, $3, NOW())
+       ON CONFLICT (theme_date, voter_user_id) DO NOTHING`,
+      [todayStr, req.user.id, nominee_user_id]
+    );
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.use(express.static(path.join(__dirname, 'public'), {
   setHeaders(res, filePath) {
     // The entire game is inline in index.html, so a cached shell hides a
@@ -3084,6 +3299,91 @@ async function seedStreaks() {
   }
 }
 
+async function seedTheme() {
+  const now = new Date();
+  const todayStr = now.toISOString().slice(0, 10);
+  const yDate  = new Date(now.getTime() -     24 * 60 * 60 * 1000);
+  const y2Date = new Date(now.getTime() - 2 * 24 * 60 * 60 * 1000);
+  const yesterdayStr  = yDate.toISOString().slice(0, 10);
+  const twoDaysAgoStr = y2Date.toISOString().slice(0, 10);
+
+  const todayTheme     = themeName(now);
+  const yesterTheme    = themeName(yDate);
+  const twoDaysAgoTheme = themeName(y2Date);
+
+  // Two past theme rows — fully resolved, both won by staging-demo-alice.
+  await pool.query(
+    `INSERT INTO daily_theme_schedule (theme_date, theme_name, winner_user_id, winner_username, resolved_at)
+     VALUES
+       ($1, $2, -1, 'staging-demo-alice', NOW() - INTERVAL '12 hours'),
+       ($3, $4, -1, 'staging-demo-alice', NOW() - INTERVAL '36 hours')
+     ON CONFLICT (theme_date) DO NOTHING`,
+    [yesterdayStr, yesterTheme, twoDaysAgoStr, twoDaysAgoTheme]
+  );
+
+  // Today's row — unresolved.
+  await pool.query(
+    `INSERT INTO daily_theme_schedule (theme_date, theme_name)
+     VALUES ($1, $2)
+     ON CONFLICT (theme_date) DO NOTHING`,
+    [todayStr, todayTheme]
+  );
+
+  // 4 nominations for yesterday (near the demo structures so testers can fly to them).
+  const yNoms = [
+    { id: -1, username: 'staging-demo-alice', desc: 'Staging demo castle with stone walls',       ax: 14, ay: 1, az: 14 },
+    { id: -2, username: 'staging-demo-bob',   desc: 'Staging demo ocean pier near the east edge', ax: 24, ay: 1, az: 16 },
+    { id: -3, username: 'staging-demo-carol', desc: 'Staging demo forest pavilion by the tree',   ax: 22, ay: 1, az: 22 },
+    { id: -4, username: 'staging-demo-dave',  desc: 'Staging demo crystal spire in the corner',   ax: 10, ay: 1, az: 22 },
+  ];
+  for (const n of yNoms) {
+    await pool.query(
+      `INSERT INTO theme_nominations (theme_date, user_id, username, description, anchor_x, anchor_y, anchor_z, submitted_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, NOW() - INTERVAL '20 hours')
+       ON CONFLICT (theme_date, user_id) DO NOTHING`,
+      [yesterdayStr, n.id, n.username, n.desc, n.ax, n.ay, n.az]
+    );
+  }
+
+  // Votes for yesterday: alice (-1) gets 4 votes, bob (-2) gets 1.
+  const yVotes = [
+    { voter: -2, nominee: -1 },
+    { voter: -3, nominee: -1 },
+    { voter: -4, nominee: -1 },
+    { voter: -5, nominee: -1 },
+    { voter: -6, nominee: -2 },
+  ];
+  for (const v of yVotes) {
+    await pool.query(
+      `INSERT INTO theme_votes (theme_date, voter_user_id, nominee_user_id, voted_at)
+       VALUES ($1, $2, $3, NOW() - INTERVAL '10 hours')
+       ON CONFLICT (theme_date, voter_user_id) DO NOTHING`,
+      [yesterdayStr, v.voter, v.nominee]
+    );
+  }
+
+  // theme_champion badge for the demo winner.
+  await pool.query(
+    `INSERT INTO player_badges (user_id, badge_id, earned_at)
+     VALUES (-1, 'theme_winner', NOW() - INTERVAL '12 hours')
+     ON CONFLICT DO NOTHING`
+  );
+
+  // 2 nominations for today (no votes yet — tester can cast the first vote).
+  const todayNoms = [
+    { id: -2, username: 'staging-demo-bob',   desc: 'Staging demo tower near the stone hut', ax: 18, ay: 1, az: 10 },
+    { id: -3, username: 'staging-demo-carol', desc: 'Staging demo arch at the south path',   ax: 16, ay: 1, az: 12 },
+  ];
+  for (const n of todayNoms) {
+    await pool.query(
+      `INSERT INTO theme_nominations (theme_date, user_id, username, description, anchor_x, anchor_y, anchor_z, submitted_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, NOW() - INTERVAL '2 hours')
+       ON CONFLICT (theme_date, user_id) DO NOTHING`,
+      [todayStr, n.id, n.username, n.desc, n.ax, n.ay, n.az]
+    );
+  }
+}
+
 async function seedLoginRewards() {
   const rows = [
     { user_id: -1, coins_earned: 30, coins_balance: 150 },
@@ -3560,6 +3860,40 @@ async function start() {
   await pool.query(`CREATE INDEX IF NOT EXISTS friendships_addressee_status_idx ON friendships (addressee_id, status)`);
   await pool.query(`CREATE INDEX IF NOT EXISTS friendships_requester_status_idx ON friendships (requester_id, status)`);
 
+  // Daily build theme voting tables (all public — build activity is not sensitive).
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS daily_theme_schedule (
+      theme_date      DATE         PRIMARY KEY,
+      theme_name      VARCHAR(32)  NOT NULL,
+      winner_user_id  INTEGER,
+      winner_username VARCHAR(255),
+      resolved_at     TIMESTAMPTZ
+    )
+  `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS theme_nominations (
+      theme_date   DATE         NOT NULL,
+      user_id      INTEGER      NOT NULL,
+      username     VARCHAR(255) NOT NULL,
+      description  VARCHAR(80)  NOT NULL,
+      anchor_x     SMALLINT     NOT NULL,
+      anchor_y     SMALLINT     NOT NULL,
+      anchor_z     SMALLINT     NOT NULL,
+      submitted_at TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (theme_date, user_id)
+    )
+  `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS theme_votes (
+      theme_date       DATE        NOT NULL,
+      voter_user_id    INTEGER     NOT NULL,
+      nominee_user_id  INTEGER     NOT NULL,
+      voted_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (theme_date, voter_user_id)
+    )
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS theme_votes_nominee_idx ON theme_votes (theme_date, nominee_user_id)`);
+
   // Puzzle Mode scores: tracks best performance per user.
   // Public table — holds only username and level counts, nothing sensitive.
   await pool.query(`
@@ -3660,6 +3994,8 @@ async function start() {
     catch (err) { console.error('endless-scores seed failed', err); }
     try { await seedStreaks(); }
     catch (err) { console.error('streak seed failed', err); }
+    try { await seedTheme(); }
+    catch (err) { console.error('theme seed failed', err); }
     try { await seedLoginRewards(); }
     catch (err) { console.error('login-rewards seed failed', err); }
     try { await seedDailyChallenge(); }
