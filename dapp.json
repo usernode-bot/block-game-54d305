@@ -10,5 +10,9 @@
   "visibility": {
     "build": "public",
     "view": "public"
+  },
+  "llm": {
+    "purpose": "Gives players contextual tips and guidance during gameplay",
+    "suggested_daily_cap_cents": 50
   }
 }
