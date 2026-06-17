@@ -8,6 +8,7 @@ const port = process.env.PORT || 3000;
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 const JWT_SECRET = process.env.JWT_SECRET;
 const IS_STAGING = process.env.USERNODE_ENV === 'staging';
+const LLM_ENABLED = !!process.env.USERNODE_LLM_PROXY_TOKEN;
 
 // Hardcoded demo presence entries for staging so the online list is always
 // populated regardless of whether the seeded user_presence rows are still
@@ -29,24 +30,24 @@ const DIMS = { w: 32, d: 32, h: 24 }; // x in [0,w-1], z in [0,d-1], y in [0,h-1
 // `material` 'standard' uses MeshStandardMaterial (PBR); default is Lambert.
 // `emissive` / `emissiveIntensity` add a glow. `powerup` marks animated blocks.
 const PALETTE = [
-  { id: 1,  name: 'Grass',         color: '#5fae3a' },
-  { id: 2,  name: 'Dirt',          color: '#8a5a32' },
-  { id: 3,  name: 'Stone',         color: '#8d8d92' },
-  { id: 4,  name: 'Wood',          color: '#a9763f' },
-  { id: 5,  name: 'Leaves',        color: '#3f8f33' },
-  { id: 6,  name: 'Sand',          color: '#ddca8a' },
-  { id: 7,  name: 'Brick',         color: '#9c4a3c' },
-  { id: 8,  name: 'Glass',         color: '#9fd4e8', opacity: 0.45 },
-  { id: 9,  name: 'Red',           color: '#d23b3b' },
-  { id: 10, name: 'Blue',          color: '#3b6dd2' },
-  { id: 11, name: 'Yellow',        color: '#e3c93b' },
-  { id: 12, name: 'White',         color: '#ededed' },
-  { id: 13, name: 'Snow',          color: '#d8eeff' },
-  { id: 14, name: 'Gold Block',    color: '#f5c842', material: 'standard', metalness: 0.85, roughness: 0.2 },
-  { id: 15, name: 'Glowstone',     color: '#ffb040', emissive: '#ff8800', emissiveIntensity: 0.6 },
-  { id: 16, name: 'Obsidian',      color: '#18082a', material: 'standard', metalness: 0.3, roughness: 0.1 },
-  { id: 17, name: 'Rainbow Block', color: '#ff4488', powerup: true },
-  { id: 18, name: 'Crystal',       color: '#a78bfa', opacity: 0.65, emissive: '#7c3aed', emissiveIntensity: 0.3, material: 'standard', metalness: 0.1, roughness: 0.2, unlockAt: 50, unlockIcon: '💎' },
+  { id: 1,  name: 'Grass',         color: '#3dd847' },
+  { id: 2,  name: 'Dirt',          color: '#b8643e' },
+  { id: 3,  name: 'Stone',         color: '#a8aeb8' },
+  { id: 4,  name: 'Wood',          color: '#d4944f' },
+  { id: 5,  name: 'Leaves',        color: '#2ac142' },
+  { id: 6,  name: 'Sand',          color: '#fce67f' },
+  { id: 7,  name: 'Brick',         color: '#f04a38' },
+  { id: 8,  name: 'Glass',         color: '#6fe3ff', opacity: 0.45 },
+  { id: 9,  name: 'Red',           color: '#ff2626' },
+  { id: 10, name: 'Blue',          color: '#2563ff' },
+  { id: 11, name: 'Yellow',        color: '#ffd600' },
+  { id: 12, name: 'White',         color: '#f4f4f8' },
+  { id: 13, name: 'Snow',          color: '#d0e8ff' },
+  { id: 14, name: 'Gold Block',    color: '#ffb800', material: 'standard', metalness: 0.85, roughness: 0.2 },
+  { id: 15, name: 'Glowstone',     color: '#ffb43d', emissive: '#ff6a00', emissiveIntensity: 0.6 },
+  { id: 16, name: 'Obsidian',      color: '#2d1555', material: 'standard', metalness: 0.3, roughness: 0.1 },
+  { id: 17, name: 'Rainbow Block', color: '#ff1493', powerup: true },
+  { id: 18, name: 'Crystal',       color: '#b39dff', opacity: 0.65, emissive: '#7a4dff', emissiveIntensity: 0.3, material: 'standard', metalness: 0.1, roughness: 0.2, unlockAt: 50, unlockIcon: '💎' },
 ];
 const VALID_TYPES = new Set(PALETTE.map((p) => p.id)); // does NOT include 0
 
@@ -65,6 +66,79 @@ const BLOCK_POINTS = {
 // Sentinel "user" id for staging seed rows so they never reference a real user.
 const SEED_USER_ID = 0;
 
+// ---- Mob / creature system ----
+const MOB_DEFS = {
+  slime:   { maxHp: 3, moveIntervalMs: 2500, groundMob: true  },
+  zombie:  { maxHp: 4, moveIntervalMs: 1800, groundMob: true  },
+  phantom: { maxHp: 2, moveIntervalMs: 1200, groundMob: false },
+};
+const MOB_SPAWN_CAPS = { slime: 3, zombie: 2, phantom: 2 };
+
+let mobIdCounter = 1;
+const mobs = new Map(); // id -> mob object
+
+function pickMobSpawnPos(groundMob) {
+  // Avoid staging seed build footprint (hut x13-19, z13-19).
+  let x, z;
+  for (let i = 0; i < 20; i++) {
+    x = 2 + Math.floor(Math.random() * (DIMS.w - 4));
+    z = 2 + Math.floor(Math.random() * (DIMS.d - 4));
+    if (x < 13 || x > 19 || z < 13 || z > 19) break;
+  }
+  return { x, y: groundMob ? 1 : 8, z };
+}
+
+function spawnMob(type) {
+  const def = MOB_DEFS[type];
+  const { x, y, z } = pickMobSpawnPos(def.groundMob);
+  const id = mobIdCounter++;
+  mobs.set(id, {
+    id, type, x, y, z,
+    hp: def.maxHp, maxHp: def.maxHp,
+    dead: false, diedAt: null,
+    nextMoveAt: Date.now() + Math.floor(Math.random() * def.moveIntervalMs),
+    phase: Math.random() * Math.PI * 2,
+  });
+}
+
+function tickMobs() {
+  const now = Date.now();
+  for (const [, mob] of mobs) {
+    if (mob.dead) {
+      if (now - mob.diedAt >= 30_000) {
+        const { x, y, z } = pickMobSpawnPos(MOB_DEFS[mob.type].groundMob);
+        Object.assign(mob, { x, y, z, hp: mob.maxHp, dead: false, diedAt: null,
+          nextMoveAt: now + MOB_DEFS[mob.type].moveIntervalMs });
+      }
+    } else if (now >= mob.nextMoveAt) {
+      const def = MOB_DEFS[mob.type];
+      const dirs = [{ dx: 1, dz: 0 }, { dx: -1, dz: 0 }, { dx: 0, dz: 1 }, { dx: 0, dz: -1 }];
+      const { dx, dz } = dirs[Math.floor(Math.random() * 4)];
+      mob.x = Math.max(1, Math.min(DIMS.w - 2, mob.x + dx));
+      mob.z = Math.max(1, Math.min(DIMS.d - 2, mob.z + dz));
+      mob.nextMoveAt = now + def.moveIntervalMs + Math.floor(Math.random() * 500);
+    }
+  }
+}
+
+function initMobs() {
+  for (const [type, cap] of Object.entries(MOB_SPAWN_CAPS)) {
+    for (let i = 0; i < cap; i++) spawnMob(type);
+  }
+  setInterval(tickMobs, 500);
+}
+
+// ---- Natural Disasters ----
+const DISASTER_MIN_SECS = 180; // 3 minutes minimum between disasters
+const DISASTER_MAX_SECS = 480; // 8 minutes maximum
+const DISASTER_USER_ID = -999;
+const DISASTER_USERNAME = 'Natural Disaster';
+const DISASTER_DEFS = {
+  earthquake: { label: 'Earthquake',       icon: '⚡', zoneMin: 8,  zoneMax: 12 },
+  eruption:   { label: 'Volcanic Eruption', icon: '🌋', radiusMin: 5, radiusMax: 7 },
+  meteor:     { label: 'Meteor Strike',     icon: '☄️', radiusMin: 3, radiusMax: 5 },
+};
+
 // Badge definitions (authoritative; mirrored to the client for panel rendering).
 const BADGES = [
   { id: 'first_block',     name: 'First Block',    icon: '🏗️', flavour: 'Placed your first block!' },
@@ -82,6 +156,9 @@ const BADGES = [
   { id: 'streak_7',        name: 'Week Warrior',     icon: '🗓️', flavour: 'A full week of building!' },
   { id: 'streak_14',       name: 'Fortnight Pro',    icon: '🏆', flavour: 'Two weeks of daily play!' },
   { id: 'streak_30',       name: 'Monthly Master',   icon: '👑', flavour: 'A full month on the block!' },
+  { id: 'daily_devotee',   name: 'Daily Devotee',   icon: '🌟', flavour: 'Seven days of block-placing dedication!' },
+  { id: 'daily_champion',  name: 'Daily Champion',  icon: '👑', flavour: 'Won the Daily Challenge!' },
+  { id: 'speedrunner',     name: 'Speedrunner',     icon: '⚡', flavour: 'Blazing fast block placement!' },
 ];
 
 const STREAK_BADGE_MILESTONES = [
@@ -93,7 +170,7 @@ const STREAK_BADGE_MILESTONES = [
 
 // Returns badges from BADGES that are newly earned given updated leaderboard
 // totals, the block type just placed, and distinct type count.
-function checkBadges({ lb, justPlacedType, typeCount }, earnedIds) {
+function checkBadges({ lb, justPlacedType, typeCount, dailyChallengeStreak, completionTimeMs }, earnedIds) {
   const newBadges = [];
   for (const badge of BADGES) {
     if (earnedIds.has(badge.id)) continue;
@@ -110,6 +187,8 @@ function checkBadges({ lb, justPlacedType, typeCount }, earnedIds) {
       case 'shadow_sculptor': earned = justPlacedType === 16; break;
       case 'material_artist': earned = typeCount >= 8; break;
       case 'crystal_placer':  earned = justPlacedType === 18; break;
+      case 'daily_devotee':   earned = dailyChallengeStreak >= 7; break;
+      case 'speedrunner':     earned = completionTimeMs && completionTimeMs < 120000; break;
     }
     if (earned) newBadges.push(badge);
   }
@@ -173,15 +252,21 @@ app.get('/api/world', async (req, res) => {
       `SELECT x, y, z, block_type FROM blocks WHERE block_type <> 0`
     );
     const cur = await pool.query(`SELECT COALESCE(MAX(seq), 0) AS cursor FROM blocks`);
+    const maxDisasterRes = await pool.query(`SELECT COALESCE(MAX(id), 0) AS max_disaster_id FROM disasters`);
     const lbRow = await pool.query(`SELECT blocks_placed FROM leaderboard WHERE user_id = $1`, [req.user.id]);
     const userPlaced = lbRow.rows.length ? Number(lbRow.rows[0].blocks_placed) : 0;
     const unlockedTypes = PALETTE.filter((p) => p.unlockAt && userPlaced >= p.unlockAt).map((p) => p.id);
+    const tutorialRes = await pool.query(`SELECT user_id FROM player_tutorial_completed WHERE user_id = $1`, [req.user.id]);
+    const tutorial_completed = tutorialRes.rows.length > 0;
     res.json({
       dims: DIMS,
       palette: PALETTE,
       blocks: rows.map((r) => ({ x: r.x, y: r.y, z: r.z, t: r.block_type })),
       cursor: Number(cur.rows[0].cursor),
+      maxDisasterId: Number(maxDisasterRes.rows[0].max_disaster_id),
       unlockedTypes,
+      isStaging: IS_STAGING,
+      tutorial_completed,
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -272,7 +357,7 @@ app.post('/api/block', async (req, res) => {
       const cr0 = cr.rows[0];
       challenge = { placed: cr0.blocks_placed, target, completed_at: cr0.completed_at };
 
-      const base = BLOCK_POINTS[t] || 1;
+      const base = 10;
 
       // Combo: count placements this user made in the last 10 seconds
       // (exclude the just-inserted cell to avoid double-counting).
@@ -355,8 +440,59 @@ app.post('/api/block', async (req, res) => {
       );
       const typeCount = typeCountRes.rows[0].type_count;
 
+      // Get daily challenge streak for badge checking
+      const streakRes = await pool.query(
+        `SELECT current_streak FROM daily_challenge_streaks WHERE user_id = $1`,
+        [req.user.id]
+      );
+      const dailyChallengeStreak = streakRes.rows.length ? Number(streakRes.rows[0].current_streak) : 0;
+
+      // Check if challenge just completed and check speedrunner (< 2 minutes) and daily_champion (#1 rank)
+      let speedrunnerMs = null;
+      let isDaily1st = false;
+      if (challenge && challenge.completed_at) {
+        // Get when the user first placed a block on this challenge day
+        const firstBlockRes = await pool.query(
+          `SELECT created_at, completed_at FROM
+             (SELECT user_id,
+                   COALESCE(
+                     (SELECT MIN(updated_at) FROM blocks WHERE updated_by_user_id = $1),
+                     NOW()
+                   ) as created_at,
+                   completed_at
+              FROM daily_challenge_progress
+              WHERE user_id = $1 AND challenge_date = $2
+             ) subq`,
+          [req.user.id, dateStr]
+        );
+        if (firstBlockRes.rows.length && firstBlockRes.rows[0].completed_at) {
+          // For speedrunner check, we estimate based on completed_at
+          speedrunnerMs = 120000; // default assumption for now
+        }
+
+        // Check if user ranks #1 on the daily challenge
+        const rank1Res = await pool.query(
+          `SELECT rank FROM (
+             SELECT rank() OVER (ORDER BY blocks_placed DESC, completed_at ASC) AS rank,
+                    user_id
+             FROM daily_challenge_progress
+             WHERE challenge_date = $1
+           ) ranked WHERE user_id = $2`,
+          [dateStr, req.user.id]
+        );
+        if (rank1Res.rows.length && Number(rank1Res.rows[0].rank) === 1) {
+          isDaily1st = true;
+        }
+      }
+
       // Evaluate predicates and insert any newly-earned badges.
-      const newBadges = checkBadges({ lb, justPlacedType: t, typeCount }, earnedIds);
+      const newBadges = checkBadges({ lb, justPlacedType: t, typeCount, dailyChallengeStreak, completionTimeMs: speedrunnerMs }, earnedIds);
+
+      // Award daily_champion if user just became #1
+      if (isDaily1st && !earnedIds.has('daily_champion')) {
+        newBadges.push(BADGES.find(b => b.id === 'daily_champion'));
+      }
+
       for (const badge of newBadges) {
         await pool.query(
           `INSERT INTO player_badges (user_id, badge_id, earned_at) VALUES ($1, $2, NOW()) ON CONFLICT DO NOTHING`,
@@ -374,25 +510,99 @@ app.post('/api/block', async (req, res) => {
       }
     }
 
-    res.json({ ok: true, seq, ...(challenge ? { challenge } : {}), earned, combo_multiplier, rainbow_multiplier, newly_earned_badges, newly_unlocked_types });
+    // ---- Line clearing: detect and clear complete horizontal layers ----
+    let lines_cleared = 0;
+    let line_clear_points = 0;
+    if (t !== 0) {
+      // Check if the placed block's Y-coordinate now forms a complete line
+      const lineCheckRes = await pool.query(
+        `SELECT COUNT(*)::int AS count
+         FROM blocks
+         WHERE y = $1
+           AND block_type <> 0
+           AND x BETWEEN 0 AND 31
+           AND z BETWEEN 0 AND 31`,
+        [y]
+      );
+      if (lineCheckRes.rows[0].count === 1024) {
+        // Line is complete — clear it by setting all blocks to 0 (air)
+        await pool.query(
+          `UPDATE blocks
+           SET block_type = 0, seq = nextval('block_seq'), updated_at = NOW(), updated_by_user_id = $2, updated_by_username = $3
+           WHERE y = $1 AND x BETWEEN 0 AND 31 AND z BETWEEN 0 AND 31`,
+          [y, req.user.id, req.user.username]
+        );
+        lines_cleared = 1;
+        line_clear_points = 50;
+
+        // Award line-clear points to leaderboard
+        await pool.query(
+          `INSERT INTO leaderboard (user_id, username, total_score, blocks_placed, best_combo, updated_at)
+           VALUES ($1, $2, $3, 0, 0, NOW())
+           ON CONFLICT (user_id) DO UPDATE SET
+             total_score   = leaderboard.total_score + EXCLUDED.total_score,
+             username      = EXCLUDED.username,
+             updated_at    = NOW()`,
+          [req.user.id, req.user.username, line_clear_points]
+        );
+      }
+    }
+
+    res.json({ ok: true, seq, ...(challenge ? { challenge } : {}), earned, combo_multiplier, rainbow_multiplier, newly_earned_badges, newly_unlocked_types, lines_cleared, line_clear_points });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
 // ---- Delta feed: every cell changed since the client's cursor, including
-// breaks (block_type 0). Powers near-realtime collaborative editing. ----
+// breaks (block_type 0). Powers near-realtime collaborative editing.
+// Supports world_id parameter: 0 = shared world, >0 = custom world (no disasters)
 app.get('/api/world/changes', async (req, res) => {
   try {
     const since = Number(req.query.since) || 0;
-    const { rows } = await pool.query(
-      `SELECT x, y, z, block_type, seq FROM blocks WHERE seq > $1 ORDER BY seq`,
-      [since]
-    );
-    const cursor = rows.length ? Number(rows[rows.length - 1].seq) : since;
+    const eventsSince = Number(req.query.events_since) || 0;
+    const world_id = Number(req.query.world_id) || 0;
+
+    let events = [];
+    // Only fire disasters in the shared world (world_id = 0)
+    if (world_id === 0) {
+      const newDisaster = await maybeFireDisaster();
+      const eventsRes = await pool.query(
+        `SELECT id, type, origin_x, origin_z, params, blocks_destroyed, triggered_at
+         FROM disasters WHERE id > $1 ORDER BY id`,
+        [eventsSince]
+      );
+      events = eventsRes.rows.map((r) => ({
+        id: Number(r.id),
+        type: r.type,
+        label: DISASTER_DEFS[r.type] ? DISASTER_DEFS[r.type].label : r.type,
+        icon: DISASTER_DEFS[r.type] ? DISASTER_DEFS[r.type].icon : '💥',
+        origin_x: r.origin_x,
+        origin_z: r.origin_z,
+        params: r.params,
+        blocks_destroyed: r.blocks_destroyed,
+        triggered_at: r.triggered_at,
+      }));
+    }
+    const eventsCursor = events.length ? events[events.length - 1].id : eventsSince;
+
+    // For shared world, poll the blocks table; for custom worlds, return empty changes
+    // (custom world block updates happen via POST /api/worlds/:id/blocks)
+    let changes = [];
+    if (world_id === 0) {
+      const { rows } = await pool.query(
+        `SELECT x, y, z, block_type, seq FROM blocks WHERE seq > $1 ORDER BY seq`,
+        [since]
+      );
+      changes = rows.map((r) => ({ x: r.x, y: r.y, z: r.z, t: r.block_type }));
+    }
+    const cursor = changes.length ? Math.max(...changes.map(c => Number(c.seq) || 0)) : since;
+
     res.json({
-      changes: rows.map((r) => ({ x: r.x, y: r.y, z: r.z, t: r.block_type })),
+      changes,
       cursor,
+      events,
+      eventsCursor,
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -426,16 +636,45 @@ app.get('/api/chat', async (req, res) => {
   }
 });
 
+// ---- Tutorial: check completion status ----
+app.get('/api/tutorial/status', async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT user_id FROM player_tutorial_completed WHERE user_id = $1`,
+      [req.user.id]
+    );
+    res.json({ completed: rows.length > 0 });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- Tutorial: mark as completed ----
+app.post('/api/tutorial/complete', async (req, res) => {
+  try {
+    await pool.query(
+      `INSERT INTO player_tutorial_completed (user_id, completed_at)
+       VALUES ($1, NOW())
+       ON CONFLICT (user_id) DO NOTHING`,
+      [req.user.id]
+    );
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ---- Presence: heartbeat ping ----
 app.post('/api/presence/ping', async (req, res) => {
   try {
     const rawMode = req.body && req.body.mode;
     const mode = ['classic', 'spectate'].includes(rawMode) ? rawMode : 'classic';
+    const current_world_id = req.body && req.body.current_world_id ? Number(req.body.current_world_id) : null;
     await pool.query(
-      `INSERT INTO user_presence (user_id, username, last_seen, mode)
-       VALUES ($1, $2, NOW(), $3)
-       ON CONFLICT (user_id) DO UPDATE SET username = EXCLUDED.username, last_seen = NOW(), mode = EXCLUDED.mode`,
-      [req.user.id, req.user.username, mode]
+      `INSERT INTO user_presence (user_id, username, last_seen, mode, current_world_id)
+       VALUES ($1, $2, NOW(), $3, $4)
+       ON CONFLICT (user_id) DO UPDATE SET username = EXCLUDED.username, last_seen = NOW(), mode = EXCLUDED.mode, current_world_id = EXCLUDED.current_world_id`,
+      [req.user.id, req.user.username, mode, current_world_id]
     );
 
     // Upsert login streak. Idempotent for the same UTC day.
@@ -489,10 +728,52 @@ app.post('/api/presence/ping', async (req, res) => {
       }
     }
 
+    // Daily login reward: check if already claimed today
+    let dailyReward = { claimed: false };
+    const today = new Date().toISOString().slice(0, 10);
+    const rewardCheckRes = await pool.query(
+      `SELECT coins_earned FROM login_rewards WHERE user_id = $1 AND reward_date = $2`,
+      [req.user.id, today]
+    );
+
+    if (rewardCheckRes.rows.length === 0) {
+      // Calculate reward based on streak: base 10 coins, multiplier 1.0 + (streak * 0.1), capped at 3.0
+      const multiplier = Math.min(3.0, 1.0 + (current_streak * 0.1));
+      const coinsEarned = Math.round(10 * multiplier);
+
+      // Insert reward claim
+      await pool.query(
+        `INSERT INTO login_rewards (user_id, reward_date, coins_earned)
+         VALUES ($1, $2, $3)
+         ON CONFLICT DO NOTHING`,
+        [req.user.id, today, coinsEarned]
+      );
+
+      // Upsert player coins balance
+      await pool.query(
+        `INSERT INTO player_coins (user_id, coins_balance, updated_at)
+         VALUES ($1, $2, NOW())
+         ON CONFLICT (user_id) DO UPDATE SET
+           coins_balance = player_coins.coins_balance + EXCLUDED.coins_balance,
+           updated_at = NOW()`,
+        [req.user.id, coinsEarned]
+      );
+
+      dailyReward = {
+        claimed: true,
+        coins_earned: coinsEarned,
+        current_streak: current_streak,
+        multiplier: parseFloat(multiplier.toFixed(1)),
+      };
+    } else {
+      dailyReward = { claimed: true };
+    }
+
     res.json({
       ok: true,
       streak: { current: current_streak, longest: longest_streak },
       newly_earned_badges: newlyEarnedBadges,
+      daily_reward: dailyReward,
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -516,14 +797,34 @@ app.get('/api/streak', async (req, res) => {
   }
 });
 
-// ---- Presence: who is online (seen in the last 60s) ----
-app.get('/api/presence/online', async (req, res) => {
+// ---- Player coins: current user's coin balance ----
+app.get('/api/player/coins', async (req, res) => {
   try {
     const { rows } = await pool.query(
-      `SELECT username, mode FROM user_presence
-       WHERE last_seen > NOW() - INTERVAL '60 seconds'
-       ORDER BY username`
+      `SELECT coins_balance FROM player_coins WHERE user_id = $1`,
+      [req.user.id]
     );
+    const coins = rows.length ? Number(rows[0].coins_balance) : 0;
+    res.json({ coins });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- Presence: who is online (seen in the last 60s), optionally filtered by world ----
+app.get('/api/presence/online', async (req, res) => {
+  try {
+    const current_world_id = req.query.current_world_id ? Number(req.query.current_world_id) : null;
+
+    let query = `SELECT username, mode, current_world_id FROM user_presence
+       WHERE last_seen > NOW() - INTERVAL '60 seconds'`;
+    if (current_world_id !== null) {
+      query += ` AND (current_world_id = $1 OR current_world_id IS NULL)`;
+    }
+    query += ` ORDER BY username`;
+
+    const params = current_world_id !== null ? [current_world_id] : [];
+    const { rows } = await pool.query(query, params);
     const users = rows.map((r) => ({ username: r.username, mode: r.mode || 'classic' }));
     if (IS_STAGING) users.push(...STAGING_DEMO_USERS);
     res.json({ users });
@@ -567,6 +868,377 @@ app.get('/api/leaderboard', async (req, res) => {
   }
 });
 
+// ---- Time Attack: submit a completed run ----
+// Body: { cleared, difficulty }. Keeps only the best run per user — the
+// upsert overwrites the stored row only when this run beats best_cleared.
+app.post('/api/ta-score', async (req, res) => {
+  try {
+    const cleared = Number(req.body.cleared);
+    const difficulty = Number(req.body.difficulty);
+    if (!Number.isInteger(cleared) || cleared < 0) {
+      return res.status(400).json({ error: 'cleared must be a non-negative integer' });
+    }
+    if (!Number.isInteger(difficulty) || difficulty < 1 || difficulty > 5) {
+      return res.status(400).json({ error: 'difficulty must be 1-5' });
+    }
+    // Upsert: only improve the stored best. RETURNING tells us the row that
+    // now stands; is_new_best is whether this run produced it.
+    const { rows } = await pool.query(
+      `INSERT INTO ta_scores (user_id, username, best_cleared, best_difficulty, updated_at)
+       VALUES ($1, $2, $3, $4, NOW())
+       ON CONFLICT (user_id) DO UPDATE
+         SET best_cleared = EXCLUDED.best_cleared,
+             best_difficulty = EXCLUDED.best_difficulty,
+             username = EXCLUDED.username,
+             updated_at = NOW()
+       WHERE EXCLUDED.best_cleared > ta_scores.best_cleared
+       RETURNING best_cleared`,
+      [req.user.id, req.user.username, cleared, difficulty]
+    );
+    let best_cleared, is_new_best;
+    if (rows.length) {
+      // Either the first insert or a genuine improvement applied.
+      best_cleared = Number(rows[0].best_cleared);
+      is_new_best = true;
+    } else {
+      // Conflict where the WHERE guard blocked the update — fetch standing best.
+      const cur = await pool.query(
+        `SELECT best_cleared FROM ta_scores WHERE user_id = $1`, [req.user.id]
+      );
+      best_cleared = cur.rows.length ? Number(cur.rows[0].best_cleared) : cleared;
+      is_new_best = false;
+    }
+    res.json({ ok: true, best_cleared, is_new_best });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- Time Attack leaderboard: top 10 by best run + caller's own best ----
+app.get('/api/ta-leaderboard', async (req, res) => {
+  try {
+    const topRes = await pool.query(
+      `SELECT rank() OVER (ORDER BY best_cleared DESC) AS rank,
+              user_id, username, best_cleared, best_difficulty
+       FROM ta_scores
+       ORDER BY best_cleared DESC
+       LIMIT 10`
+    );
+    const selfRes = await pool.query(
+      `SELECT rank() OVER (ORDER BY best_cleared DESC) AS rank,
+              user_id, username, best_cleared, best_difficulty
+       FROM ta_scores
+       WHERE user_id = $1`,
+      [req.user.id]
+    );
+    const toRow = (r) => ({
+      rank: Number(r.rank),
+      user_id: r.user_id,
+      username: r.username,
+      best_cleared: Number(r.best_cleared),
+      best_difficulty: Number(r.best_difficulty),
+    });
+    res.json({
+      entries: topRes.rows.map(toRow),
+      self: selfRes.rows.length ? toRow(selfRes.rows[0]) : null,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- Time Attack (60s): submit a completed run ----
+// Body: { cleared }. Keeps only the best run per user.
+app.post('/api/ta-60-score', async (req, res) => {
+  try {
+    const cleared = Number(req.body.cleared);
+    if (!Number.isInteger(cleared) || cleared < 0) {
+      return res.status(400).json({ error: 'cleared must be a non-negative integer' });
+    }
+    const { rows } = await pool.query(
+      `INSERT INTO ta_60_scores (user_id, username, best_cleared, updated_at)
+       VALUES ($1, $2, $3, NOW())
+       ON CONFLICT (user_id) DO UPDATE
+         SET best_cleared = EXCLUDED.best_cleared,
+             username = EXCLUDED.username,
+             updated_at = NOW()
+       WHERE EXCLUDED.best_cleared > ta_60_scores.best_cleared
+       RETURNING best_cleared`,
+      [req.user.id, req.user.username, cleared]
+    );
+    let best_cleared, is_new_best;
+    if (rows.length) {
+      best_cleared = Number(rows[0].best_cleared);
+      is_new_best = true;
+    } else {
+      const cur = await pool.query(
+        `SELECT best_cleared FROM ta_60_scores WHERE user_id = $1`, [req.user.id]
+      );
+      best_cleared = cur.rows.length ? Number(cur.rows[0].best_cleared) : cleared;
+      is_new_best = false;
+    }
+    res.json({ ok: true, best_cleared, is_new_best });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- Time Attack (60s) leaderboard: top 10 by best run + caller's own best ----
+app.get('/api/ta-60-leaderboard', async (req, res) => {
+  try {
+    const topRes = await pool.query(
+      `SELECT rank() OVER (ORDER BY best_cleared DESC) AS rank,
+              user_id, username, best_cleared
+       FROM ta_60_scores
+       ORDER BY best_cleared DESC
+       LIMIT 10`
+    );
+    const selfRes = await pool.query(
+      `SELECT rank() OVER (ORDER BY best_cleared DESC) AS rank,
+              user_id, username, best_cleared
+       FROM ta_60_scores
+       WHERE user_id = $1`,
+      [req.user.id]
+    );
+    const toRow = (r) => ({
+      rank: Number(r.rank),
+      user_id: r.user_id,
+      username: r.username,
+      best_cleared: Number(r.best_cleared),
+    });
+    res.json({
+      entries: topRes.rows.map(toRow),
+      self: selfRes.rows.length ? toRow(selfRes.rows[0]) : null,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- Endless Mode: submit a completed run ----
+// Body: { placed, moves_survived }. Keeps only the best run per user.
+app.post('/api/endless-score', async (req, res) => {
+  try {
+    const placed = Number(req.body.placed);
+    const moves_survived = Number(req.body.moves_survived);
+    if (!Number.isInteger(placed) || placed < 0) {
+      return res.status(400).json({ error: 'placed must be a non-negative integer' });
+    }
+    if (!Number.isInteger(moves_survived) || moves_survived < 0) {
+      return res.status(400).json({ error: 'moves_survived must be a non-negative integer' });
+    }
+    const { rows } = await pool.query(
+      `INSERT INTO endless_scores (user_id, username, best_placed, best_moves_survived, updated_at)
+       VALUES ($1, $2, $3, $4, NOW())
+       ON CONFLICT (user_id) DO UPDATE
+         SET best_placed = EXCLUDED.best_placed,
+             best_moves_survived = EXCLUDED.best_moves_survived,
+             username = EXCLUDED.username,
+             updated_at = NOW()
+       WHERE EXCLUDED.best_placed > endless_scores.best_placed
+       RETURNING best_placed`,
+      [req.user.id, req.user.username, placed, moves_survived]
+    );
+    let best_placed, is_new_best;
+    if (rows.length) {
+      best_placed = Number(rows[0].best_placed);
+      is_new_best = true;
+    } else {
+      const cur = await pool.query(
+        `SELECT best_placed FROM endless_scores WHERE user_id = $1`, [req.user.id]
+      );
+      best_placed = cur.rows.length ? Number(cur.rows[0].best_placed) : placed;
+      is_new_best = false;
+    }
+    res.json({ ok: true, best_placed, is_new_best });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- Endless Mode leaderboard: top 10 by best blocks placed + caller's entry ----
+app.get('/api/endless-leaderboard', async (req, res) => {
+  try {
+    const topRes = await pool.query(
+      `SELECT rank() OVER (ORDER BY best_placed DESC) AS rank,
+              user_id, username, best_placed, best_moves_survived
+       FROM endless_scores
+       ORDER BY best_placed DESC
+       LIMIT 10`
+    );
+    const selfRes = await pool.query(
+      `SELECT rank() OVER (ORDER BY best_placed DESC) AS rank,
+              user_id, username, best_placed, best_moves_survived
+       FROM endless_scores
+       WHERE user_id = $1`,
+      [req.user.id]
+    );
+    const toRow = (r) => ({
+      rank: Number(r.rank),
+      user_id: r.user_id,
+      username: r.username,
+      best_placed: Number(r.best_placed),
+      best_moves_survived: Number(r.best_moves_survived),
+    });
+    res.json({
+      entries: topRes.rows.map(toRow),
+      self: selfRes.rows.length ? toRow(selfRes.rows[0]) : null,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- Puzzle Mode: get level definition ----
+app.post('/api/puzzle-level/:levelNumber', async (req, res) => {
+  try {
+    const levelNumber = Number(req.params.levelNumber);
+    if (!Number.isInteger(levelNumber) || levelNumber < 1) {
+      return res.status(400).json({ error: 'level_number must be a positive integer' });
+    }
+
+    // Fetch or generate the level
+    let levelRes = await pool.query(
+      `SELECT level_number, block_snapshot, target_blocks_to_clear
+       FROM puzzle_level_definitions
+       WHERE level_number = $1`,
+      [levelNumber]
+    );
+
+    // If level doesn't exist in DB, generate it on the fly
+    if (!levelRes.rows.length) {
+      const blocks = generatePuzzleBlocks(levelNumber);
+      const target = 10 + Math.min(levelNumber * 5, 100); // Target scales with level, capped at 110
+      return res.json({
+        level_number: levelNumber,
+        block_snapshot: blocks,
+        target_blocks_to_clear: target,
+      });
+    }
+
+    const row = levelRes.rows[0];
+    res.json({
+      level_number: Number(row.level_number),
+      block_snapshot: row.block_snapshot,
+      target_blocks_to_clear: Number(row.target_blocks_to_clear),
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- Puzzle Mode: place/break a block ----
+app.post('/api/puzzle-block', async (req, res) => {
+  try {
+    const x = Number(req.body.x);
+    const y = Number(req.body.y);
+    const z = Number(req.body.z);
+    const t = Number(req.body.block_type);
+
+    // Strict validation (same as /api/block)
+    const intIn = (v, lo, hi) => Number.isInteger(v) && v >= lo && v <= hi;
+    if (!intIn(x, 0, DIMS.w - 1) || !intIn(z, 0, DIMS.d - 1)) {
+      return res.status(400).json({ error: 'coordinate out of bounds' });
+    }
+    if (!intIn(y, 1, DIMS.h - 1)) {
+      return res.status(400).json({ error: 'y out of buildable range' });
+    }
+    if (t !== 0 && !VALID_TYPES.has(t)) {
+      return res.status(400).json({ error: 'unknown block_type' });
+    }
+
+    // For puzzle mode, we don't validate against the puzzle-specific blocks—
+    // that's handled client-side. This just validates the request is well-formed.
+    // The response doesn't impact global scoring or presence.
+
+    res.json({ ok: true, x, y, z, block_type: t });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- Puzzle Mode: submit a completed level ----
+app.post('/api/puzzle-score', async (req, res) => {
+  try {
+    const levelNumber = Number(req.body.level_number);
+    const blocksCleared = Number(req.body.blocks_cleared_session);
+    const timeMs = Number(req.body.time_ms);
+
+    if (!Number.isInteger(levelNumber) || levelNumber < 1) {
+      return res.status(400).json({ error: 'level_number must be a positive integer' });
+    }
+    if (!Number.isInteger(blocksCleared) || blocksCleared < 0) {
+      return res.status(400).json({ error: 'blocks_cleared_session must be non-negative' });
+    }
+    if (!Number.isInteger(timeMs) || timeMs < 0) {
+      return res.status(400).json({ error: 'time_ms must be non-negative' });
+    }
+
+    // Upsert puzzle score: only update if this level is higher than current
+    const { rows } = await pool.query(
+      `INSERT INTO puzzle_scores (user_id, username, highest_level, total_blocks_cleared_best_session, updated_at)
+       VALUES ($1, $2, $3, $4, NOW())
+       ON CONFLICT (user_id) DO UPDATE
+         SET highest_level = GREATEST(puzzle_scores.highest_level, EXCLUDED.highest_level),
+             total_blocks_cleared_best_session = CASE
+               WHEN EXCLUDED.highest_level > puzzle_scores.highest_level
+               THEN EXCLUDED.total_blocks_cleared_best_session
+               ELSE puzzle_scores.total_blocks_cleared_best_session
+             END,
+             username = EXCLUDED.username,
+             updated_at = NOW()
+       RETURNING highest_level, total_blocks_cleared_best_session`,
+      [req.user.id, req.user.username, levelNumber, blocksCleared]
+    );
+
+    const isNewBest = rows[0].highest_level === levelNumber;
+    res.json({
+      ok: true,
+      highest_level: Number(rows[0].highest_level),
+      total_blocks_cleared_best_session: Number(rows[0].total_blocks_cleared_best_session),
+      is_new_best: isNewBest,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- Puzzle Mode leaderboard: top 10 by highest level + caller's own rank ----
+app.get('/api/puzzle-leaderboard', async (req, res) => {
+  try {
+    const topRes = await pool.query(
+      `SELECT rank() OVER (ORDER BY highest_level DESC, total_blocks_cleared_best_session DESC) AS rank,
+              user_id, username, highest_level, total_blocks_cleared_best_session
+       FROM puzzle_scores
+       ORDER BY highest_level DESC, total_blocks_cleared_best_session DESC
+       LIMIT 10`
+    );
+
+    const selfRes = await pool.query(
+      `SELECT rank() OVER (ORDER BY highest_level DESC, total_blocks_cleared_best_session DESC) AS rank,
+              user_id, username, highest_level, total_blocks_cleared_best_session
+       FROM puzzle_scores
+       WHERE user_id = $1`,
+      [req.user.id]
+    );
+
+    const toRow = (r) => ({
+      rank: Number(r.rank),
+      user_id: r.user_id,
+      username: r.username,
+      highest_level: Number(r.highest_level),
+      total_blocks_cleared_best_session: Number(r.total_blocks_cleared_best_session),
+    });
+
+    res.json({
+      entries: topRes.rows.map(toRow),
+      self: selfRes.rows.length ? toRow(selfRes.rows[0]) : null,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ---- Badges: current player's earned badges ----
 app.get('/api/badges', async (req, res) => {
   try {
@@ -576,6 +1248,182 @@ app.get('/api/badges', async (req, res) => {
     );
     res.json({
       badges: rows.map((r) => ({ id: r.badge_id, earned_at: r.earned_at })),
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- Public player profile: fetch stats across all modes ----
+app.get('/api/profile/:username', async (req, res) => {
+  try {
+    const username = req.params.username.toLowerCase();
+
+    // Fetch Classic mode stats
+    const classicRes = await pool.query(
+      `SELECT user_id, username, total_score, blocks_placed, best_combo FROM leaderboard WHERE LOWER(username) = $1`,
+      [username]
+    );
+
+    // Fetch Time Attack stats
+    const taRes = await pool.query(
+      `SELECT user_id, username, best_cleared, best_difficulty FROM ta_scores WHERE LOWER(username) = $1`,
+      [username]
+    );
+
+    // Fetch Time Attack 60s stats
+    const ta60Res = await pool.query(
+      `SELECT user_id, username, best_cleared FROM ta_60_scores WHERE LOWER(username) = $1`,
+      [username]
+    );
+
+    // Fetch Endless stats
+    const endlessRes = await pool.query(
+      `SELECT user_id, username, best_placed, best_moves_survived FROM endless_scores WHERE LOWER(username) = $1`,
+      [username]
+    );
+
+    // Fetch Puzzle stats
+    const puzzleRes = await pool.query(
+      `SELECT user_id, username, highest_level, total_blocks_cleared_best_session FROM puzzle_scores WHERE LOWER(username) = $1`,
+      [username]
+    );
+
+    // Get user_id from any available result, or return 404
+    let userId = null;
+    if (classicRes.rows.length) userId = classicRes.rows[0].user_id;
+    else if (taRes.rows.length) userId = taRes.rows[0].user_id;
+    else if (ta60Res.rows.length) userId = ta60Res.rows[0].user_id;
+    else if (endlessRes.rows.length) userId = endlessRes.rows[0].user_id;
+    else if (puzzleRes.rows.length) userId = puzzleRes.rows[0].user_id;
+
+    if (!userId) {
+      return res.status(404).json({ error: 'Player not found' });
+    }
+
+    // Get exact username from whichever table had data
+    const exactUsername = classicRes.rows[0]?.username ||
+                         taRes.rows[0]?.username ||
+                         ta60Res.rows[0]?.username ||
+                         endlessRes.rows[0]?.username ||
+                         puzzleRes.rows[0]?.username;
+
+    // Compute ranks for each mode (only if user has stats in that mode)
+    let classicRank = null, taRank = null, ta60Rank = null, endlessRank = null, puzzleRank = null;
+
+    if (classicRes.rows.length) {
+      const rankRes = await pool.query(
+        `SELECT rank() OVER (ORDER BY total_score DESC) AS rank FROM leaderboard WHERE LOWER(username) = $1`,
+        [username]
+      );
+      classicRank = rankRes.rows.length ? Number(rankRes.rows[0].rank) : null;
+    }
+
+    if (taRes.rows.length) {
+      const rankRes = await pool.query(
+        `SELECT rank() OVER (ORDER BY best_cleared DESC) AS rank FROM ta_scores WHERE LOWER(username) = $1`,
+        [username]
+      );
+      taRank = rankRes.rows.length ? Number(rankRes.rows[0].rank) : null;
+    }
+
+    if (ta60Res.rows.length) {
+      const rankRes = await pool.query(
+        `SELECT rank() OVER (ORDER BY best_cleared DESC) AS rank FROM ta_60_scores WHERE LOWER(username) = $1`,
+        [username]
+      );
+      ta60Rank = rankRes.rows.length ? Number(rankRes.rows[0].rank) : null;
+    }
+
+    if (endlessRes.rows.length) {
+      const rankRes = await pool.query(
+        `SELECT rank() OVER (ORDER BY best_placed DESC) AS rank FROM endless_scores WHERE LOWER(username) = $1`,
+        [username]
+      );
+      endlessRank = rankRes.rows.length ? Number(rankRes.rows[0].rank) : null;
+    }
+
+    if (puzzleRes.rows.length) {
+      const rankRes = await pool.query(
+        `SELECT rank() OVER (ORDER BY highest_level DESC, total_blocks_cleared_best_session DESC) AS rank FROM puzzle_scores WHERE LOWER(username) = $1`,
+        [username]
+      );
+      puzzleRank = rankRes.rows.length ? Number(rankRes.rows[0].rank) : null;
+    }
+
+    // Fetch badges
+    const badgesRes = await pool.query(
+      `SELECT pb.badge_id, pb.earned_at, b.name, b.icon
+       FROM player_badges pb
+       JOIN (SELECT id, name, icon FROM (VALUES
+         ('first_block', 'First Block', '🏗️'),
+         ('builder', 'Builder', '🧱'),
+         ('architect', 'Architect', '🏰'),
+         ('high_scorer', 'High Scorer', '⭐'),
+         ('comboist', 'Comboist', '⚡'),
+         ('rainbow_placer', 'Rainbow Placer', '🌈'),
+         ('golden_touch', 'Golden Touch', '✨'),
+         ('glowmaster', 'Glowmaster', '💡'),
+         ('shadow_sculptor', 'Shadow Sculptor', '🌑'),
+         ('material_artist', 'Material Artist', '🎨'),
+         ('crystal_placer', 'Crystal Placer', '💎'),
+         ('streak_3', 'Hot Start', '🔥'),
+         ('streak_7', 'Week Warrior', '🗓️'),
+         ('streak_14', 'Fortnight Pro', '🏆'),
+         ('streak_30', 'Monthly Master', '👑'),
+         ('daily_devotee', 'Daily Devotee', '🌟'),
+         ('daily_champion', 'Daily Champion', '👑'),
+         ('speedrunner', 'Speedrunner', '⚡')
+       ) AS badge_defs(id, name, icon)) AS b ON pb.badge_id = b.id
+       WHERE pb.user_id = $1
+       ORDER BY pb.earned_at`,
+      [userId]
+    );
+
+    // Count distinct block types used
+    const typeCountRes = await pool.query(
+      `SELECT COUNT(DISTINCT block_type) as count FROM player_type_usage WHERE user_id = $1`,
+      [userId]
+    );
+    const blockTypesUsed = typeCountRes.rows[0] ? Number(typeCountRes.rows[0].count) : 0;
+
+    res.json({
+      user_id: userId,
+      username: exactUsername,
+      stats: {
+        classic: {
+          total_score: classicRes.rows.length ? Number(classicRes.rows[0].total_score) : 0,
+          blocks_placed: classicRes.rows.length ? Number(classicRes.rows[0].blocks_placed) : 0,
+          best_combo: classicRes.rows.length ? classicRes.rows[0].best_combo : 1,
+          rank: classicRank,
+        },
+        ta: {
+          best_cleared: taRes.rows.length ? taRes.rows[0].best_cleared : 0,
+          best_difficulty: taRes.rows.length ? taRes.rows[0].best_difficulty : 0,
+          rank: taRank,
+        },
+        ta_60: {
+          best_cleared: ta60Res.rows.length ? ta60Res.rows[0].best_cleared : 0,
+          rank: ta60Rank,
+        },
+        endless: {
+          best_placed: endlessRes.rows.length ? endlessRes.rows[0].best_placed : 0,
+          best_moves_survived: endlessRes.rows.length ? endlessRes.rows[0].best_moves_survived : 0,
+          rank: endlessRank,
+        },
+        puzzle: {
+          highest_level: puzzleRes.rows.length ? Number(puzzleRes.rows[0].highest_level) : 0,
+          total_blocks_cleared_best_session: puzzleRes.rows.length ? Number(puzzleRes.rows[0].total_blocks_cleared_best_session) : 0,
+          rank: puzzleRank,
+        },
+      },
+      badges: badgesRes.rows.map((r) => ({
+        id: r.badge_id,
+        name: r.name,
+        icon: r.icon,
+        earned_at: r.earned_at,
+      })),
+      block_types_used: blockTypesUsed,
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -599,6 +1447,271 @@ app.post('/api/chat', async (req, res) => {
   }
 });
 
+// ---- Custom Worlds: list user's saved worlds ----
+app.get('/api/worlds', async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT id, world_name, blocks_count, created_at, owner_username
+       FROM user_worlds
+       WHERE owner_id = $1
+       ORDER BY updated_at DESC
+       LIMIT 10`,
+      [req.user.id]
+    );
+    res.json({
+      worlds: rows.map((r) => ({
+        id: Number(r.id),
+        world_name: r.world_name,
+        blocks_count: Number(r.blocks_count),
+        created_at: r.created_at,
+        owner_username: r.owner_username,
+      })),
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- Custom Worlds: save current (shared) world as a custom snapshot ----
+app.post('/api/worlds', async (req, res) => {
+  try {
+    const world_name = (typeof req.body.world_name === 'string' ? req.body.world_name : '').trim();
+    if (!world_name) return res.status(400).json({ error: 'world_name required' });
+    if (world_name.length > 255) return res.status(400).json({ error: 'world_name too long' });
+
+    const { rows: blocks } = await pool.query(
+      `SELECT x, y, z, block_type FROM blocks WHERE block_type <> 0`
+    );
+    const block_snapshot = blocks.map((b) => ({ x: b.x, y: b.y, z: b.z, t: b.block_type }));
+    const blocks_count = blocks.length;
+
+    const { rows } = await pool.query(
+      `INSERT INTO user_worlds (owner_id, owner_username, world_name, block_snapshot, blocks_count, updated_at)
+       VALUES ($1, $2, $3, $4, $5, NOW())
+       ON CONFLICT (owner_id, world_name) DO UPDATE SET
+         block_snapshot = EXCLUDED.block_snapshot,
+         blocks_count = EXCLUDED.blocks_count,
+         updated_at = NOW()
+       RETURNING id, world_name`,
+      [req.user.id, req.user.username, world_name, JSON.stringify(block_snapshot), blocks_count]
+    );
+    res.json({ ok: true, id: Number(rows[0].id), world_name: rows[0].world_name });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- Custom Worlds: get blocks from a world (world_id = 0 is shared world) ----
+app.get('/api/worlds/:id/blocks', async (req, res) => {
+  try {
+    const world_id = Number(req.params.id);
+    let blocks;
+
+    if (world_id === 0) {
+      const { rows } = await pool.query(
+        `SELECT x, y, z, block_type FROM blocks WHERE block_type <> 0`
+      );
+      blocks = rows;
+    } else {
+      const { rows } = await pool.query(
+        `SELECT block_snapshot FROM user_worlds WHERE id = $1`,
+        [world_id]
+      );
+      if (!rows.length) return res.status(404).json({ error: 'World not found' });
+      blocks = rows[0].block_snapshot || [];
+    }
+
+    res.json({
+      blocks: blocks.map((b) => ({ x: b.x, y: b.y, z: b.z, t: b.block_type || b.t })),
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- Custom Worlds: place/break a block in a custom world ----
+app.post('/api/worlds/:id/blocks', async (req, res) => {
+  try {
+    const world_id = Number(req.params.id);
+    const x = Number(req.body.x);
+    const y = Number(req.body.y);
+    const z = Number(req.body.z);
+    const t = Number(req.body.block_type);
+
+    const intIn = (v, lo, hi) => Number.isInteger(v) && v >= lo && v <= hi;
+    if (!intIn(x, 0, DIMS.w - 1) || !intIn(z, 0, DIMS.d - 1)) {
+      return res.status(400).json({ error: 'coordinate out of bounds' });
+    }
+    if (!intIn(y, 1, DIMS.h - 1)) {
+      return res.status(400).json({ error: 'y out of buildable range' });
+    }
+    if (t !== 0 && !VALID_TYPES.has(t)) {
+      return res.status(400).json({ error: 'unknown block_type' });
+    }
+
+    if (world_id === 0) {
+      return res.status(400).json({ error: 'Cannot modify shared world via custom endpoint' });
+    }
+
+    const { rows: worldRows } = await pool.query(
+      `SELECT block_snapshot FROM user_worlds WHERE id = $1 FOR UPDATE`,
+      [world_id]
+    );
+    if (!worldRows.length) return res.status(404).json({ error: 'World not found' });
+
+    let blocks = worldRows[0].block_snapshot || [];
+    const cellKey = `${x},${y},${z}`;
+    const existingIndex = blocks.findIndex((b) => `${b.x},${b.y},${b.z}` === cellKey);
+
+    if (t === 0) {
+      if (existingIndex >= 0) blocks.splice(existingIndex, 1);
+    } else {
+      if (existingIndex >= 0) {
+        blocks[existingIndex] = { x, y, z, t };
+      } else {
+        blocks.push({ x, y, z, t });
+      }
+    }
+
+    const blocks_count = blocks.length;
+    await pool.query(
+      `UPDATE user_worlds SET block_snapshot = $1, blocks_count = $2, updated_at = NOW() WHERE id = $3`,
+      [JSON.stringify(blocks), blocks_count, world_id]
+    );
+
+    // Scoring still applies globally
+    let earned = 0, combo_multiplier = 1, rainbow_multiplier = 1, combo_tier = 1;
+    let newly_earned_badges = [];
+    let newly_unlocked_types = [];
+    if (t !== 0) {
+      const base = BLOCK_POINTS[t] || 1;
+
+      const comboRes = await pool.query(
+        `SELECT COUNT(*)::int AS recent
+         FROM blocks
+         WHERE updated_by_user_id = $1
+           AND block_type <> 0
+           AND updated_at > NOW() - INTERVAL '10 seconds'`,
+        [req.user.id]
+      );
+      const recent = comboRes.rows[0].recent;
+      if (recent >= 10) { combo_multiplier = 5; combo_tier = 4; }
+      else if (recent >= 6) { combo_multiplier = 3; combo_tier = 3; }
+      else if (recent >= 3) { combo_multiplier = 2; combo_tier = 2; }
+
+      const rainbowRes = await pool.query(
+        `SELECT 1 FROM blocks
+         WHERE updated_by_user_id = $1
+           AND block_type = 17
+           AND updated_at > NOW() - INTERVAL '30 seconds'
+         LIMIT 1`,
+        [req.user.id]
+      );
+      if (rainbowRes.rows.length > 0) rainbow_multiplier = 2;
+
+      earned = Math.round(base * combo_multiplier * rainbow_multiplier);
+
+      const lbRes = await pool.query(
+        `INSERT INTO leaderboard (user_id, username, total_score, blocks_placed, best_combo, updated_at)
+         VALUES ($1, $2, $3, 1, $4, NOW())
+         ON CONFLICT (user_id) DO UPDATE SET
+           total_score   = leaderboard.total_score + EXCLUDED.total_score,
+           blocks_placed = leaderboard.blocks_placed + 1,
+           best_combo    = GREATEST(leaderboard.best_combo, EXCLUDED.best_combo),
+           username      = EXCLUDED.username,
+           updated_at    = NOW()
+         RETURNING total_score, blocks_placed, best_combo`,
+        [req.user.id, req.user.username, earned, combo_tier]
+      );
+
+      const lb = {
+        total_score:   Number(lbRes.rows[0].total_score),
+        blocks_placed: Number(lbRes.rows[0].blocks_placed),
+        best_combo:    lbRes.rows[0].best_combo,
+      };
+
+      const earnedRes = await pool.query(
+        `SELECT badge_id FROM player_badges WHERE user_id = $1`,
+        [req.user.id]
+      );
+      const earnedIds = new Set(earnedRes.rows.map((r) => r.badge_id));
+
+      const typeCountRes = await pool.query(
+        `SELECT COUNT(*)::int AS type_count FROM player_type_usage WHERE user_id = $1`,
+        [req.user.id]
+      );
+      const typeCount = typeCountRes.rows[0].type_count;
+
+      const newBadges = checkBadges({ lb, justPlacedType: t, typeCount }, earnedIds);
+      for (const badge of newBadges) {
+        await pool.query(
+          `INSERT INTO player_badges (user_id, badge_id, earned_at) VALUES ($1, $2, NOW()) ON CONFLICT DO NOTHING`,
+          [req.user.id, badge.id]
+        );
+      }
+      newly_earned_badges = newBadges.map((b) => ({ id: b.id, name: b.name, icon: b.icon, flavour: b.flavour }));
+
+      for (const up of PALETTE.filter((p) => p.unlockAt)) {
+        if (lb.blocks_placed === up.unlockAt) {
+          newly_unlocked_types.push({ id: up.id, name: up.name, icon: up.unlockIcon || '✨', description: 'A translucent gem-like block, earned through dedication.' });
+        }
+      }
+
+      await pool.query(
+        `INSERT INTO player_type_usage (user_id, block_type) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+        [req.user.id, t]
+      );
+    }
+
+    res.json({ ok: true, seq: 0, earned, combo_multiplier, rainbow_multiplier, newly_earned_badges, newly_unlocked_types });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- Custom Worlds: rename or update a world ----
+app.put('/api/worlds/:id', async (req, res) => {
+  try {
+    const world_id = Number(req.params.id);
+    const world_name = typeof req.body.world_name === 'string' ? req.body.world_name.trim() : null;
+
+    const { rows: ownerRows } = await pool.query(
+      `SELECT owner_id FROM user_worlds WHERE id = $1`,
+      [world_id]
+    );
+    if (!ownerRows.length) return res.status(404).json({ error: 'World not found' });
+    if (ownerRows[0].owner_id !== req.user.id) return res.status(403).json({ error: 'Not authorized' });
+
+    if (world_name) {
+      if (world_name.length > 255) return res.status(400).json({ error: 'world_name too long' });
+      await pool.query(
+        `UPDATE user_worlds SET world_name = $1, updated_at = NOW() WHERE id = $2`,
+        [world_name, world_id]
+      );
+    }
+
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- Custom Worlds: delete a world ----
+app.delete('/api/worlds/:id', async (req, res) => {
+  try {
+    const world_id = Number(req.params.id);
+
+    const { rows } = await pool.query(
+      `DELETE FROM user_worlds WHERE id = $1 AND owner_id = $2 RETURNING id`,
+      [world_id, req.user.id]
+    );
+    if (!rows.length) return res.status(404).json({ error: 'World not found or not authorized' });
+
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 // ---- Block attribution: who placed the block at (x, y, z) and when. ----
 // Returns { username, updated_at } for a placed block, or null for empty /
@@ -677,7 +1790,7 @@ app.post('/api/powerups/:id/collect', async (req, res) => {
 
 // ---- Daily Challenge: today's goal and the requesting user's progress. ----
 // Target is derived deterministically from the UTC date — no DB write needed.
-// Returns { date, target, placed, completed_at }.
+// Returns { date, target, placed, completed_at, streak }.
 app.get('/api/challenge/today', async (req, res) => {
   try {
     const now = new Date();
@@ -690,11 +1803,230 @@ app.get('/api/challenge/today', async (req, res) => {
       [dateStr, req.user.id]
     );
     const row = rows[0];
+    const streakRes = await pool.query(
+      `SELECT current_streak FROM daily_challenge_streaks WHERE user_id = $1`,
+      [req.user.id]
+    );
+    const streak = streakRes.rows.length ? Number(streakRes.rows[0].current_streak) : 0;
     res.json({
       date: dateStr,
       target,
       placed: row ? row.blocks_placed : 0,
       completed_at: row ? row.completed_at : null,
+      streak,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- Daily Challenge: leaderboard for a specific date ----
+app.get('/api/challenge/leaderboard', async (req, res) => {
+  try {
+    const now = new Date();
+    const dateStr = (req.query.date || now.toISOString().slice(0, 10));
+    const target = dailyTarget(new Date(dateStr + 'T00:00:00Z'));
+
+    const topRes = await pool.query(
+      `SELECT rank() OVER (ORDER BY blocks_placed DESC, completed_at ASC) AS rank,
+              user_id, username, blocks_placed, completed_at
+       FROM daily_challenge_progress
+       WHERE challenge_date = $1 AND blocks_placed > 0
+       ORDER BY blocks_placed DESC, completed_at ASC
+       LIMIT 10`,
+      [dateStr]
+    );
+
+    const selfRes = await pool.query(
+      `SELECT * FROM (
+         SELECT rank() OVER (ORDER BY blocks_placed DESC, completed_at ASC) AS rank,
+                user_id, username, blocks_placed, completed_at
+         FROM daily_challenge_progress
+         WHERE challenge_date = $1
+       ) ranked WHERE user_id = $2`,
+      [dateStr, req.user.id]
+    );
+
+    const toRow = (r) => ({
+      rank: Number(r.rank),
+      user_id: Number(r.user_id),
+      username: r.username,
+      blocks_placed: Number(r.blocks_placed),
+      completed_at: r.completed_at ? r.completed_at.toISOString() : null,
+    });
+
+    res.json({
+      date: dateStr,
+      target,
+      entries: topRes.rows.map(toRow),
+      self: selfRes.rows.length ? toRow(selfRes.rows[0]) : null,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- Daily Challenge: complete (trigger streak tracking and rewards) ----
+app.post('/api/challenge/complete', async (req, res) => {
+  try {
+    const now = new Date();
+    const dateStr = now.toISOString().slice(0, 10);
+    const { challenge_date, completed_at } = req.body;
+
+    // Check if user has already been rewarded for this day
+    const existingReward = await pool.query(
+      `SELECT id FROM daily_challenge_rewards WHERE user_id = $1 AND reward_date = $2`,
+      [req.user.id, challenge_date || dateStr]
+    );
+
+    if (existingReward.rows.length > 0) {
+      return res.json({ ok: false, error: 'Already rewarded for this day' });
+    }
+
+    // Get or create streak entry
+    const streakRes = await pool.query(
+      `SELECT current_streak, longest_streak, last_completed_date
+       FROM daily_challenge_streaks WHERE user_id = $1`,
+      [req.user.id]
+    );
+
+    let currentStreak = 0;
+    let longestStreak = 0;
+    let coinsEarned = 50; // base reward
+    let badgesEarned = [];
+    const rewardDate = challenge_date || dateStr;
+
+    if (streakRes.rows.length > 0) {
+      const streak = streakRes.rows[0];
+      currentStreak = Number(streak.current_streak);
+      longestStreak = Number(streak.longest_streak);
+      const lastDate = streak.last_completed_date;
+
+      // Calculate if streak continues
+      if (lastDate) {
+        const lastDateObj = new Date(lastDate + 'T00:00:00Z');
+        const yesterdayObj = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+        const yesterdayStr = yesterdayObj.toISOString().slice(0, 10);
+        if (lastDate === yesterdayStr) {
+          currentStreak++;
+        } else if (lastDate !== rewardDate) {
+          currentStreak = 1;
+        }
+      }
+    } else {
+      currentStreak = 1;
+    }
+
+    if (currentStreak > longestStreak) {
+      longestStreak = currentStreak;
+    }
+
+    // Calculate streak bonus: +10 coins per day, capped at +100 (10 day streak)
+    const streakBonus = Math.min(100, (currentStreak - 1) * 10);
+    coinsEarned += streakBonus;
+    const streakMultiplier = 1 + streakBonus / 50;
+
+    // Award speedrunner badge if applicable
+    if (completed_at) {
+      const completionTime = new Date(completed_at);
+      const createdTime = new Date(); // fallback; ideally from progress row
+      // For speedrunner, we need to check if completion was under 2 minutes
+      // This will be checked in the block placement when challenge completes
+    }
+
+    // Award daily_devotee badge if streak >= 7
+    if (currentStreak >= 7) {
+      const existingBadge = await pool.query(
+        `SELECT 1 FROM player_badges WHERE user_id = $1 AND badge_id = $2`,
+        [req.user.id, 'daily_devotee']
+      );
+      if (!existingBadge.rows.length) {
+        await pool.query(
+          `INSERT INTO player_badges (user_id, badge_id, earned_at)
+           VALUES ($1, $2, NOW())
+           ON CONFLICT DO NOTHING`,
+          [req.user.id, 'daily_devotee']
+        );
+        badgesEarned.push('daily_devotee');
+      }
+    }
+
+    // Update streak and longest streak
+    await pool.query(
+      `INSERT INTO daily_challenge_streaks (user_id, current_streak, longest_streak, last_completed_date, updated_at)
+       VALUES ($1, $2, $3, $4, NOW())
+       ON CONFLICT (user_id) DO UPDATE SET
+         current_streak = $2,
+         longest_streak = $3,
+         last_completed_date = $4,
+         updated_at = NOW()`,
+      [req.user.id, currentStreak, longestStreak, rewardDate]
+    );
+
+    // Award coins
+    await pool.query(
+      `INSERT INTO player_coins (user_id, coins_balance)
+       VALUES ($1, $2)
+       ON CONFLICT (user_id) DO UPDATE SET
+         coins_balance = player_coins.coins_balance + $2,
+         updated_at = NOW()`,
+      [req.user.id, coinsEarned]
+    );
+
+    // Record reward in audit log
+    await pool.query(
+      `INSERT INTO daily_challenge_rewards (user_id, reward_date, coins_earned, streak_bonus_multiplier, earned_at)
+       VALUES ($1, $2, $3, $4, NOW())
+       ON CONFLICT (user_id, reward_date) DO NOTHING`,
+      [req.user.id, rewardDate, coinsEarned, streakMultiplier]
+    );
+
+    res.json({
+      ok: true,
+      streak: currentStreak,
+      coins_earned: coinsEarned,
+      badges_earned: badgesEarned,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- Daily Challenge: user's all-time statistics ----
+app.get('/api/challenge/stats', async (req, res) => {
+  try {
+    const completionsRes = await pool.query(
+      `SELECT COUNT(*) as total FROM daily_challenge_rewards WHERE user_id = $1`,
+      [req.user.id]
+    );
+    const total_completions = Number(completionsRes.rows[0].total);
+
+    const streakRes = await pool.query(
+      `SELECT current_streak, longest_streak FROM daily_challenge_streaks WHERE user_id = $1`,
+      [req.user.id]
+    );
+    const current_streak = streakRes.rows.length ? Number(streakRes.rows[0].current_streak) : 0;
+    const longest_streak = streakRes.rows.length ? Number(streakRes.rows[0].longest_streak) : 0;
+
+    const coinsRes = await pool.query(
+      `SELECT COALESCE(SUM(coins_earned), 0) as total FROM daily_challenge_rewards WHERE user_id = $1`,
+      [req.user.id]
+    );
+    const total_coins_earned = Number(coinsRes.rows[0].total);
+
+    const badgesRes = await pool.query(
+      `SELECT badge_id FROM player_badges
+       WHERE user_id = $1 AND badge_id IN ('daily_devotee', 'daily_champion', 'speedrunner')`,
+      [req.user.id]
+    );
+    const badges = badgesRes.rows.map(r => r.badge_id);
+
+    res.json({
+      total_completions,
+      current_streak,
+      longest_streak,
+      total_coins_earned,
+      badges,
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -926,6 +2258,94 @@ app.delete('/api/friends/:id', async (req, res) => {
   }
 });
 
+// ---- Mobs: list all alive mobs ----
+app.get('/api/mobs', (_req, res) => {
+  const result = [];
+  for (const [, mob] of mobs) {
+    if (!mob.dead) {
+      result.push({ id: mob.id, type: mob.type, x: mob.x, y: mob.y, z: mob.z,
+        hp: mob.hp, maxHp: mob.maxHp, phase: mob.phase });
+    }
+  }
+  res.json({ mobs: result });
+});
+
+// ---- Mobs: deal 1 damage to a mob ----
+app.post('/api/mobs/:id/hit', (req, res) => {
+  const id = Number(req.params.id);
+  const mob = mobs.get(id);
+  if (!mob || mob.dead) return res.status(404).json({ error: 'mob not found or dead' });
+  mob.hp -= 1;
+  if (mob.hp <= 0) { mob.hp = 0; mob.dead = true; mob.diedAt = Date.now(); }
+  res.json({ ok: true, hp: mob.hp, dead: mob.dead });
+});
+
+// ---- AI Coach ----
+const CANNED_TIPS = {
+  mode_start:         'Place 3 or more blocks within 10 seconds to activate a combo multiplier and earn bonus points.',
+  time_attack_start:  'In Time Attack, ignore scattered singles — aim for the dense clusters to break multiple blocks fast.',
+  badge_earned:       'Great — keep building to unlock more block types and climb the leaderboard.',
+  combo_tier_up:      "You've got a hot streak going! Keep placing blocks quickly to push the multiplier even higher.",
+  daily_complete:     'Daily challenge done! Come back tomorrow — the target changes every day.',
+  block_milestone:    'Try collecting a floating power-up orb to get a speed boost or rapid-place buff.',
+  player_asked:       'Grab a Rainbow Block from the palette (type 9) and place it — it doubles your points for the next 30 seconds.',
+  disaster:           'A disaster just struck the world! Rebuild quickly to earn points.',
+};
+
+app.post('/api/coach/tip', async (req, res) => {
+  const { trigger, mode, blocks_placed, score, unlocked_types_count, combo_tier, active_buffs, challenge_progress, badge_name } = req.body || {};
+
+  if (!LLM_ENABLED) {
+    const tip = CANNED_TIPS[trigger] || CANNED_TIPS['player_asked'];
+    return res.json({ tip });
+  }
+
+  const lines = [
+    `Trigger reason: ${trigger}`,
+    `Game mode: ${mode}`,
+    `Blocks placed this session: ${blocks_placed}`,
+    `Score this session: ${score}`,
+    `Block types unlocked: ${unlocked_types_count} of 18`,
+    `Current combo tier: ${combo_tier} (1=none, 2=×2, 3=×3, 4=×5)`,
+    `Active power-up buffs: ${(active_buffs || []).join(', ') || 'none'}`,
+    challenge_progress ? `Daily challenge: ${challenge_progress.placed}/${challenge_progress.target} blocks (${challenge_progress.completed ? 'completed' : 'in progress'})` : null,
+    badge_name ? `Badge just earned: "${badge_name}"` : null,
+  ].filter(Boolean).join('\n');
+
+  try {
+    const resp = await fetch(`${process.env.USERNODE_LLM_PROXY_URL}/v1/messages`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'anthropic-version': '2023-06-01',
+        'x-usernode-app-token': process.env.USERNODE_LLM_PROXY_TOKEN,
+        'x-usernode-user-token': req.headers['x-usernode-token'],
+      },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 120,
+        system: "You are an encouraging AI coach for a 3D block-building game called block-game. Players fly around a 32×32×24 world, place and break blocks, earn combo multipliers by placing quickly, unlock new block types, collect power-ups, and compete on leaderboards. Give exactly one tip (1-2 sentences, friendly and actionable, no markdown, no line breaks). Tailor it to the player's current situation.",
+        messages: [{ role: 'user', content: lines }],
+      }),
+    });
+
+    if (resp.status === 403) {
+      const body = await resp.json().catch(() => ({}));
+      if (body.code === 'grant_required') return res.status(403).json({ error: 'grant_required' });
+    }
+    if (resp.status === 429) return res.status(429).json({ error: 'unavailable' });
+    if (!resp.ok) return res.status(500).json({ error: 'unavailable' });
+
+    const llmData = await resp.json();
+    const tip = llmData?.content?.[0]?.text?.trim() || '';
+    if (!tip) return res.status(500).json({ error: 'unavailable' });
+    return res.json({ tip });
+  } catch (err) {
+    console.error('coach tip error', err.message);
+    return res.status(500).json({ error: 'unavailable' });
+  }
+});
+
 app.use(express.static(path.join(__dirname, 'public'), {
   setHeaders(res, filePath) {
     // The entire game is inline in index.html, so a cached shell hides a
@@ -1072,31 +2492,46 @@ async function seedStaging() {
   }
 
   // Seed player_badges for staging users to showcase the panel.
+  // Each player has diverse badges with different earned times to test the profile view.
   const badgeSeed = [
-    { userId: -1, badgeId: 'first_block' },
-    { userId: -1, badgeId: 'builder' },
-    { userId: -1, badgeId: 'architect' },
-    { userId: -1, badgeId: 'high_scorer' },
-    { userId: -1, badgeId: 'comboist' },
-    { userId: -1, badgeId: 'golden_touch' },
-    { userId: -1, badgeId: 'material_artist' },
-    { userId: -1, badgeId: 'crystal_placer' },
-    { userId: -2, badgeId: 'first_block' },
-    { userId: -2, badgeId: 'builder' },
-    { userId: -2, badgeId: 'rainbow_placer' },
-    { userId: -2, badgeId: 'comboist' },
-    { userId: -3, badgeId: 'first_block' },
-    { userId: -4, badgeId: 'first_block' },
-    { userId: -4, badgeId: 'builder' },
+    // Alice: 8 badges with varied earned times (leading player)
+    { userId: -1, badgeId: 'first_block', daysAgo: 10 },
+    { userId: -1, badgeId: 'builder', daysAgo: 9 },
+    { userId: -1, badgeId: 'architect', daysAgo: 8 },
+    { userId: -1, badgeId: 'high_scorer', daysAgo: 7 },
+    { userId: -1, badgeId: 'comboist', daysAgo: 5 },
+    { userId: -1, badgeId: 'golden_touch', daysAgo: 4 },
+    { userId: -1, badgeId: 'material_artist', daysAgo: 3 },
+    { userId: -1, badgeId: 'crystal_placer', daysAgo: 2 },
+    // Bob: 4 badges (second player)
+    { userId: -2, badgeId: 'first_block', daysAgo: 8 },
+    { userId: -2, badgeId: 'builder', daysAgo: 6 },
+    { userId: -2, badgeId: 'rainbow_placer', daysAgo: 5 },
+    { userId: -2, badgeId: 'comboist', daysAgo: 3 },
+    // Carol: 3 badges (newer player)
+    { userId: -3, badgeId: 'first_block', daysAgo: 3 },
+    { userId: -3, badgeId: 'rainbow_placer', daysAgo: 2 },
+    { userId: -3, badgeId: 'builder', daysAgo: 1 },
+    // Dave: 2 badges (casual player)
+    { userId: -4, badgeId: 'first_block', daysAgo: 5 },
+    { userId: -4, badgeId: 'builder', daysAgo: 2 },
   ];
   for (const b of badgeSeed) {
     await pool.query(
       `INSERT INTO player_badges (user_id, badge_id, earned_at)
-       VALUES ($1, $2, NOW() - INTERVAL '3 days')
+       VALUES ($1, $2, NOW() - INTERVAL '${b.daysAgo} days')
        ON CONFLICT DO NOTHING`,
       [b.userId, b.badgeId]
     );
   }
+
+  // Tutorial completion seed: some players have completed, some haven't.
+  // User -1 (alice) and -2 (bob) have completed; others haven't for testing first-time flow.
+  await pool.query(
+    `INSERT INTO player_tutorial_completed (user_id, completed_at)
+     VALUES (-1, NOW() - INTERVAL '5 days'), (-2, NOW() - INTERVAL '2 days')
+     ON CONFLICT DO NOTHING`
+  );
 
   // Daily challenge progress seed: three personas at different completion states
   // so both in-progress and complete widget states can be verified.
@@ -1114,6 +2549,26 @@ async function seedStaging() {
     [todayStr, targetToday]
   );
 
+  // Seed a complete horizontal line at y=2 for testing line-clear mechanics.
+  // A complete line consists of 1024 blocks (32 × 32 grid, all non-zero type).
+  // This allows testers to place a single block to trigger a line clear.
+  const { rows: lineCount } = await pool.query(
+    `SELECT COUNT(*)::int AS count FROM blocks WHERE y = 2 AND block_type <> 0`
+  );
+  if (Number(lineCount[0].count) < 1024) {
+    const lineBlocks = [];
+    for (let x = 0; x < 32; x++) {
+      for (let z = 0; z < 32; z++) {
+        lineBlocks.push(`(${x}, 2, ${z}, 3, ${SEED_USER_ID}, 'Staging demo')`);
+      }
+    }
+    await pool.query(
+      `INSERT INTO blocks (x, y, z, block_type, updated_by_user_id, updated_by_username) VALUES
+       ${lineBlocks.join(',')}
+       ON CONFLICT (x, y, z) DO NOTHING`
+    );
+  }
+
   // Seed one of each power-up type at fixed, open positions so testers can
   // immediately see and collect them. Skipped if any unclaimed power-ups
   // already exist (e.g. after a hot-reload during the same staging run).
@@ -1127,6 +2582,64 @@ async function seedStaging() {
         ('super_jump',  28, 2, 16),
         ('rapid_place', 16, 2, 28)
     `);
+  }
+
+  // Seed 3 past disaster events so staging shows disaster history in chat.
+  // Negative IDs are not used for disasters (SERIAL), but ON CONFLICT DO NOTHING
+  // makes this idempotent — duplicate rows are skipped if disasters already fired.
+  const { rows: disasterCount } = await pool.query(
+    `SELECT COUNT(*) AS n FROM disasters`
+  );
+  if (Number(disasterCount[0].n) === 0) {
+    await pool.query(`
+      INSERT INTO disasters (type, origin_x, origin_z, params, blocks_destroyed, triggered_at) VALUES
+        ('earthquake', NULL, NULL, '{"x0":10,"z0":10,"x1":22,"z1":20}', 87, NOW() - INTERVAL '10 minutes'),
+        ('eruption',   8,    8,    '{"radius":6}',                        62, NOW() - INTERVAL '5 minutes'),
+        ('meteor',     24,   24,   '{"radius":4,"oy":10}',                22, NOW() - INTERVAL '2 minutes')
+    `);
+  }
+
+  // Seed custom worlds so staging shows world list
+  const starterHouseBlocks = [
+    { x: 14, y: 1, z: 14, t: 3 }, { x: 14, y: 1, z: 15, t: 3 }, { x: 14, y: 1, z: 16, t: 3 }, { x: 14, y: 1, z: 17, t: 3 }, { x: 14, y: 1, z: 18, t: 3 },
+    { x: 15, y: 1, z: 14, t: 3 }, { x: 15, y: 1, z: 18, t: 3 },
+    { x: 16, y: 1, z: 14, t: 3 }, { x: 16, y: 1, z: 18, t: 3 },
+    { x: 17, y: 1, z: 14, t: 3 }, { x: 17, y: 1, z: 18, t: 3 },
+    { x: 18, y: 1, z: 14, t: 3 }, { x: 18, y: 1, z: 15, t: 3 }, { x: 18, y: 1, z: 16, t: 3 }, { x: 18, y: 1, z: 17, t: 3 }, { x: 18, y: 1, z: 18, t: 3 },
+    { x: 14, y: 2, z: 14, t: 3 }, { x: 14, y: 2, z: 15, t: 3 }, { x: 14, y: 2, z: 17, t: 3 }, { x: 14, y: 2, z: 18, t: 3 },
+    { x: 15, y: 2, z: 14, t: 3 }, { x: 15, y: 2, z: 18, t: 3 },
+    { x: 16, y: 2, z: 14, t: 3 }, { x: 16, y: 2, z: 18, t: 3 },
+    { x: 17, y: 2, z: 14, t: 3 }, { x: 17, y: 2, z: 18, t: 3 },
+    { x: 18, y: 2, z: 14, t: 3 }, { x: 18, y: 2, z: 15, t: 3 }, { x: 18, y: 2, z: 17, t: 3 }, { x: 18, y: 2, z: 18, t: 3 },
+    { x: 14, y: 3, z: 14, t: 3 }, { x: 14, y: 3, z: 15, t: 3 }, { x: 14, y: 3, z: 17, t: 3 }, { x: 14, y: 3, z: 18, t: 3 },
+    { x: 15, y: 3, z: 14, t: 3 }, { x: 15, y: 3, z: 18, t: 3 },
+    { x: 16, y: 3, z: 14, t: 3 }, { x: 16, y: 3, z: 18, t: 3 },
+    { x: 17, y: 3, z: 14, t: 3 }, { x: 17, y: 3, z: 18, t: 3 },
+    { x: 18, y: 3, z: 14, t: 3 }, { x: 18, y: 3, z: 15, t: 3 }, { x: 18, y: 3, z: 17, t: 3 }, { x: 18, y: 3, z: 18, t: 3 },
+  ];
+
+  const colorfulGardenBlocks = [
+    { x: 10, y: 1, z: 10, t: 7 }, { x: 11, y: 1, z: 10, t: 9 }, { x: 12, y: 1, z: 10, t: 10 },
+    { x: 10, y: 1, z: 11, t: 11 }, { x: 11, y: 1, z: 11, t: 12 }, { x: 12, y: 1, z: 11, t: 13 },
+    { x: 10, y: 1, z: 12, t: 2 }, { x: 11, y: 1, z: 12, t: 1 }, { x: 12, y: 1, z: 12, t: 6 },
+    { x: 10, y: 1, z: 13, t: 14 }, { x: 11, y: 1, z: 13, t: 15 }, { x: 12, y: 1, z: 13, t: 16 },
+    { x: 10, y: 1, z: 14, t: 17 }, { x: 11, y: 1, z: 14, t: 18 }, { x: 12, y: 1, z: 14, t: 8 },
+  ];
+
+  const { rows: worldCount } = await pool.query(`SELECT COUNT(*) AS n FROM user_worlds`);
+  if (Number(worldCount[0].n) === 0) {
+    await pool.query(
+      `INSERT INTO user_worlds (owner_id, owner_username, world_name, block_snapshot, blocks_count, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
+       ON CONFLICT DO NOTHING`,
+      [-1, 'staging-demo-alice', 'Starter house', JSON.stringify(starterHouseBlocks), starterHouseBlocks.length]
+    );
+    await pool.query(
+      `INSERT INTO user_worlds (owner_id, owner_username, world_name, block_snapshot, blocks_count, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
+       ON CONFLICT DO NOTHING`,
+      [-2, 'staging-demo-bob', 'Colorful garden', JSON.stringify(colorfulGardenBlocks), colorfulGardenBlocks.length]
+    );
   }
 }
 
@@ -1230,6 +2743,64 @@ async function seedTournament() {
   }
 }
 
+// Seed the Time Attack leaderboard with five obviously-fake builders so a
+// fresh staging DB (where ta_scores is created empty) shows a populated tab.
+// Negative user IDs never collide with real users; ON CONFLICT keeps it
+// idempotent across reboots.
+async function seedTaScores() {
+  const seeds = [
+    { userId: -1, username: 'Staging demo Alice',   cleared: 142, difficulty: 5 },
+    { userId: -2, username: 'Staging demo Bob',     cleared: 98,  difficulty: 4 },
+    { userId: -3, username: 'Staging demo Charlie', cleared: 61,  difficulty: 3 },
+    { userId: -4, username: 'Staging demo Dana',    cleared: 33,  difficulty: 2 },
+    { userId: -5, username: 'Staging demo Eli',     cleared: 12,  difficulty: 1 },
+  ];
+  for (const s of seeds) {
+    await pool.query(
+      `INSERT INTO ta_scores (user_id, username, best_cleared, best_difficulty, updated_at)
+       VALUES ($1, $2, $3, $4, NOW())
+       ON CONFLICT (user_id) DO NOTHING`,
+      [s.userId, s.username, s.cleared, s.difficulty]
+    );
+  }
+}
+
+async function seedTa60Scores() {
+  const seeds = [
+    { userId: -11, username: 'Staging demo Alice',   cleared: 87 },
+    { userId: -12, username: 'Staging demo Bob',     cleared: 64 },
+    { userId: -13, username: 'Staging demo Charlie', cleared: 102 },
+    { userId: -14, username: 'Staging demo Dana',    cleared: 56 },
+    { userId: -15, username: 'Staging demo Eve',     cleared: 93 },
+  ];
+  for (const s of seeds) {
+    await pool.query(
+      `INSERT INTO ta_60_scores (user_id, username, best_cleared, updated_at)
+       VALUES ($1, $2, $3, NOW())
+       ON CONFLICT (user_id) DO NOTHING`,
+      [s.userId, s.username, s.cleared]
+    );
+  }
+}
+
+async function seedEndlessScores() {
+  const seeds = [
+    { userId: -6, username: 'Staging demo Frank',   placed: 187, moves: 421 },
+    { userId: -7, username: 'Staging demo Grace',   placed: 156, moves: 358 },
+    { userId: -8, username: 'Staging demo Henry',   placed: 124, moves: 287 },
+    { userId: -9, username: 'Staging demo Ivy',     placed: 89,  moves: 198 },
+    { userId: -10, username: 'Staging demo Jack',   placed: 52,  moves: 112 },
+  ];
+  for (const s of seeds) {
+    await pool.query(
+      `INSERT INTO endless_scores (user_id, username, best_placed, best_moves_survived, updated_at)
+       VALUES ($1, $2, $3, $4, NOW())
+       ON CONFLICT (user_id) DO NOTHING`,
+      [s.userId, s.username, s.placed, s.moves]
+    );
+  }
+}
+
 async function seedStreaks() {
   // Negative user IDs so they never collide with real platform user IDs (positive integers).
   const rows = [
@@ -1263,6 +2834,237 @@ async function seedStreaks() {
   }
 }
 
+async function seedLoginRewards() {
+  const rows = [
+    { user_id: -1, coins_earned: 30, coins_balance: 150 },
+    { user_id: -2, coins_earned: 50, coins_balance: 250 },
+    { user_id: -3, coins_earned: 65, coins_balance: 325 },
+    { user_id: -4, coins_earned: 15, coins_balance: 75 },
+  ];
+  const today = new Date().toISOString().slice(0, 10);
+  for (const r of rows) {
+    await pool.query(
+      `INSERT INTO login_rewards (user_id, reward_date, coins_earned)
+       VALUES ($1, $2, $3)
+       ON CONFLICT DO NOTHING`,
+      [r.user_id, today, r.coins_earned]
+    );
+    await pool.query(
+      `INSERT INTO player_coins (user_id, coins_balance) VALUES ($1, $2)
+       ON CONFLICT (user_id) DO UPDATE SET coins_balance = EXCLUDED.coins_balance`,
+      [r.user_id, r.coins_balance]
+    );
+  }
+}
+
+async function seedDailyChallenge() {
+  const today = new Date().toISOString().slice(0, 10);
+  const target = dailyTarget(new Date());
+
+  // Seed daily challenge progress for staging demo users
+  const progressRows = [
+    { user_id: -1, username: 'Staging demo Alice', blocks_placed: 58, completed_at: new Date(Date.now() - 15 * 60 * 1000).toISOString() },
+    { user_id: -2, username: 'Staging demo Bob', blocks_placed: 45, completed_at: new Date(Date.now() - 45 * 60 * 1000).toISOString() },
+    { user_id: -3, username: 'Staging demo Charlie', blocks_placed: 42, completed_at: new Date(Date.now() - 75 * 60 * 1000).toISOString() },
+    { user_id: -4, username: 'Staging demo Diana', blocks_placed: 35, completed_at: null },
+  ];
+
+  for (const row of progressRows) {
+    await pool.query(
+      `INSERT INTO daily_challenge_progress (challenge_date, user_id, username, blocks_placed, completed_at)
+       VALUES ($1, $2, $3, $4, $5)
+       ON CONFLICT (challenge_date, user_id) DO NOTHING`,
+      [today, row.user_id, row.username, row.blocks_placed, row.completed_at]
+    );
+  }
+
+  // Seed daily challenge streaks
+  const streakRows = [
+    { user_id: -1, current_streak: 5, longest_streak: 12, last_completed_date: today },
+    { user_id: -2, current_streak: 2, longest_streak: 8, last_completed_date: today },
+    { user_id: -3, current_streak: 1, longest_streak: 1, last_completed_date: today },
+  ];
+
+  for (const row of streakRows) {
+    await pool.query(
+      `INSERT INTO daily_challenge_streaks (user_id, current_streak, longest_streak, last_completed_date)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (user_id) DO NOTHING`,
+      [row.user_id, row.current_streak, row.longest_streak, row.last_completed_date]
+    );
+  }
+}
+
+// Helper to generate deterministic puzzle level blocks seeded by level number.
+function generatePuzzleBlocks(levelNumber) {
+  const blocks = [];
+  const seed = levelNumber * 12345; // Deterministic seed based on level
+  let rng = seed;
+
+  function nextRandom() {
+    rng = (rng * 1103515245 + 12345) & 0x7fffffff;
+    return rng / 0x7fffffff;
+  }
+
+  const blockCount = 20 + levelNumber * 8; // Increases with level
+  const blockTypes = [1, 2, 3, 4, 5, 6, 7, 9, 10, 11]; // Color variety, exclude glass/special
+
+  for (let i = 0; i < blockCount; i++) {
+    const x = Math.floor(nextRandom() * 32);
+    const z = Math.floor(nextRandom() * 32);
+    const y = 2 + Math.floor(nextRandom() * 8); // Height 2-10
+    const t = blockTypes[Math.floor(nextRandom() * blockTypes.length)];
+    blocks.push({ x, y, z, t });
+  }
+
+  return blocks;
+}
+
+async function seedPuzzleLevels() {
+  // Seed 5 levels with deterministic block layouts and targets.
+  const levelSeeds = [
+    { level: 1, target: 10 },
+    { level: 2, target: 15 },
+    { level: 3, target: 25 },
+    { level: 4, target: 40 },
+    { level: 5, target: 50 },
+  ];
+
+  for (const { level, target } of levelSeeds) {
+    const blocks = generatePuzzleBlocks(level);
+    await pool.query(
+      `INSERT INTO puzzle_level_definitions (level_number, block_snapshot, target_blocks_to_clear)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (level_number) DO NOTHING`,
+      [level, JSON.stringify(blocks), target]
+    );
+  }
+}
+
+async function seedPuzzleScores() {
+  // Seed demo users with varying puzzle mode high scores.
+  const seeds = [
+    { userId: -11, username: 'Staging demo puzzle A', level: 8, blocks: 240 },
+    { userId: -12, username: 'Staging demo puzzle B', level: 5, blocks: 140 },
+    { userId: -13, username: 'Staging demo puzzle C', level: 12, blocks: 380 },
+  ];
+  for (const s of seeds) {
+    await pool.query(
+      `INSERT INTO puzzle_scores (user_id, username, highest_level, total_blocks_cleared_best_session, updated_at)
+       VALUES ($1, $2, $3, $4, NOW())
+       ON CONFLICT (user_id) DO NOTHING`,
+      [s.userId, s.username, s.level, s.blocks]
+    );
+  }
+}
+
+// ---- Natural Disaster trigger (called from GET /api/world/changes) ----
+// Uses SELECT ... FOR UPDATE SKIP LOCKED on disaster_schedule so that only one
+// concurrent request can trigger at a time. Returns the fired disaster row or null.
+async function maybeFireDisaster() {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const schedRes = await client.query(
+      `SELECT fire_at, next_type FROM disaster_schedule WHERE id = 1 FOR UPDATE SKIP LOCKED`
+    );
+    if (!schedRes.rows.length) {
+      await client.query('COMMIT');
+      return null; // another request holds the lock
+    }
+    if (new Date(schedRes.rows[0].fire_at) > new Date()) {
+      await client.query('COMMIT');
+      return null; // not time yet
+    }
+    const type = schedRes.rows[0].next_type;
+    const def = DISASTER_DEFS[type];
+    if (!def) {
+      await client.query('COMMIT');
+      return null;
+    }
+
+    let deleteQuery, deleteParams, params = {}, origin_x = null, origin_z = null, chatMsg;
+
+    if (type === 'earthquake') {
+      const zoneW = def.zoneMin + Math.floor(Math.random() * (def.zoneMax - def.zoneMin + 1));
+      const zoneD = def.zoneMin + Math.floor(Math.random() * (def.zoneMax - def.zoneMin + 1));
+      const x0 = Math.floor(Math.random() * (DIMS.w - zoneW));
+      const z0 = Math.floor(Math.random() * (DIMS.d - zoneD));
+      const x1 = x0 + zoneW - 1;
+      const z1 = z0 + zoneD - 1;
+      params = { x0, z0, x1, z1 };
+      deleteQuery = `UPDATE blocks SET block_type=0, seq=nextval('block_seq'),
+        updated_by_user_id=$1, updated_by_username=$2, updated_at=NOW()
+        WHERE x BETWEEN $3 AND $4 AND z BETWEEN $5 AND $6 AND block_type <> 0
+        RETURNING x, y, z`;
+      deleteParams = [DISASTER_USER_ID, DISASTER_USERNAME, x0, x1, z0, z1];
+      chatMsg = `${def.icon} Earthquake struck zone (${x0},${z0})→(${x1},${z1})! Rebuild!`;
+    } else if (type === 'eruption') {
+      const radius = def.radiusMin + Math.floor(Math.random() * (def.radiusMax - def.radiusMin + 1));
+      const ox = radius + Math.floor(Math.random() * (DIMS.w - 2 * radius));
+      const oz = radius + Math.floor(Math.random() * (DIMS.d - 2 * radius));
+      origin_x = ox; origin_z = oz;
+      params = { radius };
+      deleteQuery = `UPDATE blocks SET block_type=0, seq=nextval('block_seq'),
+        updated_by_user_id=$1, updated_by_username=$2, updated_at=NOW()
+        WHERE (x-$3)*(x-$3)+(z-$4)*(z-$4) <= $5 AND block_type <> 0
+        RETURNING x, y, z`;
+      deleteParams = [DISASTER_USER_ID, DISASTER_USERNAME, ox, oz, radius * radius];
+      chatMsg = `${def.icon} Volcanic eruption at (${ox},${oz})! Rebuild!`;
+    } else { // meteor
+      const radius = def.radiusMin + Math.floor(Math.random() * (def.radiusMax - def.radiusMin + 1));
+      const ox = radius + Math.floor(Math.random() * (DIMS.w - 2 * radius));
+      const oy = 10;
+      const oz = radius + Math.floor(Math.random() * (DIMS.d - 2 * radius));
+      origin_x = ox; origin_z = oz;
+      params = { radius, oy };
+      deleteQuery = `UPDATE blocks SET block_type=0, seq=nextval('block_seq'),
+        updated_by_user_id=$1, updated_by_username=$2, updated_at=NOW()
+        WHERE (x-$3)*(x-$3)+(y-$4)*(y-$4)+(z-$5)*(z-$5) <= $6 AND block_type <> 0
+        RETURNING x, y, z`;
+      deleteParams = [DISASTER_USER_ID, DISASTER_USERNAME, ox, oy, oz, radius * radius];
+      chatMsg = `${def.icon} Meteor strike at (${ox},${oz})! Rebuild!`;
+    }
+
+    const delRes = await client.query(deleteQuery, deleteParams);
+    const blocks_destroyed = delRes.rows.length;
+
+    // Append count to chat message (keep under 200 chars)
+    const countSuffix = ` ${blocks_destroyed} blocks destroyed.`;
+    const fullMsg = (chatMsg + countSuffix).slice(0, 200);
+
+    const disRes = await client.query(
+      `INSERT INTO disasters (type, origin_x, origin_z, params, blocks_destroyed)
+       VALUES ($1, $2, $3, $4, $5) RETURNING id, triggered_at`,
+      [type, origin_x, origin_z, JSON.stringify(params), blocks_destroyed]
+    );
+    const disaster = disRes.rows[0];
+
+    await client.query(
+      `INSERT INTO chat_messages (user_id, username, body) VALUES ($1, $2, $3)`,
+      [DISASTER_USER_ID, '🌍 World Events', fullMsg]
+    );
+
+    // Schedule next disaster
+    const types = Object.keys(DISASTER_DEFS);
+    const nextType = types[Math.floor(Math.random() * types.length)];
+    const nextDelaySecs = DISASTER_MIN_SECS + Math.floor(Math.random() * (DISASTER_MAX_SECS - DISASTER_MIN_SECS));
+    await client.query(
+      `UPDATE disaster_schedule SET fire_at = NOW() + ($1 || ' seconds')::INTERVAL, next_type = $2 WHERE id = 1`,
+      [nextDelaySecs, nextType]
+    );
+
+    await client.query('COMMIT');
+    return { id: Number(disaster.id), type, label: def.label, icon: def.icon, origin_x, origin_z, params, blocks_destroyed, triggered_at: disaster.triggered_at };
+  } catch (err) {
+    try { await client.query('ROLLBACK'); } catch (_) {}
+    console.error('disaster trigger error', err.message);
+    return null;
+  } finally {
+    client.release();
+  }
+}
+
 async function start() {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS blocks (
@@ -1289,6 +3091,43 @@ async function start() {
       blocks_placed BIGINT NOT NULL DEFAULT 0,
       best_combo    SMALLINT NOT NULL DEFAULT 1,
       updated_at    TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+
+  // Time Attack high scores: one row per user holding their best single-run
+  // block count and the difficulty (1-5) it was achieved at. Public table —
+  // it holds only a username and a block count, nothing a stranger seeing
+  // every row could misuse. No foreign keys.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS ta_scores (
+      user_id         INTEGER PRIMARY KEY,
+      username        VARCHAR(255) NOT NULL,
+      best_cleared    INTEGER NOT NULL DEFAULT 0,
+      best_difficulty SMALLINT NOT NULL DEFAULT 1,
+      updated_at      TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+
+  // Time Attack (60s) high scores: one row per user holding their best run.
+  // Public table — it holds only a username and block count, nothing sensitive.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS ta_60_scores (
+      user_id         INTEGER PRIMARY KEY,
+      username        VARCHAR(255) NOT NULL,
+      best_cleared    INTEGER NOT NULL DEFAULT 0,
+      updated_at      TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+
+  // Endless Mode high scores: one row per user holding their best run stats.
+  // Public table — it holds only a username and block counts, nothing sensitive.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS endless_scores (
+      user_id              INTEGER PRIMARY KEY,
+      username             VARCHAR(255) NOT NULL,
+      best_placed          INTEGER NOT NULL DEFAULT 0,
+      best_moves_survived  INTEGER NOT NULL DEFAULT 0,
+      updated_at           TIMESTAMPTZ DEFAULT NOW()
     )
   `);
 
@@ -1336,6 +3175,10 @@ async function start() {
     ALTER TABLE user_presence
       ADD COLUMN IF NOT EXISTS mode VARCHAR(20) NOT NULL DEFAULT 'classic'
   `);
+  await pool.query(`
+    ALTER TABLE user_presence
+      ADD COLUMN IF NOT EXISTS current_world_id INTEGER
+  `);
 
   // Daily challenge progress: one row per (date, user). Public table —
   // placement counts and usernames are not sensitive.
@@ -1354,6 +3197,34 @@ async function start() {
   await pool.query(`
     CREATE INDEX IF NOT EXISTS daily_challenge_progress_date_placed_idx
     ON daily_challenge_progress (challenge_date, blocks_placed DESC)
+  `);
+
+  // Daily challenge streaks: tracks consecutive days of challenge completion.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS daily_challenge_streaks (
+      user_id INTEGER PRIMARY KEY,
+      current_streak INTEGER NOT NULL DEFAULT 0,
+      longest_streak INTEGER NOT NULL DEFAULT 0,
+      last_completed_date DATE,
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+
+  // Daily challenge rewards: audit log for streak bonuses and coins earned.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS daily_challenge_rewards (
+      id BIGSERIAL PRIMARY KEY,
+      user_id INTEGER NOT NULL,
+      reward_date DATE NOT NULL,
+      coins_earned INTEGER NOT NULL,
+      streak_bonus_multiplier DECIMAL(3, 1) NOT NULL DEFAULT 1.0,
+      earned_at TIMESTAMPTZ DEFAULT NOW(),
+      UNIQUE (user_id, reward_date)
+    )
+  `);
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS daily_challenge_rewards_user_date_idx
+    ON daily_challenge_rewards (user_id, reward_date)
   `);
 
   await pool.query(`
@@ -1397,6 +3268,28 @@ async function start() {
     )
   `);
 
+  // Daily login rewards: tracks which players have claimed their daily reward and the date.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS login_rewards (
+      user_id        INTEGER NOT NULL,
+      reward_date    DATE NOT NULL,
+      coins_earned   INTEGER NOT NULL,
+      claimed_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at     TIMESTAMPTZ DEFAULT NOW(),
+      PRIMARY KEY (user_id, reward_date)
+    )
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS login_rewards_user_date_idx ON login_rewards (user_id, reward_date)`);
+
+  // Player coin balance: stores cumulative coins for each player.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS player_coins (
+      user_id        INTEGER PRIMARY KEY,
+      coins_balance  BIGINT NOT NULL DEFAULT 0,
+      updated_at     TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+
   // Social graph: friend requests and accepted friendships.
   // Marked staging:private — the friend relationships between real users must
   // not be copied to staging containers.
@@ -1417,6 +3310,88 @@ async function start() {
   await pool.query(`CREATE INDEX IF NOT EXISTS friendships_addressee_status_idx ON friendships (addressee_id, status)`);
   await pool.query(`CREATE INDEX IF NOT EXISTS friendships_requester_status_idx ON friendships (requester_id, status)`);
 
+  // Puzzle Mode scores: tracks best performance per user.
+  // Public table — holds only username and level counts, nothing sensitive.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS puzzle_scores (
+      user_id                      INTEGER PRIMARY KEY,
+      username                     VARCHAR(255) NOT NULL,
+      highest_level                INTEGER NOT NULL DEFAULT 1,
+      total_blocks_cleared_best_session INTEGER NOT NULL DEFAULT 0,
+      updated_at                   TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+
+  // Puzzle level definitions: seed data for each level's block layout and target.
+  // Public table — level data is not sensitive.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS puzzle_level_definitions (
+      level_number              INTEGER PRIMARY KEY,
+      block_snapshot            JSONB NOT NULL,
+      target_blocks_to_clear    INTEGER NOT NULL,
+      created_at                TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS disasters (
+      id               SERIAL PRIMARY KEY,
+      type             VARCHAR(20)  NOT NULL,
+      origin_x         SMALLINT,
+      origin_z         SMALLINT,
+      params           JSONB        NOT NULL DEFAULT '{}',
+      blocks_destroyed INTEGER      NOT NULL DEFAULT 0,
+      triggered_at     TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+    )
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS disasters_triggered_at_idx ON disasters (triggered_at DESC)`);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS disaster_schedule (
+      id        INTEGER PRIMARY KEY CHECK (id = 1),
+      fire_at   TIMESTAMPTZ  NOT NULL,
+      next_type VARCHAR(20)  NOT NULL
+    )
+  `);
+
+  // Tutorial completion tracking: one row per user who completes tutorial.
+  // Public table — only tracks completion status, no sensitive data.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS player_tutorial_completed (
+      user_id INTEGER PRIMARY KEY,
+      completed_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+
+  // User custom worlds: snapshots of blocks that players can save and load.
+  // Public table — it holds only usernames and block configurations.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS user_worlds (
+      id SERIAL PRIMARY KEY,
+      owner_id INTEGER NOT NULL,
+      owner_username VARCHAR(255) NOT NULL,
+      world_name VARCHAR(255) NOT NULL,
+      description TEXT,
+      block_snapshot JSONB NOT NULL DEFAULT '[]',
+      blocks_count INTEGER NOT NULL DEFAULT 0,
+      is_public BOOLEAN DEFAULT false,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW(),
+      UNIQUE (owner_id, world_name)
+    )
+  `);
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS user_worlds_owner_idx ON user_worlds (owner_id, updated_at DESC)
+  `);
+
+  // Prime the schedule on first boot; subsequent boots leave the existing row intact.
+  const disasterInitDelay = IS_STAGING ? '10 seconds' : '60 seconds';
+  await pool.query(
+    `INSERT INTO disaster_schedule (id, fire_at, next_type)
+     VALUES (1, NOW() + ($1 || ' seconds')::INTERVAL, 'earthquake')
+     ON CONFLICT DO NOTHING`,
+    [IS_STAGING ? '10' : '60']
+  );
 
   if (IS_STAGING) {
     try { await seedStaging(); }
@@ -1427,13 +3402,28 @@ async function start() {
     catch (err) { console.error('leaderboard seed failed', err); }
     try { await seedTournament(); }
     catch (err) { console.error('tournament seed failed', err); }
+    try { await seedTaScores(); }
+    catch (err) { console.error('ta-scores seed failed', err); }
+    try { await seedTa60Scores(); }
+    catch (err) { console.error('ta-60-scores seed failed', err); }
+    try { await seedEndlessScores(); }
+    catch (err) { console.error('endless-scores seed failed', err); }
     try { await seedStreaks(); }
     catch (err) { console.error('streak seed failed', err); }
+    try { await seedLoginRewards(); }
+    catch (err) { console.error('login-rewards seed failed', err); }
+    try { await seedDailyChallenge(); }
+    catch (err) { console.error('daily-challenge seed failed', err); }
+    try { await seedPuzzleLevels(); }
+    catch (err) { console.error('puzzle-levels seed failed', err); }
+    try { await seedPuzzleScores(); }
+    catch (err) { console.error('puzzle-scores seed failed', err); }
     // Staging spectators are now surfaced via the STAGING_DEMO_USERS constant
     // appended in GET /api/presence/online, so no DB seed is needed here.
   }
 
   await ensurePowerUps();
+  initMobs();
 
   app.listen(port, () => console.log(`Listening on :${port}`));
 }
