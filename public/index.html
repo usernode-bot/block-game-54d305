@@ -108,6 +108,29 @@
     /* Hold panel swatch transition for locked/unlocked state */
     #hold-swatch { transition: opacity 0.2s; }
 
+    /* Touch layout: raise palette above on-screen controls and add horizontal
+       scroll so all block types are reachable without overlapping buttons. */
+    #palette.touch-playing {
+      bottom: 11rem;
+      max-width: calc(100% - 3rem);
+      overflow-x: auto;
+      scroll-snap-type: x mandatory;
+      -webkit-overflow-scrolling: touch;
+    }
+    #palette.touch-playing > button {
+      flex-shrink: 0;
+      scroll-snap-align: start;
+    }
+    /* Enlarge HUD icon buttons to the 44px minimum recommended touch target. */
+    .touch-device #badges-btn,
+    .touch-device #mute-btn,
+    .touch-device #turntable-btn,
+    .touch-device #help-btn,
+    .touch-device #leaderboard-btn { width: 2.75rem; height: 2.75rem; }
+    /* Hide the hold-panel on touch — held block state is shown on the Hold
+       button background instead (see updateHoldPanel). */
+    .touch-device #hold-panel { display: none; }
+
     #bg-canvas { position: fixed; inset: 0; pointer-events: none; }
 
     /* Undo/redo buttons: disabled state */
@@ -733,6 +756,13 @@
        to clear the on-screen action cluster). Hidden until init() loads data. -->
   <div id="challenge-hud" class="hidden pointer-events-none fixed right-3 z-20 w-36 rounded-lg bg-black/55 px-2 py-1.5 text-xs text-white/90"></div>
 
+  <!-- Blocks Placed HUD: personal lifetime stat, bottom-left corner.
+       Bottom position set by JS (raised on touch to clear movement pad). -->
+  <div id="blocks-placed-hud" class="hidden pointer-events-none fixed left-3 z-20 rounded-lg bg-black/55 px-2 py-1.5 text-white/90">
+    <div class="text-[9px] font-bold uppercase tracking-widest text-white/60 leading-tight">Blocks Placed</div>
+    <div id="blocks-placed-count" class="text-lg font-mono font-bold leading-tight tabular-nums">0</div>
+  </div>
+
   <!-- Player HP HUD: shown in Classic mode only. -->
   <div id="hp-hud" class="hidden pointer-events-none fixed bottom-24 left-4 z-20 rounded-lg bg-black/55 px-2 py-1.5 text-xs text-white/90 font-semibold whitespace-nowrap">&#10084; <span id="hp-value">10</span></div>
 
@@ -1041,7 +1071,7 @@
 
     // Build identifier — bump this (to the deploying commit short SHA) on every
     // change so the top-right stamp confirms exactly which code is running.
-    const BUILD_VERSION = 'power-ups+hold-queue+achievements-badges+chat+daily-challenge+leaderboard+online-presence+block-attribution+audio-sfx+next-piece-preview+spectator-mode+weekly-tournament+friends+day-night-cycle+minimap+ai-coach+daily-theme-voting+natural-disasters+community-monuments+undo-redo-history+pastel-chrome+mobs';
+    const BUILD_VERSION = 'power-ups+hold-queue+achievements-badges+chat+daily-challenge+leaderboard+online-presence+block-attribution+audio-sfx+next-piece-preview+spectator-mode+weekly-tournament+friends+blocks-placed-hud+day-night-cycle+minimap+ai-coach+daily-theme-voting+natural-disasters+community-monuments+undo-redo-history+pastel-chrome+mobs';
 
     // Badge definitions — mirror of the server-side BADGES array, extended with
     // a `hint` field shown in the panel for unearned badges.
@@ -1673,14 +1703,29 @@
     // Daily Challenge HUD element — bottom position raised on touch to clear
     // the on-screen fly/build action cluster that lives at bottom-right.
     const challengeHudEl = document.getElementById('challenge-hud');
-    challengeHudEl.style.bottom = isTouch ? '10rem' : '1rem';
+    challengeHudEl.style.bottom = isTouch ? '15rem' : '1rem';
+    const blocksPlacedHudEl = document.getElementById('blocks-placed-hud');
+    blocksPlacedHudEl.style.bottom = isTouch ? '18rem' : '5.5rem';
 
     // Streak HUD pill sits above the challenge HUD.
     const streakHudEl = document.getElementById('streak-hud');
     const CHALLENGE_HUD_HEIGHT_PX = 54; // approx rendered height (px) of challenge pill
     const STREAK_GAP_PX = 6;
-    const challengeHudBottomPx = isTouch ? 160 : 16; // 10rem=160px, 1rem=16px
+    const challengeHudBottomPx = isTouch ? 240 : 16; // 15rem=240px, 1rem=16px
     streakHudEl.style.bottom = (challengeHudBottomPx + CHALLENGE_HUD_HEIGHT_PX + STREAK_GAP_PX) + 'px';
+
+    // Apply touch-device layout overrides once at startup.
+    if (isTouch) {
+      document.body.classList.add('touch-device');
+      // Raise the powerup buff HUD above the on-screen action cluster + palette.
+      document.getElementById('powerup-hud').style.bottom = '14rem';
+      // Raise badge toast container above the action cluster.
+      document.getElementById('badge-toasts').style.bottom = '14rem';
+      // Move chat toggle to the top-right area to avoid the crowded bottom strip.
+      const chatToggleEl = document.getElementById('chat-toggle');
+      chatToggleEl.style.bottom = 'auto';
+      chatToggleEl.style.top = '11rem';
+    }
 
     function updateStreakHud(current) {
       if (current <= 0) return;
@@ -1786,6 +1831,9 @@
     let playerHp           = PLAYER_MAX_HP;
     let lastDamagedAt      = 0;   // ms; 2-second inter-hit immunity
     let deathInvincibleUntil = 0; // ms; 5-second post-respawn invincibility
+
+    // ---- Blocks placed (lifetime) ----
+    let myBlocksPlaced = 0;
 
     // ---- Game mode state ----
     let gameMode = null;           // null | 'classic' | 'timeattack' | 'endless' | 'learn' | 'tutorial' | 'time-attack-60'
@@ -2779,6 +2827,10 @@
       if (gameMode !== 'spectate') challengeHudEl.classList.remove('hidden');
     }
 
+    function renderBlocksPlacedHud() {
+      document.getElementById('blocks-placed-count').textContent = myBlocksPlaced.toLocaleString();
+    }
+
     async function sendEdit(x, y, z, t, prevType) {
       if (!undoInProgress && gameMode === 'classic' && prevType !== undefined) {
         pushUndo(x, y, z, prevType, t);
@@ -2845,6 +2897,11 @@
             }
           }
           if (data.challenge) syncChallenge(data.challenge);
+          if (t !== 0) {
+            myBlocksPlaced++;
+            renderBlocksPlacedHud();
+            blocksPlacedHudEl.classList.remove('hidden');
+          }
         }
       } catch (e) { /* poll loop will reconcile */ }
     }
@@ -4409,6 +4466,7 @@
 
     function updateTouchControlsVisibility() {
       touchControlsEl.classList.toggle('hidden', !(isTouch && playing));
+      document.getElementById('palette').classList.toggle('touch-playing', !!(isTouch && playing));
     }
 
     function tryPointerLock() {
@@ -5431,7 +5489,13 @@
         try {
           const res = await fetch('/api/leaderboard', { headers });
           if (!res.ok) throw new Error('fetch failed');
-          const { entries } = await res.json();
+          const lbData = await res.json();
+          const { entries } = lbData;
+          if (lbData.self != null) {
+            myBlocksPlaced = lbData.self.blocks_placed;
+            renderBlocksPlacedHud();
+            blocksPlacedHudEl.classList.remove('hidden');
+          }
           if (!entries.length) {
             leaderboardContentEl.innerHTML = '<p class="py-1">No builders yet — be the first!</p>';
           } else {
@@ -6327,9 +6391,18 @@
 
     // ---- Hold queue ----
     function updateHoldPanel() {
+      const p = heldType !== null ? PALETTE.find((q) => q.id === heldType) : null;
+      // On touch the #hold-panel is hidden; reflect hold state on the Hold button instead.
+      if (isTouch) {
+        const holdBtnEl = touchControlsEl.querySelector('[data-act="hold"]');
+        if (holdBtnEl) {
+          holdBtnEl.style.background = p ? p.color : '';
+          holdBtnEl.style.opacity = (p && holdLocked) ? '0.5' : '';
+        }
+        return;
+      }
       const swatchEl = document.getElementById('hold-swatch');
       if (!swatchEl) return;
-      const p = heldType !== null ? PALETTE.find((q) => q.id === heldType) : null;
       if (!p) {
         swatchEl.style.background = '';
         swatchEl.style.opacity = '';
@@ -6990,6 +7063,9 @@
           if (sd.current_streak > 0) updateStreakHud(sd.current_streak);
         }
       } catch (_) {}
+
+      // Load initial blocks-placed count from leaderboard self row.
+      fetchLeaderboard().catch(() => {});
 
       // Load today's build theme (non-fatal).
       fetchTheme().catch(() => {});
