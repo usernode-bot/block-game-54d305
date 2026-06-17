@@ -5,10 +5,21 @@ const jwt = require('jsonwebtoken');
 
 const app = express();
 const port = process.env.PORT || 3000;
+
+// Validate required environment variables
+if (!process.env.DATABASE_URL) {
+  console.error('FATAL: DATABASE_URL environment variable is not set. Cannot start.');
+  process.exit(1);
+}
+
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 const JWT_SECRET = process.env.JWT_SECRET;
 const IS_STAGING = process.env.USERNODE_ENV === 'staging';
 const LLM_ENABLED = !!process.env.USERNODE_LLM_PROXY_TOKEN;
+
+// Startup flag to track when initialization completes
+let startupComplete = false;
+let startupError = null;
 
 // Hardcoded demo presence entries for staging so the online list is always
 // populated regardless of whether the seeded user_presence rows are still
@@ -185,6 +196,12 @@ app.get('/health', (_req, res) => res.json({ status: 'ok' }));
 
 // ---- World bootstrap: dimensions, palette, current blocks, poll cursor ----
 app.get('/api/world', async (req, res) => {
+  if (!startupComplete) {
+    if (startupError) {
+      return res.status(500).json({ error: 'Server initialization failed: ' + startupError });
+    }
+    return res.status(503).json({ error: 'Server is still initializing. Please try again in a moment.' });
+  }
   try {
     const { rows } = await pool.query(
       `SELECT x, y, z, block_type FROM blocks WHERE block_type <> 0`
@@ -206,7 +223,7 @@ app.get('/api/world', async (req, res) => {
       tutorial_completed,
     });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Failed to load world data: ' + err.message });
   }
 });
 
@@ -2747,8 +2764,10 @@ async function maybeFireDisaster() {
 }
 
 async function start() {
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS blocks (
+  try {
+    console.log('[startup] Initializing database tables...');
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS blocks (
       x SMALLINT NOT NULL,
       y SMALLINT NOT NULL,
       z SMALLINT NOT NULL,
@@ -3076,9 +3095,18 @@ async function start() {
     // appended in GET /api/presence/online, so no DB seed is needed here.
   }
 
-  await ensurePowerUps();
+    await ensurePowerUps();
 
-  app.listen(port, () => console.log(`Listening on :${port}`));
+    console.log('[startup] Database initialization complete.');
+    startupComplete = true;
+    app.listen(port, () => console.log(`[startup] Listening on :${port}`));
+  } catch (err) {
+    const msg = err.message || String(err);
+    console.error('[startup] FATAL: Database initialization failed:', msg);
+    startupError = msg;
+    // Keep the app running but report errors when requested
+    app.listen(port, () => console.log(`[startup] Listening on :${port} (with startup error)`));
+  }
 }
 
 start().catch((err) => { console.error(err); process.exit(1); });

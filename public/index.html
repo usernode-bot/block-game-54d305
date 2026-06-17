@@ -1354,16 +1354,24 @@
     let firstBlockPlacedInTutorial = false;
 
     // ---- Three.js scaffold ----
-    const canvas = document.getElementById('scene');
-    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    const scene = new THREE.Scene();
-    scene.background = null;
-    scene.fog = new THREE.Fog('#8ec7ff', 40, 90);
+    let renderer, scene, camera;
+    try {
+      const canvas = document.getElementById('scene');
+      if (!canvas) throw new Error('Canvas element (id="scene") not found');
+      renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+      scene = new THREE.Scene();
+      scene.background = null;
+      scene.fog = new THREE.Fog('#8ec7ff', 40, 90);
 
-    const camera = new THREE.PerspectiveCamera(70, 1, 0.1, 500);
-    camera.up.set(0, 1, 0);
-    camera.position.set(DIMS.w / 2, 3.5, DIMS.d / 2 + 8);
+      camera = new THREE.PerspectiveCamera(70, 1, 0.1, 500);
+      camera.up.set(0, 1, 0);
+      camera.position.set(DIMS.w / 2, 3.5, DIMS.d / 2 + 8);
+    } catch (err) {
+      console.error('[Three.js] Initialization failed:', err.message);
+      statusEl.textContent = 'Failed to initialize 3D renderer. Your browser may not support WebGL.';
+      throw err;
+    }
 
     const ambientLight = new THREE.AmbientLight(0xffffff, 0.65);
     scene.add(ambientLight);
@@ -5004,26 +5012,39 @@
 
     // ---- Server sync ----
     async function loadWorld() {
-      const res = await fetch('/api/world', { headers });
-      if (!res.ok) {
-        statusEl.textContent = res.status === 401 ? 'Open this app inside Usernode to play.' : 'Failed to load world.';
+      try {
+        const res = await fetch('/api/world', { headers });
+        if (!res.ok) {
+          if (res.status === 401) {
+            statusEl.textContent = 'Open this app inside Usernode to play.';
+          } else if (res.status === 503) {
+            statusEl.textContent = 'Server is initializing. Please wait...';
+          } else {
+            const data = await res.json().catch(() => ({}));
+            statusEl.textContent = data.error || 'Failed to load world. Please refresh the page.';
+          }
+          return false;
+        }
+        const data = await res.json();
+        DIMS = data.dims;
+        PALETTE = data.palette;
+        cursor = data.cursor || 0;
+        eventsCursor = data.maxDisasterId || 0;
+        unlockedTypes = new Set(data.unlockedTypes || []);
+        selectedType = PALETTE[0] ? PALETTE[0].id : 1;
+        blocks.clear();
+        for (const b of data.blocks) blocks.set(key(b.x, b.y, b.z), b.t);
+        buildGround();
+        buildGroundGrid();
+        buildPalette();
+        rebuildBlockMeshes();
+        spawnCamera();
+        return true;
+      } catch (err) {
+        statusEl.textContent = 'Network error loading world. Please check your connection and refresh.';
+        console.error('[loadWorld] fetch error:', err.message);
         return false;
       }
-      const data = await res.json();
-      DIMS = data.dims;
-      PALETTE = data.palette;
-      cursor = data.cursor || 0;
-      eventsCursor = data.maxDisasterId || 0;
-      unlockedTypes = new Set(data.unlockedTypes || []);
-      selectedType = PALETTE[0] ? PALETTE[0].id : 1;
-      blocks.clear();
-      for (const b of data.blocks) blocks.set(key(b.x, b.y, b.z), b.t);
-      buildGround();
-      buildGroundGrid();
-      buildPalette();
-      rebuildBlockMeshes();
-      spawnCamera();
-      return true;
     }
 
     async function heartbeat() {
