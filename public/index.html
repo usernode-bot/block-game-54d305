@@ -2481,7 +2481,7 @@
       renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
       scene = new THREE.Scene();
       scene.background = null;
-      scene.fog = new THREE.Fog('#8ec7ff', 40, 90);
+      scene.fog = new THREE.Fog('#00bfff', 40, 90);
 
       camera = new THREE.PerspectiveCamera(70, 1, 0.1, 500);
       camera.up.set(0, 1, 0);
@@ -2542,8 +2542,8 @@
       depthWrite: false,
       side: THREE.BackSide,
       uniforms: {
-        uZenith:  { value: new THREE.Color('#4ab8ff') },
-        uHorizon: { value: new THREE.Color('#7dd9ff') },
+        uZenith:  { value: new THREE.Color('#00bfff') },
+        uHorizon: { value: new THREE.Color('#00e5ff') },
       },
       vertexShader: `
         varying float vY;
@@ -2570,7 +2570,7 @@
     // Sun visual mesh — named sunMesh to avoid collision with `sun` DirectionalLight
     const sunMesh = new THREE.Mesh(
       new THREE.SphereGeometry(3, 16, 16),
-      new THREE.MeshBasicMaterial({ color: '#fff5c0', fog: false, transparent: true })
+      new THREE.MeshBasicMaterial({ color: '#ffff66', fog: false, transparent: true })
     );
     sunMesh.renderOrder = -1;
     scene.add(sunMesh);
@@ -2578,7 +2578,7 @@
     // Moon visual mesh
     const moonMesh = new THREE.Mesh(
       new THREE.SphereGeometry(2, 16, 16),
-      new THREE.MeshBasicMaterial({ color: '#dde8ff', fog: false, transparent: true })
+      new THREE.MeshBasicMaterial({ color: '#cc99ff', fog: false, transparent: true })
     );
     moonMesh.renderOrder = -1;
     scene.add(moonMesh);
@@ -2637,7 +2637,7 @@
       archHole.closePath();
       castleShape.holes.push(archHole);
 
-      const castleMat = new THREE.MeshBasicMaterial({ color: '#0a0a18', fog: false, side: THREE.DoubleSide });
+      const castleMat = new THREE.MeshBasicMaterial({ color: '#0a0020', fog: false, side: THREE.DoubleSide });
       const castleMesh = new THREE.Mesh(new THREE.ShapeGeometry(castleShape), castleMat);
       castleMesh.position.set(DIMS.w / 2, -2, -50);
       castleMesh.scale.set(1.2, 1.2, 1);
@@ -2985,7 +2985,7 @@
     function buildGroundGrid() {
       if (groundGrid) { scene.remove(groundGrid); groundGrid = null; }
       const SIZE = 400;
-      const grid = new THREE.GridHelper(SIZE, SIZE, 0x7c8fa3, 0x44505f);
+      const grid = new THREE.GridHelper(SIZE, SIZE, 0x00ffcc, 0x007766);
       grid.position.set(DIMS.w / 2, -0.01, DIMS.d / 2);
       grid.material.transparent = true;
       grid.material.opacity = 0.35;
