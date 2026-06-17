@@ -211,10 +211,30 @@
   <button id="friends-btn" title="Friends" aria-label="Toggle friends"
           class="fixed top-[6.25rem] right-3 z-30 w-9 h-9 rounded-full bg-black/50 hover:bg-black/70 text-zinc-100 text-lg leading-none flex items-center justify-center transition-colors cursor-pointer relative">👥<span id="friends-badge" class="hidden absolute -top-1 -right-1 w-3 h-3 rounded-full bg-red-500 pointer-events-none"></span></button>
 
+  <!-- Blueprints toggle: sits below friends button. -->
+  <button id="blueprints-btn" title="Blueprints (Y)" aria-label="Toggle blueprints"
+          class="fixed top-[9rem] right-3 z-30 w-9 h-9 rounded-full bg-black/50 hover:bg-black/70 text-zinc-100 text-lg leading-none flex items-center justify-center transition-colors cursor-pointer">📋</button>
+
   <!-- Build/version stamp: always visible, dim, so the running build can be
        confirmed at a glance. Bump BUILD_VERSION (below) on every change.
-       Shifted down to make room for the leaderboard and friends buttons above. -->
-  <div id="build-stamp" class="pointer-events-none fixed top-36 right-3 z-20 text-[11px] text-zinc-300/70 bg-black/40 rounded px-2 py-1 font-mono"></div>
+       Shifted down to make room for buttons above. -->
+  <div id="build-stamp" class="pointer-events-none fixed top-[11.75rem] right-3 z-20 text-[11px] text-zinc-300/70 bg-black/40 rounded px-2 py-1 font-mono"></div>
+
+  <!-- Blueprint select HUD: shown in blueprint-select mode. -->
+  <div id="bp-select-hud" class="hidden pointer-events-none fixed top-3 left-1/2 -translate-x-1/2 z-30 bg-black/70 text-white text-xs font-semibold px-4 py-2 rounded-full whitespace-nowrap"></div>
+
+  <!-- Blueprint naming overlay: modal for naming a captured blueprint. -->
+  <div id="bp-naming-overlay" class="hidden fixed inset-0 z-[45] flex items-center justify-center bg-black/50">
+    <div class="bg-zinc-900 rounded-xl p-6 w-80 max-w-[90vw] shadow-2xl">
+      <h2 class="text-zinc-100 font-bold text-base mb-3">Save Blueprint</h2>
+      <input id="bp-name-input" type="text" maxlength="40" placeholder="Blueprint name…" autocomplete="off"
+             class="w-full bg-zinc-800 text-zinc-100 text-sm rounded px-3 py-2 border border-zinc-700 focus:border-violet-500 outline-none placeholder-zinc-500 mb-3">
+      <div class="flex gap-2 justify-end">
+        <button id="bp-cancel-btn" class="px-4 py-2 text-xs text-zinc-400 hover:text-zinc-200 cursor-pointer rounded transition-colors">Cancel</button>
+        <button id="bp-save-btn" class="px-4 py-2 text-xs bg-violet-600 hover:bg-violet-500 active:bg-violet-700 text-white font-semibold rounded cursor-pointer transition-colors">Save</button>
+      </div>
+    </div>
+  </div>
 
   <!-- Badges panel: lists all 10 badges with earned/locked state. Hidden by
        default; toggled by the trophy button. -->
@@ -254,6 +274,8 @@
       <li><span class="font-semibold">Enter</span> — open / close chat</li>
       <li><span class="font-semibold">L</span> or <span class="font-semibold">🏆</span> — leaderboard</li>
       <li><span class="font-semibold">M</span> or <span class="font-semibold">🔊</span> — mute / unmute audio</li>
+      <li><span class="font-semibold">P</span> (playing) — blueprint select mode</li>
+      <li><span class="font-semibold">Y</span> — blueprint library</li>
       <li><span class="font-semibold">Esc</span> — close panel / release / menu</li>
     </ul>
   </div>
@@ -282,6 +304,16 @@
       <button id="friends-add-btn" class="shrink-0 px-3 py-1.5 bg-violet-600 hover:bg-violet-500 active:bg-violet-700 text-white text-xs font-semibold rounded cursor-pointer transition-colors">Add</button>
     </div>
     <div id="friends-add-status" class="mt-1 text-xs text-center min-h-[1.2em]"></div>
+  </div>
+
+  <!-- Blueprint library panel: lists saved blueprints. Hidden by default; toggled by 📋 or Y. -->
+  <div id="blueprints-panel" class="hidden fixed top-28 right-3 z-30 w-72 max-w-[90vw] rounded-xl bg-black/70 backdrop-blur p-4 text-sm text-zinc-200 shadow-xl">
+    <div class="flex items-center justify-between mb-3">
+      <h2 class="font-bold text-zinc-100">Blueprints</h2>
+      <button id="blueprints-close" aria-label="Close blueprints" class="text-zinc-400 hover:text-zinc-100 cursor-pointer leading-none">✕</button>
+    </div>
+    <p class="text-zinc-500 text-xs mb-3">Press <strong class="text-zinc-300">P</strong> in Classic mode to select a region, then save it. Click Stamp to place it.</p>
+    <div id="blueprints-list" class="space-y-2 max-h-96 overflow-y-auto pr-0.5 text-zinc-400 text-center text-xs py-2">Loading…</div>
   </div>
 
   <!-- Touch controls: translucent on-screen overlay shown only on touch devices
@@ -384,7 +416,7 @@
 
     // Build identifier — bump this (to the deploying commit short SHA) on every
     // change so the top-right stamp confirms exactly which code is running.
-    const BUILD_VERSION = 'hold-queue+achievements-badges+chat+daily-challenge+leaderboard+online-presence+block-attribution+audio-sfx+next-piece-preview+friends';
+    const BUILD_VERSION = 'hold-queue+achievements-badges+chat+daily-challenge+leaderboard+online-presence+block-attribution+audio-sfx+next-piece-preview+friends+blueprint';
 
     // Badge definitions — mirror of the server-side BADGES array, extended with
     // a `hint` field shown in the panel for unearned badges.
@@ -1324,6 +1356,9 @@
         endTimeAttack();
         return;
       }
+      // Exit any active blueprint mode.
+      if (bpMode === 'select') exitBlueprintSelect();
+      else if (bpMode === 'stamp') exitBlueprintStamp();
       // Stop any lingering TA timer.
       if (taTimerHandle) { clearInterval(taTimerHandle); taTimerHandle = null; }
       // Stop classic poll.
@@ -1472,6 +1507,8 @@
         if (e.key === 'Escape') { e.preventDefault(); closeFriends(); }
         return;
       }
+      // While the blueprint name input is focused, let bpNameInputEl's own listener handle Enter/Esc.
+      if (document.activeElement === bpNameInputEl) return;
       // Escape closes the chat drawer if it is open (before the existing
       // Escape handler that would otherwise return to the overlay).
       if (e.key === 'Escape' && chatOpen) { e.preventDefault(); closeChat(); return; }
@@ -1483,7 +1520,31 @@
         const n = parseInt(e.code.slice(5), 10);
         if (n >= 1 && n <= 9 && PALETTE[n - 1]) selectType(PALETTE[n - 1].id);
       }
-      if (e.code === 'KeyF' && playing) placeBlock();
+      // F: blueprint action when in bp mode, otherwise normal block placement.
+      if (e.code === 'KeyF' && playing) {
+        if (bpMode === 'stamp') {
+          doStamp();
+        } else if (bpMode === 'select') {
+          if (!target) { /* no aimed cell, skip */ }
+          else if (!bpCornerA) {
+            setBpCornerA(target);
+          } else {
+            const a = bpCornerA, b = target;
+            const minX = Math.min(a.x, b.x), maxX = Math.max(a.x, b.x);
+            const minY = Math.max(1, Math.min(a.y, b.y)), maxY = Math.max(a.y, b.y);
+            const minZ = Math.min(a.z, b.z), maxZ = Math.max(a.z, b.z);
+            if (maxX - minX + 1 > 16 || maxY - minY + 1 > 16 || maxZ - minZ + 1 > 16) {
+              showBpToast('Selection too large — max 16×16×16');
+            } else {
+              clearBpCornerAMarker();
+              updateBpSelectionBox({ x: minX, y: minY, z: minZ }, { x: maxX, y: maxY, z: maxZ });
+              showBpNamingOverlay({ x1: minX, y1: minY, z1: minZ, x2: maxX, y2: maxY, z2: maxZ });
+            }
+          }
+        } else {
+          placeBlock();
+        }
+      }
       if (e.code === 'KeyG' && playing) breakBlock();
       // H is context-aware: triggers hold/swap while playing, toggles the
       // controls overlay when the menu/overlay is up.
@@ -1494,14 +1555,30 @@
       // L toggles the leaderboard panel.
       if (e.code === 'KeyL') toggleLeaderboard();
       if (e.code === 'KeyM') { muteBtnEl.textContent = audio.toggleMute() ? '🔇' : '🔊'; }
+      // P: toggle blueprint select mode (classic only).
+      if (e.code === 'KeyP') {
+        if (bpMode === 'select') exitBlueprintSelect();
+        else if (bpMode === 'stamp') exitBlueprintStamp();
+        else enterBlueprintSelect();
+      }
+      // Y: toggle blueprint library panel.
+      if (e.code === 'KeyY') toggleBlueprintsPanel();
       // Escape: close overlays in priority order, then handle mode exit.
       // In native (locked) mode the browser handles Esc and fires
       // pointerlockchange, which restores the overlay there.
       if (e.code === 'Escape') {
-        if (!leaderboardEl.classList.contains('hidden')) {
+        if (bpNamingVisible) {
+          hideBpNamingOverlay();
+        } else if (bpMode === 'stamp') {
+          exitBlueprintStamp();
+        } else if (bpMode === 'select') {
+          exitBlueprintSelect();
+        } else if (!leaderboardEl.classList.contains('hidden')) {
           closeLeaderboard();
         } else if (!friendsPanelEl.classList.contains('hidden')) {
           closeFriends();
+        } else if (!bpPanelEl.classList.contains('hidden')) {
+          bpPanelEl.classList.add('hidden'); bpLibraryOpen = false;
         } else if (dragMode && playing) {
           if (gameMode === 'timeattack') {
             endTimeAttack();
@@ -1563,7 +1640,7 @@
     for (const el of touchControlsEl.querySelectorAll('[data-act]')) {
       const act = el.dataset.act;
       bindTap(el, () => {
-        if (act === 'place' && playing) placeBlock();
+        if (act === 'place' && playing) { if (bpMode === 'stamp') doStamp(); else placeBlock(); }
         else if (act === 'break' && playing) breakBlock();
         else if (act === 'hold' && playing) holdBlock();
         else if (act === 'menu') {
@@ -1814,6 +1891,279 @@
         const u = friendsInputEl.value.trim();
         if (u) sendFriendRequest(u);
       }
+    });
+
+    // ---- Blueprint system ----
+    // bpMode: null | 'select' | 'stamp'
+    let bpMode = null;
+    let bpCornerA = null;    // {x,y,z} first corner of selection
+    let bpCornerB = null;    // {x,y,z} second corner (locked in after second F press)
+    let bpLiveCorner = null; // live aimed cell while in select mode (used for wireframe preview)
+    let bpGhostGroup = null; // THREE.Group containing InstancedMeshes for stamp preview
+    let bpSelectionBox = null;    // THREE.LineSegments for select-mode wireframe
+    let bpCornerAMarker = null;   // small cube marking cornerA
+    let bpActiveBlueprint = null; // blueprint data ({id,blocks,...}) loaded for stamping
+    let bpStampOutOfBounds = false;
+    let bpLibraryOpen = false;
+    let bpNamingVisible = false;
+    let bpPendingCapture = null;  // {x1,y1,z1,x2,y2,z2} waiting for name input
+
+    const bpHudEl = document.getElementById('bp-select-hud');
+    const bpNamingEl = document.getElementById('bp-naming-overlay');
+    const bpNameInputEl = document.getElementById('bp-name-input');
+    const bpSaveBtnEl = document.getElementById('bp-save-btn');
+    const bpCancelBtnEl = document.getElementById('bp-cancel-btn');
+    const bpPanelEl = document.getElementById('blueprints-panel');
+    const bpListEl = document.getElementById('blueprints-list');
+
+    function clearBpSelectionBox() {
+      if (bpSelectionBox) { scene.remove(bpSelectionBox); bpSelectionBox.geometry.dispose(); bpSelectionBox = null; }
+    }
+    function clearBpCornerAMarker() {
+      if (bpCornerAMarker) { scene.remove(bpCornerAMarker); bpCornerAMarker.geometry.dispose(); bpCornerAMarker = null; }
+    }
+    function clearBpGhost() {
+      if (bpGhostGroup) {
+        bpGhostGroup.children.forEach(m => { m.geometry.dispose(); });
+        scene.remove(bpGhostGroup);
+        bpGhostGroup = null;
+      }
+    }
+
+    function updateBpSelectionBox(a, b) {
+      clearBpSelectionBox();
+      if (!a || !b) return;
+      const x0 = Math.min(a.x, b.x), x1 = Math.max(a.x, b.x) + 1;
+      const y0 = Math.min(a.y, b.y), y1 = Math.max(a.y, b.y) + 1;
+      const z0 = Math.min(a.z, b.z), z1 = Math.max(a.z, b.z) + 1;
+      const geo = new THREE.BoxGeometry(x1 - x0, y1 - y0, z1 - z0);
+      const edges = new THREE.EdgesGeometry(geo);
+      bpSelectionBox = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({ color: 0x00e5ff }));
+      bpSelectionBox.position.set((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2);
+      scene.add(bpSelectionBox);
+      geo.dispose();
+    }
+
+    function buildBpGhost(blueprint) {
+      clearBpGhost();
+      bpGhostGroup = new THREE.Group();
+      const byType = new Map();
+      for (const b of blueprint.blocks) {
+        if (!byType.has(b.block_type)) byType.set(b.block_type, []);
+        byType.get(b.block_type).push(b);
+      }
+      const c = new THREE.BoxGeometry(1, 1, 1);
+      const dummy = new THREE.Object3D();
+      for (const [bt, blocks] of byType) {
+        const pal = PALETTE.find(p => p.id === bt);
+        const col = pal ? pal.color : '#ffffff';
+        const mat = new THREE.MeshLambertMaterial({ color: col, transparent: true, opacity: 0.4, depthWrite: false });
+        const mesh = new THREE.InstancedMesh(c, mat, blocks.length);
+        blocks.forEach((b, i) => {
+          dummy.position.set(b.rx + 0.5, b.ry + 0.5, b.rz + 0.5);
+          dummy.updateMatrix();
+          mesh.setMatrixAt(i, dummy.matrix);
+        });
+        mesh.instanceMatrix.needsUpdate = true;
+        bpGhostGroup.add(mesh);
+      }
+      scene.add(bpGhostGroup);
+    }
+
+    function enterBlueprintSelect() {
+      if (gameMode !== 'classic' || !playing) return;
+      bpMode = 'select';
+      bpCornerA = null;
+      bpCornerB = null;
+      bpLiveCorner = null;
+      clearBpSelectionBox();
+      clearBpCornerAMarker();
+      bpHudEl.textContent = 'Blueprint Select — aim at a block corner and press F to set Corner A';
+      bpHudEl.classList.remove('hidden');
+    }
+
+    function exitBlueprintSelect() {
+      bpMode = null;
+      bpCornerA = null;
+      bpCornerB = null;
+      bpLiveCorner = null;
+      clearBpSelectionBox();
+      clearBpCornerAMarker();
+      bpHudEl.classList.add('hidden');
+    }
+
+    function enterBlueprintStamp(blueprint) {
+      clearBpGhost();
+      bpMode = 'stamp';
+      bpActiveBlueprint = blueprint;
+      bpStampOutOfBounds = false;
+      buildBpGhost(blueprint);
+      bpHudEl.textContent = 'Blueprint Stamp — aim to position, F to stamp, Esc to cancel';
+      bpHudEl.classList.remove('hidden');
+    }
+
+    function exitBlueprintStamp() {
+      bpMode = null;
+      bpActiveBlueprint = null;
+      clearBpGhost();
+      bpHudEl.classList.add('hidden');
+    }
+
+    function setBpCornerA(cell) {
+      bpCornerA = { x: cell.x, y: cell.y, z: cell.z };
+      clearBpCornerAMarker();
+      const geo = new THREE.BoxGeometry(1.04, 1.04, 1.04);
+      const edges = new THREE.EdgesGeometry(geo);
+      bpCornerAMarker = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({ color: 0xffff00 }));
+      bpCornerAMarker.position.set(cell.x + 0.5, cell.y + 0.5, cell.z + 0.5);
+      scene.add(bpCornerAMarker);
+      geo.dispose();
+      bpHudEl.textContent = 'Blueprint Select — A set! Aim at Corner B and press F, or press P to cancel';
+    }
+
+    function showBpNamingOverlay(capture) {
+      bpPendingCapture = capture;
+      bpNamingVisible = true;
+      bpNameInputEl.value = '';
+      bpNamingEl.classList.remove('hidden');
+      setTimeout(() => bpNameInputEl.focus(), 50);
+    }
+
+    function hideBpNamingOverlay() {
+      bpNamingVisible = false;
+      bpNamingEl.classList.add('hidden');
+      bpPendingCapture = null;
+    }
+
+    async function saveBlueprint() {
+      const name = bpNameInputEl.value.trim();
+      if (!name) { bpNameInputEl.focus(); return; }
+      if (!bpPendingCapture) return;
+      bpSaveBtnEl.disabled = true;
+      bpSaveBtnEl.textContent = 'Saving…';
+      try {
+        const res = await fetch('/api/blueprints/capture', {
+          method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...bpPendingCapture, name }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Failed');
+        hideBpNamingOverlay();
+        exitBlueprintSelect();
+        showBpToast(`Blueprint "${escapeHtml(data.name)}" saved!`);
+        if (!bpPanelEl.classList.contains('hidden')) fetchAndRenderBlueprints();
+      } catch (err) {
+        showBpToast('Error: ' + err.message);
+      } finally {
+        bpSaveBtnEl.disabled = false;
+        bpSaveBtnEl.textContent = 'Save';
+      }
+    }
+
+    function showBpToast(msg) {
+      const el = document.createElement('div');
+      el.className = 'pointer-events-none px-3 py-2 bg-black/80 text-white text-xs rounded-lg shadow';
+      el.innerHTML = msg;
+      document.getElementById('badge-toasts').appendChild(el);
+      setTimeout(() => el.remove(), 3000);
+    }
+
+    function toggleBlueprintsPanel() {
+      if (bpPanelEl.classList.contains('hidden')) {
+        bpPanelEl.classList.remove('hidden');
+        bpLibraryOpen = true;
+        fetchAndRenderBlueprints();
+      } else {
+        bpPanelEl.classList.add('hidden');
+        bpLibraryOpen = false;
+      }
+    }
+
+    async function fetchAndRenderBlueprints() {
+      bpListEl.innerHTML = '<span class="text-zinc-500">Loading…</span>';
+      try {
+        const res = await fetch('/api/blueprints', { headers });
+        if (!res.ok) throw new Error('fetch failed');
+        const data = await res.json();
+        renderBlueprintsList(data.blueprints);
+      } catch (_) {
+        bpListEl.innerHTML = '<span class="text-zinc-500">Couldn\'t load blueprints.</span>';
+      }
+    }
+
+    function renderBlueprintsList(list) {
+      if (!list.length) {
+        bpListEl.innerHTML = '<span class="text-zinc-500">No blueprints yet. Use <strong class="text-zinc-300">P</strong> in Classic mode to capture one.</span>';
+        return;
+      }
+      bpListEl.innerHTML = list.map(bp =>
+        '<div class="flex items-center gap-2 py-1 border-b border-zinc-700/40 last:border-0">' +
+        '<div class="flex-1 min-w-0">' +
+        '<div class="text-zinc-200 text-xs font-medium truncate">' + escapeHtml(bp.name) + '</div>' +
+        '<div class="text-zinc-500 text-[10px]">' + bp.width + '×' + bp.height + '×' + bp.depth + ' · ' + bp.block_count + ' blocks</div>' +
+        '</div>' +
+        '<button class="bp-stamp-btn shrink-0 px-2 py-1 bg-violet-600 hover:bg-violet-500 active:bg-violet-700 text-white text-[10px] font-semibold rounded cursor-pointer transition-colors" data-id="' + bp.id + '">Stamp</button>' +
+        '<button class="bp-delete-btn shrink-0 text-zinc-500 hover:text-red-400 text-xs leading-none cursor-pointer transition-colors" data-id="' + bp.id + '" title="Delete">✕</button>' +
+        '</div>'
+      ).join('');
+      bpListEl.querySelectorAll('.bp-stamp-btn').forEach(btn => {
+        btn.addEventListener('click', () => startStampMode(Number(btn.dataset.id)));
+      });
+      bpListEl.querySelectorAll('.bp-delete-btn').forEach(btn => {
+        btn.addEventListener('click', () => deleteBlueprint(Number(btn.dataset.id)));
+      });
+    }
+
+    async function startStampMode(id) {
+      bpPanelEl.classList.add('hidden');
+      bpLibraryOpen = false;
+      try {
+        const res = await fetch('/api/blueprints/' + id, { headers });
+        if (!res.ok) throw new Error('Failed to load blueprint');
+        const bp = await res.json();
+        enterBlueprintStamp(bp);
+      } catch (err) {
+        showBpToast('Error: ' + err.message);
+      }
+    }
+
+    async function deleteBlueprint(id) {
+      try {
+        const res = await fetch('/api/blueprints/' + id, { method: 'DELETE', headers });
+        if (!res.ok) throw new Error('Delete failed');
+        fetchAndRenderBlueprints();
+      } catch (err) {
+        showBpToast('Error: ' + err.message);
+      }
+    }
+
+    async function doStamp() {
+      if (!bpActiveBlueprint || !target) return;
+      const ox = target.x, oy = target.y, oz = target.z;
+      try {
+        const res = await fetch('/api/blueprints/' + bpActiveBlueprint.id + '/stamp', {
+          method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ox, oy, oz }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Stamp failed');
+        exitBlueprintStamp();
+        // Apply optimistically to local world
+        for (const b of bpActiveBlueprint ? [] : []) { /* server-side; next poll will sync */ }
+        showBpToast('Stamped! +' + data.points_earned + ' pts, ' + data.blocks_placed + ' blocks');
+        for (const badge of (data.newly_earned_badges || [])) showBadgeToast(badge);
+      } catch (err) {
+        showBpToast('Error: ' + err.message);
+      }
+    }
+
+    document.getElementById('blueprints-btn').addEventListener('click', toggleBlueprintsPanel);
+    document.getElementById('blueprints-close').addEventListener('click', () => { bpPanelEl.classList.add('hidden'); bpLibraryOpen = false; });
+    bpSaveBtnEl.addEventListener('click', saveBlueprint);
+    bpCancelBtnEl.addEventListener('click', hideBpNamingOverlay);
+    bpNameInputEl.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); saveBlueprint(); }
+      if (e.key === 'Escape') { e.preventDefault(); hideBpNamingOverlay(); }
     });
 
     // ---- Palette UI ----
@@ -2182,6 +2532,33 @@
 
       updateTarget();
       updateAttribution();
+
+      // Blueprint: update ghost/selection visuals each frame.
+      if (bpMode === 'stamp' && bpGhostGroup && target) {
+        bpGhostGroup.position.set(target.x, target.y, target.z);
+        let outOfBounds = false;
+        if (bpActiveBlueprint) {
+          for (const b of bpActiveBlueprint.blocks) {
+            const wx = target.x + b.rx, wy = target.y + b.ry, wz = target.z + b.rz;
+            if (wx < 0 || wx >= DIMS.w || wz < 0 || wz >= DIMS.d || wy < 1 || wy >= DIMS.h - 1) {
+              outOfBounds = true; break;
+            }
+          }
+        }
+        if (outOfBounds !== bpStampOutOfBounds) {
+          bpStampOutOfBounds = outOfBounds;
+          bpGhostGroup.children.forEach(m => { m.material.color.set(outOfBounds ? 0xff3333 : m.material._origColor || 0xffffff); });
+        }
+      } else if (bpMode === 'stamp' && bpGhostGroup) {
+        bpGhostGroup.position.set(-999, -999, -999);
+      }
+      if (bpMode === 'select' && bpCornerA && target) {
+        if (!bpLiveCorner || bpLiveCorner.x !== target.x || bpLiveCorner.y !== target.y || bpLiveCorner.z !== target.z) {
+          bpLiveCorner = { x: target.x, y: target.y, z: target.z };
+          updateBpSelectionBox(bpCornerA, bpLiveCorner);
+        }
+      }
+
       renderer.render(scene, camera);
       requestAnimationFrame(loop);
     }

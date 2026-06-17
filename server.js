@@ -752,6 +752,219 @@ app.delete('/api/friends/:id', async (req, res) => {
   }
 });
 
+// ---- Blueprints: capture a named snapshot of a rectangular region ----
+app.post('/api/blueprints/capture', async (req, res) => {
+  try {
+    const x1r = Number(req.body.x1), y1r = Number(req.body.y1), z1r = Number(req.body.z1);
+    const x2r = Number(req.body.x2), y2r = Number(req.body.y2), z2r = Number(req.body.z2);
+    const name = (typeof req.body.name === 'string' ? req.body.name : '').trim();
+    if (!name || name.length > 40) return res.status(400).json({ error: 'Name must be 1–40 characters' });
+
+    const minX = Math.min(x1r, x2r), maxX = Math.max(x1r, x2r);
+    const minY = Math.max(1, Math.min(y1r, y2r)), maxY = Math.min(DIMS.h - 1, Math.max(y1r, y2r));
+    const minZ = Math.min(z1r, z2r), maxZ = Math.max(z1r, z2r);
+
+    const intIn = (v, lo, hi) => Number.isInteger(v) && v >= lo && v <= hi;
+    if (!intIn(minX, 0, DIMS.w - 1) || !intIn(maxX, 0, DIMS.w - 1))
+      return res.status(400).json({ error: 'x out of bounds' });
+    if (!intIn(minZ, 0, DIMS.d - 1) || !intIn(maxZ, 0, DIMS.d - 1))
+      return res.status(400).json({ error: 'z out of bounds' });
+    if (maxX - minX + 1 > 16 || maxY - minY + 1 > 16 || maxZ - minZ + 1 > 16)
+      return res.status(400).json({ error: 'Selection too large — max 16×16×16 cells' });
+
+    const countRes = await pool.query('SELECT COUNT(*)::int AS c FROM blueprints WHERE user_id = $1', [req.user.id]);
+    if (countRes.rows[0].c >= 20)
+      return res.status(400).json({ error: 'Blueprint limit reached (20) — delete one first' });
+
+    const { rows: blockRows } = await pool.query(
+      `SELECT x, y, z, block_type FROM blocks
+       WHERE x BETWEEN $1 AND $2 AND y BETWEEN $3 AND $4 AND z BETWEEN $5 AND $6 AND block_type <> 0`,
+      [minX, maxX, minY, maxY, minZ, maxZ]
+    );
+    if (!blockRows.length) return res.status(400).json({ error: 'No blocks in selected region' });
+
+    const width = maxX - minX + 1, height = maxY - minY + 1, depth = maxZ - minZ + 1;
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      const bpRes = await client.query(
+        `INSERT INTO blueprints (user_id, username, name, block_count, width, height, depth)
+         VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id, created_at`,
+        [req.user.id, req.user.username, name, blockRows.length, width, height, depth]
+      );
+      const bpId = bpRes.rows[0].id;
+      for (const b of blockRows) {
+        await client.query(
+          `INSERT INTO blueprint_blocks (blueprint_id, rx, ry, rz, block_type) VALUES ($1,$2,$3,$4,$5)`,
+          [bpId, b.x - minX, b.y - minY, b.z - minZ, b.block_type]
+        );
+      }
+      await client.query('COMMIT');
+      res.json({ id: Number(bpId), name, width, height, depth, block_count: blockRows.length, created_at: bpRes.rows[0].created_at });
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- Blueprints: list caller's saved blueprints ----
+app.get('/api/blueprints', async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT id, name, width, height, depth, block_count, created_at
+       FROM blueprints WHERE user_id = $1 ORDER BY created_at DESC`,
+      [req.user.id]
+    );
+    res.json({ blueprints: rows.map(r => ({
+      id: Number(r.id), name: r.name, width: r.width, height: r.height, depth: r.depth,
+      block_count: r.block_count, created_at: r.created_at,
+    })) });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- Blueprints: fetch single blueprint with block data (for stamp preview) ----
+app.get('/api/blueprints/:id', async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const bpRes = await pool.query(
+      `SELECT id, user_id, name, width, height, depth, block_count FROM blueprints WHERE id = $1`, [id]
+    );
+    if (!bpRes.rows.length) return res.status(404).json({ error: 'Not found' });
+    if (bpRes.rows[0].user_id !== req.user.id) return res.status(403).json({ error: 'Forbidden' });
+    const { rows: blockRows } = await pool.query(
+      `SELECT rx, ry, rz, block_type FROM blueprint_blocks WHERE blueprint_id = $1`, [id]
+    );
+    const bp = bpRes.rows[0];
+    res.json({ id: Number(bp.id), name: bp.name, width: bp.width, height: bp.height, depth: bp.depth,
+      block_count: bp.block_count, blocks: blockRows.map(r => ({ rx: r.rx, ry: r.ry, rz: r.rz, block_type: r.block_type })) });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- Blueprints: delete ----
+app.delete('/api/blueprints/:id', async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const { rows } = await pool.query(
+      `DELETE FROM blueprints WHERE id = $1 AND user_id = $2 RETURNING id`, [id, req.user.id]
+    );
+    if (!rows.length) return res.status(404).json({ error: 'Not found or not yours' });
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- Blueprints: stamp onto the world ----
+app.post('/api/blueprints/:id/stamp', async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const ox = Number(req.body.ox), oy = Number(req.body.oy), oz = Number(req.body.oz);
+
+    const bpRes = await pool.query(`SELECT id, user_id FROM blueprints WHERE id = $1`, [id]);
+    if (!bpRes.rows.length) return res.status(404).json({ error: 'Not found' });
+    if (bpRes.rows[0].user_id !== req.user.id) return res.status(403).json({ error: 'Forbidden' });
+
+    const { rows: blockRows } = await pool.query(
+      `SELECT rx, ry, rz, block_type FROM blueprint_blocks WHERE blueprint_id = $1`, [id]
+    );
+
+    const intIn = (v, lo, hi) => Number.isInteger(v) && v >= lo && v <= hi;
+    for (const b of blockRows) {
+      const wx = ox + b.rx, wy = oy + b.ry, wz = oz + b.rz;
+      if (!intIn(wx, 0, DIMS.w - 1) || !intIn(wz, 0, DIMS.d - 1) || !intIn(wy, 1, DIMS.h - 2))
+        return res.status(400).json({ error: "Blueprint doesn't fit here — move it and try again" });
+    }
+
+    const client = await pool.connect();
+    let lbRow;
+    try {
+      await client.query('BEGIN');
+      let totalEarned = 0;
+      const uniqueTypes = [...new Set(blockRows.map(b => b.block_type))];
+      for (const b of blockRows) {
+        const wx = ox + b.rx, wy = oy + b.ry, wz = oz + b.rz;
+        await client.query(
+          `INSERT INTO blocks (x,y,z,block_type,seq,updated_by_user_id,updated_by_username,updated_at)
+           VALUES ($1,$2,$3,$4,nextval('block_seq'),$5,$6,NOW())
+           ON CONFLICT (x,y,z) DO UPDATE SET
+             block_type=EXCLUDED.block_type, seq=EXCLUDED.seq,
+             updated_by_user_id=EXCLUDED.updated_by_user_id,
+             updated_by_username=EXCLUDED.updated_by_username, updated_at=NOW()`,
+          [wx, wy, wz, b.block_type, req.user.id, req.user.username]
+        );
+        totalEarned += BLOCK_POINTS[b.block_type] || 1;
+      }
+      const n = blockRows.length;
+      const now = new Date();
+      const dateStr = now.toISOString().slice(0, 10);
+      const target = dailyTarget(now);
+      await client.query(
+        `INSERT INTO daily_challenge_progress (challenge_date,user_id,username,blocks_placed,completed_at,updated_at)
+         VALUES ($1,$2,$3,$4, CASE WHEN $4 >= $5 THEN NOW() ELSE NULL END, NOW())
+         ON CONFLICT (challenge_date,user_id) DO UPDATE SET
+           blocks_placed = daily_challenge_progress.blocks_placed + $4,
+           username = EXCLUDED.username,
+           completed_at = CASE
+             WHEN daily_challenge_progress.completed_at IS NOT NULL THEN daily_challenge_progress.completed_at
+             WHEN daily_challenge_progress.blocks_placed + $4 >= $5 THEN NOW()
+             ELSE NULL END,
+           updated_at = NOW()`,
+        [dateStr, req.user.id, req.user.username, n, target]
+      );
+      const lbRes = await client.query(
+        `INSERT INTO leaderboard (user_id,username,total_score,blocks_placed,best_combo,updated_at)
+         VALUES ($1,$2,$3,$4,1,NOW())
+         ON CONFLICT (user_id) DO UPDATE SET
+           total_score=leaderboard.total_score+EXCLUDED.total_score,
+           blocks_placed=leaderboard.blocks_placed+EXCLUDED.blocks_placed,
+           username=EXCLUDED.username, updated_at=NOW()
+         RETURNING total_score, blocks_placed, best_combo`,
+        [req.user.id, req.user.username, totalEarned, n]
+      );
+      lbRow = lbRes.rows[0];
+      for (const bt of uniqueTypes) {
+        await client.query(
+          `INSERT INTO player_type_usage (user_id,block_type) VALUES ($1,$2) ON CONFLICT DO NOTHING`,
+          [req.user.id, bt]
+        );
+      }
+      await client.query('COMMIT');
+
+      const lb = { total_score: Number(lbRow.total_score), blocks_placed: Number(lbRow.blocks_placed), best_combo: lbRow.best_combo };
+      const earnedRes = await pool.query(`SELECT badge_id FROM player_badges WHERE user_id = $1`, [req.user.id]);
+      const earnedIds = new Set(earnedRes.rows.map(r => r.badge_id));
+      const typeCountRes = await pool.query(`SELECT COUNT(*)::int AS type_count FROM player_type_usage WHERE user_id = $1`, [req.user.id]);
+      const typeCount = typeCountRes.rows[0].type_count;
+      const allNewBadges = [];
+      for (const bt of [null, ...uniqueTypes]) {
+        const fresh = checkBadges({ lb, justPlacedType: bt, typeCount }, earnedIds);
+        for (const badge of fresh) {
+          earnedIds.add(badge.id);
+          allNewBadges.push(badge);
+          await pool.query(`INSERT INTO player_badges (user_id,badge_id,earned_at) VALUES ($1,$2,NOW()) ON CONFLICT DO NOTHING`, [req.user.id, badge.id]);
+        }
+      }
+      res.json({ ok: true, blocks_placed: n, points_earned: totalEarned, newly_earned_badges: allNewBadges.map(b => ({ id: b.id, name: b.name, icon: b.icon, flavour: b.flavour })) });
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.use(express.static(path.join(__dirname, 'public'), {
   setHeaders(res, filePath) {
     // The entire game is inline in index.html, so a cached shell hides a
@@ -840,6 +1053,46 @@ function buildSeedCells() {
   set(23, 1, 10, 17); // Rainbow Block
   set(20, 1, 11, 13); // Snow
   return cells;
+}
+
+async function seedBlueprints() {
+  await pool.query(`
+    INSERT INTO blueprints (id, user_id, username, name, block_count, width, height, depth)
+    VALUES
+      (1, ${SEED_USER_ID}, 'staging-bot', 'Staging demo Small Hut', 22, 4, 3, 4),
+      (2, ${SEED_USER_ID}, 'staging-bot', 'Staging demo Arch', 16, 5, 4, 1),
+      (3, ${SEED_USER_ID}, 'staging-bot', 'Staging demo Lamp Post', 5, 1, 5, 1)
+    ON CONFLICT DO NOTHING
+  `);
+  await pool.query(`SELECT setval('blueprints_id_seq', GREATEST((SELECT MAX(id) FROM blueprints), 3))`);
+  // Small hut seed blocks (4×3×4): floor, walls, doorway
+  const hutBlocks = [];
+  for (let rx = 0; rx < 4; rx++) for (let rz = 0; rz < 4; rz++) hutBlocks.push([1, rx, 0, rz, 2]); // floor type=2
+  for (let rz = 0; rz < 4; rz++) { hutBlocks.push([1,0,1,rz,3]); hutBlocks.push([1,3,1,rz,3]); } // side walls type=3
+  for (let rx = 0; rx < 4; rx++) hutBlocks.push([1,rx,1,0,3]); // back wall
+  hutBlocks.push([1,0,1,3,3]); hutBlocks.push([1,3,1,3,3]); hutBlocks.push([1,0,2,3,3]); hutBlocks.push([1,3,2,3,3]); // doorway frame
+  for (let rx = 0; rx < 4; rx++) hutBlocks.push([1,rx,2,0,3]); // back wall top
+  for (let rx = 0; rx < 4; rx++) for (let rz = 0; rz < 4; rz++) hutBlocks.push([1,rx,3,rz,1]); // roof type=1 ... wait
+  // Deduplicate by key
+  const hutSeen = new Set(); const hutUniq = hutBlocks.filter(r => { const k = `${r[1]},${r[2]},${r[3]}`; if (hutSeen.has(k)) return false; hutSeen.add(k); return true; });
+  if (hutUniq.length) {
+    const vals = hutUniq.map((r,i) => `($${i*5+1},$${i*5+2},$${i*5+3},$${i*5+4},$${i*5+5})`).join(',');
+    await pool.query(`INSERT INTO blueprint_blocks (blueprint_id,rx,ry,rz,block_type) VALUES ${vals} ON CONFLICT DO NOTHING`, hutUniq.flat());
+  }
+  // Arch seed (5×4×1)
+  const archBlocks = [];
+  for (let rx = 0; rx < 5; rx++) archBlocks.push([2,rx,0,0,4]); // base type=4
+  archBlocks.push([2,0,1,0,4]); archBlocks.push([2,4,1,0,4]);
+  archBlocks.push([2,0,2,0,4]); archBlocks.push([2,4,2,0,4]);
+  archBlocks.push([2,0,3,0,4]); archBlocks.push([2,2,3,0,4]); archBlocks.push([2,4,3,0,4]);
+  if (archBlocks.length) {
+    const vals = archBlocks.map((r,i) => `($${i*5+1},$${i*5+2},$${i*5+3},$${i*5+4},$${i*5+5})`).join(',');
+    await pool.query(`INSERT INTO blueprint_blocks (blueprint_id,rx,ry,rz,block_type) VALUES ${vals} ON CONFLICT DO NOTHING`, archBlocks.flat());
+  }
+  // Lamp post seed (1×5×1)
+  const lampBlocks = [[3,0,0,0,3],[3,0,1,0,3],[3,0,2,0,3],[3,0,3,0,3],[3,0,4,0,5]];
+  const lampVals = lampBlocks.map((r,i) => `($${i*5+1},$${i*5+2},$${i*5+3},$${i*5+4},$${i*5+5})`).join(',');
+  await pool.query(`INSERT INTO blueprint_blocks (blueprint_id,rx,ry,rz,block_type) VALUES ${lampVals} ON CONFLICT DO NOTHING`, lampBlocks.flat());
 }
 
 async function seedStaging() {
@@ -1135,6 +1388,31 @@ async function start() {
   await pool.query(`CREATE INDEX IF NOT EXISTS friendships_addressee_status_idx ON friendships (addressee_id, status)`);
   await pool.query(`CREATE INDEX IF NOT EXISTS friendships_requester_status_idx ON friendships (requester_id, status)`);
 
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS blueprints (
+      id BIGSERIAL PRIMARY KEY,
+      user_id INTEGER NOT NULL,
+      username VARCHAR(255) NOT NULL,
+      name VARCHAR(100) NOT NULL,
+      block_count INTEGER NOT NULL,
+      width SMALLINT NOT NULL,
+      height SMALLINT NOT NULL,
+      depth SMALLINT NOT NULL,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS blueprints_user_idx ON blueprints (user_id)`);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS blueprint_blocks (
+      blueprint_id BIGINT NOT NULL REFERENCES blueprints(id) ON DELETE CASCADE,
+      rx SMALLINT NOT NULL,
+      ry SMALLINT NOT NULL,
+      rz SMALLINT NOT NULL,
+      block_type SMALLINT NOT NULL,
+      PRIMARY KEY (blueprint_id, rx, ry, rz)
+    )
+  `);
+
   if (IS_STAGING) {
     try { await seedStaging(); }
     catch (err) { console.error('staging blocks seed failed', err); }
@@ -1144,6 +1422,8 @@ async function start() {
     catch (err) { console.error('leaderboard seed failed', err); }
     try { await seedStreaks(); }
     catch (err) { console.error('streak seed failed', err); }
+    try { await seedBlueprints(); }
+    catch (err) { console.error('blueprint seed failed', err); }
   }
 
   app.listen(port, () => console.log(`Listening on :${port}`));
