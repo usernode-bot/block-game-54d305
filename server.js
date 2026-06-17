@@ -71,6 +71,7 @@ const PALETTE = [
   { id: 24, name: 'Cyan',          color: '#29b8b8' },
   { id: 25, name: 'Iron Block',    color: '#d4d4dc', material: 'standard', metalness: 0.9, roughness: 0.3 },
   { id: 26, name: 'Terracotta',    color: '#c5694a' },
+  { id: 27, name: 'Bomb',          color: '#3d3a52', emissive: '#e8500a', emissiveIntensity: 0.45, material: 'standard', metalness: 0.2, roughness: 0.65, unlockAt: 75, unlockIcon: '💣' },
 ];
 const VALID_TYPES = new Set(PALETTE.map((p) => p.id)); // does NOT include 0
 
@@ -89,6 +90,7 @@ const BLOCK_POINTS = {
   21: 2, 22: 2, 23: 2, 24: 2, // Lime, Orange, Purple, Cyan
   25: 4,  // Iron Block
   26: 1,  // Terracotta
+  27: 3,  // Bomb
 };
 
 // Sentinel "user" id for staging seed rows so they never reference a real user.
@@ -694,6 +696,7 @@ app.post('/api/block', async (req, res) => {
     // ---- Line clearing: detect and clear complete horizontal layers ----
     let lines_cleared = 0;
     let line_clear_points = 0;
+    let bomb_explosions = [];
     if (t !== 0) {
       // Check if the placed block's Y-coordinate now forms a complete line
       const lineCheckRes = await pool.query(
@@ -706,6 +709,13 @@ app.post('/api/block', async (req, res) => {
         [y]
       );
       if (lineCheckRes.rows[0].count === 1024) {
+        // Scan for Bomb blocks in this row BEFORE clearing (positions won't exist after)
+        const bombScanRes = await pool.query(
+          `SELECT x, y, z FROM blocks WHERE y = $1 AND block_type = 27`,
+          [y]
+        );
+        const bombPositions = bombScanRes.rows;
+
         // Line is complete — clear it by setting all blocks to 0 (air)
         await pool.query(
           `UPDATE blocks
@@ -726,6 +736,40 @@ app.post('/api/block', async (req, res) => {
              updated_at    = NOW()`,
           [req.user.id, req.user.username, line_clear_points]
         );
+
+        // Detonate each Bomb: destroy non-air blocks within a radius-2 sphere.
+        // Bombs are scanned once before clearing so positions are stable — no chaining.
+        for (const bomb of bombPositions) {
+          const { x: bx, y: by, z: bz } = bomb;
+          const explodeRes = await pool.query(
+            `UPDATE blocks
+             SET block_type = 0, seq = nextval('block_seq'),
+                 updated_by_user_id = $4, updated_by_username = $5, updated_at = NOW()
+             WHERE (x-$1)*(x-$1)+(y-$2)*(y-$2)+(z-$3)*(z-$3) <= 4
+               AND block_type <> 0
+             RETURNING x, y, z`,
+            [bx, by, bz, req.user.id, req.user.username]
+          );
+          const bonus_destroyed = explodeRes.rows.length;
+          await pool.query(
+            `DELETE FROM block_messages
+             WHERE (x-$1)*(x-$1)+(y-$2)*(y-$2)+(z-$3)*(z-$3) <= 4`,
+            [bx, by, bz]
+          );
+          const bonus_points = bonus_destroyed * 2;
+          if (bonus_points > 0) {
+            await pool.query(
+              `INSERT INTO leaderboard (user_id, username, total_score, blocks_placed, best_combo, updated_at)
+               VALUES ($1, $2, $3, 0, 0, NOW())
+               ON CONFLICT (user_id) DO UPDATE SET
+                 total_score   = leaderboard.total_score + EXCLUDED.total_score,
+                 username      = EXCLUDED.username,
+                 updated_at    = NOW()`,
+              [req.user.id, req.user.username, bonus_points]
+            );
+          }
+          bomb_explosions.push({ x: bx, y: by, z: bz, bonus_points });
+        }
       }
     }
 
@@ -734,7 +778,7 @@ app.post('/api/block', async (req, res) => {
     const monument = await recomputeMonument(sectorCoord(x), sectorCoord(z));
     if (monument && monument.is_new) newly_crowned_monuments = [{ id: monument.id, name: monument.name, sector_x: monument.sector_x, sector_z: monument.sector_z }];
 
-    res.json({ ok: true, seq, ...(challenge ? { challenge } : {}), earned, combo_multiplier, rainbow_multiplier, newly_earned_badges, newly_unlocked_types, newly_unlocked_pets, lines_cleared, line_clear_points, newly_crowned_monuments });
+    res.json({ ok: true, seq, ...(challenge ? { challenge } : {}), earned, combo_multiplier, rainbow_multiplier, newly_earned_badges, newly_unlocked_types, newly_unlocked_pets, lines_cleared, line_clear_points, bomb_explosions, newly_crowned_monuments });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -3614,6 +3658,31 @@ async function seedStaging() {
     await pool.query(
       `INSERT INTO blocks (x, y, z, block_type, updated_by_user_id, updated_by_username) VALUES
        ${lineBlocks.join(',')}
+       ON CONFLICT (x, y, z) DO NOTHING`
+    );
+  }
+
+  // Seed a nearly-complete y=5 layer containing Bomb blocks for testing the
+  // bomb explosion mechanic. 1023 of 1024 cells are filled (4 Bomb + 1019 Stone);
+  // one cell is left empty so a tester can place a single block to trigger a clear.
+  const { rows: bombRowCount } = await pool.query(
+    `SELECT COUNT(*)::int AS count FROM blocks WHERE y = 5 AND block_type <> 0`
+  );
+  if (Number(bombRowCount[0].count) < 1023) {
+    const bombCells = new Set(['8,5,8', '16,5,16', '24,5,8', '8,5,24']);
+    const skipCell = '31,5,31'; // leave this cell empty for the tester to fill
+    const bombRowBlocks = [];
+    for (let bx = 0; bx < 32; bx++) {
+      for (let bz = 0; bz < 32; bz++) {
+        const cellKey = `${bx},5,${bz}`;
+        if (cellKey === skipCell) continue;
+        const blockType = bombCells.has(cellKey) ? 27 : 3;
+        bombRowBlocks.push(`(${bx}, 5, ${bz}, ${blockType}, ${SEED_USER_ID}, 'Staging demo')`);
+      }
+    }
+    await pool.query(
+      `INSERT INTO blocks (x, y, z, block_type, updated_by_user_id, updated_by_username) VALUES
+       ${bombRowBlocks.join(',')}
        ON CONFLICT (x, y, z) DO NOTHING`
     );
   }
