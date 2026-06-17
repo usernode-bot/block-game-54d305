@@ -229,6 +229,13 @@
        to clear the on-screen action cluster). Hidden until init() loads data. -->
   <div id="challenge-hud" class="hidden pointer-events-none fixed right-3 z-20 w-36 rounded-lg bg-black/55 px-2 py-1.5 text-xs text-white/90"></div>
 
+  <!-- Blocks Placed HUD: personal lifetime stat, bottom-left corner.
+       Bottom position set by JS (raised on touch to clear movement pad). -->
+  <div id="blocks-placed-hud" class="hidden pointer-events-none fixed left-3 z-20 rounded-lg bg-black/55 px-2 py-1.5 text-white/90">
+    <div class="text-[9px] font-bold uppercase tracking-widest text-white/60 leading-tight">Blocks Placed</div>
+    <div id="blocks-placed-count" class="text-lg font-mono font-bold leading-tight tabular-nums">0</div>
+  </div>
+
   <!-- Controls overlay: a help panel listing every key/mouse binding. Hidden
        by default; toggled by pressing `h` or clicking the "(?)" button. -->
   <div id="controls" class="hidden fixed top-28 right-3 z-30 w-72 max-w-[90vw] rounded-xl bg-black/70 backdrop-blur p-4 text-sm text-zinc-200 shadow-xl">
@@ -351,7 +358,7 @@
 
     // Build identifier — bump this (to the deploying commit short SHA) on every
     // change so the top-right stamp confirms exactly which code is running.
-    const BUILD_VERSION = 'hold-queue+achievements-badges+chat+daily-challenge+leaderboard+online-presence+block-attribution+audio-sfx+next-piece-preview';
+    const BUILD_VERSION = 'hold-queue+achievements-badges+chat+daily-challenge+leaderboard+online-presence+block-attribution+audio-sfx+next-piece-preview+blocks-placed-hud';
 
     // Badge definitions — mirror of the server-side BADGES array, extended with
     // a `hint` field shown in the panel for unearned badges.
@@ -556,6 +563,8 @@
     // the on-screen fly/build action cluster that lives at bottom-right.
     const challengeHudEl = document.getElementById('challenge-hud');
     challengeHudEl.style.bottom = isTouch ? '10rem' : '1rem';
+    const blocksPlacedHudEl = document.getElementById('blocks-placed-hud');
+    blocksPlacedHudEl.style.bottom = isTouch ? '13rem' : '5.5rem';
 
     // ---- World/runtime state ----
     let DIMS = { w: 32, d: 32, h: 24 };
@@ -584,6 +593,9 @@
     let challengeTarget = 0;         // today's placement goal
     let challengePlaced = 0;         // blocks placed today by this user
     let challengeCompleted = false;  // true once placed >= target
+
+    // ---- Blocks placed (lifetime) ----
+    let myBlocksPlaced = 0;
 
     // ---- Game mode state ----
     let gameMode = null;           // null | 'classic' | 'timeattack'
@@ -895,6 +907,10 @@
       challengeHudEl.classList.remove('hidden');
     }
 
+    function renderBlocksPlacedHud() {
+      document.getElementById('blocks-placed-count').textContent = myBlocksPlaced.toLocaleString();
+    }
+
     async function sendEdit(x, y, z, t) {
       applyLocal(x, y, z, t);
       // Optimistic challenge increment for placements (not breaks).
@@ -921,6 +937,11 @@
             if (badgesOpen) renderBadgesPanel();
           }
           if (data.challenge) syncChallenge(data.challenge);
+          if (t !== 0) {
+            myBlocksPlaced++;
+            renderBlocksPlacedHud();
+            blocksPlacedHudEl.classList.remove('hidden');
+          }
         }
       } catch (e) { /* poll loop will reconcile */ }
     }
@@ -1571,7 +1592,13 @@
       try {
         const res = await fetch('/api/leaderboard', { headers });
         if (!res.ok) throw new Error('fetch failed');
-        const { entries } = await res.json();
+        const lbData = await res.json();
+        const { entries } = lbData;
+        if (lbData.self != null) {
+          myBlocksPlaced = lbData.self.blocks_placed;
+          renderBlocksPlacedHud();
+          blocksPlacedHudEl.classList.remove('hidden');
+        }
         if (!entries.length) {
           leaderboardContentEl.innerHTML = '<p class="py-1">No builders yet — be the first!</p>';
         } else {
@@ -1944,6 +1971,8 @@
         if (cr.ok) syncChallenge(await cr.json());
       } catch (_) {}
 
+      // Load initial blocks-placed count from leaderboard self row.
+      fetchLeaderboard().catch(() => {});
 
       requestAnimationFrame(loop);
       // Poll is started per-mode in onPlayEntered(), not here.
