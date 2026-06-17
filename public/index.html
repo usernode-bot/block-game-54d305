@@ -733,6 +733,15 @@
     <div id="friends-add-status" class="mt-1 text-xs text-center min-h-[1.2em]"></div>
   </div>
 
+  <!-- Player profile panel: displays stats, badges, and ranks for any clicked leaderboard player -->
+  <div id="profile-panel" class="hidden fixed top-28 right-3 z-30 w-full sm:w-96 max-w-[90vw] rounded-xl bg-black/70 backdrop-blur px-3 py-4 sm:p-4 text-base sm:text-sm text-zinc-200 shadow-xl">
+    <div class="flex items-center justify-between mb-4">
+      <h2 id="profile-username" class="font-bold text-zinc-100 truncate">Loading…</h2>
+      <button id="profile-close" aria-label="Close profile" class="text-zinc-400 hover:text-zinc-100 cursor-pointer leading-none transition-colors">✕</button>
+    </div>
+    <div id="profile-content" class="text-zinc-400 text-center py-2 text-xs">Loading…</div>
+  </div>
+
   <!-- Touch controls: translucent on-screen overlay shown only on touch devices
        while playing. The container is pointer-events-none so empty gaps fall
        through to the canvas (look-drag); each button re-enables pointer events.
@@ -3902,6 +3911,107 @@
       return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
     }
 
+    // ---- Player profile panel ----
+    const profilePanelEl = document.getElementById('profile-panel');
+    const profileUsernameEl = document.getElementById('profile-username');
+    const profileContentEl = document.getElementById('profile-content');
+
+    function closeProfile() {
+      profilePanelEl.classList.add('hidden');
+    }
+
+    async function showProfile(username) {
+      profilePanelEl.classList.remove('hidden');
+      profileUsernameEl.textContent = 'Loading…';
+      profileContentEl.innerHTML = '<div class="text-zinc-400 text-xs">Fetching profile…</div>';
+
+      try {
+        const res = await fetch('/api/profile/' + encodeURIComponent(username), { headers });
+        if (!res.ok) {
+          profileContentEl.innerHTML = '<p class="py-2 text-zinc-400 text-xs">Player not found</p>';
+          profileUsernameEl.textContent = username;
+          return;
+        }
+        const profile = await res.json();
+        renderProfileData(profile);
+      } catch (err) {
+        profileContentEl.innerHTML = '<p class="py-2 text-zinc-400 text-xs">Error loading profile</p>';
+        profileUsernameEl.textContent = username;
+      }
+    }
+
+    function renderProfileData(profile) {
+      profileUsernameEl.textContent = profile.username;
+      let html = '';
+
+      // Classic mode
+      if (profile.stats.classic.blocks_placed > 0 || profile.stats.classic.total_score > 0) {
+        html += '<div class="mb-3 pb-3 border-b border-zinc-700/60">' +
+          '<div class="text-xs font-semibold text-zinc-300 mb-2">🏗️ Classic</div>' +
+          '<div class="text-xs space-y-1">' +
+          '<div class="flex justify-between"><span class="text-zinc-400">Score</span><span class="text-zinc-100 font-mono">' + profile.stats.classic.total_score + '</span></div>' +
+          '<div class="flex justify-between"><span class="text-zinc-400">Blocks</span><span class="text-zinc-100 font-mono">' + profile.stats.classic.blocks_placed + '</span></div>' +
+          '<div class="flex justify-between"><span class="text-zinc-400">Best Combo</span><span class="text-zinc-100 font-mono">×' + profile.stats.classic.best_combo + '</span></div>' +
+          (profile.stats.classic.rank ? '<div class="flex justify-between"><span class="text-zinc-400">Rank</span><span class="text-amber-400 font-mono">#' + profile.stats.classic.rank + '</span></div>' : '') +
+          '</div></div>';
+      }
+
+      // Time Attack
+      if (profile.stats.ta.best_cleared > 0) {
+        html += '<div class="mb-3 pb-3 border-b border-zinc-700/60">' +
+          '<div class="text-xs font-semibold text-zinc-300 mb-2">⚡ Time Attack</div>' +
+          '<div class="text-xs space-y-1">' +
+          '<div class="flex justify-between"><span class="text-zinc-400">Best Cleared</span><span class="text-zinc-100 font-mono">' + profile.stats.ta.best_cleared + '</span></div>' +
+          '<div class="flex justify-between"><span class="text-zinc-400">Difficulty</span><span class="text-amber-400 font-mono">Lvl ' + profile.stats.ta.best_difficulty + '</span></div>' +
+          (profile.stats.ta.rank ? '<div class="flex justify-between"><span class="text-zinc-400">Rank</span><span class="text-amber-400 font-mono">#' + profile.stats.ta.rank + '</span></div>' : '') +
+          '</div></div>';
+      }
+
+      // Time Attack 60s
+      if (profile.stats.ta_60.best_cleared > 0) {
+        html += '<div class="mb-3 pb-3 border-b border-zinc-700/60">' +
+          '<div class="text-xs font-semibold text-zinc-300 mb-2">⏱️ Time Attack (60s)</div>' +
+          '<div class="text-xs space-y-1">' +
+          '<div class="flex justify-between"><span class="text-zinc-400">Best Cleared</span><span class="text-zinc-100 font-mono">' + profile.stats.ta_60.best_cleared + '</span></div>' +
+          (profile.stats.ta_60.rank ? '<div class="flex justify-between"><span class="text-zinc-400">Rank</span><span class="text-cyan-400 font-mono">#' + profile.stats.ta_60.rank + '</span></div>' : '') +
+          '</div></div>';
+      }
+
+      // Endless mode
+      if (profile.stats.endless.best_placed > 0) {
+        html += '<div class="mb-3 pb-3 border-b border-zinc-700/60">' +
+          '<div class="text-xs font-semibold text-zinc-300 mb-2">♾️ Endless</div>' +
+          '<div class="text-xs space-y-1">' +
+          '<div class="flex justify-between"><span class="text-zinc-400">Best Placed</span><span class="text-zinc-100 font-mono">' + profile.stats.endless.best_placed + '</span></div>' +
+          '<div class="flex justify-between"><span class="text-zinc-400">Moves Survived</span><span class="text-zinc-100 font-mono">' + profile.stats.endless.best_moves_survived + '</span></div>' +
+          (profile.stats.endless.rank ? '<div class="flex justify-between"><span class="text-zinc-400">Rank</span><span class="text-green-400 font-mono">#' + profile.stats.endless.rank + '</span></div>' : '') +
+          '</div></div>';
+      }
+
+      // Badges
+      if (profile.badges.length > 0) {
+        html += '<div class="mb-3 pb-3 border-b border-zinc-700/60">' +
+          '<div class="text-xs font-semibold text-zinc-300 mb-2">🏅 Badges (' + profile.badges.length + ')</div>' +
+          '<div class="flex flex-wrap gap-2">';
+        for (const badge of profile.badges) {
+          html += '<div class="group relative">' +
+            '<span class="text-lg cursor-help">' + escapeHtml(badge.icon) + '</span>' +
+            '<div class="invisible group-hover:visible absolute bottom-full left-0 bg-zinc-800 text-zinc-100 text-xs p-2 rounded whitespace-nowrap z-50">' +
+            escapeHtml(badge.name) + '</div></div>';
+        }
+        html += '</div></div>';
+      }
+
+      // Block types
+      if (profile.block_types_used > 0) {
+        html += '<div class="text-xs text-zinc-400">' +
+          'Block types used: <span class="text-zinc-100 font-semibold">' + profile.block_types_used + '</span>' +
+          '</div>';
+      }
+
+      profileContentEl.innerHTML = html || '<p class="text-zinc-400 text-xs">No stats yet</p>';
+    }
+
     function setLeaderboardTab(tab) {
       leaderboardTab = tab;
       const tabs = { alltime: 'tab-alltime', tournament: 'tab-tournament', ta: 'tab-ta', 'ta-60': 'tab-ta-60', 'daily-challenge': 'tab-daily-challenge', endless: 'tab-endless' };
@@ -3956,7 +4066,7 @@
           data.entries.map(e =>
             '<tr class="border-b border-zinc-800/60 last:border-0">' +
             '<td class="py-1">' + (medals[e.rank - 1] || e.rank) + '</td>' +
-            '<td class="py-1 pl-2 max-w-[160px] truncate">' + escapeHtml(e.username) + '</td>' +
+            '<td class="py-1 pl-2 max-w-[160px] truncate"><button class="text-violet-400 hover:text-violet-300 hover:underline cursor-pointer" data-profile-btn>' + escapeHtml(e.username) + '</button></td>' +
             '<td class="py-1 text-right font-mono text-zinc-100">' + e.score + '</td></tr>'
           ).join('') +
           '</tbody></table>';
@@ -3964,7 +4074,7 @@
           html += '<div class="mt-2 pt-2 border-t border-zinc-700 text-xs">' +
             '<table class="w-full"><tbody><tr class="text-violet-300">' +
             '<td class="w-8">' + (medals[data.self.rank - 1] || data.self.rank) + '</td>' +
-            '<td class="pl-2 max-w-[140px] truncate">' + escapeHtml(data.self.username) + ' (you)</td>' +
+            '<td class="pl-2 max-w-[140px] truncate"><button class="text-violet-300 hover:text-violet-200 hover:underline cursor-pointer" data-profile-btn>' + escapeHtml(data.self.username) + '</button> (you)</td>' +
             '<td class="text-right font-mono">' + data.self.score + '</td>' +
             '</tr></tbody></table></div>';
         }
@@ -3977,12 +4087,16 @@
           '<div class="text-zinc-500 text-xs mb-1">Last week (' + escapeHtml(formatWeekRange(lws, lwe)) + ')</div>' +
           data.last_week.entries.map(e =>
             '<div class="flex justify-between text-xs py-0.5">' +
-            '<span>' + (medals[e.rank - 1] || e.rank) + ' ' + escapeHtml(e.username) + '</span>' +
+            '<span>' + (medals[e.rank - 1] || e.rank) + ' <button class="text-violet-400 hover:text-violet-300 hover:underline cursor-pointer" data-profile-btn>' + escapeHtml(e.username) + '</button></span>' +
             '<span class="font-mono text-zinc-300">' + e.score + '</span></div>'
           ).join('') + '</div>';
       }
 
       leaderboardContentEl.innerHTML = html;
+      // Attach click handlers to profile buttons
+      for (const btn of leaderboardContentEl.querySelectorAll('[data-profile-btn]')) {
+        btn.addEventListener('click', () => showProfile(btn.textContent));
+      }
     }
 
     function renderTaLeaderboard(data) {
@@ -4002,7 +4116,7 @@
         data.entries.map(e =>
           '<tr class="border-b border-zinc-800/60 last:border-0">' +
           '<td class="py-1">' + (medals[e.rank - 1] || e.rank) + '</td>' +
-          '<td class="py-1 pl-2 max-w-[130px] truncate">' + escapeHtml(e.username) + '</td>' +
+          '<td class="py-1 pl-2 max-w-[130px] truncate"><button class="text-violet-400 hover:text-violet-300 hover:underline cursor-pointer" data-profile-btn>' + escapeHtml(e.username) + '</button></td>' +
           '<td class="py-1 text-right font-mono text-zinc-100">' + e.best_cleared + '</td>' +
           '<td class="py-1 text-right pl-2 text-amber-400">' + escapeHtml(diffLabel(e.best_difficulty)) + '</td></tr>'
         ).join('') +
@@ -4011,12 +4125,16 @@
         html += '<div class="mt-2 pt-2 border-t border-zinc-700 text-xs">' +
           '<table class="w-full"><tbody><tr class="text-violet-300">' +
           '<td class="w-8">' + (medals[data.self.rank - 1] || data.self.rank) + '</td>' +
-          '<td class="pl-2 max-w-[120px] truncate">' + escapeHtml(data.self.username) + ' (you)</td>' +
+          '<td class="pl-2 max-w-[120px] truncate"><button class="text-violet-300 hover:text-violet-200 hover:underline cursor-pointer" data-profile-btn>' + escapeHtml(data.self.username) + '</button> (you)</td>' +
           '<td class="text-right font-mono">' + data.self.best_cleared + '</td>' +
           '<td class="text-right pl-2 text-amber-400">' + escapeHtml(diffLabel(data.self.best_difficulty)) + '</td>' +
           '</tr></tbody></table></div>';
       }
       leaderboardContentEl.innerHTML = html;
+      // Attach click handlers to profile buttons
+      for (const btn of leaderboardContentEl.querySelectorAll('[data-profile-btn]')) {
+        btn.addEventListener('click', () => showProfile(btn.textContent));
+      }
     }
 
     function renderTa60Leaderboard(data) {
@@ -4034,7 +4152,7 @@
         data.entries.map(e =>
           '<tr class="border-b border-zinc-800/60 last:border-0">' +
           '<td class="py-1">' + (medals[e.rank - 1] || e.rank) + '</td>' +
-          '<td class="py-1 pl-2 max-w-[130px] truncate">' + escapeHtml(e.username) + '</td>' +
+          '<td class="py-1 pl-2 max-w-[130px] truncate"><button class="text-violet-400 hover:text-violet-300 hover:underline cursor-pointer" data-profile-btn>' + escapeHtml(e.username) + '</button></td>' +
           '<td class="py-1 text-right font-mono text-zinc-100">' + e.best_cleared + '</td></tr>'
         ).join('') +
         '</tbody></table>';
@@ -4042,11 +4160,15 @@
         html += '<div class="mt-2 pt-2 border-t border-zinc-700 text-xs">' +
           '<table class="w-full"><tbody><tr class="text-cyan-300">' +
           '<td class="w-8">' + (medals[data.self.rank - 1] || data.self.rank) + '</td>' +
-          '<td class="pl-2 max-w-[120px] truncate">' + escapeHtml(data.self.username) + ' (you)</td>' +
+          '<td class="pl-2 max-w-[120px] truncate"><button class="text-cyan-300 hover:text-cyan-200 hover:underline cursor-pointer" data-profile-btn>' + escapeHtml(data.self.username) + '</button> (you)</td>' +
           '<td class="text-right font-mono">' + data.self.best_cleared + '</td>' +
           '</tr></tbody></table></div>';
       }
       leaderboardContentEl.innerHTML = html;
+      // Attach click handlers to profile buttons
+      for (const btn of leaderboardContentEl.querySelectorAll('[data-profile-btn]')) {
+        btn.addEventListener('click', () => showProfile(btn.textContent));
+      }
     }
 
     async function loadTournamentTeaser() {
@@ -4130,10 +4252,14 @@
               entries.map(e =>
                 '<tr class="border-b border-zinc-800/60 last:border-0">' +
                 '<td class="py-1 text-zinc-500">' + e.rank + '</td>' +
-                '<td class="py-1 pl-2 max-w-[180px] truncate">' + escapeHtml(e.username) + '</td>' +
+                '<td class="py-1 pl-2 max-w-[180px] truncate"><button class="text-violet-400 hover:text-violet-300 hover:underline cursor-pointer" data-profile-btn>' + escapeHtml(e.username) + '</button></td>' +
                 '<td class="py-1 text-right font-mono text-zinc-100">' + e.count + '</td></tr>'
               ).join('') +
               '</tbody></table>';
+            // Attach click handlers to profile buttons
+            for (const btn of leaderboardContentEl.querySelectorAll('[data-profile-btn]')) {
+              btn.addEventListener('click', () => showProfile(btn.textContent));
+            }
           }
         } catch (_) {
           leaderboardContentEl.innerHTML = '<p class="py-1 text-zinc-500">Couldn\'t load leaderboard.</p>';
@@ -4172,7 +4298,7 @@
           }
           return '<tr class="border-b border-zinc-800/60 last:border-0">' +
             '<td class="py-1">' + (medals[e.rank - 1] || e.rank) + '</td>' +
-            '<td class="py-1 pl-2 max-w-[120px] truncate">' + escapeHtml(e.username) + '</td>' +
+            '<td class="py-1 pl-2 max-w-[120px] truncate"><button class="text-violet-400 hover:text-violet-300 hover:underline cursor-pointer" data-profile-btn>' + escapeHtml(e.username) + '</button></td>' +
             '<td class="py-1 text-right font-mono text-zinc-100">' + e.blocks_placed + '</td>' +
             '<td class="py-1 text-right pl-1 text-fuchsia-400">' + timeStr + '</td></tr>';
         }).join('') +
@@ -4189,12 +4315,16 @@
         html += '<div class="mt-2 pt-2 border-t border-zinc-700 text-xs">' +
           '<table class="w-full"><tbody><tr class="text-fuchsia-300">' +
           '<td class="w-8">' + (medals[data.self.rank - 1] || data.self.rank) + '</td>' +
-          '<td class="pl-2 max-w-[100px] truncate">' + escapeHtml(data.self.username) + ' (you)</td>' +
+          '<td class="pl-2 max-w-[100px] truncate"><button class="text-fuchsia-300 hover:text-fuchsia-200 hover:underline cursor-pointer" data-profile-btn>' + escapeHtml(data.self.username) + '</button> (you)</td>' +
           '<td class="text-right font-mono">' + data.self.blocks_placed + '</td>' +
           '<td class="text-right pl-1">' + timeStr + '</td>' +
           '</tr></tbody></table></div>';
       }
       leaderboardContentEl.innerHTML = html;
+      // Attach click handlers to profile buttons
+      for (const btn of leaderboardContentEl.querySelectorAll('[data-profile-btn]')) {
+        btn.addEventListener('click', () => showProfile(btn.textContent));
+      }
     }
 
     function renderEndlessLeaderboard(data) {
@@ -4213,7 +4343,7 @@
         data.entries.map(e =>
           '<tr class="border-b border-zinc-800/60 last:border-0">' +
           '<td class="py-1">' + (medals[e.rank - 1] || e.rank) + '</td>' +
-          '<td class="py-1 pl-2 max-w-[130px] truncate">' + escapeHtml(e.username) + '</td>' +
+          '<td class="py-1 pl-2 max-w-[130px] truncate"><button class="text-violet-400 hover:text-violet-300 hover:underline cursor-pointer" data-profile-btn>' + escapeHtml(e.username) + '</button></td>' +
           '<td class="py-1 text-right font-mono text-zinc-100">' + e.best_placed + '</td>' +
           '<td class="py-1 text-right pl-1 text-rose-400">' + e.best_moves_survived + '</td></tr>'
         ).join('') +
@@ -4222,21 +4352,34 @@
         html += '<div class="mt-2 pt-2 border-t border-zinc-700 text-xs">' +
           '<table class="w-full"><tbody><tr class="text-rose-300">' +
           '<td class="w-8">' + (medals[data.self.rank - 1] || data.self.rank) + '</td>' +
-          '<td class="pl-2 max-w-[110px] truncate">' + escapeHtml(data.self.username) + ' (you)</td>' +
+          '<td class="pl-2 max-w-[110px] truncate"><button class="text-rose-300 hover:text-rose-200 hover:underline cursor-pointer" data-profile-btn>' + escapeHtml(data.self.username) + '</button> (you)</td>' +
           '<td class="text-right font-mono">' + data.self.best_placed + '</td>' +
           '<td class="text-right pl-1 text-rose-300">' + data.self.best_moves_survived + '</td>' +
           '</tr></tbody></table></div>';
       }
       leaderboardContentEl.innerHTML = html;
+      // Attach click handlers to profile buttons
+      for (const btn of leaderboardContentEl.querySelectorAll('[data-profile-btn]')) {
+        btn.addEventListener('click', () => showProfile(btn.textContent));
+      }
     }
     document.getElementById('leaderboard-btn').addEventListener('click', toggleLeaderboard);
     document.getElementById('leaderboard-close').addEventListener('click', closeLeaderboard);
+    document.getElementById('profile-close').addEventListener('click', closeProfile);
     document.getElementById('tab-alltime').addEventListener('click', () => setLeaderboardTab('alltime'));
     document.getElementById('tab-tournament').addEventListener('click', () => setLeaderboardTab('tournament'));
     document.getElementById('tab-ta').addEventListener('click', () => setLeaderboardTab('ta'));
     document.getElementById('tab-ta-60').addEventListener('click', () => setLeaderboardTab('ta-60'));
     document.getElementById('tab-daily-challenge').addEventListener('click', () => setLeaderboardTab('daily-challenge'));
     document.getElementById('tab-endless').addEventListener('click', () => setLeaderboardTab('endless'));
+
+    // Close profile on ESC key
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        if (!profilePanelEl.classList.contains('hidden')) closeProfile();
+        else if (!leaderboardEl.classList.contains('hidden')) closeLeaderboard();
+      }
+    });
 
     // ---- Friends panel ----
     const friendsPanelEl = document.getElementById('friends-panel');
