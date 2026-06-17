@@ -70,7 +70,6 @@
   <script type="importmap">
   { "imports": { "three": "https://unpkg.com/three@0.160.0/build/three.module.js" } }
   </script>
-  <script src="https://social-vibecoding.usernodelabs.org/usernode-bridge/v1/bridge.js"></script>
   <style>
     html, body { margin: 0; height: 100%; overflow: hidden; overscroll-behavior: none; }
     #scene { position: fixed; inset: 0; display: block; }
@@ -124,10 +123,10 @@
     #help-btn       { top: calc(0.75rem + env(safe-area-inset-top));  right: calc(0.75rem + env(safe-area-inset-right)); }
     #mute-btn       { top: calc(0.75rem + env(safe-area-inset-top));  right: calc(3.5rem  + env(safe-area-inset-right)); }
     #turntable-btn  { top: calc(0.75rem + env(safe-area-inset-top));  right: calc(6rem    + env(safe-area-inset-right)); }
-    #badges-btn     { top: calc(0.75rem + env(safe-area-inset-top));  right: calc(6.25rem + env(safe-area-inset-right)); }
+    #badges-btn     { top: calc(0.75rem + env(safe-area-inset-top));  right: calc(8.5rem  + env(safe-area-inset-right)); }
     #leaderboard-btn{ top: calc(3.5rem  + env(safe-area-inset-top));  right: calc(0.75rem + env(safe-area-inset-right)); }
     #friends-btn    { top: calc(6.25rem + env(safe-area-inset-top));  right: calc(0.75rem + env(safe-area-inset-right)); }
-    #build-stamp    { top: calc(9rem    + env(safe-area-inset-top));  right: calc(0.75rem + env(safe-area-inset-right)); }
+    #build-stamp    { top: calc(17.5rem + env(safe-area-inset-top));  right: calc(0.75rem + env(safe-area-inset-right)); }
 
     /* Right-edge HUD pills — bottom is computed by JS (which reads --sai-bottom). */
     #challenge-hud  { right: calc(0.75rem + env(safe-area-inset-right)); }
@@ -257,7 +256,7 @@
     }
 
     /* Undo/redo buttons: disabled state */
-    #undo-btn:disabled, #redo-btn:disabled,
+    #undo-btn:disabled, #undo-float-btn:disabled, #redo-btn:disabled,
     #history-undo-btn:disabled, #history-redo-btn:disabled {
       opacity: 0.3;
       cursor: default;
@@ -603,10 +602,10 @@
   </style>
 </head>
 <body class="bg-zinc-950 text-zinc-100">
-  <canvas id="bg-canvas"></canvas>
   <!-- Rotor: everything visual lives inside so portrait phones can force-rotate
        the whole app to landscape in one transform (see CSS). -->
   <div id="rotor">
+  <canvas id="bg-canvas"></canvas>
   <canvas id="scene"></canvas>
 
   <!-- Crosshair -->
@@ -822,7 +821,7 @@
 
   <!-- Pet companion toggle: sits to the left of the badges button. -->
   <button id="pet-btn" title="Pet Companions" aria-label="Toggle pet companions"
-          class="fixed top-3 z-30 w-9 h-9 rounded-full bg-black/50 hover:bg-black/70 text-zinc-100 text-lg leading-none flex items-center justify-center transition-colors cursor-pointer" style="right: 9.5rem">🐾</button>
+          class="fixed top-3 z-30 w-9 h-9 rounded-full bg-black/50 hover:bg-black/70 text-zinc-100 text-lg leading-none flex items-center justify-center transition-colors cursor-pointer" style="right: calc(9.5rem + env(safe-area-inset-right))">🐾</button>
 
   <!-- Audio mute toggle: sits to the left of the help button. -->
   <button id="mute-btn" title="Mute/unmute audio (M)" aria-label="Toggle audio"
@@ -830,7 +829,7 @@
 
   <!-- Settings toggle: sits to the left of the badges/turntable cluster. -->
   <button id="settings-btn" title="Settings" aria-label="Open settings"
-          class="fixed top-3 z-30 w-12 h-12 sm:w-9 sm:h-9 rounded-full bg-black/50 hover:bg-black/70 text-zinc-100 text-lg leading-none flex items-center justify-center transition hover:scale-110 active:scale-95 cursor-pointer" style="right: 8.75rem">⚙️</button>
+          class="fixed top-3 z-30 w-12 h-12 sm:w-9 sm:h-9 rounded-full bg-black/50 hover:bg-black/70 text-zinc-100 text-lg leading-none flex items-center justify-center transition hover:scale-110 active:scale-95 cursor-pointer" style="right: calc(8.75rem + env(safe-area-inset-right))">⚙️</button>
 
   <!-- Turntable toggle: sits to the left of the mute button. -->
   <button id="turntable-btn" title="Toggle turntable camera" aria-label="Toggle turntable camera"
@@ -886,18 +885,18 @@
   <button id="worlds-btn" title="Worlds" aria-label="Toggle worlds"
           class="fixed top-[10.75rem] right-3 z-30 w-12 h-12 sm:w-9 sm:h-9 rounded-full bg-black/50 hover:bg-black/70 text-zinc-100 text-lg leading-none flex items-center justify-center transition hover:scale-110 active:scale-95 cursor-pointer">🌍</button>
 
-  <!-- Daily Theme toggle: below the coach button. Hidden in Time Attack mode. -->
+  <!-- Daily Theme toggle: below the worlds button. Hidden in Time Attack mode. -->
   <button id="theme-btn" title="Daily Build Theme" aria-label="Daily Build Theme"
-          class="fixed top-[10.5rem] right-3 z-30 w-9 h-9 rounded-full bg-black/50 hover:bg-black/70 text-zinc-100 text-lg leading-none flex items-center justify-center transition-colors cursor-pointer">🌟</button>
+          class="fixed top-[13rem] right-3 z-30 w-9 h-9 rounded-full bg-black/50 hover:bg-black/70 text-zinc-100 text-lg leading-none flex items-center justify-center transition-colors cursor-pointer">🌟</button>
 
-  <!-- Accessibility toggle: below the coach button. Opens the a11y panel. -->
+  <!-- Accessibility toggle: below the theme button. Opens the a11y panel. -->
   <button id="accessibility-btn" title="Accessibility" aria-label="Accessibility settings"
-          class="fixed top-[10.5rem] right-3 z-30 w-9 h-9 rounded-full bg-black/50 hover:bg-black/70 text-zinc-100 text-lg leading-none flex items-center justify-center transition hover:scale-110 active:scale-95 cursor-pointer">♿</button>
+          class="fixed top-[15.25rem] right-3 z-30 w-9 h-9 rounded-full bg-black/50 hover:bg-black/70 text-zinc-100 text-lg leading-none flex items-center justify-center transition hover:scale-110 active:scale-95 cursor-pointer">♿</button>
 
   <!-- Build/version stamp: always visible, dim, so the running build can be
        confirmed at a glance. Bump BUILD_VERSION (below) on every change.
-       Shifted down to make room for the leaderboard, friends, coach, accessibility, and theme buttons above. -->
-  <div id="build-stamp" class="pointer-events-none fixed top-[12.75rem] right-3 z-20 text-[11px] text-zinc-300/70 bg-black/40 rounded px-2 py-1 font-mono"></div>
+       Shifted down to make room for the full right-column button stack above. -->
+  <div id="build-stamp" class="pointer-events-none fixed top-[17.5rem] right-3 z-20 text-[11px] text-zinc-300/70 bg-black/40 rounded px-2 py-1 font-mono"></div>
 
   <!-- Mini-map: top-down 128×128 px overhead view of the 32×32 world.
        Hidden until a play mode is chosen; shown/hidden via JS. -->
@@ -906,7 +905,7 @@
           style="top: 13.5rem; right: 0.75rem; border-radius: 6px; border: 1px solid rgba(255,255,255,0.15); opacity: 0.9"></canvas>
 
   <!-- AI Coach bubble: persistent floating bubble in bottom-left corner. Hidden by default. -->
-  <div id="coach-bubble" class="hidden fixed bottom-4 left-4 z-20 max-w-[240px]"
+  <div id="coach-bubble" class="hidden fixed bottom-20 left-4 z-20 max-w-[240px]"
        style="transition: opacity 0.3s; opacity: 0">
     <div class="bg-black/75 backdrop-blur rounded-xl px-4 py-3 text-sm text-zinc-100 shadow-xl">
       <div class="flex items-start gap-2">
@@ -1308,7 +1307,7 @@
   </div>
 
   <!-- Desktop undo button: shown in Classic mode while playing; greyed when stack is empty. -->
-  <button id="undo-btn" class="hidden pointer-events-auto fixed top-3 left-16 z-20 px-3 h-9 rounded-lg bg-black/50 hover:bg-black/70 active:scale-95 text-zinc-100 text-sm sm:text-sm font-semibold flex items-center justify-center gap-1.5 transition">↩ Undo</button>
+  <button id="undo-float-btn" class="hidden pointer-events-auto fixed top-3 left-16 z-20 px-3 h-9 rounded-lg bg-black/50 hover:bg-black/70 active:scale-95 text-zinc-100 text-sm sm:text-sm font-semibold flex items-center justify-center gap-1.5 transition">↩ Undo</button>
 
   <!-- Floating "+1" score pops (Time Attack). Positioned per-pop by JS. -->
   <div id="score-pops" class="pointer-events-none fixed inset-0 z-20 overflow-hidden"></div>
@@ -1321,7 +1320,7 @@
 
   <!-- Pause button: shown during active gameplay -->
   <button id="pause-btn" title="Pause (P)" aria-label="Pause game"
-          class="hidden pointer-events-auto fixed top-3 z-30 w-12 h-12 sm:w-9 sm:h-9 rounded-full bg-black/50 hover:bg-black/70 text-zinc-100 text-lg leading-none flex items-center justify-center transition hover:scale-110 active:scale-95 cursor-pointer" style="right: 11.25rem">⏸</button>
+          class="hidden pointer-events-auto fixed top-3 z-30 w-12 h-12 sm:w-9 sm:h-9 rounded-full bg-black/50 hover:bg-black/70 text-zinc-100 text-lg leading-none flex items-center justify-center transition hover:scale-110 active:scale-95 cursor-pointer" style="right: calc(11.25rem + env(safe-area-inset-right))">⏸</button>
 
   <!-- Pause overlay: shown when game is paused -->
   <div id="pause-overlay" class="hidden fixed inset-0 z-40 flex items-center justify-center bg-black/60 backdrop-blur-sm">
@@ -3954,7 +3953,7 @@
     }
 
     // ---- Undo helpers ----
-    const undoBtnEl = document.getElementById('undo-btn');
+    const undoBtnEl = document.getElementById('undo-float-btn');
     const undoTouchBtnEl = document.getElementById('undo-touch-btn');
 
     function refreshUndoButton() {
@@ -4241,10 +4240,10 @@
       if (!listEl || !emptyEl) return;
       const undoDisabled = undoStack.length === 0;
       const redoDisabled = redoStack.length === 0;
-      for (const id of ['undo-btn', 'redo-btn', 'history-undo-btn', 'history-redo-btn']) {
+      for (const id of ['undo-btn', 'undo-float-btn', 'redo-btn', 'history-undo-btn', 'history-redo-btn']) {
         const btn = document.getElementById(id);
         if (!btn) continue;
-        const isUndo = id === 'undo-btn' || id === 'history-undo-btn';
+        const isUndo = id === 'undo-btn' || id === 'undo-float-btn' || id === 'history-undo-btn';
         btn.disabled = isUndo ? undoDisabled : redoDisabled;
       }
       if (undoStack.length === 0) {
@@ -7420,7 +7419,7 @@
     }
 
     // ---- Undo/Redo/History button wiring ----
-    document.getElementById('undo-btn').addEventListener('click', undo);
+    document.getElementById('undo-float-btn').addEventListener('click', undo);
     document.getElementById('redo-btn').addEventListener('click', redo);
     document.getElementById('history-undo-btn').addEventListener('click', undo);
     document.getElementById('history-redo-btn').addEventListener('click', redo);
