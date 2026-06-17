@@ -260,62 +260,65 @@
     }
 
     #overlay h1 {
-      /* Softened to a pastel periwinkle to match the muted chrome palette. */
-      color: #8e9be0;
-      text-shadow: 0 0 18px rgba(142, 155, 224, 0.45), 0 0 36px rgba(142, 155, 224, 0.25);
+      /* Bright light title with an indigo accent glow on the dark scrim. */
+      color: #eef0ff;
+      text-shadow: 0 0 18px rgba(129, 140, 248, 0.55), 0 0 38px rgba(99, 102, 241, 0.32);
     }
 
     /* ===================================================================
-       Pastel chrome theme
+       Modern dark chrome theme
        -------------------------------------------------------------------
        Re-skins ONLY the menu / HUD chrome (panels, pills, buttons, score &
-       info overlays, menu backgrounds and borders) to soft, low-saturation
-       pastel tones. The 3D world and block/palette colors live in the
-       <canvas> + inline-styled swatches and are untouched by these rules.
+       info overlays, menu backgrounds and borders) to a clean, modern dark
+       look: dark neutral surfaces, high-contrast light text, and a SINGLE
+       indigo accent for every interactive / highlighted element. The 3D
+       world and block/palette colors live in the <canvas> + inline-styled
+       swatches and are deliberately untouched by these rules.
        All DOM text in this app is chrome, so re-mapping the neutral Tailwind
-       utility classes here is safe and keeps text readable (deep muted-ink
-       text on light pastel surfaces).
+       utility classes here is safe and keeps text readable (light text on
+       dark surfaces, white ink on the indigo accent).
        =================================================================== */
     :root {
-      /* Light pastel surfaces */
-      --pastel-panel: 246, 243, 251;   /* floating panels (opaque-ish)   */
-      --pastel-pill:  247, 244, 252;   /* small HUD pills (translucent)  */
-      --pastel-soft:  226, 221, 240;   /* inputs / secondary buttons     */
-      --pastel-scrim: 52, 47, 70;      /* full-screen modal scrim        */
-      /* Deep muted-ink text ramp (was the zinc/white ramp) */
-      --ink-1: #342940;
-      --ink-2: #4d4661;
-      --ink-3: #5e5773;
-      --ink-4: #756d88;
-      --ink-5: #8c849b;
-      --ink-6: #9c94a9;
-      /* Pastel border */
-      --pastel-border: rgba(120, 108, 150, 0.28);
-      /* Pastel accents: base / hover / active / readable ink-on-accent */
-      --acc-violet: #b8a8e8;  --acc-violet-h: #c7b9f1;  --acc-violet-a: #a89ae2;  --ink-violet: #392e5b;
-      --acc-amber:  #f5d499;  --acc-amber-h:  #fce5c3;  --acc-amber-a:  #ecc589;  --ink-amber:  #6a4d22;
-      --acc-teal:   #9ae8d9;  --acc-teal-h:   #b3f1e5;  --acc-teal-a:   #81e5d0;  --ink-teal:   #234d45;
-      --acc-rose:   #f0a8c5;  --acc-rose-h:   #f8bdd5;  --acc-rose-a:   #e89bb1;  --ink-rose:   #672c3b;
-      --acc-mint:   #a4e5c8;  --acc-mint-h:   #b5f0d8;  --acc-mint-a:   #95debc;  --ink-mint:   #224f37;
+      /* Dark neutral surfaces */
+      --surf-panel: 20, 22, 28;     /* floating panels (opaque-ish)   */
+      --surf-pill:  16, 18, 24;     /* small HUD pills (translucent)  */
+      --surf-soft:  41, 45, 56;     /* inputs / secondary buttons     */
+      --surf-soft-h: 54, 59, 72;    /* secondary button hover         */
+      --surf-scrim: 6, 8, 12;       /* full-screen modal scrim        */
+      /* High-contrast light text ramp */
+      --ink-1: #f6f7f9;
+      --ink-2: #e4e7ee;
+      --ink-3: #c6cad5;
+      --ink-4: #969cab;
+      --ink-5: #767d8d;
+      --ink-6: #616877;
+      /* Subtle light border on dark */
+      --dark-border: rgba(255, 255, 255, 0.12);
+      /* Single indigo accent: base / hover / active / ink-on-accent */
+      --acc:   #6366f1;
+      --acc-h: #818cf8;
+      --acc-a: #4f46e5;
+      --ink-acc: #ffffff;
     }
 
-    /* ---- Surfaces: floating panels (formerly dark translucent) ---- */
-    .bg-black\/70, .bg-black\/75, .bg-black\/80, .bg-black\/85,
-    .bg-zinc-900\/95, .bg-zinc-900\/80, .bg-zinc-900\/60 {
-      background-color: rgba(var(--pastel-panel), 0.95) !important;
+    /* ---- Surfaces: floating panels ---- */
+    .bg-black\/70, .bg-black\/75, .bg-black\/80, .bg-black\/85, .bg-black\/95,
+    .bg-zinc-900, .bg-zinc-950, .bg-zinc-900\/95, .bg-zinc-900\/80, .bg-zinc-900\/60 {
+      background-color: rgba(var(--surf-panel), 0.96) !important;
     }
-    /* ---- Surfaces: small HUD pills / round buttons ---- */
-    .bg-black\/40, .bg-black\/45, .bg-black\/50, .bg-black\/55 {
-      background-color: rgba(var(--pastel-pill), 0.82) !important;
+    /* ---- Surfaces: small HUD pills / round buttons (translucent) ---- */
+    .bg-black\/40, .bg-black\/45, .bg-black\/50, .bg-black\/55, .bg-black\/60,
+    .bg-zinc-800\/50 {
+      background-color: rgba(var(--surf-pill), 0.78) !important;
     }
     /* ---- Surfaces: secondary buttons, inputs, mode cards ---- */
     .bg-zinc-800, .bg-zinc-700, .bg-zinc-600, .bg-zinc-800\/80 {
-      background-color: rgb(var(--pastel-soft)) !important;
+      background-color: rgb(var(--surf-soft)) !important;
     }
-    /* ---- Full-screen modal scrims stay a soft, dimming plum ---- */
-    #overlay, #ta-gameover { background-color: rgba(var(--pastel-scrim), 0.55) !important; }
+    /* ---- Full-screen modal scrims: deep neutral dim ---- */
+    #overlay, #ta-gameover { background-color: rgba(var(--surf-scrim), 0.72) !important; }
 
-    /* ---- Text ramp: deep muted ink on the new light surfaces ---- */
+    /* ---- Text ramp: high-contrast light on dark surfaces ---- */
     .text-white, .text-zinc-100 { color: var(--ink-1) !important; }
     .text-white\/90, .text-zinc-200 { color: var(--ink-2) !important; }
     .text-zinc-300, .text-zinc-300\/90, .text-zinc-300\/70 { color: var(--ink-3) !important; }
@@ -325,65 +328,59 @@
 
     /* ---- Borders ---- */
     .border-zinc-700, .border-zinc-700\/80, .border-zinc-700\/60,
-    .border-zinc-700\/50, .border-zinc-800\/60, .border-zinc-600 {
-      border-color: var(--pastel-border) !important;
+    .border-zinc-700\/50, .border-zinc-800, .border-zinc-800\/60, .border-zinc-600 {
+      border-color: var(--dark-border) !important;
     }
 
-    /* ---- Accent buttons: pastel fill + readable dark ink ---- */
-    .bg-violet-600, .bg-violet-700, .bg-violet-700\/55, .bg-violet-500\/80 {
-      background-color: var(--acc-violet) !important; color: var(--ink-violet) !important;
+    /* ---- Accent: every interactive accent family collapses to one indigo ---- */
+    .bg-violet-500, .bg-violet-600, .bg-violet-700, .bg-violet-700\/55, .bg-violet-500\/80,
+    .bg-amber-400, .bg-amber-500, .bg-amber-600, .bg-amber-700, .bg-amber-600\/55, .bg-amber-400\/80,
+    .bg-teal-500, .bg-teal-600,
+    .bg-rose-500, .bg-rose-600, .bg-rose-600\/55, .bg-rose-500\/80,
+    .bg-emerald-500, .bg-emerald-600, .bg-emerald-600\/55, .bg-emerald-500\/80,
+    .bg-cyan-500, .bg-cyan-600,
+    .bg-blue-500, .bg-blue-600 {
+      background-color: var(--acc) !important; color: var(--ink-acc) !important;
     }
-    .bg-amber-600, .bg-amber-500, .bg-amber-600\/55, .bg-amber-400\/80 {
-      background-color: var(--acc-amber) !important; color: var(--ink-amber) !important;
-    }
-    .bg-teal-600 { background-color: var(--acc-teal) !important; color: var(--ink-teal) !important; }
-    .bg-rose-600\/55, .bg-rose-500\/80 {
-      background-color: var(--acc-rose) !important; color: var(--ink-rose) !important;
-    }
-    .bg-emerald-600\/55, .bg-emerald-500\/80 {
-      background-color: var(--acc-mint) !important; color: var(--ink-mint) !important;
-    }
-    /* Small notification dots / badges */
-    .bg-violet-500 { background-color: var(--acc-violet) !important; color: var(--ink-violet) !important; }
-    .bg-red-500 { background-color: #e6a2ae !important; }
 
-    /* ---- Accent text ---- */
-    .text-amber-400 { color: #c9882d !important; }
-    .text-violet-300 { color: #8870c5 !important; }
-    /* Status colors: darkened so they read on the light pastel panels */
-    .text-green-400 { color: #28b847 !important; }
-    .text-red-400 { color: #d84d5f !important; }
-    .bg-green-400 { background-color: #48d597 !important; }
+    /* ---- Accent text & status colors (kept distinct for meaning) ---- */
+    .text-amber-400 { color: #fbbf24 !important; }   /* gold score highlight */
+    .text-violet-300 { color: #a5b4fc !important; }  /* light accent text    */
+    .text-green-400 { color: #4ade80 !important; }
+    .text-red-400 { color: #f87171 !important; }
+    .bg-green-400 { background-color: #22c55e !important; }
+    .bg-red-500 { background-color: #ef4444 !important; }  /* notification dot */
 
     /* ---- Hover states (re-asserted so !important bases don't kill them) ---- */
     .hover\:bg-black\/70:hover, .hover\:bg-black\/85:hover {
-      background-color: rgba(var(--pastel-pill), 0.95) !important;
+      background-color: rgba(var(--surf-pill), 0.92) !important;
     }
     .hover\:bg-zinc-600:hover, .hover\:bg-zinc-800\/80:hover {
-      background-color: #d6cfe9 !important;
+      background-color: rgb(var(--surf-soft-h)) !important;
     }
-    .hover\:bg-violet-500:hover { background-color: var(--acc-violet-h) !important; }
-    .hover\:bg-amber-500:hover  { background-color: var(--acc-amber-h) !important; }
-    .hover\:bg-teal-500:hover   { background-color: var(--acc-teal-h) !important; }
+    .hover\:bg-violet-500:hover, .hover\:bg-amber-500:hover, .hover\:bg-teal-500:hover {
+      background-color: var(--acc-h) !important; color: var(--ink-acc) !important;
+    }
 
     /* ---- Active states ---- */
-    .active\:bg-black\/70:active { background-color: rgba(var(--pastel-soft), 0.95) !important; }
-    .active\:bg-violet-700:active, .active\:bg-violet-500\/80:active { background-color: var(--acc-violet-a) !important; }
-    .active\:bg-amber-700:active, .active\:bg-amber-400\/80:active { background-color: var(--acc-amber-a) !important; }
-    .active\:bg-rose-500\/80:active { background-color: var(--acc-rose-a) !important; }
-    .active\:bg-emerald-500\/80:active { background-color: var(--acc-mint-a) !important; }
+    .active\:bg-black\/70:active { background-color: rgba(var(--surf-soft), 0.95) !important; }
+    .active\:bg-violet-700:active, .active\:bg-violet-500\/80:active,
+    .active\:bg-amber-700:active, .active\:bg-amber-400\/80:active,
+    .active\:bg-rose-500\/80:active, .active\:bg-emerald-500\/80:active {
+      background-color: var(--acc-a) !important; color: var(--ink-acc) !important;
+    }
 
     /* ---- Inputs: focus border + placeholder ---- */
-    .focus\:border-violet-500:focus { border-color: #9d8fd6 !important; }
-    .placeholder-zinc-500::placeholder { color: var(--ink-5) !important; opacity: 0.8; }
+    .focus\:border-violet-500:focus { border-color: var(--acc) !important; }
+    .placeholder-zinc-500::placeholder { color: var(--ink-5) !important; opacity: 0.85; }
 
     /* ---- Hold-swatch dashed placeholder border ---- */
-    #hold-swatch { border-color: var(--pastel-border) !important; }
+    #hold-swatch { border-color: var(--dark-border) !important; }
 
-    /* Soft drop shadow tweak so light panels read against a bright sky */
+    /* Drop shadow so panels read with depth against the bright 3D world */
     #controls, #leaderboard, #friends-panel, #badges-panel, #settings-panel,
     #coach-bubble > div, #ta-gameover > div {
-      box-shadow: 0 8px 28px rgba(60, 50, 90, 0.28) !important;
+      box-shadow: 0 12px 34px rgba(0, 0, 0, 0.55) !important;
     }
 
     /* ---- Time Attack game-over card pop-in ---- */
