@@ -915,14 +915,27 @@
   <button id="theme-btn" title="Daily Build Theme" aria-label="Daily Build Theme"
           class="fixed top-[10.5rem] right-3 z-30 w-9 h-9 rounded-full bg-black/50 hover:bg-black/70 text-zinc-100 text-lg leading-none flex items-center justify-center transition-colors cursor-pointer">🌟</button>
 
-  <!-- Accessibility toggle: below the coach button. Opens the a11y panel. -->
+  <!-- NFT Skins toggle: below the coach button. -->
+  <button id="skins-btn" title="NFT Block Skins" aria-label="Toggle NFT skins"
+          class="fixed top-[11rem] right-3 z-30 w-9 h-9 rounded-full bg-black/50 hover:bg-black/70 text-zinc-100 text-lg leading-none flex items-center justify-center transition-colors cursor-pointer">🎨</button>
+
+  <!-- Accessibility toggle: below the skins button. Opens the a11y panel. -->
   <button id="accessibility-btn" title="Accessibility" aria-label="Accessibility settings"
-          class="fixed top-[10.5rem] right-3 z-30 w-9 h-9 rounded-full bg-black/50 hover:bg-black/70 text-zinc-100 text-lg leading-none flex items-center justify-center transition hover:scale-110 active:scale-95 cursor-pointer">♿</button>
+          class="fixed top-[11.5rem] right-3 z-30 w-9 h-9 rounded-full bg-black/50 hover:bg-black/70 text-zinc-100 text-lg leading-none flex items-center justify-center transition hover:scale-110 active:scale-95 cursor-pointer">♿</button>
 
   <!-- Build/version stamp: always visible, dim, so the running build can be
        confirmed at a glance. Bump BUILD_VERSION (below) on every change.
-       Shifted down to make room for the leaderboard, friends, coach, accessibility, and theme buttons above. -->
-  <div id="build-stamp" class="pointer-events-none fixed top-[12.75rem] right-3 z-20 text-[11px] text-zinc-300/70 bg-black/40 rounded px-2 py-1 font-mono"></div>
+       Shifted down to make room for the leaderboard, friends, coach, skins, accessibility, and theme buttons. -->
+  <div id="build-stamp" class="pointer-events-none fixed top-[13rem] right-3 z-20 text-[11px] text-zinc-300/70 bg-black/40 rounded px-2 py-1 font-mono"></div>
+
+  <!-- NFT Skins panel: shows owned NFTs for equipping as block textures. -->
+  <div id="skins-panel" class="hidden fixed top-16 right-3 z-30 w-72 max-w-[90vw] rounded-xl bg-black/70 backdrop-blur p-4 text-sm text-zinc-200 shadow-xl">
+    <div class="flex items-center justify-between mb-3">
+      <h2 class="font-bold text-zinc-100">NFT Block Skins</h2>
+      <button id="skins-close" aria-label="Close skins" class="text-zinc-400 hover:text-zinc-100 cursor-pointer leading-none">✕</button>
+    </div>
+    <div id="skins-content" class="text-zinc-400 text-center py-2 text-xs">Loading…</div>
+  </div>
 
   <!-- Mini-map: top-down 128×128 px overhead view of the 32×32 world.
        Hidden until a play mode is chosen; shown/hidden via JS. -->
@@ -1565,7 +1578,7 @@
 
     // Build identifier — bump this (to the deploying commit short SHA) on every
     // change so the top-right stamp confirms exactly which code is running.
-    const BUILD_VERSION = 'power-ups+hold-queue+achievements-badges+chat+daily-challenge+leaderboard+online-presence+block-attribution+audio-sfx+next-piece-preview+spectator-mode+weekly-tournament+friends+betting-system+blocks-placed-hud+day-night-cycle+minimap+ai-coach+player-stats+leaderboard-daily+new-badges+daily-theme-voting+natural-disasters+community-monuments+undo-redo-history+pastel-chrome+mobs+message-in-a-block+accessibility-panel+pixel-pets+versus-mode';
+    const BUILD_VERSION = 'power-ups+hold-queue+achievements-badges+chat+daily-challenge+leaderboard+online-presence+block-attribution+audio-sfx+next-piece-preview+spectator-mode+weekly-tournament+friends+betting-system+blocks-placed-hud+day-night-cycle+minimap+ai-coach+nft-skins+player-stats+leaderboard-daily+new-badges+daily-theme-voting+natural-disasters+community-monuments+undo-redo-history+pastel-chrome+mobs+message-in-a-block+accessibility-panel+pixel-pets+versus-mode';
 
     // Badge definitions — mirror of the server-side BADGES array, extended with
     // a `hint` field shown in the panel for unearned badges.
@@ -2354,6 +2367,7 @@
     let DIMS = { w: 32, d: 32, h: 24 };
     let PALETTE = [];
     const blocks = new Map();        // "x,y,z" -> block_type (non-zero only) — classic world
+    const blockSkins = new Map();    // "x,y,z" -> skin_id (only for skinned blocks)
     let cursor = 0;                  // last seq seen from the server
     let eventsCursor = 0;            // last disaster id seen
     let shakeEndTime = 0;            // ms timestamp when camera shake ends
@@ -2369,6 +2383,12 @@
     try { const _cm = localStorage.getItem('blockgame-chaos-mode'); if (_cm !== null) chaosMode = JSON.parse(_cm); } catch (_) {}
     let unlockedTypes = new Set(); // block type IDs earned by the current user
     const key = (x, y, z) => x + ',' + y + ',' + z;
+
+    // ---- NFT skin state ----
+    let myActiveSkinId = null;     // skin_id the local player has equipped, or null
+    const skinTextures = new Map(); // skin_id -> THREE.Texture | 'loading' | 'error'
+    const SKIN_TEXTURE_CAP = 20;   // max loaded textures before LRU eviction
+    const skinTextureOrder = [];   // LRU order: oldest-used first
 
     // ---- Message in a Block state ----
     let pendingMessage = null;        // string queued for next placement, or null
@@ -3196,13 +3216,25 @@
       else if (gameMode === 'learn') source = learnBlocks;
       else if (gameMode === 'tutorial') source = tutorialBlocks;
       else if (gameMode === 'versus') source = versusBlocks;
-      const byType = new Map();
+      const byType = new Map(); // typeInt -> [{x,y,z}]
+      const bySkin = new Map(); // skin_id -> {cells: [{x,y,z}], blockType: int}
+
+
       for (const [k, t] of source) {
-        if (!byType.has(t)) byType.set(t, []);
         const [x, y, z] = k.split(',').map(Number);
-        byType.get(t).push({ x, y, z });
+        const skinId = blockSkins.get(k) || null;
+        if (skinId) {
+          if (!bySkin.has(skinId)) bySkin.set(skinId, { cells: [], blockType: t });
+          bySkin.get(skinId).cells.push({ x, y, z });
+        } else {
+          if (!byType.has(t)) byType.set(t, []);
+          byType.get(t).push({ x, y, z });
+        }
       }
+
       const dummy = new THREE.Object3D();
+
+      // Unskinned blocks — same as before.
       for (const [t, cells] of byType) {
         const p = PALETTE.find((q) => q.id === t);
         if (!p) continue;
@@ -3218,6 +3250,93 @@
         mesh.instanceMatrix.needsUpdate = true;
         mesh.userData.cells = cells;
         blockGroup.add(mesh);
+      }
+
+      // Skinned blocks — one InstancedMesh per skin_id.
+      for (const [skinId, { cells, blockType }] of bySkin) {
+        const tex = skinTextures.get(skinId);
+        if (tex === undefined) {
+          // Trigger async load; fall back to default type material this frame.
+          loadSkinTexture(skinId);
+          const p = PALETTE.find((q) => q.id === blockType);
+          if (p) {
+            const mat = materialFor(p);
+            const mesh = new THREE.InstancedMesh(cube, mat, cells.length);
+            cells.forEach((c, i) => { dummy.position.set(c.x + 0.5, c.y + 0.5, c.z + 0.5); dummy.updateMatrix(); mesh.setMatrixAt(i, dummy.matrix); });
+            mesh.instanceMatrix.needsUpdate = true;
+            mesh.userData.cells = cells;
+            blockGroup.add(mesh);
+          }
+        } else if (tex === 'loading') {
+          // Texture is in flight — use default material as placeholder.
+          const p = PALETTE.find((q) => q.id === blockType);
+          if (p) {
+            const mat = materialFor(p);
+            const mesh = new THREE.InstancedMesh(cube, mat, cells.length);
+            cells.forEach((c, i) => { dummy.position.set(c.x + 0.5, c.y + 0.5, c.z + 0.5); dummy.updateMatrix(); mesh.setMatrixAt(i, dummy.matrix); });
+            mesh.instanceMatrix.needsUpdate = true;
+            mesh.userData.cells = cells;
+            blockGroup.add(mesh);
+          }
+        } else if (tex === 'error') {
+          // Load failed — permanently use default type material.
+          const p = PALETTE.find((q) => q.id === blockType);
+          if (p) {
+            const mat = materialFor(p);
+            const mesh = new THREE.InstancedMesh(cube, mat, cells.length);
+            cells.forEach((c, i) => { dummy.position.set(c.x + 0.5, c.y + 0.5, c.z + 0.5); dummy.updateMatrix(); mesh.setMatrixAt(i, dummy.matrix); });
+            mesh.instanceMatrix.needsUpdate = true;
+            mesh.userData.cells = cells;
+            blockGroup.add(mesh);
+          }
+        } else {
+          // Texture loaded — render with NFT artwork.
+          touchSkinLRU(skinId);
+          const mat = new THREE.MeshLambertMaterial({ map: tex });
+          const mesh = new THREE.InstancedMesh(cube, mat, cells.length);
+          cells.forEach((c, i) => { dummy.position.set(c.x + 0.5, c.y + 0.5, c.z + 0.5); dummy.updateMatrix(); mesh.setMatrixAt(i, dummy.matrix); });
+          mesh.instanceMatrix.needsUpdate = true;
+          mesh.userData.cells = cells;
+          blockGroup.add(mesh);
+        }
+      }
+    }
+
+    function touchSkinLRU(skinId) {
+      const idx = skinTextureOrder.indexOf(skinId);
+      if (idx !== -1) skinTextureOrder.splice(idx, 1);
+      skinTextureOrder.push(skinId);
+      // Evict oldest if over cap.
+      while (skinTextureOrder.length > SKIN_TEXTURE_CAP) {
+        const oldest = skinTextureOrder.shift();
+        const old = skinTextures.get(oldest);
+        if (old && old !== 'loading' && old !== 'error') old.dispose();
+        skinTextures.delete(oldest);
+      }
+    }
+
+    async function loadSkinTexture(skinId) {
+      if (skinTextures.has(skinId)) return; // already loading or loaded
+      skinTextures.set(skinId, 'loading');
+      try {
+        const res = await fetch('/api/skins/' + encodeURIComponent(skinId), { headers });
+        if (!res.ok) throw new Error('not found');
+        const { image_url } = await res.json();
+        if (!image_url) throw new Error('no image_url');
+        const loader = new THREE.TextureLoader();
+        loader.load(
+          image_url,
+          (texture) => {
+            texture.colorSpace = THREE.SRGBColorSpace;
+            skinTextures.set(skinId, texture);
+            rebuildBlockMeshes();
+          },
+          undefined,
+          () => { skinTextures.set(skinId, 'error'); rebuildBlockMeshes(); }
+        );
+      } catch (_) {
+        skinTextures.set(skinId, 'error');
+        rebuildBlockMeshes();
       }
     }
 
@@ -3813,10 +3932,14 @@
       x >= 0 && x < DIMS.w && z >= 0 && z < DIMS.d && y >= 1 && y < DIMS.h;
 
     // ---- Apply an edit locally + send to server (optimistic) ----
-    function applyLocal(x, y, z, t) {
+    function applyLocal(x, y, z, t, skinId) {
       const k = key(x, y, z);
-      if (t === 0) blocks.delete(k); else blocks.set(k, t);
-      messageBlocks.delete(k); // any message at this cell is gone once overwritten/broken
+      if (t === 0) { blocks.delete(k); blockSkins.delete(k); }
+      else {
+        blocks.set(k, t);
+        if (skinId) blockSkins.set(k, skinId); else blockSkins.delete(k);
+      }
+      messageBlocks.delete(k);
       rebuildBlockMeshes();
       clearAttribution(); // label is stale after any block change; loop will re-fetch
     }
@@ -3857,7 +3980,8 @@
       if (!undoInProgress && gameMode === 'classic' && prevType !== undefined) {
         pushUndo(x, y, z, prevType, t);
       }
-      applyLocal(x, y, z, t);
+      // Optimistic skin: use active skin for placements, none for breaks.
+      applyLocal(x, y, z, t, t !== 0 ? myActiveSkinId : null);
       // Optimistic challenge increment for placements (not breaks).
       if (t !== 0 && challengeDate && !challengeCompleted) {
         challengePlaced++;
@@ -3946,7 +4070,12 @@
             }
           }
           if (data.challenge) syncChallenge(data.challenge);
+          // Reconcile block skin with server-confirmed value (handles cases
+          // where the server's stored skin differs from the client's optimistic one).
           if (t !== 0) {
+            const k = key(x, y, z);
+            if (data.skin_id) blockSkins.set(k, data.skin_id);
+            else blockSkins.delete(k);
             myBlocksPlaced++;
             renderBlocksPlacedHud();
             blocksPlacedHudEl.classList.remove('hidden');
@@ -4991,6 +5120,101 @@
     });
     document.getElementById('profile-tab-stats').addEventListener('click',  () => setProfileTab('stats'));
     document.getElementById('profile-tab-badges').addEventListener('click', () => setProfileTab('badges'));
+
+    // ---- NFT Skins panel ----
+    const skinsPanelEl = document.getElementById('skins-panel');
+    const skinsContentEl = document.getElementById('skins-content');
+    let skinsOpen = false;
+
+    function closeSkins() {
+      skinsOpen = false;
+      skinsPanelEl.classList.add('hidden');
+    }
+    function toggleSkins() {
+      skinsOpen = !skinsOpen;
+      if (skinsOpen) {
+        skinsPanelEl.classList.remove('hidden');
+        fetchAndRenderSkins();
+      } else {
+        skinsPanelEl.classList.add('hidden');
+      }
+    }
+    document.getElementById('skins-btn').addEventListener('click', toggleSkins);
+    document.getElementById('skins-close').addEventListener('click', closeSkins);
+
+    async function fetchAndRenderSkins() {
+      skinsContentEl.innerHTML = '<span class="text-zinc-500">Loading…</span>';
+      try {
+        const res = await fetch('/api/skins/my-nfts', { headers });
+        if (!res.ok) throw new Error('fetch failed');
+        const { wallet_linked, nfts } = await res.json();
+        renderSkinsPanel(wallet_linked, nfts);
+      } catch (_) {
+        skinsContentEl.innerHTML = '<span class="text-zinc-500">Couldn\'t load skins.</span>';
+      }
+    }
+
+    function renderSkinsPanel(wallet_linked, nfts) {
+      if (!wallet_linked) {
+        skinsContentEl.innerHTML =
+          '<p class="text-zinc-400 text-xs text-center py-2">Link a Usernode wallet to unlock NFT block skins.</p>';
+        return;
+      }
+      let html = '<button id="skins-use-default" class="w-full mb-3 px-3 py-1.5 rounded-lg text-xs font-semibold cursor-pointer transition-colors ' +
+        (!myActiveSkinId ? 'bg-violet-600 text-white' : 'bg-zinc-700 text-zinc-300 hover:bg-zinc-600') + '">Use default appearance</button>';
+      if (!nfts.length) {
+        html += '<p class="text-zinc-500 text-xs text-center py-1">No NFTs found in your wallet.</p>';
+        skinsContentEl.innerHTML = html;
+        skinsContentEl.querySelector('#skins-use-default').addEventListener('click', unequipSkin);
+        return;
+      }
+      html += '<div class="grid grid-cols-3 gap-2">';
+      for (const nft of nfts) {
+        const isActive = myActiveSkinId === nft.skin_id;
+        html += '<div class="relative rounded-lg overflow-hidden bg-zinc-800 cursor-pointer skin-nft-card" data-skin-id="' + escapeHtml(nft.skin_id) + '" data-image-url="' + escapeHtml(nft.image_url) + '" data-nft-name="' + escapeHtml(nft.nft_name) + '">' +
+          '<img src="' + escapeHtml(nft.image_url) + '" alt="' + escapeHtml(nft.nft_name) + '" class="w-full aspect-square object-cover" onerror="this.style.background=\'#333\'">' +
+          (isActive ? '<div class="absolute inset-0 flex items-end justify-center pb-1"><span class="text-[10px] font-bold bg-violet-600 px-1.5 py-0.5 rounded text-white">Active</span></div>' : '') +
+          '<p class="text-[9px] text-zinc-400 truncate px-1 py-0.5">' + escapeHtml(nft.nft_name) + '</p></div>';
+      }
+      html += '</div>';
+      skinsContentEl.innerHTML = html;
+
+      skinsContentEl.querySelector('#skins-use-default').addEventListener('click', unequipSkin);
+      for (const card of skinsContentEl.querySelectorAll('.skin-nft-card')) {
+        card.addEventListener('click', () => {
+          equipSkin(card.dataset.skinId, card.dataset.imageUrl, card.dataset.nftName);
+        });
+      }
+    }
+
+    async function equipSkin(skinId, imageUrl, nftName) {
+      try {
+        const res = await fetch('/api/skins/equip', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...headers },
+          body: JSON.stringify({ skin_id: skinId, image_url: imageUrl, nft_name: nftName }),
+        });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          skinsContentEl.insertAdjacentHTML('afterbegin', '<p class="text-red-400 text-xs mb-2">' + escapeHtml(data.error || 'Failed to equip') + '</p>');
+          return;
+        }
+        myActiveSkinId = skinId;
+        // Pre-load the texture so it's ready for the next placement.
+        if (!skinTextures.has(skinId)) loadSkinTexture(skinId);
+        fetchAndRenderSkins();
+      } catch (_) {
+        skinsContentEl.insertAdjacentHTML('afterbegin', '<p class="text-red-400 text-xs mb-2">Network error</p>');
+      }
+    }
+
+    async function unequipSkin() {
+      try {
+        await fetch('/api/skins/unequip', { method: 'POST', headers: { 'Content-Type': 'application/json', ...headers } });
+        myActiveSkinId = null;
+        fetchAndRenderSkins();
+      } catch (_) { /* transient */ }
+    }
 
     // ---- Pet panel ----
     const petBtnEl    = document.getElementById('pet-btn');
@@ -9100,7 +9324,8 @@
           if (changes && changes.length) {
             for (const ch of changes) {
               const k = key(ch.x, ch.y, ch.z);
-              if (ch.t === 0) blocks.delete(k); else blocks.set(k, ch.t);
+              if (ch.t === 0) { blocks.delete(k); blockSkins.delete(k); }
+              else { blocks.set(k, ch.t); if (ch.s) blockSkins.set(k, ch.s); else blockSkins.delete(k); }
               if (ch.m) messageBlocks.add(k); else messageBlocks.delete(k);
             }
             rebuildBlockMeshes();
