@@ -713,6 +713,128 @@
     const powerupGroup = new THREE.Group();
     scene.add(powerupGroup);
 
+    // ---- Particle system ----
+    const PARTICLE_POOL_SIZE = 150;
+    const particleGeom = new THREE.BoxGeometry(0.1, 0.1, 0.1);
+    const particleGroup = new THREE.Group();
+    scene.add(particleGroup);
+
+    const particlePool = [];
+    for (let _i = 0; _i < PARTICLE_POOL_SIZE; _i++) {
+      const mat = new THREE.MeshBasicMaterial({
+        color: 0xffffff,
+        transparent: true,
+        depthWrite: false,
+        opacity: 1,
+      });
+      const mesh = new THREE.Mesh(particleGeom, mat);
+      mesh.visible = false;
+      particleGroup.add(mesh);
+      particlePool.push({ mesh, active: false, vx: 0, vy: 0, vz: 0, age: 0, maxAge: 1, startOpacity: 1, gravity: 0 });
+    }
+
+    function _acquireParticle() {
+      for (let _j = 0; _j < PARTICLE_POOL_SIZE; _j++) {
+        if (!particlePool[_j].active) return particlePool[_j];
+      }
+      return null;
+    }
+
+    function emitBlockBreak(cx, cy, cz, blockType) {
+      const p = PALETTE.find((q) => q.id === blockType);
+      const hexColor = p ? p.color : '#888888';
+      const baseColor = new THREE.Color(hexColor);
+      for (let _k = 0; _k < 14; _k++) {
+        const slot = _acquireParticle();
+        if (!slot) break;
+        const speed = 2 + Math.random() * 3;
+        const theta = Math.random() * Math.PI * 2;
+        const phi = Math.acos(2 * Math.random() - 1);
+        const c = new THREE.Color(baseColor);
+        const darken = 0.75 + Math.random() * 0.25;
+        c.r = Math.min(1, c.r * darken);
+        c.g = Math.min(1, c.g * darken);
+        c.b = Math.min(1, c.b * darken);
+        slot.mesh.material.color.copy(c);
+        slot.mesh.material.opacity = 1;
+        slot.startOpacity = 1;
+        slot.vx = Math.sin(phi) * Math.cos(theta) * speed;
+        slot.vy = Math.sin(phi) * Math.sin(theta) * speed + 1.5;
+        slot.vz = Math.cos(phi) * speed;
+        slot.gravity = 9;
+        slot.age = 0;
+        slot.maxAge = 0.5 + Math.random() * 0.3;
+        const scale = 0.6 + Math.random() * 0.6;
+        slot.mesh.scale.setScalar(scale);
+        slot.mesh.position.set(cx + (Math.random() - 0.5) * 0.3, cy + (Math.random() - 0.5) * 0.3, cz + (Math.random() - 0.5) * 0.3);
+        slot.mesh.visible = true;
+        slot.active = true;
+      }
+    }
+
+    function emitBlockPlace(cx, cy, cz) {
+      for (let _k = 0; _k < 7; _k++) {
+        const slot = _acquireParticle();
+        if (!slot) break;
+        const speed = 0.8 + Math.random() * 1.2;
+        const theta = Math.random() * Math.PI * 2;
+        const phi = Math.acos(2 * Math.random() - 1);
+        slot.mesh.material.color.set(0xe8e8e8);
+        slot.mesh.material.opacity = 0.85;
+        slot.startOpacity = 0.85;
+        slot.vx = Math.sin(phi) * Math.cos(theta) * speed;
+        slot.vy = Math.sin(phi) * Math.sin(theta) * speed;
+        slot.vz = Math.cos(phi) * speed;
+        slot.gravity = 1.5;
+        slot.age = 0;
+        slot.maxAge = 0.2 + Math.random() * 0.15;
+        const scale = 0.5 + Math.random() * 0.4;
+        slot.mesh.scale.setScalar(scale);
+        slot.mesh.position.set(cx + (Math.random() - 0.5) * 0.2, cy + (Math.random() - 0.5) * 0.2, cz + (Math.random() - 0.5) * 0.2);
+        slot.mesh.visible = true;
+        slot.active = true;
+      }
+    }
+
+    function emitFootstepDust(px, py, pz) {
+      for (let _k = 0; _k < 3; _k++) {
+        const slot = _acquireParticle();
+        if (!slot) break;
+        slot.mesh.material.color.set(0x9a8070);
+        slot.mesh.material.opacity = 0.7;
+        slot.startOpacity = 0.7;
+        slot.vx = (Math.random() - 0.5) * 0.6;
+        slot.vy = 0.3 + Math.random() * 0.4;
+        slot.vz = (Math.random() - 0.5) * 0.6;
+        slot.gravity = 0;
+        slot.age = 0;
+        slot.maxAge = 0.2 + Math.random() * 0.15;
+        const scale = 0.4 + Math.random() * 0.3;
+        slot.mesh.scale.setScalar(scale);
+        slot.mesh.position.set(px + (Math.random() - 0.5) * 0.4, py, pz + (Math.random() - 0.5) * 0.4);
+        slot.mesh.visible = true;
+        slot.active = true;
+      }
+    }
+
+    function tickParticles(dt) {
+      for (let _j = 0; _j < PARTICLE_POOL_SIZE; _j++) {
+        const slot = particlePool[_j];
+        if (!slot.active) continue;
+        slot.vy -= slot.gravity * dt;
+        slot.mesh.position.x += slot.vx * dt;
+        slot.mesh.position.y += slot.vy * dt;
+        slot.mesh.position.z += slot.vz * dt;
+        slot.age += dt;
+        const t = slot.age / slot.maxAge;
+        slot.mesh.material.opacity = (1 - t) * slot.startOpacity;
+        if (slot.age >= slot.maxAge) {
+          slot.active = false;
+          slot.mesh.visible = false;
+        }
+      }
+    }
+
     // Ground = immutable grass layer at y = 0 (one InstancedMesh, raycastable
     // so blocks can be placed on top, but never breakable).
     let groundMesh = null;
@@ -1152,11 +1274,13 @@
         const k = key(x, y, z);
         if (taBlocks.get(k) === selectedType) return;
         taBlocks.set(k, selectedType);
+        emitBlockPlace(x + 0.5, y + 0.5, z + 0.5);
         rebuildBlockMeshes();
         return;
       }
       if (blocks.get(key(x, y, z)) === selectedType) return;
       audio.playPlace();
+      emitBlockPlace(x + 0.5, y + 0.5, z + 0.5);
       sendEdit(x, y, z, selectedType);
       // Unlock hold after each successful placement (Tetris lock rule)
       holdLocked = false;
@@ -1170,14 +1294,18 @@
       if (gameMode === 'timeattack') {
         const k = key(x, y, z);
         if (!taBlocks.has(k)) return;
+        const brokenTypeTa = taBlocks.get(k);
         taBlocks.delete(k);
+        emitBlockBreak(x + 0.5, y + 0.5, z + 0.5, brokenTypeTa);
         taScore++;
         rebuildBlockMeshes();
         updateTaScoreDisplay();
         return;
       }
       if (!blocks.has(key(x, y, z))) return;
+      const brokenType = blocks.get(key(x, y, z));
       audio.playBreak();
+      emitBlockBreak(x + 0.5, y + 0.5, z + 0.5, brokenType);
       sendEdit(x, y, z, 0);
     }
 
@@ -2480,6 +2608,7 @@
     }
 
     let prev = performance.now();
+    let lastFootstep = 0;
     const fwd = new THREE.Vector3(), right = new THREE.Vector3(), horiz = new THREE.Vector3();
     function loop(now) {
       const dt = Math.min((now - prev) / 1000, 0.1);
@@ -2513,6 +2642,10 @@
         if (move.r) horiz.add(right);
         if (move.l) horiz.sub(right);
         if (horiz.lengthSq() > 1) horiz.normalize();
+        if (horiz.lengthSq() > 0 && (now - lastFootstep) > 300) {
+          emitFootstepDust(camera.position.x, camera.position.y - 0.9, camera.position.z);
+          lastFootstep = now;
+        }
         camera.position.addScaledVector(horiz, horizStep);
         if (move.up)   camera.position.y += vertStep;
         if (move.down) camera.position.y -= vertStep;
@@ -2551,6 +2684,7 @@
         }
       }
 
+      tickParticles(dt);
       updateTarget();
       updateAttribution();
       // Animate Crystal block emissive glow: gentle 0.2→0.4 pulse (~7.9s period).
