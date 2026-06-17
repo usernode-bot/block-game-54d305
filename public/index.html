@@ -98,6 +98,12 @@
       -webkit-user-select: none;
       -webkit-tap-highlight-color: transparent;
     }
+
+    @keyframes record-pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.4; }
+    }
+    .recording-pulse { animation: record-pulse 1.2s ease-in-out infinite; }
   </style>
 </head>
 <body class="bg-zinc-950 text-zinc-100">
@@ -167,15 +173,17 @@
   <button id="mute-btn" title="Mute/unmute audio (M)" aria-label="Toggle audio"
           class="fixed top-3 right-14 z-30 w-9 h-9 rounded-full bg-black/50 hover:bg-black/70 text-zinc-100 text-lg leading-none flex items-center justify-center transition-colors cursor-pointer">🔊</button>
 
-  <!-- Help/controls toggle: circular "(?)" button fixed in the top-right
-       corner. Clicking it does exactly what pressing `h` does — show/hide the
-       controls overlay below. -->
+  <!-- Help/controls toggle: circular "(?)" button fixed in the top-right corner. -->
   <button id="help-btn" title="Controls (h)" aria-label="Toggle controls"
           class="fixed top-3 right-3 z-30 w-9 h-9 rounded-full bg-black/50 hover:bg-black/70 text-zinc-100 text-lg font-bold leading-none flex items-center justify-center transition-colors cursor-pointer">?</button>
 
   <!-- Leaderboard toggle: sits below the help button. -->
   <button id="leaderboard-btn" title="Leaderboard (l)" aria-label="Toggle leaderboard"
           class="fixed top-14 right-3 z-30 w-9 h-9 rounded-full bg-black/50 hover:bg-black/70 text-zinc-100 text-lg leading-none flex items-center justify-center transition-colors cursor-pointer">🏆</button>
+
+  <!-- Record button: shown only in Classic mode. Hidden until startMode('classic'). -->
+  <button id="record-btn" title="Record session" aria-label="Record session"
+          class="hidden fixed top-14 right-14 z-30 w-9 h-9 rounded-full bg-black/50 hover:bg-black/70 text-zinc-100 text-lg leading-none flex items-center justify-center transition-colors cursor-pointer">⏺</button>
 
   <!-- Build/version stamp: always visible, dim, so the running build can be
        confirmed at a glance. Bump BUILD_VERSION (below) on every change.
@@ -264,6 +272,40 @@
     </div>
   </div>
 
+  <!-- Share modal: shown after stopping a recording. -->
+  <div id="share-modal" class="hidden fixed inset-0 z-40 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+    <div class="max-w-sm w-full mx-4 bg-zinc-900/95 rounded-2xl p-8 text-center shadow-xl">
+      <h2 class="text-2xl font-bold mb-2">Session saved!</h2>
+      <p class="text-zinc-400 text-sm mb-4">Share this link to let others watch your replay.</p>
+      <input id="share-url" type="text" readonly
+             class="w-full px-3 py-2 rounded-lg bg-zinc-800 text-zinc-100 text-sm font-mono mb-3 border border-zinc-700 cursor-text select-all" />
+      <div class="flex gap-3 justify-center">
+        <button id="share-copy-btn" class="px-5 py-2 rounded-lg bg-violet-600 hover:bg-violet-500 font-semibold transition-colors">Copy link</button>
+        <button id="share-close-btn" class="px-5 py-2 rounded-lg bg-zinc-700 hover:bg-zinc-600 font-semibold transition-colors">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Replay banner: shown at top when viewing a replay URL. -->
+  <div id="replay-banner" class="hidden fixed top-0 left-0 right-0 z-30 flex items-center justify-center bg-black/65 backdrop-blur-sm py-2 px-4">
+    <span id="replay-banner-text" class="text-sm text-zinc-200 font-medium"></span>
+  </div>
+
+  <!-- Replay controls: play/pause, speed, progress — shown at bottom in replay mode. -->
+  <div id="replay-controls" class="hidden fixed bottom-0 left-0 right-0 z-30 flex items-center gap-3 bg-black/65 backdrop-blur-sm px-4 py-2">
+    <button id="replay-playpause" title="Play / Pause"
+            class="w-8 h-8 rounded-full bg-white/15 hover:bg-white/25 text-white text-sm flex items-center justify-center transition-colors cursor-pointer flex-shrink-0">▶</button>
+    <div id="replay-progress-bar" class="flex-1 h-2 bg-white/20 rounded-full overflow-hidden cursor-pointer" title="Progress">
+      <div id="replay-progress-fill" class="h-full bg-violet-500 rounded-full" style="width:0%;transition:width 0.1s linear"></div>
+    </div>
+    <select id="replay-speed" title="Playback speed"
+            class="bg-black/60 text-white text-xs rounded px-2 py-1 border border-white/20 cursor-pointer flex-shrink-0">
+      <option value="1">1×</option>
+      <option value="2">2×</option>
+      <option value="4">4×</option>
+    </select>
+  </div>
+
   </div><!-- /#rotor -->
 
   <script type="module">
@@ -274,9 +316,13 @@
     const headers = token ? { 'x-usernode-token': token } : {};
     const statusEl = document.getElementById('status');
 
+    // Detect replay route: /replay/<id>
+    const replayMatch = window.location.pathname.match(/^\/replay\/([^/]+)$/);
+    const replayId = replayMatch ? replayMatch[1] : null;
+
     // Build identifier — bump this (to the deploying commit short SHA) on every
     // change so the top-right stamp confirms exactly which code is running.
-    const BUILD_VERSION = 'daily-challenge+leaderboard+online-presence+block-attribution+audio-sfx+next-piece-preview';
+    const BUILD_VERSION = 'replay-sharing+daily-challenge+leaderboard+online-presence+block-attribution+audio-sfx';
 
     // Touch capability: drives (a) the on-screen control overlay, (b) skipping
     // mouse-lock in favour of direct touch play, and (c) portrait force-rotation.
@@ -483,12 +529,16 @@
 
     // ---- Game mode state ----
     let gameMode = null;           // null | 'classic' | 'timeattack'
+    let isReplayMode = false;      // true when viewing /replay/<id>
     const taBlocks = new Map();    // TA layout: client-only, never written to server
     let taScore = 0;
     let taTimeLeft = 60;
     let taTimerHandle = null;
     let pollHandle = null;         // classic-mode server poll interval
     let pendingTaInit = false;     // true while waiting for play-entry to fire initTimeAttack
+
+    // ---- Replay recording state ----
+    let recordingSessionId = null; // UUID of active recording session, or null
 
     // ---- Three.js scaffold ----
     const canvas = document.getElementById('scene');
@@ -678,7 +728,7 @@
       highlight.visible = true;
       // Show ghost at the prospective placement cell if playing, in bounds, and unoccupied.
       const p = target.place;
-      if (playing && inBounds(p.x, p.y, p.z) && !blocks.has(key(p.x, p.y, p.z))) {
+      if (playing && !isReplayMode && inBounds(p.x, p.y, p.z) && !blocks.has(key(p.x, p.y, p.z))) {
         previewMesh.position.set(p.x + 0.5, p.y + 0.5, p.z + 0.5);
         previewMesh.visible = true;
       }
@@ -721,6 +771,76 @@
       challengeHudEl.classList.remove('hidden');
     }
 
+    // ---- Replay recording ----
+    const recordBtnEl = document.getElementById('record-btn');
+    const shareModalEl = document.getElementById('share-modal');
+
+    function updateRecordButton() {
+      if (recordingSessionId) {
+        recordBtnEl.title = 'Stop & Share';
+        recordBtnEl.innerHTML = '<span class="recording-pulse" style="color:#f87171;font-size:0.9rem">⏹</span>';
+      } else {
+        recordBtnEl.title = 'Record session';
+        recordBtnEl.innerHTML = '⏺';
+        recordBtnEl.style.color = '';
+      }
+    }
+
+    function showShareModal(url) {
+      document.getElementById('share-url').value = url;
+      shareModalEl.classList.remove('hidden');
+    }
+
+    async function stopRecording(silent) {
+      if (!recordingSessionId) return;
+      const sid = recordingSessionId;
+      recordingSessionId = null;
+      updateRecordButton();
+      try {
+        const res = await fetch('/api/replay/stop/' + sid, {
+          method: 'POST',
+          headers: { ...headers },
+        });
+        if (res.ok && !silent) {
+          const data = await res.json();
+          showShareModal(window.location.origin + data.share_path);
+        }
+      } catch (_) {}
+    }
+
+    recordBtnEl.addEventListener('click', async () => {
+      if (recordingSessionId) {
+        await stopRecording(false);
+      } else {
+        try {
+          const res = await fetch('/api/replay/start', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...headers },
+          });
+          if (res.ok) {
+            const data = await res.json();
+            recordingSessionId = data.session_id;
+            updateRecordButton();
+          }
+        } catch (_) {}
+      }
+    });
+
+    document.getElementById('share-copy-btn').addEventListener('click', async () => {
+      const url = document.getElementById('share-url').value;
+      try {
+        await navigator.clipboard.writeText(url);
+        const btn = document.getElementById('share-copy-btn');
+        const orig = btn.textContent;
+        btn.textContent = 'Copied!';
+        setTimeout(() => { btn.textContent = orig; }, 2000);
+      } catch (_) {}
+    });
+
+    document.getElementById('share-close-btn').addEventListener('click', () => {
+      shareModalEl.classList.add('hidden');
+    });
+
     async function sendEdit(x, y, z, t) {
       applyLocal(x, y, z, t);
       // Optimistic challenge increment for placements (not breaks).
@@ -730,20 +850,29 @@
         renderChallenge();
       }
       try {
+        const body = { x, y, z, block_type: t };
+        if (recordingSessionId) body.session_id = recordingSessionId;
         const res = await fetch('/api/block', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', ...headers },
-          body: JSON.stringify({ x, y, z, block_type: t }),
+          body: JSON.stringify(body),
         });
         if (res.ok) {
           const data = await res.json();
           if (data.seq && data.seq > cursor) cursor = data.seq;
           if (data.challenge) syncChallenge(data.challenge);
+          if (data.session_auto_stopped && recordingSessionId) {
+            const sid = recordingSessionId;
+            recordingSessionId = null;
+            updateRecordButton();
+            showShareModal(window.location.origin + '/replay/' + sid);
+          }
         }
       } catch (e) { /* poll loop will reconcile */ }
     }
 
     function placeBlock() {
+      if (isReplayMode) return;
       if (!target) return;
       const { x, y, z } = target.place;
       if (!inBounds(x, y, z)) return;
@@ -760,6 +889,7 @@
     }
 
     function breakBlock() {
+      if (isReplayMode) return;
       if (!target) return;
       const { x, y, z } = target.cell;
       if (y < 1) return;
@@ -945,6 +1075,8 @@
     function startMode(mode) {
       gameMode = mode;
       if (mode === 'timeattack') pendingTaInit = true;
+      // Show record button only in classic mode
+      recordBtnEl.classList.toggle('hidden', mode !== 'classic');
       tryPointerLock();
     }
 
@@ -1009,6 +1141,10 @@
     }
 
     function exitToMenu() {
+      // Stop recording if in progress (silent — don't show share modal on menu exit).
+      if (recordingSessionId) stopRecording(true);
+      recordBtnEl.classList.add('hidden');
+
       // In TA mode, if still actively playing, end the run first (shows game-over).
       if (gameMode === 'timeattack' && playing) {
         endTimeAttack();
@@ -1128,7 +1264,7 @@
     window.addEventListener('mouseup', (e) => {
       if (locked || !playing || !dragging) return;
       dragging = false;
-      canvas.style.cursor = 'grab';
+      canvas.style.cursor = isReplayMode ? 'default' : 'grab';
       const moved = Math.hypot(e.clientX - pressX, e.clientY - pressY);
       if (moved < DRAG_THRESHOLD) {
         if (e.button === 0) placeBlock();
@@ -1147,8 +1283,8 @@
         const n = parseInt(e.code.slice(5), 10);
         if (n >= 1 && n <= 9 && PALETTE[n - 1]) selectType(PALETTE[n - 1].id);
       }
-      if (e.code === 'KeyF' && playing) placeBlock();
-      if (e.code === 'KeyG' && playing) breakBlock();
+      if (e.code === 'KeyF' && playing && !isReplayMode) placeBlock();
+      if (e.code === 'KeyG' && playing && !isReplayMode) breakBlock();
       if (e.code === 'KeyH') toggleControls();
       // L toggles the leaderboard panel.
       if (e.code === 'KeyL') toggleLeaderboard();
@@ -1159,7 +1295,9 @@
       if (e.code === 'Escape') {
         if (!leaderboardEl.classList.contains('hidden')) {
           closeLeaderboard();
-        } else if (dragMode && playing) {
+        } else if (!shareModalEl.classList.contains('hidden')) {
+          shareModalEl.classList.add('hidden');
+        } else if (dragMode && playing && !isReplayMode) {
           if (gameMode === 'timeattack') {
             endTimeAttack();
           } else {
@@ -1349,7 +1487,7 @@
     async function loadWorld() {
       const res = await fetch('/api/world', { headers });
       if (!res.ok) {
-        statusEl.textContent = res.status === 401 ? 'Open this app inside Usernode to play.' : 'Failed to load world.';
+        if (statusEl) statusEl.textContent = res.status === 401 ? 'Open this app inside Usernode to play.' : 'Failed to load world.';
         return false;
       }
       const data = await res.json();
@@ -1465,7 +1603,7 @@
       }
 
       updateTarget();
-      updateAttribution();
+      if (!isReplayMode) updateAttribution();
       renderer.render(scene, camera);
       requestAnimationFrame(loop);
     }
@@ -1473,33 +1611,202 @@
     // Fade the controls hint after a few seconds.
     setTimeout(() => { hintEl.style.opacity = '0'; hintFallbackEl.style.opacity = '0'; }, 6000);
 
-    (async function init() {
-      updateOrientation();
-      refreshControlCopy();
-      const ok = await loadWorld();
-      if (!ok) return;
+    // ---- Replay viewer ----
+    async function initReplayViewer(sessionId) {
+      isReplayMode = true;
 
-      // Load today's challenge progress (non-fatal if unavailable).
+      // Hide all game UI elements that don't belong in replay mode.
+      overlayEl.style.display = 'none';
+      hintEl.classList.add('hidden');
+      hintFallbackEl.classList.add('hidden');
+      lookModeEl.classList.add('hidden');
+      document.getElementById('palette').classList.add('hidden');
+      muteBtnEl.classList.add('hidden');
+      document.getElementById('help-btn').classList.add('hidden');
+      document.getElementById('leaderboard-btn').classList.add('hidden');
+      document.getElementById('build-stamp').classList.add('hidden');
+      challengeHudEl.classList.add('hidden');
+      controlsEl.classList.add('hidden');
+      leaderboardEl.classList.add('hidden');
+      touchControlsEl.classList.add('hidden');
+      document.getElementById('crosshair').classList.add('hidden');
+
+      const replayBannerEl = document.getElementById('replay-banner');
+      const replayBannerTextEl = document.getElementById('replay-banner-text');
+      const replayControlsEl = document.getElementById('replay-controls');
+      const replayPlayPauseEl = document.getElementById('replay-playpause');
+      const replaySpeedEl = document.getElementById('replay-speed');
+      const replayProgressFill = document.getElementById('replay-progress-fill');
+
+      replayBannerTextEl.textContent = 'Loading replay…';
+      replayBannerEl.classList.remove('hidden');
+
+      updateOrientation();
+
+      // Fetch replay data
+      let sessionData, events;
       try {
-        const cr = await fetch('/api/challenge/today', { headers });
-        if (cr.ok) syncChallenge(await cr.json());
-      } catch (_) {}
+        const res = await fetch('/api/replay/' + sessionId, { headers });
+        if (!res.ok) {
+          replayBannerTextEl.textContent = res.status === 404 ? 'Replay not found.' : 'Failed to load replay.';
+          requestAnimationFrame(loop);
+          return;
+        }
+        const data = await res.json();
+        sessionData = data.session;
+        events = data.events;
+      } catch (e) {
+        replayBannerTextEl.textContent = 'Failed to load replay.';
+        requestAnimationFrame(loop);
+        return;
+      }
+
+      // Load DIMS + PALETTE from server (needed for ground/palette rendering).
+      const worldRes = await fetch('/api/world', { headers });
+      if (worldRes.ok) {
+        const worldData = await worldRes.json();
+        DIMS = worldData.dims;
+        PALETTE = worldData.palette;
+        selectedType = PALETTE[0] ? PALETTE[0].id : 1;
+      }
+
+      // Populate blocks from the session's world snapshot.
+      blocks.clear();
+      const snapshot = sessionData.world_snapshot || [];
+      for (const b of snapshot) {
+        if (b.t !== 0) blocks.set(key(b.x, b.y, b.z), b.t);
+      }
+
+      buildGround();
+      buildGroundGrid();
+      buildPalette();
+      rebuildBlockMeshes();
+      spawnCamera();
+
+      // Enable free-fly camera for the viewer (drag-to-look, WASD movement).
+      playing = true;
+      dragMode = true;
+      canvas.style.cursor = 'default';
+
+      // Format the banner.
+      const startDate = new Date(sessionData.started_at);
+      const dateStr = startDate.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+      const safeUsername = escapeHtml(sessionData.username);
+      replayBannerTextEl.innerHTML = '▶ Replay — ' + safeUsername + '’s session · ' + dateStr;
+
+      replayControlsEl.classList.remove('hidden');
+
+      // Playback engine
+      let replayPlaying = false;
+      let replaySpeed = 1;
+      let replayIdx = 0;
+      let replayElapsedMs = 0;
+      let replayTimeoutHandle = null;
+      const totalDuration = events.length > 0 ? events[events.length - 1].offset_ms : 0;
+
+      function updateProgress() {
+        if (!totalDuration) { replayProgressFill.style.width = '100%'; return; }
+        const pct = Math.min(100, (replayElapsedMs / totalDuration) * 100);
+        replayProgressFill.style.width = pct + '%';
+      }
+
+      function scheduleNext() {
+        if (!replayPlaying || replayIdx >= events.length) {
+          if (replayIdx >= events.length) {
+            replayBannerTextEl.innerHTML = '✓ Replay complete — ' + safeUsername;
+            replayPlayPauseEl.textContent = '↺'; // ↺
+            replayProgressFill.style.width = '100%';
+          }
+          return;
+        }
+        const ev = events[replayIdx];
+        const delay = Math.max(0, (ev.offset_ms - replayElapsedMs) / replaySpeed);
+        replayTimeoutHandle = setTimeout(() => {
+          replayTimeoutHandle = null;
+          if (!replayPlaying) return;
+          replayElapsedMs = ev.offset_ms;
+          const k = key(ev.x, ev.y, ev.z);
+          if (ev.block_type === 0) blocks.delete(k); else blocks.set(k, ev.block_type);
+          rebuildBlockMeshes();
+          replayIdx++;
+          updateProgress();
+          scheduleNext();
+        }, delay);
+      }
+
+      function pauseReplay() {
+        replayPlaying = false;
+        if (replayTimeoutHandle !== null) { clearTimeout(replayTimeoutHandle); replayTimeoutHandle = null; }
+        replayPlayPauseEl.textContent = '▶';
+      }
+
+      function playReplay() {
+        if (replayIdx >= events.length) {
+          // Restart from beginning.
+          replayIdx = 0;
+          replayElapsedMs = 0;
+          blocks.clear();
+          for (const b of snapshot) {
+            if (b.t !== 0) blocks.set(key(b.x, b.y, b.z), b.t);
+          }
+          rebuildBlockMeshes();
+          updateProgress();
+          replayBannerTextEl.innerHTML = '▶ Replay — ' + safeUsername + '’s session · ' + dateStr;
+        }
+        replayPlaying = true;
+        replayPlayPauseEl.textContent = '⏸';
+        scheduleNext();
+      }
+
+      replayPlayPauseEl.addEventListener('click', () => {
+        if (replayPlaying) pauseReplay(); else playReplay();
+      });
+
+      replaySpeedEl.addEventListener('change', () => {
+        replaySpeed = Number(replaySpeedEl.value);
+        if (replayPlaying) {
+          if (replayTimeoutHandle !== null) { clearTimeout(replayTimeoutHandle); replayTimeoutHandle = null; }
+          scheduleNext();
+        }
+      });
 
       requestAnimationFrame(loop);
-      // Poll is started per-mode in onPlayEntered(), not here.
-      heartbeat();
-      setInterval(heartbeat, 30000);
-      pollPresence();
-      setInterval(pollPresence, 15000);
-      // Re-fetch challenge every 30s to catch midnight UTC rollover and
-      // progress made in other tabs.
-      setInterval(async () => {
+      // Auto-play when loaded
+      playReplay();
+    }
+
+    // ---- Entry point: replay route or normal game ----
+    if (replayId) {
+      initReplayViewer(replayId);
+    } else {
+      (async function init() {
+        updateOrientation();
+        refreshControlCopy();
+        const ok = await loadWorld();
+        if (!ok) return;
+
+        // Load today's challenge progress (non-fatal if unavailable).
         try {
           const cr = await fetch('/api/challenge/today', { headers });
           if (cr.ok) syncChallenge(await cr.json());
         } catch (_) {}
-      }, 30000);
-    })();
+
+        requestAnimationFrame(loop);
+        // Poll is started per-mode in onPlayEntered(), not here.
+        heartbeat();
+        setInterval(heartbeat, 30000);
+        pollPresence();
+        setInterval(pollPresence, 15000);
+        // Re-fetch challenge every 30s to catch midnight UTC rollover and
+        // progress made in other tabs.
+        setInterval(async () => {
+          try {
+            const cr = await fetch('/api/challenge/today', { headers });
+            if (cr.ok) syncChallenge(await cr.json());
+          } catch (_) {}
+        }, 30000);
+      })();
+    }
   </script>
 </body>
 </html>
