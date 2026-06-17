@@ -156,7 +156,7 @@
       }
 
       /* Hide individual buttons on small screens, show menu button */
-      #help-btn, #leaderboard-btn, #friends-btn, #coach-btn, #badges-btn, #turntable-btn, #settings-btn {
+      #help-btn, #leaderboard-btn, #friends-btn, #coach-btn, #badges-btn, #turntable-btn, #settings-btn, #pause-btn {
         display: none !important;
       }
       #menu-btn {
@@ -546,6 +546,7 @@
       <button data-menu-item="badges" class="w-full text-left px-4 py-2.5 text-sm text-zinc-200 hover:bg-zinc-800/50 flex items-center gap-3 transition menu-text">🏅 Badges</button>
       <button data-menu-item="worlds" class="w-full text-left px-4 py-2.5 text-sm text-zinc-200 hover:bg-zinc-800/50 flex items-center gap-3 transition menu-text">🌍 Worlds</button>
       <button data-menu-item="settings" class="w-full text-left px-4 py-2.5 text-sm text-zinc-200 hover:bg-zinc-800/50 flex items-center gap-3 transition menu-text">⚙️ Settings</button>
+      <button data-menu-item="pause" class="w-full text-left px-4 py-2.5 text-sm text-zinc-200 hover:bg-zinc-800/50 flex items-center gap-3 transition menu-text">⏸ Pause</button>
       <div class="border-t border-zinc-700/60"></div>
       <button data-menu-item="mute" class="w-full text-left px-4 py-2.5 text-sm text-zinc-200 hover:bg-zinc-800/50 flex items-center gap-3 transition menu-text">🔊 Mute</button>
     </div>
@@ -853,6 +854,26 @@
 
   <!-- Tutorial hints: on-screen instructions and step progression -->
   <div id="tutorial-hints" class="pointer-events-none fixed inset-0 z-20"></div>
+
+  <!-- Pause button: shown during active gameplay -->
+  <button id="pause-btn" title="Pause (P)" aria-label="Pause game"
+          class="hidden pointer-events-auto fixed top-3 z-30 w-12 h-12 sm:w-9 sm:h-9 rounded-full bg-black/50 hover:bg-black/70 text-zinc-100 text-lg leading-none flex items-center justify-center transition hover:scale-110 active:scale-95 cursor-pointer" style="right: 11.25rem">⏸</button>
+
+  <!-- Pause overlay: shown when game is paused -->
+  <div id="pause-overlay" class="hidden fixed inset-0 z-40 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+    <div id="pause-card" class="max-w-sm w-full mx-4 bg-zinc-900/95 rounded-2xl p-6 sm:p-8 text-center shadow-xl">
+      <h2 class="text-3xl font-bold mb-4">PAUSED</h2>
+      <div id="pause-info" class="text-zinc-300 text-sm mb-6 space-y-1">
+        <div id="pause-timer" class="hidden text-lg font-mono font-bold"></div>
+        <div id="pause-score" class="hidden"></div>
+      </div>
+      <div class="flex flex-col gap-2 justify-center">
+        <button id="pause-resume" class="w-full px-6 py-3 rounded-lg bg-violet-600 hover:bg-violet-500 font-semibold transition hover:scale-105 active:scale-95">Resume</button>
+        <button id="pause-settings" class="w-full px-6 py-3 rounded-lg bg-zinc-700 hover:bg-zinc-600 font-semibold transition hover:scale-105 active:scale-95">Settings</button>
+        <button id="pause-quit" class="w-full px-6 py-3 rounded-lg bg-zinc-700 hover:bg-zinc-600 font-semibold transition hover:scale-105 active:scale-95">Quit to Menu</button>
+      </div>
+    </div>
+  </div>
 
   <!-- Time Attack game-over overlay -->
   <div id="ta-gameover" class="hidden fixed inset-0 z-30 flex items-center justify-center bg-black/60 backdrop-blur-sm">
@@ -2984,7 +3005,7 @@
     });
 
     function placeBlock() {
-      if (!target) return;
+      if (!target || paused) return;
       const { x, y, z } = target.place;
       if (!inBounds(x, y, z)) return;
       if (gameMode === 'timeattack') {
@@ -3113,7 +3134,7 @@
     }
 
     function breakBlock() {
-      if (!target) return;
+      if (!target || paused) return;
       const { x, y, z } = target.cell;
       if (y < 1) return;
       if (gameMode === 'timeattack') {
@@ -3191,6 +3212,7 @@
     let yaw = 0, pitch = 0;
     let locked = false;
     let playing = false;
+    let paused = false;
     let turntableEnabled = true;
     let turntableAngle = 0;
     let dragMode = false;
@@ -3366,6 +3388,7 @@
     }
 
     function tickTimer() {
+      if (paused) return;
       taTimeLeft--;
       updateTaTimerDisplay();
       if (taTimeLeft <= 0) {
@@ -3508,6 +3531,7 @@
     }
 
     function tickTimer60() {
+      if (paused) return;
       ta60TimeLeft--;
       updateTa60TimerDisplay();
       if (ta60TimeLeft <= 0) {
@@ -3824,6 +3848,7 @@
         ? 'Click a mode — drag to look, click to build, press Esc for this menu.'
         : 'Click a mode — move the mouse to look, press Esc to release. If your browser blocks mouse-lock, you can drag to look instead.';
       lookModeEl.classList.toggle('hidden', !playing);
+      pauseBtnEl.classList.toggle('hidden', !playing || gameMode === 'spectate');
     }
 
     function clearLockTimer() {
@@ -3879,9 +3904,12 @@
 
       gameMode = null;
       playing = false;
+      paused = false;
       dragMode = false;
       resetMove();
       canvas.style.cursor = '';
+      pauseOverlayEl.classList.add('hidden');
+      canvas.style.pointerEvents = 'auto';
       refreshUndoButton();
 
       taBlocks.clear();
@@ -4129,6 +4157,11 @@
       // L toggles the leaderboard panel.
       if (e.code === 'KeyL') toggleLeaderboard();
       if (e.code === 'KeyM') { toggleSound(); }
+      // P toggles pause while playing (only in playable modes, not spectate).
+      if (e.code === 'KeyP' && playing && gameMode !== 'spectate') {
+        e.preventDefault();
+        togglePause();
+      }
       // Escape: close overlays in priority order, then handle mode exit.
       // In native (locked) mode the browser handles Esc and fires
       // pointerlockchange, which restores the overlay there.
@@ -4329,6 +4362,7 @@
           'coach': 'coach-btn',
           'badges': 'badges-btn',
           'settings': 'settings-btn',
+          'pause': 'pause-btn',
           'mute': 'mute-btn'
         };
 
@@ -4365,6 +4399,75 @@
         closeLeaderboard();
       }
     }
+
+    // ---- Pause / Resume ----
+    const pauseOverlayEl = document.getElementById('pause-overlay');
+    const pauseResumeBtn = document.getElementById('pause-resume');
+    const pauseQuitBtn = document.getElementById('pause-quit');
+    const pauseSettingsBtn = document.getElementById('pause-settings');
+    const pauseBtnEl = document.getElementById('pause-btn');
+    const pauseTimerEl = document.getElementById('pause-timer');
+    const pauseScoreEl = document.getElementById('pause-score');
+
+    function formatTimeForPause(seconds) {
+      const mins = Math.floor(seconds / 60);
+      const secs = seconds % 60;
+      return mins + ':' + String(secs).padStart(2, '0');
+    }
+
+    function updatePauseInfo() {
+      // Show relevant info in the pause overlay based on game mode
+      pauseTimerEl.classList.add('hidden');
+      pauseScoreEl.classList.add('hidden');
+
+      if (gameMode === 'timeattack') {
+        pauseTimerEl.textContent = `Time Left: ${formatTimeForPause(taTimeLeft)}`;
+        pauseTimerEl.classList.remove('hidden');
+        pauseScoreEl.textContent = `Cleared: ${taScore} blocks`;
+        pauseScoreEl.classList.remove('hidden');
+      } else if (gameMode === 'time-attack-60') {
+        pauseTimerEl.textContent = `Time Left: ${formatTimeForPause(ta60TimeLeft)}`;
+        pauseTimerEl.classList.remove('hidden');
+        pauseScoreEl.textContent = `Cleared: ${ta60Score} blocks`;
+        pauseScoreEl.classList.remove('hidden');
+      } else if (gameMode === 'endless') {
+        pauseScoreEl.textContent = `Moves Remaining: ${endlessMovesRemaining} · Placed: ${endlessBlocksPlaced}`;
+        pauseScoreEl.classList.remove('hidden');
+      } else if (gameMode === 'classic') {
+        pauseScoreEl.textContent = `Score: ${sessionScore}`;
+        pauseScoreEl.classList.remove('hidden');
+      }
+    }
+
+    function togglePause() {
+      if (!playing || gameMode === 'spectate') return;
+      paused = !paused;
+      if (paused) {
+        pauseOverlayEl.classList.remove('hidden');
+        canvas.style.pointerEvents = 'none';
+        updatePauseInfo();
+      } else {
+        pauseOverlayEl.classList.add('hidden');
+        canvas.style.pointerEvents = 'auto';
+      }
+    }
+
+    function resumeGame() {
+      paused = false;
+      pauseOverlayEl.classList.add('hidden');
+      canvas.style.pointerEvents = 'auto';
+    }
+
+    pauseBtnEl.addEventListener('click', togglePause);
+    pauseResumeBtn.addEventListener('click', resumeGame);
+    pauseQuitBtn.addEventListener('click', exitToMenu);
+    pauseSettingsBtn.addEventListener('click', () => {
+      paused = false;
+      pauseOverlayEl.classList.add('hidden');
+      canvas.style.pointerEvents = 'auto';
+      toggleSettings();
+    });
+
     function escapeHtml(s) {
       return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
     }
@@ -5707,7 +5810,7 @@
     }
 
     async function poll() {
-      if (document.hidden) return;
+      if (document.hidden || paused) return;
 
       // World changes (shared or custom world)
       try {
@@ -5785,8 +5888,11 @@
       updateDayNightCycle(now);
 
       // Expire old buffs so the HUD and multipliers are always current.
-      for (const [type, expiresAt] of activeBuff) {
-        if (now > expiresAt) activeBuff.delete(type);
+      // (only expire while not paused so pause freezes countdown timers)
+      if (!paused) {
+        for (const [type, expiresAt] of activeBuff) {
+          if (now > expiresAt) activeBuff.delete(type);
+        }
       }
 
       if (!playing && turntableEnabled) {
