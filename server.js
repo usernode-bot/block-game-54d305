@@ -439,7 +439,7 @@ async function recomputeMonument(sx, sz) {
 // Paths that stay open without authentication. Add a path here (and add it
 // with `app.get`/`app.post` below) if you deliberately want it public.
 // Everything else requires a valid platform-issued JWT.
-const PUBLIC_API_PATHS = new Set(['/health']);
+const PUBLIC_API_PATHS = new Set(['/health', '/api/world-conditions']);
 
 // ---- Daily Challenge: deterministic placement target [20, 100] from UTC date ----
 // Using UTC year/month/day so the same date always yields the same target
@@ -6197,6 +6197,64 @@ async function seedCollabChallenge() {
   }
 }
 
+// ---- Weather system ----
+
+const WEATHER_OPTIONS = [
+  { weather: 'clear',  weight: 35 },
+  { weather: 'cloudy', weight: 25 },
+  { weather: 'rain',   weight: 20 },
+  { weather: 'snow',   weight: 10 },
+  { weather: 'storm',  weight: 10 },
+];
+
+function pickNextWeather(current) {
+  const pool2 = WEATHER_OPTIONS.filter(o => o.weather !== current);
+  const total = pool2.reduce((s, o) => s + o.weight, 0);
+  let r = Math.random() * total;
+  for (const o of pool2) { r -= o.weight; if (r <= 0) return o.weather; }
+  return pool2[0].weather;
+}
+
+async function weatherSchedulerTick() {
+  try {
+    const { rows } = await pool.query(
+      'SELECT weather, next_change FROM world_conditions WHERE id = 1'
+    );
+    if (rows.length && Number(rows[0].next_change) <= Date.now()) {
+      const next = pickNextWeather(rows[0].weather);
+      const dur = (5 + Math.random() * 25) * 60 * 1000; // 5–30 minutes
+      const now = Date.now();
+      await pool.query(
+        'UPDATE world_conditions SET weather = $1, change_at = $2, next_change = $3 WHERE id = 1',
+        [next, now, now + dur]
+      );
+      console.log(`Weather → ${next} for ${Math.round(dur / 60000)}min`);
+    }
+  } catch (err) {
+    console.error('Weather scheduler error:', err.message);
+  }
+  setTimeout(weatherSchedulerTick, 60000); // re-check every minute
+}
+
+// ---- World conditions API ----
+
+app.get('/api/world-conditions', async (_req, res) => {
+  try {
+    const { rows } = await pool.query(
+      'SELECT weather, change_at, next_change FROM world_conditions WHERE id = 1'
+    );
+    if (!rows.length) return res.json({ weather: 'clear', changeAt: 0, nextChangeAt: 0 });
+    const r = rows[0];
+    res.json({
+      weather: r.weather,
+      changeAt: Number(r.change_at),
+      nextChangeAt: Number(r.next_change),
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 async function seedCoins() {
   const coinSeeds = [
     { user_id: -1, username: 'Staging demo Alice',   balance: 340, loginOffset: 1 },
@@ -6285,7 +6343,6 @@ async function seedPromptVotes() {
     );
   }
 }
-
 async function seedTheme() {
   const now = new Date();
   const todayStr = now.toISOString().slice(0, 10);
@@ -7196,6 +7253,24 @@ async function start() {
     ON wager_history (user_id, created_at DESC)
   `);
 
+  // Shared world conditions: single-row table tracking current weather state and
+  // when the next transition is scheduled. Owned by the server scheduler; clients
+  // read it via GET /api/world-conditions. Public — no sensitive data.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS world_conditions (
+      id          INTEGER  PRIMARY KEY DEFAULT 1,
+      weather     VARCHAR(20) NOT NULL DEFAULT 'clear',
+      change_at   BIGINT   NOT NULL DEFAULT 0,
+      next_change BIGINT   NOT NULL DEFAULT 0
+    )
+  `);
+  // Ensure the single row exists (idempotent).
+  await pool.query(`
+    INSERT INTO world_conditions (id, weather, change_at, next_change)
+    VALUES (1, 'clear', 0, 0)
+    ON CONFLICT (id) DO NOTHING
+  `);
+
   // Daily build theme voting tables (all public — build activity is not sensitive).
   await pool.query(`
     CREATE TABLE IF NOT EXISTS daily_theme_schedule (
@@ -7442,6 +7517,23 @@ async function start() {
     catch (err) { console.error('prompt votes seed failed', err); }
     try { await seedBlockMessages(); }
     catch (err) { console.error('block messages seed failed', err); }
+    try {
+      // Two fake spectators so the eye-icon path is exercisable in staging.
+      await pool.query(
+        `INSERT INTO user_presence (user_id, username, last_seen, mode)
+         VALUES (-9001, 'Staging demo spectator — Alice', NOW(), 'spectate'),
+                (-9002, 'Staging demo spectator — Bob',   NOW(), 'spectate')
+         ON CONFLICT (user_id) DO UPDATE SET last_seen = NOW(), mode = EXCLUDED.mode`
+      );
+    } catch (err) { console.error('staging spectator seed failed', err); }
+    // Seed world_conditions to a clear day so testers see the scheduler kick in promptly.
+    try {
+      await pool.query(
+        `INSERT INTO world_conditions (id, weather, change_at, next_change)
+         VALUES (1, 'clear', 0, 0)
+         ON CONFLICT (id) DO NOTHING`
+      );
+    } catch (err) { console.error('staging world_conditions seed failed', err); }
     try { await seedTheme(); }
     catch (err) { console.error('theme seed failed', err); }
     try { await seedLoginRewards(); }
@@ -7474,6 +7566,8 @@ async function start() {
   }
 
   await ensurePowerUps();
+  // Start weather scheduler: first tick fires immediately, then every 60s.
+  weatherSchedulerTick().catch(err => console.error('weather scheduler failed to start', err));
   initMobs();
 
     // Cleanup stale rooms (waiting/active older than 1 hour) every 30 minutes
