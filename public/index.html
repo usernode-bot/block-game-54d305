@@ -140,8 +140,130 @@
     }
 
     #overlay h1 {
-      color: #06b6d4;
-      text-shadow: 0 0 20px rgba(6, 182, 212, 0.5), 0 0 40px rgba(6, 182, 212, 0.3);
+      /* Softened to a pastel periwinkle to match the muted chrome palette. */
+      color: #8e9be0;
+      text-shadow: 0 0 18px rgba(142, 155, 224, 0.45), 0 0 36px rgba(142, 155, 224, 0.25);
+    }
+
+    /* ===================================================================
+       Pastel chrome theme
+       -------------------------------------------------------------------
+       Re-skins ONLY the menu / HUD chrome (panels, pills, buttons, score &
+       info overlays, menu backgrounds and borders) to soft, low-saturation
+       pastel tones. The 3D world and block/palette colors live in the
+       <canvas> + inline-styled swatches and are untouched by these rules.
+       All DOM text in this app is chrome, so re-mapping the neutral Tailwind
+       utility classes here is safe and keeps text readable (deep muted-ink
+       text on light pastel surfaces).
+       =================================================================== */
+    :root {
+      /* Light pastel surfaces */
+      --pastel-panel: 246, 243, 251;   /* floating panels (opaque-ish)   */
+      --pastel-pill:  247, 244, 252;   /* small HUD pills (translucent)  */
+      --pastel-soft:  226, 221, 240;   /* inputs / secondary buttons     */
+      --pastel-scrim: 52, 47, 70;      /* full-screen modal scrim        */
+      /* Deep muted-ink text ramp (was the zinc/white ramp) */
+      --ink-1: #3f3850;
+      --ink-2: #4d4661;
+      --ink-3: #5e5773;
+      --ink-4: #756d88;
+      --ink-5: #8c849b;
+      --ink-6: #9c94a9;
+      /* Pastel border */
+      --pastel-border: rgba(120, 108, 150, 0.28);
+      /* Pastel accents: base / hover / active / readable ink-on-accent */
+      --acc-violet: #c5b7ea;  --acc-violet-h: #d2c6f1;  --acc-violet-a: #b3a1e2;  --ink-violet: #392e5b;
+      --acc-amber:  #eed2a8;  --acc-amber-h:  #f5e1c3;  --acc-amber-a:  #e6c189;  --ink-amber:  #6a4d22;
+      --acc-teal:   #abdcce;  --acc-teal-h:   #c2e5db;  --acc-teal-a:   #95d2c0;  --ink-teal:   #234d45;
+      --acc-rose:   #ebb8c3;  --acc-rose-h:   #f1cdd5;  --acc-rose-a:   #e3a2b1;  --ink-rose:   #672c3b;
+      --acc-mint:   #b2ddc0;  --acc-mint-h:   #c7e6d1;  --acc-mint-a:   #9cd2ae;  --ink-mint:   #224f37;
+    }
+
+    /* ---- Surfaces: floating panels (formerly dark translucent) ---- */
+    .bg-black\/70, .bg-black\/75, .bg-black\/80, .bg-black\/85,
+    .bg-zinc-900\/95, .bg-zinc-900\/80, .bg-zinc-900\/60 {
+      background-color: rgba(var(--pastel-panel), 0.95) !important;
+    }
+    /* ---- Surfaces: small HUD pills / round buttons ---- */
+    .bg-black\/40, .bg-black\/45, .bg-black\/50, .bg-black\/55 {
+      background-color: rgba(var(--pastel-pill), 0.82) !important;
+    }
+    /* ---- Surfaces: secondary buttons, inputs, mode cards ---- */
+    .bg-zinc-800, .bg-zinc-700, .bg-zinc-600, .bg-zinc-800\/80 {
+      background-color: rgb(var(--pastel-soft)) !important;
+    }
+    /* ---- Full-screen modal scrims stay a soft, dimming plum ---- */
+    #overlay, #ta-gameover { background-color: rgba(var(--pastel-scrim), 0.55) !important; }
+
+    /* ---- Text ramp: deep muted ink on the new light surfaces ---- */
+    .text-white, .text-zinc-100 { color: var(--ink-1) !important; }
+    .text-white\/90, .text-zinc-200 { color: var(--ink-2) !important; }
+    .text-zinc-300, .text-zinc-300\/90, .text-zinc-300\/70 { color: var(--ink-3) !important; }
+    .text-zinc-400 { color: var(--ink-4) !important; }
+    .text-zinc-500 { color: var(--ink-5) !important; }
+    .text-zinc-600 { color: var(--ink-6) !important; }
+
+    /* ---- Borders ---- */
+    .border-zinc-700, .border-zinc-700\/80, .border-zinc-700\/60,
+    .border-zinc-700\/50, .border-zinc-800\/60, .border-zinc-600 {
+      border-color: var(--pastel-border) !important;
+    }
+
+    /* ---- Accent buttons: pastel fill + readable dark ink ---- */
+    .bg-violet-600, .bg-violet-700, .bg-violet-700\/55, .bg-violet-500\/80 {
+      background-color: var(--acc-violet) !important; color: var(--ink-violet) !important;
+    }
+    .bg-amber-600, .bg-amber-500, .bg-amber-600\/55, .bg-amber-400\/80 {
+      background-color: var(--acc-amber) !important; color: var(--ink-amber) !important;
+    }
+    .bg-teal-600 { background-color: var(--acc-teal) !important; color: var(--ink-teal) !important; }
+    .bg-rose-600\/55, .bg-rose-500\/80 {
+      background-color: var(--acc-rose) !important; color: var(--ink-rose) !important;
+    }
+    .bg-emerald-600\/55, .bg-emerald-500\/80 {
+      background-color: var(--acc-mint) !important; color: var(--ink-mint) !important;
+    }
+    /* Small notification dots / badges */
+    .bg-violet-500 { background-color: var(--acc-violet) !important; color: var(--ink-violet) !important; }
+    .bg-red-500 { background-color: #e6a2ae !important; }
+
+    /* ---- Accent text ---- */
+    .text-amber-400 { color: #b1853a !important; }
+    .text-violet-300 { color: #7b6caf !important; }
+    /* Status colors: darkened so they read on the light pastel panels */
+    .text-green-400 { color: #3a9d5d !important; }
+    .text-red-400 { color: #c75c6b !important; }
+    .bg-green-400 { background-color: #5cbf82 !important; }
+
+    /* ---- Hover states (re-asserted so !important bases don't kill them) ---- */
+    .hover\:bg-black\/70:hover, .hover\:bg-black\/85:hover {
+      background-color: rgba(var(--pastel-pill), 0.95) !important;
+    }
+    .hover\:bg-zinc-600:hover, .hover\:bg-zinc-800\/80:hover {
+      background-color: #d6cfe9 !important;
+    }
+    .hover\:bg-violet-500:hover { background-color: var(--acc-violet-h) !important; }
+    .hover\:bg-amber-500:hover  { background-color: var(--acc-amber-h) !important; }
+    .hover\:bg-teal-500:hover   { background-color: var(--acc-teal-h) !important; }
+
+    /* ---- Active states ---- */
+    .active\:bg-black\/70:active { background-color: rgba(var(--pastel-soft), 0.95) !important; }
+    .active\:bg-violet-700:active, .active\:bg-violet-500\/80:active { background-color: var(--acc-violet-a) !important; }
+    .active\:bg-amber-700:active, .active\:bg-amber-400\/80:active { background-color: var(--acc-amber-a) !important; }
+    .active\:bg-rose-500\/80:active { background-color: var(--acc-rose-a) !important; }
+    .active\:bg-emerald-500\/80:active { background-color: var(--acc-mint-a) !important; }
+
+    /* ---- Inputs: focus border + placeholder ---- */
+    .focus\:border-violet-500:focus { border-color: #9d8fd6 !important; }
+    .placeholder-zinc-500::placeholder { color: var(--ink-5) !important; opacity: 0.8; }
+
+    /* ---- Hold-swatch dashed placeholder border ---- */
+    #hold-swatch { border-color: var(--pastel-border) !important; }
+
+    /* Soft drop shadow tweak so light panels read against a bright sky */
+    #controls, #leaderboard, #friends-panel, #badges-panel,
+    #coach-bubble > div, #ta-gameover > div {
+      box-shadow: 0 8px 28px rgba(60, 50, 90, 0.28) !important;
     }
   </style>
 </head>
@@ -480,7 +602,7 @@
 
     // Build identifier — bump this (to the deploying commit short SHA) on every
     // change so the top-right stamp confirms exactly which code is running.
-    const BUILD_VERSION = 'power-ups+hold-queue+achievements-badges+chat+daily-challenge+leaderboard+online-presence+block-attribution+audio-sfx+next-piece-preview+spectator-mode+weekly-tournament+friends+day-night-cycle+minimap+ai-coach+natural-disasters+undo-stack';
+    const BUILD_VERSION = 'power-ups+hold-queue+achievements-badges+chat+daily-challenge+leaderboard+online-presence+block-attribution+audio-sfx+next-piece-preview+spectator-mode+weekly-tournament+friends+day-night-cycle+minimap+ai-coach+natural-disasters+undo-stack+pastel-chrome';
 
     // Badge definitions — mirror of the server-side BADGES array, extended with
     // a `hint` field shown in the panel for unearned badges.
@@ -1649,13 +1771,13 @@
       const pct = Math.min(100, Math.round((challengePlaced / challengeTarget) * 100));
       const barColor = challengeCompleted ? '#22c55e' : '#7c3aed';
       challengeHudEl.innerHTML =
-        '<div style="font-weight:600;color:rgba(255,255,255,0.45);margin-bottom:2px;line-height:1.2">Daily Challenge</div>' +
+        '<div style="font-weight:600;color:rgba(95,87,114,0.85);margin-bottom:2px;line-height:1.2">Daily Challenge</div>' +
         '<div style="margin-bottom:3px;line-height:1.2">Place ' + challengeTarget + ' blocks</div>' +
         (challengeCompleted
-          ? '<div style="font-weight:600;color:#4ade80">✓ Complete!</div>'
+          ? '<div style="font-weight:600;color:#2f9e54">✓ Complete!</div>'
           : '<div style="font-variant-numeric:tabular-nums">' + challengePlaced + ' / ' + challengeTarget + '</div>'
         ) +
-        '<div style="margin-top:5px;height:3px;border-radius:9999px;background:rgba(255,255,255,0.18);overflow:hidden">' +
+        '<div style="margin-top:5px;height:3px;border-radius:9999px;background:rgba(120,108,150,0.22);overflow:hidden">' +
           '<div style="width:' + pct + '%;height:100%;border-radius:9999px;background:' + barColor + ';transition:width 0.3s"></div>' +
         '</div>';
     }
