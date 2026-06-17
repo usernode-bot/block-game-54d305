@@ -2999,10 +2999,12 @@
     // In TA mode uses taBlocks; otherwise uses the shared blocks map.
     const blockGroup = new THREE.Group();
     scene.add(blockGroup);
-    let crystalMaterial = null; // tracked for emissive pulse animation in the render loop
+    let crystalMaterial = null;  // tracked for emissive pulse animation in the render loop
+    let wildcardMaterial = null; // tracked for Gold Star sparkle animation in the render loop
     function rebuildBlockMeshes() {
       blockGroup.clear();
       crystalMaterial = null;
+      wildcardMaterial = null;
       let source = blocks;
       if (gameMode === 'timeattack') source = taBlocks;
       else if (gameMode === 'time-attack-60') source = ta60Blocks;
@@ -3021,6 +3023,7 @@
         if (!p) continue;
         const mat = materialFor(p);
         if (t === 18) crystalMaterial = mat;
+        if (t === 27) wildcardMaterial = mat;
         const mesh = new THREE.InstancedMesh(cube, mat, cells.length);
         cells.forEach((c, i) => {
           dummy.position.set(c.x + 0.5, c.y + 0.5, c.z + 0.5);
@@ -8507,6 +8510,8 @@
       updateAttribution();
       // Animate Crystal block emissive glow: gentle 0.2→0.4 pulse (~7.9s period).
       if (crystalMaterial) crystalMaterial.emissiveIntensity = 0.2 + 0.2 * Math.sin(now * 0.0008);
+      // Animate Gold Star sparkle: sharp 0.25→0.7 pulse (~2.1s period).
+      if (wildcardMaterial) wildcardMaterial.emissiveIntensity = 0.25 + 0.45 * Math.abs(Math.sin(now * 0.003));
       renderBuffHud();
 
       // Camera shake for disaster events: decaying sine displacement
