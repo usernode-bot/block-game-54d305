@@ -48,6 +48,14 @@ const PALETTE = [
   { id: 16, name: 'Obsidian',      color: '#2d1555', material: 'standard', metalness: 0.3, roughness: 0.1 },
   { id: 17, name: 'Rainbow Block', color: '#ff1493', powerup: true },
   { id: 18, name: 'Crystal',       color: '#b39dff', opacity: 0.65, emissive: '#7a4dff', emissiveIntensity: 0.3, material: 'standard', metalness: 0.1, roughness: 0.2, unlockAt: 50, unlockIcon: '💎' },
+  { id: 19, name: 'Ice',           color: '#aadeef', opacity: 0.55 },
+  { id: 20, name: 'Lava',          color: '#e8540f', emissive: '#ff2200', emissiveIntensity: 0.8 },
+  { id: 21, name: 'Lime',          color: '#78de3e' },
+  { id: 22, name: 'Orange',        color: '#f08030' },
+  { id: 23, name: 'Purple',        color: '#8a2fc8' },
+  { id: 24, name: 'Cyan',          color: '#29b8b8' },
+  { id: 25, name: 'Iron Block',    color: '#d4d4dc', material: 'standard', metalness: 0.9, roughness: 0.3 },
+  { id: 26, name: 'Terracotta',    color: '#c5694a' },
 ];
 const VALID_TYPES = new Set(PALETTE.map((p) => p.id)); // does NOT include 0
 
@@ -60,7 +68,12 @@ const BLOCK_POINTS = {
   15: 3,  // Glowstone
   16: 4,  // Obsidian
   17: 5,  // Rainbow Block
-  18: 3,  // Crystal Block
+  18: 3,  // Crystal
+  19: 2,  // Ice
+  20: 3,  // Lava
+  21: 2, 22: 2, 23: 2, 24: 2, // Lime, Orange, Purple, Cyan
+  25: 4,  // Iron Block
+  26: 1,  // Terracotta
 };
 
 // Sentinel "user" id for staging seed rows so they never reference a real user.
