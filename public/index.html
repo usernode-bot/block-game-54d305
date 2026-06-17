@@ -264,6 +264,30 @@
       pointer-events: none;
     }
 
+    /* Ghost Block button */
+    #ghost-block-btn {
+      right: calc(0.75rem + env(safe-area-inset-right));
+      cursor: pointer;
+    }
+    #ghost-block-btn:disabled {
+      opacity: 0.4;
+      cursor: default;
+    }
+    #ghost-block-btn:not(:disabled):hover {
+      background-color: rgba(100,200,255,0.25);
+    }
+
+    /* Ghost-dissolve flash overlay animation */
+    @keyframes ghost-dissolve {
+      0%   { opacity: 0; filter: brightness(1) hue-rotate(0deg); }
+      15%  { opacity: 0.6; filter: brightness(2) hue-rotate(200deg); transform: scale(1); }
+      60%  { opacity: 0.3; filter: brightness(1.5) hue-rotate(200deg); }
+      100% { opacity: 0; filter: brightness(1) hue-rotate(0deg); }
+    }
+    .ghost-dissolve-active {
+      animation: ghost-dissolve 0.5s ease-out forwards;
+    }
+
     /* Mobile-first responsive adjustments for small screens */
     @media (max-width: 359px) {
       /* Ultra-small phone adjustments */
@@ -1076,6 +1100,14 @@
 
   <!-- Coins HUD: coin balance pill above the streak pill. Bottom set by JS. -->
   <div id="coins-hud" class="hidden pointer-events-none fixed right-3 z-20 rounded-lg bg-black/55 px-2 py-1.5 text-xs text-amber-300 font-semibold whitespace-nowrap"></div>
+
+  <!-- Ghost Block button: shown in Endless and Time Attack modes. Bottom set by JS. -->
+  <button id="ghost-block-btn" class="hidden fixed z-20 rounded-lg bg-black/55 px-2 py-1.5 text-xs text-cyan-300 font-semibold whitespace-nowrap" aria-label="Ghost Block — spend 75 coins to clear the 3 most-filled rows" disabled>
+    👻 75🪙
+  </button>
+
+  <!-- Ghost-dissolve overlay: brief blue-white flash on Ghost Block activation -->
+  <div id="ghost-dissolve-overlay" class="pointer-events-none fixed inset-0 z-[55] hidden" style="background:rgba(80,190,255,0.45)"></div>
 
   <!-- Daily Prompt HUD: compact pill above the streak HUD. Bottom set by JS. -->
   <div id="prompt-hud" class="hidden pointer-events-none fixed right-3 z-20 w-36 rounded-lg bg-black/55 px-2 py-1.5 text-xs text-white/90"></div>
@@ -2326,16 +2358,159 @@
     // Prompt HUD pill sits above the streak HUD.
     const promptHudEl = document.getElementById('prompt-hud');
     const STREAK_HUD_HEIGHT_PX = 28; // approx rendered height (px) of streak pill
+    const PROMPT_HUD_HEIGHT_PX = 28; // approx rendered height (px) of prompt pill
+    const challengeHudBottomPx = challengeBaseBottomPx + saBottomPx;
     promptHudEl.style.bottom = (challengeHudBottomPx + CHALLENGE_HUD_HEIGHT_PX + STREAK_GAP_PX + STREAK_HUD_HEIGHT_PX + STREAK_GAP_PX) + 'px';
 
-    // Coins HUD sits above the streak pill.
+    // Coins HUD sits above the prompt pill.
     const coinsHudEl = document.getElementById('coins-hud');
-    const STREAK_HUD_HEIGHT_PX = 28;
-    coinsHudEl.style.bottom = (challengeHudBottomPx + CHALLENGE_HUD_HEIGHT_PX + STREAK_GAP_PX + STREAK_HUD_HEIGHT_PX + STREAK_GAP_PX) + 'px';
+    const COINS_HUD_HEIGHT_PX = 28;
+    const COINS_HUD_BOTTOM_PX = challengeHudBottomPx + CHALLENGE_HUD_HEIGHT_PX + STREAK_GAP_PX + STREAK_HUD_HEIGHT_PX + STREAK_GAP_PX + PROMPT_HUD_HEIGHT_PX + STREAK_GAP_PX;
+    coinsHudEl.style.bottom = COINS_HUD_BOTTOM_PX + 'px';
+
+    // Ghost Block button sits above the coins HUD, visible in Endless + TA modes.
+    const ghostBlockBtnEl = document.getElementById('ghost-block-btn');
+    const GHOST_BLOCK_COST = 75;
+    const GHOST_BLOCK_BTN_BOTTOM_PX = COINS_HUD_BOTTOM_PX + COINS_HUD_HEIGHT_PX + STREAK_GAP_PX;
+    ghostBlockBtnEl.style.bottom = GHOST_BLOCK_BTN_BOTTOM_PX + 'px';
+    let ghostBlockUsed = false;
+
+    function updateGhostBlockBtn() {
+      const inGhostMode = gameMode === 'endless' || gameMode === 'timeattack' || gameMode === 'time-attack-60';
+      if (!inGhostMode) {
+        ghostBlockBtnEl.classList.add('hidden');
+        return;
+      }
+      ghostBlockBtnEl.classList.remove('hidden');
+      if (ghostBlockUsed) {
+        ghostBlockBtnEl.textContent = '👻 Used';
+        ghostBlockBtnEl.disabled = true;
+      } else if (coinsBalance < GHOST_BLOCK_COST) {
+        ghostBlockBtnEl.textContent = '👻 Need 75🪙';
+        ghostBlockBtnEl.disabled = true;
+      } else {
+        ghostBlockBtnEl.textContent = '👻 75🪙';
+        ghostBlockBtnEl.disabled = false;
+      }
+    }
+
+    function emitGhostDissolveParticles(yLevel) {
+      if (reducedMotion) return;
+      const ghostColors = [0x40c0ff, 0x80e0ff, 0xc0f0ff, 0xffffff, 0x60d0ff];
+      for (let _k = 0; _k < 20; _k++) {
+        const slot = _acquireParticle();
+        if (!slot) break;
+        const angle = Math.random() * Math.PI * 2;
+        const speed = 2 + Math.random() * 3;
+        slot.mesh.material.color.setHex(ghostColors[Math.floor(Math.random() * ghostColors.length)]);
+        slot.mesh.material.opacity = 0.9;
+        slot.startOpacity = 0.9;
+        slot.vx = Math.cos(angle) * speed;
+        slot.vy = 0.5 + Math.random() * 1.5;
+        slot.vz = Math.sin(angle) * speed;
+        slot.gravity = 1;
+        slot.age = 0;
+        slot.maxAge = 0.6;
+        const scale = 0.3 + Math.random() * 0.3;
+        slot.mesh.scale.setScalar(scale);
+        slot.mesh.position.set(
+          Math.random() * DIMS.w,
+          yLevel + 0.5,
+          Math.random() * DIMS.d
+        );
+        slot.mesh.visible = true;
+        slot.active = true;
+      }
+    }
+
+    async function activateGhostBlock() {
+      if (ghostBlockUsed || coinsBalance < GHOST_BLOCK_COST) return;
+      const inGhostMode = gameMode === 'endless' || gameMode === 'timeattack' || gameMode === 'time-attack-60';
+      if (!inGhostMode || !playing) return;
+
+      // Pick the active blocks map for this mode
+      let blocksMap;
+      if (gameMode === 'endless') blocksMap = endlessBlocks;
+      else if (gameMode === 'timeattack') blocksMap = taBlocks;
+      else blocksMap = ta60Blocks;
+
+      // Count blocks per y-level
+      const yCount = new Map();
+      for (const k of blocksMap.keys()) {
+        const y = Number(k.split(',')[1]);
+        yCount.set(y, (yCount.get(y) || 0) + 1);
+      }
+      if (yCount.size === 0) return; // nothing to clear
+
+      // Top 3 y-levels by fill count (ties broken by higher y = more dangerous)
+      const sorted = [...yCount.entries()].sort((a, b) => b[1] - a[1] || b[0] - a[0]);
+      const targetYs = sorted.slice(0, 3).map(([y]) => y);
+
+      // Snapshot cleared rows for rollback
+      const snapshot = new Map();
+      for (const [k, v] of blocksMap.entries()) {
+        const y = Number(k.split(',')[1]);
+        if (targetYs.includes(y)) snapshot.set(k, v);
+      }
+
+      // Optimistic: clear blocks immediately
+      for (const k of snapshot.keys()) blocksMap.delete(k);
+      rebuildBlockMeshes();
+
+      // Play ghost dissolve particles + brief overlay
+      for (const y of targetYs) emitGhostDissolveParticles(y);
+      const overlayEl2 = document.getElementById('ghost-dissolve-overlay');
+      overlayEl2.classList.remove('hidden', 'ghost-dissolve-active');
+      void overlayEl2.offsetWidth; // force reflow
+      overlayEl2.classList.add('ghost-dissolve-active');
+      overlayEl2.addEventListener('animationend', () => {
+        overlayEl2.classList.add('hidden');
+        overlayEl2.classList.remove('ghost-dissolve-active');
+      }, { once: true });
+
+      // Score bonus in TA modes (30 pts total)
+      if (gameMode === 'timeattack') {
+        taScore += 30;
+        updateTaScoreDisplay();
+      } else if (gameMode === 'time-attack-60') {
+        ta60Score += 30;
+        updateTa60ScoreDisplay();
+      }
+
+      // Deduct coins on server
+      try {
+        const res = await fetch('/api/ghost-block', { method: 'POST', headers });
+        if (!res.ok) {
+          // Rollback: restore cleared blocks
+          for (const [k, v] of snapshot.entries()) blocksMap.set(k, v);
+          if (gameMode === 'timeattack') { taScore -= 30; updateTaScoreDisplay(); }
+          else if (gameMode === 'time-attack-60') { ta60Score -= 30; updateTa60ScoreDisplay(); }
+          rebuildBlockMeshes();
+          showBadgeToast({ icon: '👻', name: 'Ghost Block', flavour: 'Not enough coins — rows restored.' });
+          return;
+        }
+        const data = await res.json();
+        coinsBalance = data.newBalance;
+        updateCoinsHud(coinsBalance);
+        ghostBlockUsed = true;
+      } catch (_) {
+        // Network error: rollback
+        for (const [k, v] of snapshot.entries()) blocksMap.set(k, v);
+        if (gameMode === 'timeattack') { taScore -= 30; updateTaScoreDisplay(); }
+        else if (gameMode === 'time-attack-60') { ta60Score -= 30; updateTa60ScoreDisplay(); }
+        rebuildBlockMeshes();
+        showBadgeToast({ icon: '👻', name: 'Ghost Block', flavour: 'Network error — rows restored. Try again.' });
+        return;
+      }
+      updateGhostBlockBtn();
+    }
+
+    ghostBlockBtnEl.addEventListener('click', activateGhostBlock);
 
     function updateCoinsHud(balance) {
       coinsHudEl.textContent = '🪙 ' + balance;
       coinsHudEl.classList.remove('hidden');
+      updateGhostBlockBtn();
     }
 
     async function fetchCoins() {
@@ -4444,6 +4619,7 @@
       document.getElementById('ta-60-gameover').classList.add('hidden');
       document.getElementById('endless-hud').classList.add('hidden');
       document.getElementById('endless-gameover').classList.add('hidden');
+      ghostBlockBtnEl.classList.add('hidden');
 
       rebuildBlockMeshes();
       spawnCamera();
@@ -5484,6 +5660,7 @@
     function initTimeAttack() {
       taBlocks.clear();
       taScore = 0;
+      ghostBlockUsed = false;
       if (taTimerHandle) { clearInterval(taTimerHandle); taTimerHandle = null; }
 
       const tier = TA_DIFFICULTY_LEVELS[taDifficulty - 1];
@@ -5520,6 +5697,7 @@
       }
       updateTaTimerDisplay();
       updateTaScoreDisplay();
+      updateGhostBlockBtn();
 
       taTimerHandle = setInterval(tickTimer, 1000);
     }
@@ -5600,6 +5778,7 @@
 
       document.getElementById('ta-hud').classList.add('hidden');
       document.getElementById('ta-wager-pill').classList.add('hidden');
+      ghostBlockBtnEl.classList.add('hidden');
       const fs = document.getElementById('ta-final-score');
       fs.textContent = 'You cleared ' + clearedThisRun + ' block' + (clearedThisRun === 1 ? '' : 's');
       document.getElementById('ta-feedback-msg').textContent = feedbackMsg;
@@ -5658,6 +5837,7 @@
     function initTimeAttack60() {
       ta60Blocks.clear();
       ta60Score = 0;
+      ghostBlockUsed = false;
       if (ta60TimerHandle) { clearInterval(ta60TimerHandle); ta60TimerHandle = null; }
 
       ta60TimeLeft = 60;
@@ -5685,6 +5865,7 @@
       document.getElementById('palette').classList.add('hidden');
       updateTa60TimerDisplay();
       updateTa60ScoreDisplay();
+      updateGhostBlockBtn();
 
       ta60TimerHandle = setInterval(tickTimer60, 1000);
     }
@@ -5740,6 +5921,7 @@
       lsSet('ta_60_run_history', ta60RunHistory);
 
       document.getElementById('ta-60-hud').classList.add('hidden');
+      ghostBlockBtnEl.classList.add('hidden');
       const fs = document.getElementById('ta-60-final-score');
       fs.textContent = 'You cleared ' + clearedThisRun + ' block' + (clearedThisRun === 1 ? '' : 's');
       document.getElementById('ta-60-feedback-msg').textContent = '';
@@ -5793,6 +5975,7 @@
       endlessMovesRemaining = 500 + Math.floor(Math.random() * 1000);
       endlessBlocksPlaced = 0;
       endlessMovesStarted = 0;
+      ghostBlockUsed = false;
 
       document.getElementById('endless-hud').classList.remove('hidden');
       document.getElementById('palette').classList.remove('hidden');
@@ -5803,6 +5986,7 @@
       rebuildBlockMeshes();
       spawnCamera();
       updateEndlessHud();
+      updateGhostBlockBtn();
     }
 
     async function submitEndlessScore(placed, movesSurvived) {
@@ -5845,6 +6029,7 @@
       const movesSurvived = endlessMovesStarted;
 
       document.getElementById('endless-hud').classList.add('hidden');
+      ghostBlockBtnEl.classList.add('hidden');
       document.getElementById('endless-final-placed').textContent = 'You placed ' + placedThisRun + ' block' + (placedThisRun === 1 ? '' : 's');
       document.getElementById('endless-moves-survived').textContent = 'Survived ' + movesSurvived + ' move' + (movesSurvived === 1 ? '' : 's');
       document.getElementById('endless-best-banner').classList.add('hidden');
