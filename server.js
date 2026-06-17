@@ -2090,6 +2090,47 @@ app.post('/api/coach/tip', async (req, res) => {
   }
 });
 
+// ---- Proposal rate limiting: validate if a user can submit a new proposal ----
+app.post('/api/proposals/validate-submit', async (req, res) => {
+  const { title } = req.body;
+  const userId = req.user.id;
+  const isAdmin = req.user.is_admin === true;
+
+  try {
+    if (isAdmin) {
+      return res.json({
+        allowed: true,
+        message: 'Admins can submit unlimited proposals',
+        isAdmin: true,
+      });
+    }
+
+    const result = await pool.query(
+      `SELECT COUNT(*) AS open_count FROM user_proposals WHERE user_id = $1 AND status = 'open'`,
+      [userId]
+    );
+    const openCount = parseInt(result.rows[0].open_count, 10);
+    const limit = 1;
+
+    if (openCount >= limit) {
+      return res.status(400).json({
+        allowed: false,
+        message: `You have ${openCount} open proposal${openCount !== 1 ? 's' : ''}. Please wait for it to be reviewed or closed before submitting another.`,
+        openProposalCount: openCount,
+        limit,
+      });
+    }
+
+    return res.json({
+      allowed: true,
+      message: 'You can submit a proposal',
+    });
+  } catch (err) {
+    console.error('proposal validation error', err.message);
+    return res.status(500).json({ error: 'validation failed' });
+  }
+});
+
 app.use(express.static(path.join(__dirname, 'public'), {
   setHeaders(res, filePath) {
     // The entire game is inline in index.html, so a cached shell hides a
@@ -2639,6 +2680,53 @@ async function seedDailyChallenge() {
   }
 }
 
+async function seedUserProposals() {
+  // Seed user proposals with various statuses for testing rate limiting
+  const proposals = [
+    {
+      user_id: -1,
+      proposal_id: 'staging-demo-proposal-open-1',
+      title: 'Add Rainbow Block animation',
+      status: 'open',
+      created_at: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(), // 7 days ago
+      closed_at: null,
+    },
+    {
+      user_id: -2,
+      proposal_id: 'staging-demo-proposal-merged-1',
+      title: 'Improve chat performance',
+      status: 'merged',
+      created_at: new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString(), // 14 days ago
+      closed_at: new Date(Date.now() - 10 * 24 * 60 * 60 * 1000).toISOString(), // 10 days ago
+    },
+    {
+      user_id: -3,
+      proposal_id: 'staging-demo-proposal-rejected-1',
+      title: 'Change block palette colors',
+      status: 'rejected',
+      created_at: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString(), // 3 days ago
+      closed_at: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(), // 2 days ago
+    },
+    {
+      user_id: -4,
+      proposal_id: 'staging-demo-proposal-open-2',
+      title: 'Add new game mode',
+      status: 'open',
+      created_at: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString(), // 1 day ago
+      closed_at: null,
+    },
+  ];
+
+  for (const proposal of proposals) {
+    await pool.query(
+      `INSERT INTO user_proposals (user_id, proposal_id, title, status, created_at, closed_at)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       ON CONFLICT (proposal_id) DO NOTHING`,
+      [proposal.user_id, proposal.proposal_id, proposal.title, proposal.status, proposal.created_at, proposal.closed_at]
+    );
+  }
+}
+
 // ---- Natural Disaster trigger (called from GET /api/world/changes) ----
 // Uses SELECT ... FOR UPDATE SKIP LOCKED on disaster_schedule so that only one
 // concurrent request can trigger at a time. Returns the fired disaster row or null.
@@ -3042,6 +3130,23 @@ async function start() {
     CREATE INDEX IF NOT EXISTS user_worlds_owner_idx ON user_worlds (owner_id, updated_at DESC)
   `);
 
+  // User proposals: tracks open proposals submitted by users for code changes.
+  // Public table — holds only usernames and proposal metadata.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS user_proposals (
+      id SERIAL PRIMARY KEY,
+      user_id INTEGER NOT NULL,
+      proposal_id VARCHAR(255) NOT NULL UNIQUE,
+      title VARCHAR(255),
+      status VARCHAR(32) NOT NULL DEFAULT 'open',
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      closed_at TIMESTAMPTZ
+    )
+  `);
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS user_proposals_user_status_idx ON user_proposals (user_id, status)
+  `);
+
   // Prime the schedule on first boot; subsequent boots leave the existing row intact.
   const disasterInitDelay = IS_STAGING ? '10 seconds' : '60 seconds';
   await pool.query(
@@ -3072,6 +3177,8 @@ async function start() {
     catch (err) { console.error('login-rewards seed failed', err); }
     try { await seedDailyChallenge(); }
     catch (err) { console.error('daily-challenge seed failed', err); }
+    try { await seedUserProposals(); }
+    catch (err) { console.error('user-proposals seed failed', err); }
     // Staging spectators are now surfaced via the STAGING_DEMO_USERS constant
     // appended in GET /api/presence/online, so no DB seed is needed here.
   }
