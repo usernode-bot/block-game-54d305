@@ -262,6 +262,9 @@
     <div id="badges-list" class="space-y-1.5 max-h-96 overflow-y-auto pr-0.5"></div>
   </div>
 
+  <!-- Full-screen flash overlay for disaster visual effects. -->
+  <div id="disaster-flash" class="pointer-events-none fixed inset-0 z-50 hidden" style="opacity:0;transition:opacity 0.1s;"></div>
+
   <!-- Badge toast container: toasts stack above the palette, bottom-centre. -->
   <div id="badge-toasts" class="pointer-events-none fixed left-1/2 -translate-x-1/2 z-40 flex flex-col-reverse items-center gap-2" style="bottom: 5.5rem"></div>
 
@@ -424,7 +427,7 @@
 
     // Build identifier — bump this (to the deploying commit short SHA) on every
     // change so the top-right stamp confirms exactly which code is running.
-    const BUILD_VERSION = 'power-ups+hold-queue+achievements-badges+chat+daily-challenge+leaderboard+online-presence+block-attribution+audio-sfx+next-piece-preview+spectator-mode+weekly-tournament+friends+day-night-cycle+minimap+ai-coach';
+    const BUILD_VERSION = 'power-ups+hold-queue+achievements-badges+chat+daily-challenge+leaderboard+online-presence+block-attribution+audio-sfx+next-piece-preview+spectator-mode+weekly-tournament+friends+day-night-cycle+minimap+ai-coach+natural-disasters';
 
     // Badge definitions — mirror of the server-side BADGES array, extended with
     // a `hint` field shown in the panel for unearned badges.
@@ -612,6 +615,70 @@
 
       function isMuted() { return muted; }
 
+      function playDisasterSound(type) {
+        if (!ctx || !masterGain) return;
+        const ts = ctx.currentTime;
+        if (type === 'earthquake') {
+          // Low rumble: sine sweep 80→30 Hz over 1.5s
+          const osc = ctx.createOscillator();
+          const g = ctx.createGain();
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(80, ts);
+          osc.frequency.linearRampToValueAtTime(30, ts + 1.5);
+          g.gain.setValueAtTime(0.5, ts);
+          g.gain.linearRampToValueAtTime(0, ts + 1.5);
+          osc.connect(g);
+          g.connect(masterGain);
+          osc.addEventListener('ended', () => { osc.disconnect(); g.disconnect(); });
+          osc.start(ts);
+          osc.stop(ts + 1.5);
+        } else if (type === 'eruption') {
+          // Bandpass white noise burst 0.4s→0
+          const buf = ctx.createBuffer(1, ctx.sampleRate, ctx.sampleRate);
+          const data = buf.getChannelData(0);
+          for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
+          const src = ctx.createBufferSource();
+          src.buffer = buf;
+          const filt = ctx.createBiquadFilter();
+          filt.type = 'bandpass';
+          filt.frequency.value = 900;
+          const g = ctx.createGain();
+          g.gain.setValueAtTime(0.4, ts);
+          g.gain.linearRampToValueAtTime(0, ts + 1.0);
+          src.connect(filt);
+          filt.connect(g);
+          g.connect(masterGain);
+          src.addEventListener('ended', () => { src.disconnect(); filt.disconnect(); g.disconnect(); });
+          src.start(ts);
+          src.stop(ts + 1.0);
+        } else {
+          // Meteor: square spike + sine fade
+          const osc1 = ctx.createOscillator();
+          const g1 = ctx.createGain();
+          osc1.type = 'square';
+          osc1.frequency.value = 60;
+          g1.gain.setValueAtTime(0.35, ts);
+          g1.gain.linearRampToValueAtTime(0, ts + 0.3);
+          osc1.connect(g1);
+          g1.connect(masterGain);
+          osc1.addEventListener('ended', () => { osc1.disconnect(); g1.disconnect(); });
+          osc1.start(ts);
+          osc1.stop(ts + 0.3);
+
+          const osc2 = ctx.createOscillator();
+          const g2 = ctx.createGain();
+          osc2.type = 'sine';
+          osc2.frequency.value = 40;
+          g2.gain.setValueAtTime(0.3, ts + 0.1);
+          g2.gain.linearRampToValueAtTime(0, ts + 0.6);
+          osc2.connect(g2);
+          g2.connect(masterGain);
+          osc2.addEventListener('ended', () => { osc2.disconnect(); g2.disconnect(); });
+          osc2.start(ts + 0.1);
+          osc2.stop(ts + 0.6);
+        }
+      }
+
       function init() {
         if (!ctx) {
           ctx = new (window.AudioContext || window.webkitAudioContext)();
@@ -624,7 +691,7 @@
         startMusic();
       }
 
-      return { init, playPlace, playBreak, toggleMute, isMuted };
+      return { init, playPlace, playBreak, playDisasterSound, toggleMute, isMuted };
     })();
 
     const buildStampEl = document.getElementById('build-stamp');
@@ -653,6 +720,10 @@
     let PALETTE = [];
     const blocks = new Map();        // "x,y,z" -> block_type (non-zero only) — classic world
     let cursor = 0;                  // last seq seen from the server
+    let eventsCursor = 0;            // last disaster id seen
+    let shakeEndTime = 0;            // ms timestamp when camera shake ends
+    let shakeMag = 0;                // shake amplitude (world units)
+    let shakeFreq = 0;               // shake frequency (rad/ms)
     let selectedType = 1;
     let unlockedTypes = new Set(); // block type IDs earned by the current user
     const key = (x, y, z) => x + ',' + y + ',' + z;
@@ -1208,7 +1279,9 @@
       const badge = toastQueue.shift();
       const container = document.getElementById('badge-toasts');
       const toast = document.createElement('div');
-      toast.className = 'flex items-center gap-3 bg-black/85 backdrop-blur rounded-xl px-4 py-2.5 text-sm text-zinc-100 shadow-xl' + (badge._isUnlock ? ' ring-2 ring-violet-500/60' : '');
+      toast.className = 'flex items-center gap-3 bg-black/85 backdrop-blur rounded-xl px-4 py-2.5 text-sm text-zinc-100 shadow-xl' +
+        (badge._isUnlock ? ' ring-2 ring-violet-500/60' : '') +
+        (badge._isDisaster ? ' ring-2 ring-red-500/60' : '');
       toast.style.cssText = 'opacity:0;transition:opacity 0.3s;';
       const iconSpan = document.createElement('span');
       iconSpan.className = 'text-2xl leading-none flex-shrink-0';
@@ -1242,6 +1315,53 @@
     function showUnlockToast(item) {
       toastQueue.push({ icon: item.icon, name: item.name, flavour: item.description, _isUnlock: true });
       if (!toastShowing) showNextToast();
+    }
+
+    // ---- Natural Disaster client-side effects ----
+
+    function startCameraShake(type) {
+      if (type === 'earthquake') {
+        shakeMag = 0.3; shakeFreq = 25; shakeEndTime = performance.now() + 1500;
+      } else if (type === 'eruption') {
+        shakeMag = 0.2; shakeFreq = 40; shakeEndTime = performance.now() + 1000;
+      } else {
+        shakeMag = 0.4; shakeFreq = 15; shakeEndTime = performance.now() + 800;
+      }
+    }
+
+    function showDisasterFlash(type) {
+      const el = document.getElementById('disaster-flash');
+      if (!el) return;
+      const colors = { earthquake: 'rgba(255,220,50,0.35)', eruption: 'rgba(255,100,0,0.4)', meteor: 'rgba(255,255,255,0.5)' };
+      el.style.background = colors[type] || 'rgba(255,255,255,0.4)';
+      el.classList.remove('hidden');
+      el.style.opacity = '1';
+      setTimeout(() => {
+        el.style.opacity = '0';
+        setTimeout(() => el.classList.add('hidden'), 200);
+      }, 150);
+    }
+
+    function showDisasterToast(event) {
+      const flavours = {
+        earthquake: 'The ground shakes! Rebuild quickly to earn points.',
+        eruption:   'Lava flows! Rebuild quickly to earn points.',
+        meteor:     'Impact detected! Rebuild quickly to earn points.',
+      };
+      toastQueue.push({
+        icon: event.icon || '💥',
+        name: event.label || 'Disaster',
+        flavour: flavours[event.type] || 'A disaster struck! Rebuild quickly.',
+        _isDisaster: true,
+      });
+      if (!toastShowing) showNextToast();
+    }
+
+    function handleDisasterEvent(event) {
+      showDisasterToast(event);
+      startCameraShake(event.type);
+      Audio.playDisasterSound(event.type);
+      showDisasterFlash(event.type);
     }
 
     function clearAttribution() {
@@ -2874,6 +2994,7 @@
       DIMS = data.dims;
       PALETTE = data.palette;
       cursor = data.cursor || 0;
+      eventsCursor = data.maxDisasterId || 0;
       unlockedTypes = new Set(data.unlockedTypes || []);
       selectedType = PALETTE[0] ? PALETTE[0].id : 1;
       blocks.clear();
@@ -2988,10 +3109,11 @@
 
       // World changes
       try {
-        const res = await fetch('/api/world/changes?since=' + cursor, { headers });
+        const res = await fetch('/api/world/changes?since=' + cursor + '&events_since=' + eventsCursor, { headers });
         if (res.ok) {
-          const { changes, cursor: c } = await res.json();
-          if (changes.length) {
+          const data = await res.json();
+          const { changes, cursor: c, events, eventsCursor: ec } = data;
+          if (changes && changes.length) {
             for (const ch of changes) {
               const k = key(ch.x, ch.y, ch.z);
               if (ch.t === 0) blocks.delete(k); else blocks.set(k, ch.t);
@@ -2999,6 +3121,10 @@
             rebuildBlockMeshes();
           }
           if (c && c > cursor) cursor = c;
+          if (events && events.length) {
+            if (ec) eventsCursor = ec;
+            for (const ev of events) handleDisasterEvent(ev);
+          }
         }
       } catch (e) { /* transient; next tick retries */ }
 
@@ -3129,6 +3255,14 @@
       // Animate Crystal block emissive glow: gentle 0.2→0.4 pulse (~7.9s period).
       if (crystalMaterial) crystalMaterial.emissiveIntensity = 0.2 + 0.2 * Math.sin(now * 0.0008);
       renderBuffHud();
+
+      // Camera shake for disaster events: decaying sine displacement
+      if (now < shakeEndTime) {
+        const progress = (shakeEndTime - now) / 1500;
+        camera.position.x += progress * shakeMag * Math.sin(now * shakeFreq * 0.001);
+        camera.position.y += progress * shakeMag * 0.3 * Math.sin(now * shakeFreq * 0.0013);
+      }
+
       renderer.render(scene, camera);
       if (gameMode !== null) renderMinimap();
       requestAnimationFrame(loop);

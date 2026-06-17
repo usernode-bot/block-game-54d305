@@ -66,6 +66,17 @@ const BLOCK_POINTS = {
 // Sentinel "user" id for staging seed rows so they never reference a real user.
 const SEED_USER_ID = 0;
 
+// ---- Natural Disasters ----
+const DISASTER_MIN_SECS = 180; // 3 minutes minimum between disasters
+const DISASTER_MAX_SECS = 480; // 8 minutes maximum
+const DISASTER_USER_ID = -999;
+const DISASTER_USERNAME = 'Natural Disaster';
+const DISASTER_DEFS = {
+  earthquake: { label: 'Earthquake',       icon: '⚡', zoneMin: 8,  zoneMax: 12 },
+  eruption:   { label: 'Volcanic Eruption', icon: '🌋', radiusMin: 5, radiusMax: 7 },
+  meteor:     { label: 'Meteor Strike',     icon: '☄️', radiusMin: 3, radiusMax: 5 },
+};
+
 // Badge definitions (authoritative; mirrored to the client for panel rendering).
 const BADGES = [
   { id: 'first_block',     name: 'First Block',    icon: '🏗️', flavour: 'Placed your first block!' },
@@ -174,6 +185,7 @@ app.get('/api/world', async (req, res) => {
       `SELECT x, y, z, block_type FROM blocks WHERE block_type <> 0`
     );
     const cur = await pool.query(`SELECT COALESCE(MAX(seq), 0) AS cursor FROM blocks`);
+    const maxDisasterRes = await pool.query(`SELECT COALESCE(MAX(id), 0) AS max_disaster_id FROM disasters`);
     const lbRow = await pool.query(`SELECT blocks_placed FROM leaderboard WHERE user_id = $1`, [req.user.id]);
     const userPlaced = lbRow.rows.length ? Number(lbRow.rows[0].blocks_placed) : 0;
     const unlockedTypes = PALETTE.filter((p) => p.unlockAt && userPlaced >= p.unlockAt).map((p) => p.id);
@@ -182,6 +194,7 @@ app.get('/api/world', async (req, res) => {
       palette: PALETTE,
       blocks: rows.map((r) => ({ x: r.x, y: r.y, z: r.z, t: r.block_type })),
       cursor: Number(cur.rows[0].cursor),
+      maxDisasterId: Number(maxDisasterRes.rows[0].max_disaster_id),
       unlockedTypes,
     });
   } catch (err) {
@@ -386,14 +399,41 @@ app.post('/api/block', async (req, res) => {
 app.get('/api/world/changes', async (req, res) => {
   try {
     const since = Number(req.query.since) || 0;
+    const eventsSince = Number(req.query.events_since) || 0;
+
+    // Lazily trigger disasters when clients are polling
+    const newDisaster = await maybeFireDisaster();
+
     const { rows } = await pool.query(
       `SELECT x, y, z, block_type, seq FROM blocks WHERE seq > $1 ORDER BY seq`,
       [since]
     );
     const cursor = rows.length ? Number(rows[rows.length - 1].seq) : since;
+
+    // Return any disaster events the client hasn't seen yet
+    const eventsRes = await pool.query(
+      `SELECT id, type, origin_x, origin_z, params, blocks_destroyed, triggered_at
+       FROM disasters WHERE id > $1 ORDER BY id`,
+      [eventsSince]
+    );
+    const events = eventsRes.rows.map((r) => ({
+      id: Number(r.id),
+      type: r.type,
+      label: DISASTER_DEFS[r.type] ? DISASTER_DEFS[r.type].label : r.type,
+      icon: DISASTER_DEFS[r.type] ? DISASTER_DEFS[r.type].icon : '💥',
+      origin_x: r.origin_x,
+      origin_z: r.origin_z,
+      params: r.params,
+      blocks_destroyed: r.blocks_destroyed,
+      triggered_at: r.triggered_at,
+    }));
+    const eventsCursor = events.length ? events[events.length - 1].id : eventsSince;
+
     res.json({
       changes: rows.map((r) => ({ x: r.x, y: r.y, z: r.z, t: r.block_type })),
       cursor,
+      events,
+      eventsCursor,
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -936,6 +976,7 @@ const CANNED_TIPS = {
   daily_complete:     'Daily challenge done! Come back tomorrow — the target changes every day.',
   block_milestone:    'Try collecting a floating power-up orb to get a speed boost or rapid-place buff.',
   player_asked:       'Grab a Rainbow Block from the palette (type 9) and place it — it doubles your points for the next 30 seconds.',
+  disaster:           'A disaster just struck the world! Rebuild quickly to earn points.',
 };
 
 app.post('/api/coach/tip', async (req, res) => {
@@ -1194,6 +1235,21 @@ async function seedStaging() {
         ('rapid_place', 16, 2, 28)
     `);
   }
+
+  // Seed 3 past disaster events so staging shows disaster history in chat.
+  // Negative IDs are not used for disasters (SERIAL), but ON CONFLICT DO NOTHING
+  // makes this idempotent — duplicate rows are skipped if disasters already fired.
+  const { rows: disasterCount } = await pool.query(
+    `SELECT COUNT(*) AS n FROM disasters`
+  );
+  if (Number(disasterCount[0].n) === 0) {
+    await pool.query(`
+      INSERT INTO disasters (type, origin_x, origin_z, params, blocks_destroyed, triggered_at) VALUES
+        ('earthquake', NULL, NULL, '{"x0":10,"z0":10,"x1":22,"z1":20}', 87, NOW() - INTERVAL '10 minutes'),
+        ('eruption',   8,    8,    '{"radius":6}',                        62, NOW() - INTERVAL '5 minutes'),
+        ('meteor',     24,   24,   '{"radius":4,"oy":10}',                22, NOW() - INTERVAL '2 minutes')
+    `);
+  }
 }
 
 // Seed the leaderboard with 6 fake builders so staging shows a populated panel.
@@ -1326,6 +1382,113 @@ async function seedStreaks() {
       `INSERT INTO player_badges (user_id, badge_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
       [s.user_id, s.badge_id]
     );
+  }
+}
+
+// ---- Natural Disaster trigger (called from GET /api/world/changes) ----
+// Uses SELECT ... FOR UPDATE SKIP LOCKED on disaster_schedule so that only one
+// concurrent request can trigger at a time. Returns the fired disaster row or null.
+async function maybeFireDisaster() {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const schedRes = await client.query(
+      `SELECT fire_at, next_type FROM disaster_schedule WHERE id = 1 FOR UPDATE SKIP LOCKED`
+    );
+    if (!schedRes.rows.length) {
+      await client.query('COMMIT');
+      return null; // another request holds the lock
+    }
+    if (new Date(schedRes.rows[0].fire_at) > new Date()) {
+      await client.query('COMMIT');
+      return null; // not time yet
+    }
+    const type = schedRes.rows[0].next_type;
+    const def = DISASTER_DEFS[type];
+    if (!def) {
+      await client.query('COMMIT');
+      return null;
+    }
+
+    let deleteQuery, deleteParams, params = {}, origin_x = null, origin_z = null, chatMsg;
+
+    if (type === 'earthquake') {
+      const zoneW = def.zoneMin + Math.floor(Math.random() * (def.zoneMax - def.zoneMin + 1));
+      const zoneD = def.zoneMin + Math.floor(Math.random() * (def.zoneMax - def.zoneMin + 1));
+      const x0 = Math.floor(Math.random() * (DIMS.w - zoneW));
+      const z0 = Math.floor(Math.random() * (DIMS.d - zoneD));
+      const x1 = x0 + zoneW - 1;
+      const z1 = z0 + zoneD - 1;
+      params = { x0, z0, x1, z1 };
+      deleteQuery = `UPDATE blocks SET block_type=0, seq=nextval('block_seq'),
+        updated_by_user_id=$1, updated_by_username=$2, updated_at=NOW()
+        WHERE x BETWEEN $3 AND $4 AND z BETWEEN $5 AND $6 AND block_type <> 0
+        RETURNING x, y, z`;
+      deleteParams = [DISASTER_USER_ID, DISASTER_USERNAME, x0, x1, z0, z1];
+      chatMsg = `${def.icon} Earthquake struck zone (${x0},${z0})→(${x1},${z1})! Rebuild!`;
+    } else if (type === 'eruption') {
+      const radius = def.radiusMin + Math.floor(Math.random() * (def.radiusMax - def.radiusMin + 1));
+      const ox = radius + Math.floor(Math.random() * (DIMS.w - 2 * radius));
+      const oz = radius + Math.floor(Math.random() * (DIMS.d - 2 * radius));
+      origin_x = ox; origin_z = oz;
+      params = { radius };
+      deleteQuery = `UPDATE blocks SET block_type=0, seq=nextval('block_seq'),
+        updated_by_user_id=$1, updated_by_username=$2, updated_at=NOW()
+        WHERE (x-$3)*(x-$3)+(z-$4)*(z-$4) <= $5 AND block_type <> 0
+        RETURNING x, y, z`;
+      deleteParams = [DISASTER_USER_ID, DISASTER_USERNAME, ox, oz, radius * radius];
+      chatMsg = `${def.icon} Volcanic eruption at (${ox},${oz})! Rebuild!`;
+    } else { // meteor
+      const radius = def.radiusMin + Math.floor(Math.random() * (def.radiusMax - def.radiusMin + 1));
+      const ox = radius + Math.floor(Math.random() * (DIMS.w - 2 * radius));
+      const oy = 10;
+      const oz = radius + Math.floor(Math.random() * (DIMS.d - 2 * radius));
+      origin_x = ox; origin_z = oz;
+      params = { radius, oy };
+      deleteQuery = `UPDATE blocks SET block_type=0, seq=nextval('block_seq'),
+        updated_by_user_id=$1, updated_by_username=$2, updated_at=NOW()
+        WHERE (x-$3)*(x-$3)+(y-$4)*(y-$4)+(z-$5)*(z-$5) <= $6 AND block_type <> 0
+        RETURNING x, y, z`;
+      deleteParams = [DISASTER_USER_ID, DISASTER_USERNAME, ox, oy, oz, radius * radius];
+      chatMsg = `${def.icon} Meteor strike at (${ox},${oz})! Rebuild!`;
+    }
+
+    const delRes = await client.query(deleteQuery, deleteParams);
+    const blocks_destroyed = delRes.rows.length;
+
+    // Append count to chat message (keep under 200 chars)
+    const countSuffix = ` ${blocks_destroyed} blocks destroyed.`;
+    const fullMsg = (chatMsg + countSuffix).slice(0, 200);
+
+    const disRes = await client.query(
+      `INSERT INTO disasters (type, origin_x, origin_z, params, blocks_destroyed)
+       VALUES ($1, $2, $3, $4, $5) RETURNING id, triggered_at`,
+      [type, origin_x, origin_z, JSON.stringify(params), blocks_destroyed]
+    );
+    const disaster = disRes.rows[0];
+
+    await client.query(
+      `INSERT INTO chat_messages (user_id, username, body) VALUES ($1, $2, $3)`,
+      [DISASTER_USER_ID, '🌍 World Events', fullMsg]
+    );
+
+    // Schedule next disaster
+    const types = Object.keys(DISASTER_DEFS);
+    const nextType = types[Math.floor(Math.random() * types.length)];
+    const nextDelaySecs = DISASTER_MIN_SECS + Math.floor(Math.random() * (DISASTER_MAX_SECS - DISASTER_MIN_SECS));
+    await client.query(
+      `UPDATE disaster_schedule SET fire_at = NOW() + ($1 || ' seconds')::INTERVAL, next_type = $2 WHERE id = 1`,
+      [nextDelaySecs, nextType]
+    );
+
+    await client.query('COMMIT');
+    return { id: Number(disaster.id), type, label: def.label, icon: def.icon, origin_x, origin_z, params, blocks_destroyed, triggered_at: disaster.triggered_at };
+  } catch (err) {
+    try { await client.query('ROLLBACK'); } catch (_) {}
+    console.error('disaster trigger error', err.message);
+    return null;
+  } finally {
+    client.release();
   }
 }
 
@@ -1483,6 +1646,35 @@ async function start() {
   await pool.query(`CREATE INDEX IF NOT EXISTS friendships_addressee_status_idx ON friendships (addressee_id, status)`);
   await pool.query(`CREATE INDEX IF NOT EXISTS friendships_requester_status_idx ON friendships (requester_id, status)`);
 
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS disasters (
+      id               SERIAL PRIMARY KEY,
+      type             VARCHAR(20)  NOT NULL,
+      origin_x         SMALLINT,
+      origin_z         SMALLINT,
+      params           JSONB        NOT NULL DEFAULT '{}',
+      blocks_destroyed INTEGER      NOT NULL DEFAULT 0,
+      triggered_at     TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+    )
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS disasters_triggered_at_idx ON disasters (triggered_at DESC)`);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS disaster_schedule (
+      id        INTEGER PRIMARY KEY CHECK (id = 1),
+      fire_at   TIMESTAMPTZ  NOT NULL,
+      next_type VARCHAR(20)  NOT NULL
+    )
+  `);
+
+  // Prime the schedule on first boot; subsequent boots leave the existing row intact.
+  const disasterInitDelay = IS_STAGING ? '10 seconds' : '60 seconds';
+  await pool.query(
+    `INSERT INTO disaster_schedule (id, fire_at, next_type)
+     VALUES (1, NOW() + ($1 || ' seconds')::INTERVAL, 'earthquake')
+     ON CONFLICT DO NOTHING`,
+    [IS_STAGING ? '10' : '60']
+  );
 
   if (IS_STAGING) {
     try { await seedStaging(); }
