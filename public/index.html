@@ -860,6 +860,7 @@
   <div id="ta-hud" class="hidden pointer-events-none fixed top-3 left-3 z-20 flex flex-col gap-1">
     <div id="ta-timer" class="text-2xl sm:text-3xl font-mono font-bold text-white bg-black/50 rounded-xl px-3 sm:px-4 py-1.5 sm:py-2 tabular-nums leading-tight">1:00</div>
     <div id="ta-score" class="text-xs sm:text-sm font-semibold text-zinc-200 bg-black/50 rounded-xl px-3 sm:px-4 py-1 sm:py-1.5 text-center">0 blocks</div>
+    <div id="ta-best" class="hidden text-xs sm:text-sm font-semibold text-zinc-400 bg-black/50 rounded-xl px-3 sm:px-4 py-1 sm:py-1.5 text-center">Best: <span id="ta-best-value">0</span> blocks</div>
     <div id="ta-difficulty-label" class="text-[11px] sm:text-xs font-semibold text-zinc-400 bg-black/50 rounded-xl px-3 sm:px-4 py-0.5 sm:py-1 text-center">Difficulty: Easy</div>
   </div>
 
@@ -867,12 +868,14 @@
   <div id="ta-60-hud" class="hidden pointer-events-none fixed top-3 left-3 z-20 flex flex-col gap-1">
     <div id="ta-60-timer" class="text-2xl sm:text-3xl font-mono font-bold text-white bg-black/50 rounded-xl px-3 sm:px-4 py-1.5 sm:py-2 tabular-nums leading-tight border border-cyan-600/50">1:00</div>
     <div id="ta-60-score" class="text-xs sm:text-sm font-semibold text-zinc-200 bg-black/50 rounded-xl px-3 sm:px-4 py-1 sm:py-1.5 text-center">0 blocks</div>
+    <div id="ta-60-best" class="hidden text-xs sm:text-sm font-semibold text-zinc-400 bg-black/50 rounded-xl px-3 sm:px-4 py-1 sm:py-1.5 text-center">Best: <span id="ta-60-best-value">0</span> blocks</div>
   </div>
 
   <!-- Endless Mode HUD: moves counter shown only during Endless mode -->
   <div id="endless-hud" class="hidden pointer-events-none fixed top-3 left-3 z-20 flex flex-col gap-1">
     <div id="endless-moves" class="text-2xl sm:text-3xl font-mono font-bold text-white bg-black/50 rounded-xl px-3 sm:px-4 py-1.5 sm:py-2 tabular-nums leading-tight">999</div>
     <div id="endless-placed" class="text-xs sm:text-sm font-semibold text-zinc-200 bg-black/50 rounded-xl px-3 sm:px-4 py-1 sm:py-1.5 text-center">0 blocks</div>
+    <div id="endless-best" class="hidden text-xs sm:text-sm font-semibold text-zinc-400 bg-black/50 rounded-xl px-3 sm:px-4 py-1 sm:py-1.5 text-center">Best: <span id="endless-best-value">0</span> blocks</div>
   </div>
 
   <!-- Combo HUD: placement streak multiplier badge shown in Classic mode -->
@@ -881,9 +884,12 @@
   </div>
 
   <!-- Score HUD: shows session score during Classic mode -->
-  <div id="score-hud" class="hidden pointer-events-none fixed top-12 left-3 z-20 transition-opacity duration-200">
+  <div id="score-hud" class="hidden pointer-events-none fixed top-12 left-3 z-20 flex flex-col gap-1 transition-opacity duration-200">
     <div id="score-display" class="text-xs sm:text-sm font-semibold text-zinc-200 bg-black/50 rounded-xl px-3 sm:px-4 py-1 sm:py-1.5">
       Score: <span id="score-value">0</span>
+    </div>
+    <div id="score-best" class="hidden text-xs sm:text-sm font-semibold text-zinc-400 bg-black/50 rounded-xl px-3 sm:px-4 py-1 sm:py-1.5">
+      Best: <span id="score-best-value">0</span>
     </div>
   </div>
 
@@ -1693,6 +1699,10 @@
     let coachDismissTimer = null;
     let sessionBlocksPlaced = 0;     // placements this session, for milestone trigger
     let sessionScore = 0;
+    let sessionClassicBest = 0;
+    let sessionTaBest = 0;
+    let sessionTa60Best = 0;
+    let sessionEndlessBest = 0;
 
     // ---- Undo stack (Classic mode only) ----
     const undoStack = [];  // entries: { x, y, z, prevType, newType }, newest last, max 5
@@ -2786,6 +2796,8 @@
     // ---- Score HUD ----
     const scoreHudEl = document.getElementById('score-hud');
     const scoreValueEl = document.getElementById('score-value');
+    const scoreBestEl = document.getElementById('score-best');
+    const scoreBestValueEl = document.getElementById('score-best-value');
 
     function updateScoreHud() {
       if (gameMode !== 'classic' || !playing) {
@@ -2793,6 +2805,13 @@
         return;
       }
       scoreValueEl.textContent = sessionScore;
+      if (sessionScore > sessionClassicBest) {
+        sessionClassicBest = sessionScore;
+        scoreBestValueEl.textContent = sessionClassicBest;
+      }
+      if (sessionClassicBest > 0) {
+        scoreBestEl.classList.remove('hidden');
+      }
       scoreHudEl.classList.remove('hidden');
     }
 
@@ -3582,6 +3601,13 @@
     async function submitTaScore(cleared, difficulty) {
       const bannerEl = document.getElementById('ta-best-banner');
       const fbEl = document.getElementById('ta-feedback-msg');
+      if (cleared > sessionTaBest) {
+        sessionTaBest = cleared;
+        document.getElementById('ta-best-value').textContent = sessionTaBest;
+      }
+      if (sessionTaBest > 0) {
+        document.getElementById('ta-best').classList.remove('hidden');
+      }
       try {
         const res = await fetch('/api/ta-score', {
           method: 'POST',
@@ -3721,6 +3747,13 @@
     async function submitTa60Score(cleared) {
       const bannerEl = document.getElementById('ta-60-best-banner');
       const fbEl = document.getElementById('ta-60-feedback-msg');
+      if (cleared > sessionTa60Best) {
+        sessionTa60Best = cleared;
+        document.getElementById('ta-60-best-value').textContent = sessionTa60Best;
+      }
+      if (sessionTa60Best > 0) {
+        document.getElementById('ta-60-best').classList.remove('hidden');
+      }
       try {
         const res = await fetch('/api/ta-60-score', {
           method: 'POST',
@@ -3826,6 +3859,13 @@
     }
 
     async function submitEndlessScore(placed, movesSurvived) {
+      if (placed > sessionEndlessBest) {
+        sessionEndlessBest = placed;
+        document.getElementById('endless-best-value').textContent = sessionEndlessBest;
+      }
+      if (sessionEndlessBest > 0) {
+        document.getElementById('endless-best').classList.remove('hidden');
+      }
       try {
         const res = await fetch('/api/endless-score', {
           method: 'POST',
