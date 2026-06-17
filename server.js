@@ -5,10 +5,27 @@ const jwt = require('jsonwebtoken');
 
 const app = express();
 const port = process.env.PORT || 3000;
-const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 const JWT_SECRET = process.env.JWT_SECRET;
 const IS_STAGING = process.env.USERNODE_ENV === 'staging';
 const LLM_ENABLED = !!process.env.USERNODE_LLM_PROXY_TOKEN;
+
+// Database initialization state tracker
+let dbInitialized = false;
+let dbInitError = null;
+
+// Validate and create pool with proper error handling
+function createPool() {
+  const dbUrl = process.env.DATABASE_URL;
+  if (!dbUrl) {
+    const err = 'DATABASE_URL environment variable is not set';
+    console.error(`[DB] Fatal: ${err}`);
+    dbInitError = err;
+    return null;
+  }
+  return new Pool({ connectionString: dbUrl });
+}
+
+const pool = createPool();
 
 // Hardcoded demo presence entries for staging so the online list is always
 // populated regardless of whether the seeded user_presence rows are still
@@ -181,7 +198,15 @@ app.use((req, res, next) => {
   next();
 });
 
-app.get('/health', (_req, res) => res.json({ status: 'ok' }));
+app.get('/health', (_req, res) => {
+  if (dbInitError) {
+    return res.status(503).json({ status: 'error', error: dbInitError });
+  }
+  if (!dbInitialized) {
+    return res.status(503).json({ status: 'initializing' });
+  }
+  res.json({ status: 'ok' });
+});
 
 // ---- World bootstrap: dimensions, palette, current blocks, poll cursor ----
 app.get('/api/world', async (req, res) => {
@@ -2747,7 +2772,30 @@ async function maybeFireDisaster() {
 }
 
 async function start() {
-  await pool.query(`
+  if (!pool) {
+    const err = 'Cannot initialize database: pool is null (DATABASE_URL may not be set)';
+    console.error(`[DB] Fatal: ${err}`);
+    dbInitError = err;
+    throw new Error(err);
+  }
+
+  // Test the database connection before attempting migrations
+  console.log('[DB] Testing connection to database...');
+  try {
+    await pool.query('SELECT 1');
+    console.log('[DB] Connection successful');
+  } catch (err) {
+    const dbUrl = process.env.DATABASE_URL || '(not set)';
+    const connErr = `Database connection failed. DATABASE_URL: ${dbUrl.substring(0, 50)}... Error: ${err.message}`;
+    console.error(`[DB] Fatal: ${connErr}`);
+    dbInitError = connErr;
+    throw err;
+  }
+
+  // Run schema migrations
+  console.log('[DB] Running schema migrations...');
+  try {
+    await pool.query(`
     CREATE TABLE IF NOT EXISTS blocks (
       x SMALLINT NOT NULL,
       y SMALLINT NOT NULL,
@@ -3078,7 +3126,21 @@ async function start() {
 
   await ensurePowerUps();
 
-  app.listen(port, () => console.log(`Listening on :${port}`));
+    console.log('[DB] Schema migrations completed successfully');
+    dbInitialized = true;
+  } catch (migrationErr) {
+    const migErr = `Schema migration failed: ${migrationErr.message}`;
+    console.error(`[DB] Fatal: ${migErr}`);
+    if (!dbInitError) dbInitError = migErr;
+    throw migrationErr;
+  }
+
+  app.listen(port, () => console.log(`[Server] Listening on port ${port}`));
 }
 
-start().catch((err) => { console.error(err); process.exit(1); });
+start().catch((err) => {
+  const dbUrl = process.env.DATABASE_URL || '(not set)';
+  console.error(`[Server] Fatal startup error. DATABASE_URL: ${dbUrl.substring(0, 50)}...`);
+  console.error(`[Server] Error details:`, err.message);
+  process.exit(1);
+});
