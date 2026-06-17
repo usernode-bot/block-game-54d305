@@ -559,6 +559,59 @@ app.get('/api/block/:x/:y/:z', async (req, res) => {
   }
 });
 
+// ---- Power-up spawn position: picks an unoccupied cell at y=2 ----
+async function pickSpawnPosition() {
+  let chosen = { x: 1, y: 2, z: 1 };
+  for (let i = 0; i < 10; i++) {
+    const x = 1 + Math.floor(Math.random() * (DIMS.w - 2));
+    const z = 1 + Math.floor(Math.random() * (DIMS.d - 2));
+    chosen = { x, y: 2, z };
+    const { rows } = await pool.query(
+      `SELECT 1 FROM blocks WHERE x = $1 AND y = 2 AND z = $2 AND block_type <> 0`,
+      [x, z]
+    );
+    if (!rows.length) return chosen;
+  }
+  return chosen; // use last attempt even if occupied
+}
+
+// ---- Power-ups: list all unclaimed items ----
+app.get('/api/powerups', async (_req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT id, type, x, y, z FROM powerups WHERE claimed_at IS NULL`
+    );
+    res.json({ powerups: rows });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- Power-ups: collect one (atomic claim + spawn replacement) ----
+app.post('/api/powerups/:id/collect', async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const { rows } = await pool.query(
+      `UPDATE powerups
+         SET claimed_at = NOW(), claimed_by_user_id = $1, claimed_by_username = $2
+       WHERE id = $3 AND claimed_at IS NULL
+       RETURNING type`,
+      [req.user.id, req.user.username, id]
+    );
+    if (!rows.length) return res.status(409).json({ error: 'already claimed' });
+    const type = rows[0].type;
+    // Immediately spawn a replacement of the same type.
+    const pos = await pickSpawnPosition();
+    await pool.query(
+      `INSERT INTO powerups (type, x, y, z) VALUES ($1, $2, $3, $4)`,
+      [type, pos.x, pos.y, pos.z]
+    );
+    res.json({ ok: true, type, duration: 12 });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ---- Daily Challenge: today's goal and the requesting user's progress. ----
 // Target is derived deterministically from the UTC date — no DB write needed.
 // Returns { date, target, placed, completed_at }.
@@ -927,6 +980,21 @@ async function seedStaging() {
      ON CONFLICT (challenge_date, user_id) DO NOTHING`,
     [todayStr, targetToday]
   );
+
+  // Seed one of each power-up type at fixed, open positions so testers can
+  // immediately see and collect them. Skipped if any unclaimed power-ups
+  // already exist (e.g. after a hot-reload during the same staging run).
+  const { rows: pwCount } = await pool.query(
+    `SELECT COUNT(*) AS n FROM powerups WHERE claimed_at IS NULL`
+  );
+  if (Number(pwCount[0].n) === 0) {
+    await pool.query(`
+      INSERT INTO powerups (type, x, y, z) VALUES
+        ('speed_boost', 5, 2, 16),
+        ('super_jump',  28, 2, 16),
+        ('rapid_place', 16, 2, 28)
+    `);
+  }
 }
 
 // Seed the leaderboard with 6 fake builders so staging shows a populated panel.
@@ -949,6 +1017,26 @@ async function seedLeaderboard() {
          VALUES ($1, 1, $2, $3, nextval('block_seq'), $4, $5, NOW())
          ON CONFLICT (x, y, z) DO NOTHING`,
         [c.x, c.z, p.type, p.userId, p.username]
+      );
+    }
+  }
+}
+
+// ---- Ensure at least one of each power-up type is live in the world ----
+// Runs on every boot (after staging seed). In production the first boot
+// inserts all three; subsequent boots are no-ops. In staging the seed above
+// takes priority; this is a safety net for any type the seed missed.
+async function ensurePowerUps() {
+  for (const type of ['speed_boost', 'super_jump', 'rapid_place']) {
+    const { rows } = await pool.query(
+      `SELECT 1 FROM powerups WHERE type = $1 AND claimed_at IS NULL LIMIT 1`,
+      [type]
+    );
+    if (!rows.length) {
+      const pos = await pickSpawnPosition();
+      await pool.query(
+        `INSERT INTO powerups (type, x, y, z) VALUES ($1, $2, $3, $4)`,
+        [type, pos.x, pos.y, pos.z]
       );
     }
   }
@@ -1104,6 +1192,20 @@ async function start() {
     ON daily_challenge_progress (challenge_date, blocks_placed DESC)
   `);
 
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS powerups (
+      id SERIAL PRIMARY KEY,
+      type VARCHAR(20) NOT NULL,
+      x SMALLINT NOT NULL,
+      y SMALLINT NOT NULL,
+      z SMALLINT NOT NULL,
+      spawned_at TIMESTAMPTZ DEFAULT NOW(),
+      claimed_at TIMESTAMPTZ,
+      claimed_by_user_id INTEGER,
+      claimed_by_username VARCHAR(255)
+    )
+  `);
+
   // Login streak tracking: one row per user, updated on each daily first visit.
   await pool.query(`
     CREATE TABLE IF NOT EXISTS login_streaks (
@@ -1136,6 +1238,7 @@ async function start() {
   await pool.query(`CREATE INDEX IF NOT EXISTS friendships_addressee_status_idx ON friendships (addressee_id, status)`);
   await pool.query(`CREATE INDEX IF NOT EXISTS friendships_requester_status_idx ON friendships (requester_id, status)`);
 
+
   if (IS_STAGING) {
     try { await seedStaging(); }
     catch (err) { console.error('staging blocks seed failed', err); }
@@ -1155,6 +1258,8 @@ async function start() {
       );
     } catch (err) { console.error('staging spectator seed failed', err); }
   }
+
+  await ensurePowerUps();
 
   app.listen(port, () => console.log(`Listening on :${port}`));
 }
