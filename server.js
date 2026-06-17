@@ -10,6 +10,10 @@ const JWT_SECRET = process.env.JWT_SECRET;
 const IS_STAGING = process.env.USERNODE_ENV === 'staging';
 const LLM_ENABLED = !!process.env.USERNODE_LLM_PROXY_TOKEN;
 
+// Daily energy system configuration
+const ENERGY_TICKETS_PER_DAY = 5;
+const ENERGY_COST_POINTS_PER_TICKET = 100;
+
 // Hardcoded demo presence entries for staging so the online list is always
 // populated regardless of whether the seeded user_presence rows are still
 // within their 60-second expiry window.
@@ -818,6 +822,209 @@ app.get('/api/player/coins', async (req, res) => {
     );
     const coins = rows.length ? Number(rows[0].coins_balance) : 0;
     res.json({ coins });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- Daily Energy: get current energy status ----
+app.get('/api/energy/status', async (req, res) => {
+  try {
+    const now = new Date();
+    const todayStr = now.toISOString().slice(0, 10);
+
+    // Get today's energy row; if no row for today exists, assume 5 free tickets available
+    const energyRes = await pool.query(
+      `SELECT tickets_used, points_burned, tokens_burned FROM player_daily_energy
+       WHERE user_id = $1 AND energy_date = $2`,
+      [req.user.id, todayStr]
+    );
+
+    const ticketsUsed = energyRes.rows.length ? Number(energyRes.rows[0].tickets_used) : 0;
+    const pointsBurned = energyRes.rows.length ? Number(energyRes.rows[0].points_burned) : 0;
+    const ticketsRemaining = Math.max(0, ENERGY_TICKETS_PER_DAY - ticketsUsed);
+
+    // Get user's current points from leaderboard
+    const lbRes = await pool.query(
+      `SELECT total_score FROM leaderboard WHERE user_id = $1`,
+      [req.user.id]
+    );
+    const pointsAvailable = lbRes.rows.length ? Number(lbRes.rows[0].total_score) : 0;
+
+    // Calculate next reset time (midnight UTC tomorrow)
+    const tomorrow = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1));
+    const nextResetUtc = tomorrow.toISOString();
+    const secondsUntilReset = Math.max(0, Math.floor((tomorrow.getTime() - now.getTime()) / 1000));
+
+    res.json({
+      date: todayStr,
+      tickets_remaining: ticketsRemaining,
+      tickets_limit: ENERGY_TICKETS_PER_DAY,
+      points_available: pointsAvailable,
+      cost_per_ticket_points: ENERGY_COST_POINTS_PER_TICKET,
+      tokens_available: 0,
+      cost_per_ticket_tokens: null,
+      next_reset_utc: nextResetUtc,
+      seconds_until_reset: secondsUntilReset,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- Daily Energy: attempt to consume a ticket and start a game ----
+app.post('/api/energy/start-game', async (req, res) => {
+  try {
+    const { mode, spend_type } = req.body || {};
+    const now = new Date();
+    const todayStr = now.toISOString().slice(0, 10);
+
+    if (!['free', 'points', 'tokens'].includes(spend_type)) {
+      return res.status(400).json({ error: 'Invalid spend_type' });
+    }
+
+    if (spend_type === 'free') {
+      // Consume a free ticket
+      const result = await pool.query(
+        `INSERT INTO player_daily_energy (user_id, energy_date, tickets_used, points_burned, tokens_burned, updated_at)
+         VALUES ($1, $2, 1, 0, 0, NOW())
+         ON CONFLICT (user_id, energy_date) DO UPDATE SET
+           tickets_used = player_daily_energy.tickets_used + 1,
+           updated_at = NOW()
+         WHERE player_daily_energy.tickets_used < $3
+         RETURNING tickets_used`,
+        [req.user.id, todayStr, ENERGY_TICKETS_PER_DAY]
+      );
+
+      if (!result.rows.length) {
+        // Conflict: user has no free tickets left
+        const energyRes = await pool.query(
+          `SELECT tickets_used FROM player_daily_energy WHERE user_id = $1 AND energy_date = $2`,
+          [req.user.id, todayStr]
+        );
+        const ticketsUsed = energyRes.rows.length ? Number(energyRes.rows[0].tickets_used) : 0;
+        const ticketsRemaining = Math.max(0, ENERGY_TICKETS_PER_DAY - ticketsUsed);
+
+        const lbRes = await pool.query(`SELECT total_score FROM leaderboard WHERE user_id = $1`, [req.user.id]);
+        const pointsAvailable = lbRes.rows.length ? Number(lbRes.rows[0].total_score) : 0;
+
+        const tomorrow = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1));
+
+        return res.status(400).json({
+          ok: false,
+          error: 'No tickets remaining',
+          tickets_remaining: ticketsRemaining,
+          points_available: pointsAvailable,
+          next_reset_utc: tomorrow.toISOString(),
+        });
+      }
+
+      const ticketsUsed = Number(result.rows[0].tickets_used);
+      const ticketsRemaining = Math.max(0, ENERGY_TICKETS_PER_DAY - ticketsUsed);
+
+      return res.json({
+        ok: true,
+        tickets_remaining: ticketsRemaining,
+        points_burned: null,
+        tokens_burned: null,
+      });
+    } else if (spend_type === 'points') {
+      // User wants to burn points; this endpoint handles the start-game call
+      // The actual burning will be done in /api/energy/burn-points before calling this again
+      // For now, we'll allow the game to start and the UI will handle the burn flow
+      const energyRes = await pool.query(
+        `SELECT tickets_used FROM player_daily_energy WHERE user_id = $1 AND energy_date = $2`,
+        [req.user.id, todayStr]
+      );
+      const ticketsUsed = energyRes.rows.length ? Number(energyRes.rows[0].tickets_used) : 0;
+      const ticketsRemaining = Math.max(0, ENERGY_TICKETS_PER_DAY - ticketsUsed);
+
+      if (ticketsRemaining > 0) {
+        // Still have free tickets; consume one
+        const result = await pool.query(
+          `UPDATE player_daily_energy SET tickets_used = tickets_used + 1, updated_at = NOW()
+           WHERE user_id = $1 AND energy_date = $2 AND tickets_used < $3
+           RETURNING tickets_used`,
+          [req.user.id, todayStr, ENERGY_TICKETS_PER_DAY]
+        );
+        if (result.rows.length) {
+          const newTicketsUsed = Number(result.rows[0].tickets_used);
+          return res.json({
+            ok: true,
+            tickets_remaining: Math.max(0, ENERGY_TICKETS_PER_DAY - newTicketsUsed),
+            points_burned: null,
+            tokens_burned: null,
+          });
+        }
+      }
+
+      // No free tickets left; user must burn points
+      return res.status(400).json({
+        ok: false,
+        error: 'Must burn points to play',
+      });
+    }
+
+    res.status(400).json({ error: 'Unimplemented spend_type' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- Daily Energy: burn points to grant a ticket ----
+app.post('/api/energy/burn-points', async (req, res) => {
+  try {
+    const { points } = req.body || {};
+    const pointsToBurn = Number(points) || ENERGY_COST_POINTS_PER_TICKET;
+    const now = new Date();
+    const todayStr = now.toISOString().slice(0, 10);
+
+    // Get user's current points
+    const lbRes = await pool.query(
+      `SELECT total_score FROM leaderboard WHERE user_id = $1`,
+      [req.user.id]
+    );
+    const pointsAvailable = lbRes.rows.length ? Number(lbRes.rows[0].total_score) : 0;
+
+    if (pointsAvailable < pointsToBurn) {
+      return res.status(400).json({
+        ok: false,
+        error: 'Insufficient points',
+        points_available: pointsAvailable,
+        points_needed: pointsToBurn,
+      });
+    }
+
+    // Deduct points and insert/update energy record with burned points tracked
+    // First deduct points from leaderboard
+    await pool.query(
+      `UPDATE leaderboard SET total_score = total_score - $1, updated_at = NOW()
+       WHERE user_id = $2`,
+      [pointsToBurn, req.user.id]
+    );
+
+    // Then update energy record
+    const energyResult = await pool.query(
+      `INSERT INTO player_daily_energy (user_id, energy_date, tickets_used, points_burned, tokens_burned, updated_at)
+       VALUES ($1, $2, 0, $3, 0, NOW())
+       ON CONFLICT (user_id, energy_date) DO UPDATE SET
+         points_burned = player_daily_energy.points_burned + EXCLUDED.points_burned,
+         updated_at = NOW()
+       RETURNING tickets_used, points_burned`,
+      [req.user.id, todayStr, pointsToBurn]
+    );
+
+    const ticketsUsed = Number(energyResult.rows[0].tickets_used);
+    const pointsBurned = Number(energyResult.rows[0].points_burned);
+    const ticketsRemaining = Math.max(0, ENERGY_TICKETS_PER_DAY - ticketsUsed);
+    const newPointsAvailable = pointsAvailable - pointsToBurn;
+
+    res.json({
+      ok: true,
+      points_available: newPointsAvailable,
+      tickets_remaining: ticketsRemaining,
+      points_burned_today: pointsBurned,
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -3258,6 +3465,25 @@ async function seedPuzzleScores() {
   }
 }
 
+// Seed daily energy state for staging demo users showing mid-day energy consumption.
+async function seedDailyEnergy() {
+  const now = new Date();
+  const todayStr = now.toISOString().slice(0, 10);
+  const seeds = [
+    { userId: -1, ticketsUsed: 2, pointsBurned: 0 },
+    { userId: -2, ticketsUsed: 3, pointsBurned: 100 },
+    { userId: -3, ticketsUsed: 1, pointsBurned: 0 },
+  ];
+  for (const s of seeds) {
+    await pool.query(
+      `INSERT INTO player_daily_energy (user_id, energy_date, tickets_used, points_burned, tokens_burned, updated_at)
+       VALUES ($1, $2, $3, $4, 0, NOW())
+       ON CONFLICT (user_id, energy_date) DO NOTHING`,
+      [s.userId, todayStr, s.ticketsUsed, s.pointsBurned]
+    );
+  }
+}
+
 // ---- Natural Disaster trigger (called from GET /api/world/changes) ----
 // Uses SELECT ... FOR UPDATE SKIP LOCKED on disaster_schedule so that only one
 // concurrent request can trigger at a time. Returns the fired disaster row or null.
@@ -3590,6 +3816,21 @@ async function start() {
     )
   `);
 
+  // Daily energy system: tracks daily ticket usage and point/token spending.
+  // Public table — holds only gameplay resource tracking, no sensitive data.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS player_daily_energy (
+      user_id       INTEGER NOT NULL,
+      energy_date   DATE NOT NULL,
+      tickets_used  INTEGER NOT NULL DEFAULT 0,
+      points_burned BIGINT NOT NULL DEFAULT 0,
+      tokens_burned BIGINT NOT NULL DEFAULT 0,
+      updated_at    TIMESTAMPTZ DEFAULT NOW(),
+      PRIMARY KEY (user_id, energy_date)
+    )
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS player_daily_energy_date_idx ON player_daily_energy (energy_date, user_id)`);
+
   // Social graph: friend requests and accepted friendships.
   // Marked staging:private — the friend relationships between real users must
   // not be copied to staging containers.
@@ -3754,6 +3995,8 @@ async function start() {
     catch (err) { console.error('puzzle-levels seed failed', err); }
     try { await seedPuzzleScores(); }
     catch (err) { console.error('puzzle-scores seed failed', err); }
+    try { await seedDailyEnergy(); }
+    catch (err) { console.error('daily-energy seed failed', err); }
     // Staging spectators are now surfaced via the STAGING_DEMO_USERS constant
     // appended in GET /api/presence/online, so no DB seed is needed here.
   }
