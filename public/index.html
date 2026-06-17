@@ -1136,7 +1136,18 @@
         startMusic();
       }
 
-      return { init, playPlace, playBreak, playDisasterSound, playGameOver, playFanfare, toggleMute, isMuted };
+      function playLineClear() {
+        if (!ctx || !masterGain) return;
+        const t = ctx.currentTime;
+        // A short ascending tone sequence: three quick high notes
+        const notes = [523.3, 659.3, 783.99]; // C5, E5, G5
+        notes.forEach((freq, i) => {
+          const at = t + i * 0.08;
+          scheduleNote(freq, 'triangle', 0.22, at, 0.15, false);
+        });
+      }
+
+      return { init, playPlace, playBreak, playDisasterSound, playGameOver, playFanfare, toggleMute, isMuted, playLineClear };
     })();
 
     const buildStampEl = document.getElementById('build-stamp');
@@ -1851,6 +1862,11 @@
       if (!toastShowing) showNextToast();
     }
 
+    function showLineClearToast(points) {
+      toastQueue.push({ icon: '🎯', name: 'Line Clear!', flavour: `+${points} points`, _isLineClear: true });
+      if (!toastShowing) showNextToast();
+    }
+
     function showDailyRewardModal(reward) {
       const modalEl = document.getElementById('daily-login-reward');
       const titleEl = document.getElementById('reward-title');
@@ -2178,6 +2194,14 @@
           if (data.earned) {
             sessionScore += data.earned;
             updateScoreHud();
+          }
+          if (data.line_clear_points) {
+            sessionScore += data.line_clear_points;
+            updateScoreHud();
+            if (data.lines_cleared > 0) {
+              showLineClearToast(data.line_clear_points);
+              audio.playLineClear();
+            }
           }
           if (data.seq && data.seq > cursor) cursor = data.seq;
           if (data.newly_earned_badges && data.newly_earned_badges.length) {

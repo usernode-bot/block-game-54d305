@@ -286,7 +286,7 @@ app.post('/api/block', async (req, res) => {
       const cr0 = cr.rows[0];
       challenge = { placed: cr0.blocks_placed, target, completed_at: cr0.completed_at };
 
-      const base = BLOCK_POINTS[t] || 1;
+      const base = 10;
 
       // Combo: count placements this user made in the last 10 seconds
       // (exclude the just-inserted cell to avoid double-counting).
@@ -388,7 +388,45 @@ app.post('/api/block', async (req, res) => {
       }
     }
 
-    res.json({ ok: true, seq, ...(challenge ? { challenge } : {}), earned, combo_multiplier, rainbow_multiplier, newly_earned_badges, newly_unlocked_types });
+    // ---- Line clearing: detect and clear complete horizontal layers ----
+    let lines_cleared = 0;
+    let line_clear_points = 0;
+    if (t !== 0) {
+      // Check if the placed block's Y-coordinate now forms a complete line
+      const lineCheckRes = await pool.query(
+        `SELECT COUNT(*)::int AS count
+         FROM blocks
+         WHERE y = $1
+           AND block_type <> 0
+           AND x BETWEEN 0 AND 31
+           AND z BETWEEN 0 AND 31`,
+        [y]
+      );
+      if (lineCheckRes.rows[0].count === 1024) {
+        // Line is complete — clear it by setting all blocks to 0 (air)
+        await pool.query(
+          `UPDATE blocks
+           SET block_type = 0, seq = nextval('block_seq'), updated_at = NOW(), updated_by_user_id = $2, updated_by_username = $3
+           WHERE y = $1 AND x BETWEEN 0 AND 31 AND z BETWEEN 0 AND 31`,
+          [y, req.user.id, req.user.username]
+        );
+        lines_cleared = 1;
+        line_clear_points = 50;
+
+        // Award line-clear points to leaderboard
+        await pool.query(
+          `INSERT INTO leaderboard (user_id, username, total_score, blocks_placed, best_combo, updated_at)
+           VALUES ($1, $2, $3, 0, 0, NOW())
+           ON CONFLICT (user_id) DO UPDATE SET
+             total_score   = leaderboard.total_score + EXCLUDED.total_score,
+             username      = EXCLUDED.username,
+             updated_at    = NOW()`,
+          [req.user.id, req.user.username, line_clear_points]
+        );
+      }
+    }
+
+    res.json({ ok: true, seq, ...(challenge ? { challenge } : {}), earned, combo_multiplier, rainbow_multiplier, newly_earned_badges, newly_unlocked_types, lines_cleared, line_clear_points });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -1710,6 +1748,26 @@ async function seedStaging() {
      ON CONFLICT (challenge_date, user_id) DO NOTHING`,
     [todayStr, targetToday]
   );
+
+  // Seed a complete horizontal line at y=2 for testing line-clear mechanics.
+  // A complete line consists of 1024 blocks (32 × 32 grid, all non-zero type).
+  // This allows testers to place a single block to trigger a line clear.
+  const { rows: lineCount } = await pool.query(
+    `SELECT COUNT(*)::int AS count FROM blocks WHERE y = 2 AND block_type <> 0`
+  );
+  if (Number(lineCount[0].count) < 1024) {
+    const lineBlocks = [];
+    for (let x = 0; x < 32; x++) {
+      for (let z = 0; z < 32; z++) {
+        lineBlocks.push(`(${x}, 2, ${z}, 3, ${SEED_USER_ID}, 'Staging demo')`);
+      }
+    }
+    await pool.query(
+      `INSERT INTO blocks (x, y, z, block_type, updated_by_user_id, updated_by_username) VALUES
+       ${lineBlocks.join(',')}
+       ON CONFLICT (x, y, z) DO NOTHING`
+    );
+  }
 
   // Seed one of each power-up type at fixed, open positions so testers can
   // immediately see and collect them. Skipped if any unclaimed power-ups
