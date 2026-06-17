@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en" class="dark">
+<html lang="en" class="dark" id="html-root">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -108,7 +108,38 @@
     /* Hold panel swatch transition for locked/unlocked state */
     #hold-swatch { transition: opacity 0.2s; }
 
+    /* Touch layout: raise palette above on-screen controls and add horizontal
+       scroll so all block types are reachable without overlapping buttons. */
+    #palette.touch-playing {
+      bottom: 11rem;
+      max-width: calc(100% - 3rem);
+      overflow-x: auto;
+      scroll-snap-type: x mandatory;
+      -webkit-overflow-scrolling: touch;
+    }
+    #palette.touch-playing > button {
+      flex-shrink: 0;
+      scroll-snap-align: start;
+    }
+    /* Enlarge HUD icon buttons to the 44px minimum recommended touch target. */
+    .touch-device #badges-btn,
+    .touch-device #mute-btn,
+    .touch-device #turntable-btn,
+    .touch-device #help-btn,
+    .touch-device #leaderboard-btn { width: 2.75rem; height: 2.75rem; }
+    /* Hide the hold-panel on touch — held block state is shown on the Hold
+       button background instead (see updateHoldPanel). */
+    .touch-device #hold-panel { display: none; }
+
     #bg-canvas { position: fixed; inset: 0; pointer-events: none; }
+
+    /* Undo/redo buttons: disabled state */
+    #undo-btn:disabled, #redo-btn:disabled,
+    #history-undo-btn:disabled, #history-redo-btn:disabled {
+      opacity: 0.3;
+      cursor: default;
+      pointer-events: none;
+    }
 
     /* Mobile-first responsive adjustments for small screens */
     @media (max-width: 359px) {
@@ -156,7 +187,7 @@
       }
 
       /* Hide individual buttons on small screens, show menu button */
-      #help-btn, #leaderboard-btn, #friends-btn, #coach-btn, #badges-btn, #turntable-btn, #settings-btn {
+      #help-btn, #leaderboard-btn, #friends-btn, #coach-btn, #badges-btn, #turntable-btn, #settings-btn, #pause-btn {
         display: none !important;
       }
       #menu-btn {
@@ -411,70 +442,76 @@
     <div class="max-w-sm sm:max-w-xl lg:max-w-4xl w-full px-4">
       <div class="text-center mb-6">
         <h1 class="text-3xl sm:text-2xl lg:text-3xl font-bold mb-2" id="header-title">block-game</h1>
-        <p class="text-zinc-300 text-sm">A shared 3D world — build, challenge, or just watch.</p>
+        <p class="text-zinc-300 text-sm" id="header-subtitle">A shared 3D world — build, challenge, or just watch.</p>
         <p id="overlay-help" class="text-zinc-500 text-xs mt-2">Choose a mode to start.</p>
       </div>
       <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-5 lg:gap-6">
-        <div class="bg-zinc-900/80 rounded-xl p-5 sm:p-6 lg:p-7 transition hover:bg-zinc-800/80">
+        <div class="bg-zinc-900/80 rounded-xl p-5 sm:p-6 lg:p-7 transition hover:bg-zinc-800/80" data-mode="classic">
           <canvas id="preview-classic" class="w-full rounded-lg mb-4" height="140"></canvas>
-          <h2 class="font-semibold text-lg sm:text-base lg:text-lg text-zinc-100 mb-2">Classic Mode</h2>
-          <p class="text-zinc-400 text-sm sm:text-sm lg:text-sm mb-5">Fly around a shared 3D world. Place and break blocks with other players. No timer, no score.</p>
-          <button id="play-classic-btn" class="w-full px-4 py-3 rounded-lg bg-violet-600 hover:bg-violet-500 font-semibold text-sm sm:text-sm lg:text-base transition hover:scale-[1.02] active:scale-[0.98]">Play Classic</button>
+          <h2 class="font-semibold text-lg sm:text-base lg:text-lg text-zinc-100 mb-2 mode-title">Classic Mode</h2>
+          <p class="text-zinc-400 text-sm sm:text-sm lg:text-sm mb-5 mode-desc">Fly around a shared 3D world. Place and break blocks with other players. No timer, no score.</p>
+          <button id="play-classic-btn" class="w-full px-4 py-3 rounded-lg bg-violet-600 hover:bg-violet-500 font-semibold text-sm sm:text-sm lg:text-base transition hover:scale-[1.02] active:scale-[0.98] mode-btn">Play Classic</button>
         </div>
-        <div class="bg-zinc-900/80 rounded-xl p-5 sm:p-6 lg:p-7 transition hover:bg-zinc-800/80">
+        <div class="bg-zinc-900/80 rounded-xl p-5 sm:p-6 lg:p-7 transition hover:bg-zinc-800/80" data-mode="ta">
           <canvas id="preview-ta" class="w-full rounded-lg mb-4" height="140"></canvas>
-          <h2 class="font-semibold text-lg sm:text-base lg:text-lg text-zinc-100 mb-2">Time Attack</h2>
-          <p class="text-zinc-400 text-sm sm:text-sm lg:text-sm mb-4">Break as many blocks as you can against the clock. Solo challenge, fresh layout every run.</p>
+          <h2 class="font-semibold text-lg sm:text-base lg:text-lg text-zinc-100 mb-2 mode-title">Time Attack</h2>
+          <p class="text-zinc-400 text-sm sm:text-sm lg:text-sm mb-4 mode-desc">Break as many blocks as you can against the clock. Solo challenge, fresh layout every run.</p>
           <div class="flex items-center justify-center gap-2 mb-4">
             <button id="ta-tier-down" class="w-12 h-12 sm:w-10 sm:h-10 rounded bg-zinc-700 hover:bg-zinc-600 text-zinc-200 font-bold text-base leading-none transition hover:scale-110 active:scale-95">←</button>
             <span id="ta-tier-label" class="text-base sm:text-sm font-semibold text-amber-400 w-20 text-center">Easy</span>
             <button id="ta-tier-up" class="w-12 h-12 sm:w-10 sm:h-10 rounded bg-zinc-700 hover:bg-zinc-600 text-zinc-200 font-bold text-base leading-none transition hover:scale-110 active:scale-95">→</button>
           </div>
-          <button id="play-ta-btn" class="w-full px-4 py-3 rounded-lg bg-amber-600 hover:bg-amber-500 font-semibold text-sm sm:text-sm lg:text-base transition hover:scale-[1.02] active:scale-[0.98]">Play Time Attack</button>
+          <button id="play-ta-btn" class="w-full px-4 py-3 rounded-lg bg-amber-600 hover:bg-amber-500 font-semibold text-sm sm:text-sm lg:text-base transition hover:scale-[1.02] active:scale-[0.98] mode-btn">Play Time Attack</button>
         </div>
-        <div class="bg-zinc-900/80 rounded-xl p-5 sm:p-6 lg:p-7 transition hover:bg-zinc-800/80">
+        <div class="bg-zinc-900/80 rounded-xl p-5 sm:p-6 lg:p-7 transition hover:bg-zinc-800/80" data-mode="ta-60">
           <canvas id="preview-ta-60" class="w-full rounded-lg mb-4" height="140"></canvas>
-          <h2 class="font-semibold text-lg sm:text-base lg:text-lg text-zinc-100 mb-2">Time Attack (60s)</h2>
-          <p class="text-zinc-400 text-sm sm:text-sm lg:text-sm mb-5">Clear as many blocks as you can in 60 seconds. Blocks stack—no clearing allowed. Single-player only.</p>
-          <button id="play-ta-60-btn" class="w-full px-4 py-3 rounded-lg bg-cyan-600 hover:bg-cyan-500 font-semibold text-sm sm:text-sm lg:text-base transition hover:scale-[1.02] active:scale-[0.98]">Play Time Attack (60s)</button>
+          <h2 class="font-semibold text-lg sm:text-base lg:text-lg text-zinc-100 mb-2 mode-title">Time Attack (60s)</h2>
+          <p class="text-zinc-400 text-sm sm:text-sm lg:text-sm mb-5 mode-desc">Clear as many blocks as you can in 60 seconds. Blocks stack—no clearing allowed. Single-player only.</p>
+          <button id="play-ta-60-btn" class="w-full px-4 py-3 rounded-lg bg-cyan-600 hover:bg-cyan-500 font-semibold text-sm sm:text-sm lg:text-base transition hover:scale-[1.02] active:scale-[0.98] mode-btn">Play Time Attack (60s)</button>
         </div>
-        <div class="bg-zinc-900/80 rounded-xl p-5 sm:p-6 lg:p-7 transition hover:bg-zinc-800/80">
+        <div class="bg-zinc-900/80 rounded-xl p-5 sm:p-6 lg:p-7 transition hover:bg-zinc-800/80" data-mode="daily-challenge">
           <canvas id="preview-daily-challenge" class="w-full rounded-lg mb-4" height="140"></canvas>
-          <h2 class="font-semibold text-lg sm:text-base lg:text-lg text-zinc-100 mb-2">Daily Challenge</h2>
-          <p class="text-zinc-400 text-sm sm:text-sm lg:text-sm mb-5">Same objective for all players. Resets every 24 hours. Compete on the leaderboard.</p>
-          <button id="play-daily-challenge-btn" class="w-full px-4 py-3 rounded-lg bg-fuchsia-600 hover:bg-fuchsia-500 font-semibold text-sm sm:text-sm lg:text-base transition hover:scale-[1.02] active:scale-[0.98]">Play Daily Challenge</button>
+          <h2 class="font-semibold text-lg sm:text-base lg:text-lg text-zinc-100 mb-2 mode-title">Daily Challenge</h2>
+          <p class="text-zinc-400 text-sm sm:text-sm lg:text-sm mb-5 mode-desc">Same objective for all players. Resets every 24 hours. Compete on the leaderboard.</p>
+          <button id="play-daily-challenge-btn" class="w-full px-4 py-3 rounded-lg bg-fuchsia-600 hover:bg-fuchsia-500 font-semibold text-sm sm:text-sm lg:text-base transition hover:scale-[1.02] active:scale-[0.98] mode-btn">Play Daily Challenge</button>
         </div>
-        <div class="bg-zinc-900/80 rounded-xl p-5 sm:p-6 lg:p-7 transition hover:bg-zinc-800/80">
+        <div class="bg-zinc-900/80 rounded-xl p-5 sm:p-6 lg:p-7 transition hover:bg-zinc-800/80" data-mode="endless">
           <canvas id="preview-endless" class="w-full rounded-lg mb-4" height="140"></canvas>
-          <h2 class="font-semibold text-lg sm:text-base lg:text-lg text-zinc-100 mb-2">Endless Mode</h2>
-          <p class="text-zinc-400 text-sm sm:text-sm lg:text-sm mb-5">Build forever on an endless grid. No timer, no score multiplier—just how long until you run out of valid moves?</p>
-          <button id="play-endless-btn" class="w-full px-4 py-3 rounded-lg bg-rose-600 hover:bg-rose-500 font-semibold text-sm sm:text-sm lg:text-base transition hover:scale-[1.02] active:scale-[0.98]">Play Endless</button>
+          <h2 class="font-semibold text-lg sm:text-base lg:text-lg text-zinc-100 mb-2 mode-title">Endless Mode</h2>
+          <p class="text-zinc-400 text-sm sm:text-sm lg:text-sm mb-5 mode-desc">Build forever on an endless grid. No timer, no score multiplier—just how long until you run out of valid moves?</p>
+          <button id="play-endless-btn" class="w-full px-4 py-3 rounded-lg bg-rose-600 hover:bg-rose-500 font-semibold text-sm sm:text-sm lg:text-base transition hover:scale-[1.02] active:scale-[0.98] mode-btn">Play Endless</button>
         </div>
-        <div class="bg-zinc-900/80 rounded-xl p-5 sm:p-6 lg:p-7 transition hover:bg-zinc-800/80">
+        <div class="bg-zinc-900/80 rounded-xl p-5 sm:p-6 lg:p-7 transition hover:bg-zinc-800/80" data-mode="puzzle">
+          <canvas id="preview-puzzle" class="w-full rounded-lg mb-4" height="140"></canvas>
+          <h2 class="font-semibold text-lg sm:text-base lg:text-lg text-zinc-100 mb-2 mode-title">🧩 Puzzle Mode</h2>
+          <p class="text-zinc-400 text-sm sm:text-sm lg:text-sm mb-5 mode-desc">Clear a fixed set of blocks level by level. Solve increasingly difficult puzzles.</p>
+          <button id="play-puzzle-btn" class="w-full px-4 py-3 rounded-lg bg-indigo-600 hover:bg-indigo-500 font-semibold text-sm sm:text-sm lg:text-base transition hover:scale-[1.02] active:scale-[0.98] mode-btn">Play Puzzle</button>
+        </div>
+        <div class="bg-zinc-900/80 rounded-xl p-5 sm:p-6 lg:p-7 transition hover:bg-zinc-800/80" data-mode="tutorial">
           <canvas id="preview-tutorial" class="w-full rounded-lg mb-4" height="140"></canvas>
-          <h2 class="font-semibold text-lg sm:text-base lg:text-lg text-zinc-100 mb-2">Tutorial</h2>
-          <p class="text-zinc-400 text-sm sm:text-sm lg:text-sm mb-5">Learn the basics step-by-step: place blocks, break them, earn points, and clear lines.</p>
-          <button id="play-tutorial-btn" class="w-full px-4 py-3 rounded-lg bg-green-600 hover:bg-green-500 font-semibold text-sm sm:text-sm lg:text-base transition hover:scale-[1.02] active:scale-[0.98]">📚 Start Tutorial</button>
+          <h2 class="font-semibold text-lg sm:text-base lg:text-lg text-zinc-100 mb-2 mode-title">Tutorial</h2>
+          <p class="text-zinc-400 text-sm sm:text-sm lg:text-sm mb-5 mode-desc">Learn the basics step-by-step: place blocks, break them, earn points, and clear lines.</p>
+          <button id="play-tutorial-btn" class="w-full px-4 py-3 rounded-lg bg-green-600 hover:bg-green-500 font-semibold text-sm sm:text-sm lg:text-base transition hover:scale-[1.02] active:scale-[0.98] mode-btn">📚 Start Tutorial</button>
         </div>
-        <div class="bg-zinc-900/80 rounded-xl p-5 sm:p-6 lg:p-7 transition hover:bg-zinc-800/80">
+        <div class="bg-zinc-900/80 rounded-xl p-5 sm:p-6 lg:p-7 transition hover:bg-zinc-800/80" data-mode="learn">
           <canvas id="preview-learn" class="w-full rounded-lg mb-4" height="140"></canvas>
-          <h2 class="font-semibold text-lg sm:text-base lg:text-lg text-zinc-100 mb-2">Learn Mode</h2>
-          <p class="text-zinc-400 text-sm sm:text-sm lg:text-sm mb-5">Perfect for getting started. Learn the basics at your own pace with helpful hints.</p>
-          <button id="play-learn-btn" class="w-full px-4 py-3 rounded-lg bg-green-600 hover:bg-green-500 font-semibold text-sm sm:text-sm lg:text-base transition hover:scale-[1.02] active:scale-[0.98]">Play Learn</button>
+          <h2 class="font-semibold text-lg sm:text-base lg:text-lg text-zinc-100 mb-2 mode-title">Learn Mode</h2>
+          <p class="text-zinc-400 text-sm sm:text-sm lg:text-sm mb-5 mode-desc">Perfect for getting started. Learn the basics at your own pace with helpful hints.</p>
+          <button id="play-learn-btn" class="w-full px-4 py-3 rounded-lg bg-green-600 hover:bg-green-500 font-semibold text-sm sm:text-sm lg:text-base transition hover:scale-[1.02] active:scale-[0.98] mode-btn">Play Learn</button>
         </div>
-        <div class="bg-zinc-900/80 rounded-xl p-5 sm:p-6 lg:p-7 transition hover:bg-zinc-800/80">
+        <div class="bg-zinc-900/80 rounded-xl p-5 sm:p-6 lg:p-7 transition hover:bg-zinc-800/80" data-mode="spectate">
           <canvas id="preview-spectate" class="w-full rounded-lg mb-4" height="140"></canvas>
-          <h2 class="font-semibold text-lg sm:text-base lg:text-lg text-zinc-100 mb-2">Watch</h2>
-          <p class="text-zinc-400 text-sm sm:text-sm lg:text-sm mb-5">Fly through the world as a spectator. No building required — just explore and chat.</p>
-          <button id="play-spectate-btn" class="w-full px-4 py-3 rounded-lg bg-teal-600 hover:bg-teal-500 font-semibold text-sm sm:text-sm lg:text-base transition hover:scale-[1.02] active:scale-[0.98]">Watch World</button>
+          <h2 class="font-semibold text-lg sm:text-base lg:text-lg text-zinc-100 mb-2 mode-title">Watch</h2>
+          <p class="text-zinc-400 text-sm sm:text-sm lg:text-sm mb-5 mode-desc">Fly through the world as a spectator. No building required — just explore and chat.</p>
+          <button id="play-spectate-btn" class="w-full px-4 py-3 rounded-lg bg-teal-600 hover:bg-teal-500 font-semibold text-sm sm:text-sm lg:text-base transition hover:scale-[1.02] active:scale-[0.98] mode-btn">Watch World</button>
         </div>
       </div>
       <div id="tournament-teaser" class="hidden mt-3 rounded-xl bg-zinc-900/60 px-4 py-2.5 text-xs text-zinc-300"></div>
       <div id="status" class="mt-3 text-xs text-zinc-500 text-center"></div>
       <div id="online-list" class="mt-3 text-sm text-zinc-400 text-center"></div>
       <div id="footer" class="mt-4 pt-3 border-t border-zinc-700/60 text-xs text-zinc-500 text-center">
-        <p class="mb-1">© 2026 block-game</p>
-        <p>Built with Three.js and Tailwind CSS</p>
+        <p class="mb-1" id="footer-copyright">© 2026 block-game</p>
+        <p id="footer-credit">Built with Three.js and Tailwind CSS</p>
       </div>
     </div>
   </div>
@@ -482,13 +519,13 @@
   <!-- Controls hint (fades) -->
   <div id="hint" class="pointer-events-none fixed top-3 left-1/2 -translate-x-1/2 z-20 text-center text-[10px] sm:text-xs text-zinc-300/90 bg-black/40 rounded-lg px-2 sm:px-3 py-1 sm:py-2 transition-opacity duration-700">
     <span class="font-semibold">WASD</span> move · <span class="font-semibold">Space/Shift</span> up·down ·
-    <span class="font-semibold">Left-click/F</span> add · <span class="font-semibold">Right-click/G</span> delete ·
-    <span class="font-semibold">1–9</span> pick block · <span class="font-semibold">H</span> hold/controls · <span class="font-semibold">Enter</span> chat · <span class="font-semibold">M</span> mute · <span class="font-semibold">Esc</span> release
+    <span class="font-semibold">Left-click/F</span> add · <span class="font-semibold">Right-click/G</span> delete · <span class="font-semibold">Drag+📦</span> stamp ·
+    <span class="font-semibold">1–9</span> pick · <span class="font-semibold">H</span> hold · <span class="font-semibold">Enter</span> chat · <span class="font-semibold">Esc</span> release
   </div>
   <div id="hint-fallback" class="hidden pointer-events-none fixed top-3 left-1/2 -translate-x-1/2 z-20 text-center text-[10px] sm:text-xs text-zinc-300/90 bg-black/40 rounded-lg px-2 sm:px-3 py-1 sm:py-2 transition-opacity duration-700">
     <span class="font-semibold">WASD</span> move · <span class="font-semibold">Space/Shift</span> up·down ·
-    <span class="font-semibold">Drag</span> look · <span class="font-semibold">Left-click/F</span> add · <span class="font-semibold">Right-click/G</span> delete ·
-    <span class="font-semibold">1–9</span> pick block · <span class="font-semibold">H</span> hold/controls · <span class="font-semibold">Enter</span> chat · <span class="font-semibold">M</span> mute · <span class="font-semibold">Esc</span> menu
+    <span class="font-semibold">Drag</span> look · <span class="font-semibold">Left-click/F</span> add · <span class="font-semibold">Right-click/G</span> delete · <span class="font-semibold">Drag+📦</span> stamp ·
+    <span class="font-semibold">1–9</span> pick · <span class="font-semibold">H</span> hold · <span class="font-semibold">Enter</span> chat · <span class="font-semibold">Esc</span> menu
   </div>
 
   <!-- Look-mode control: always-visible, clickable, shows the active look
@@ -503,6 +540,33 @@
     <div id="hold-swatch" class="w-10 h-10 rounded-md border-2 border-dashed border-zinc-600 flex items-center justify-center">
       <span class="text-zinc-600 text-sm font-bold">–</span>
     </div>
+  </div>
+
+  <!-- Undo/Redo/History HUD: shown in Classic mode only -->
+  <div id="undo-redo-hud" class="hidden fixed z-20 flex items-center gap-1" style="bottom: 1rem; left: 4.5rem">
+    <button id="undo-btn" title="Undo (Ctrl+Z)"
+            class="w-9 h-9 rounded-lg bg-black/50 hover:bg-black/70 text-zinc-100 text-base leading-none flex items-center justify-center transition hover:scale-110 active:scale-95 cursor-pointer">↩</button>
+    <button id="redo-btn" title="Redo (Ctrl+Y)"
+            class="w-9 h-9 rounded-lg bg-black/50 hover:bg-black/70 text-zinc-100 text-base leading-none flex items-center justify-center transition hover:scale-110 active:scale-95 cursor-pointer">↪</button>
+    <button id="history-btn" title="Build History"
+            class="w-9 h-9 rounded-lg bg-black/50 hover:bg-black/70 text-zinc-100 text-base leading-none flex items-center justify-center transition hover:scale-110 active:scale-95 cursor-pointer">🕐</button>
+  </div>
+
+  <!-- History panel: recent block placements/breaks -->
+  <div id="history-panel" class="hidden fixed z-30 rounded-xl bg-black/75 backdrop-blur-sm p-3 text-sm text-zinc-200 shadow-xl" style="bottom: 5.5rem; left: 1rem; width: 264px">
+    <div class="flex items-center justify-between mb-2">
+      <span class="font-bold text-xs text-zinc-100 uppercase tracking-wide">Recent Actions</span>
+      <div class="flex items-center gap-1.5">
+        <button id="history-undo-btn" title="Undo"
+                class="w-7 h-7 rounded bg-zinc-700 hover:bg-zinc-600 text-zinc-100 text-sm flex items-center justify-center cursor-pointer transition hover:scale-110 active:scale-95">↩</button>
+        <button id="history-redo-btn" title="Redo"
+                class="w-7 h-7 rounded bg-zinc-700 hover:bg-zinc-600 text-zinc-100 text-sm flex items-center justify-center cursor-pointer transition hover:scale-110 active:scale-95">↪</button>
+        <button id="history-close" aria-label="Close history"
+                class="text-zinc-400 hover:text-zinc-100 cursor-pointer leading-none transition-colors ml-1">✕</button>
+      </div>
+    </div>
+    <ul id="history-list" class="space-y-0.5 max-h-48 overflow-y-auto"></ul>
+    <p id="history-empty" class="text-zinc-500 text-xs text-center py-2">No actions yet — place or break a block.</p>
   </div>
 
   <!-- Block palette -->
@@ -536,18 +600,19 @@
   <!-- Menu panel: dropdown for phones (<640px), hidden by default -->
   <div id="menu-panel" class="hidden fixed top-14 right-3 z-30 w-56 rounded-xl bg-black/70 backdrop-blur shadow-xl overflow-y-auto max-h-[calc(100vh-100px)]">
     <div class="px-3 py-2 border-b border-zinc-700/60 sticky top-0 bg-black/70">
-      <h3 class="font-semibold text-zinc-100 text-sm">Menu</h3>
+      <h3 class="font-semibold text-zinc-100 text-sm" id="menu-panel-title">Menu</h3>
     </div>
     <div class="py-1">
-      <button data-menu-item="help" class="w-full text-left px-4 py-2.5 text-sm text-zinc-200 hover:bg-zinc-800/50 flex items-center gap-3 transition">❓ Help</button>
-      <button data-menu-item="leaderboard" class="w-full text-left px-4 py-2.5 text-sm text-zinc-200 hover:bg-zinc-800/50 flex items-center gap-3 transition">🏆 Leaderboard</button>
-      <button data-menu-item="friends" class="w-full text-left px-4 py-2.5 text-sm text-zinc-200 hover:bg-zinc-800/50 flex items-center gap-3 transition">👥 Friends</button>
-      <button data-menu-item="coach" class="w-full text-left px-4 py-2.5 text-sm text-zinc-200 hover:bg-zinc-800/50 flex items-center gap-3 transition">💡 Coach</button>
-      <button data-menu-item="badges" class="w-full text-left px-4 py-2.5 text-sm text-zinc-200 hover:bg-zinc-800/50 flex items-center gap-3 transition">🏅 Badges</button>
-      <button data-menu-item="worlds" class="w-full text-left px-4 py-2.5 text-sm text-zinc-200 hover:bg-zinc-800/50 flex items-center gap-3 transition">🌍 Worlds</button>
-      <button data-menu-item="settings" class="w-full text-left px-4 py-2.5 text-sm text-zinc-200 hover:bg-zinc-800/50 flex items-center gap-3 transition">⚙️ Settings</button>
+      <button data-menu-item="help" class="w-full text-left px-4 py-2.5 text-sm text-zinc-200 hover:bg-zinc-800/50 flex items-center gap-3 transition menu-text">❓ Help</button>
+      <button data-menu-item="leaderboard" class="w-full text-left px-4 py-2.5 text-sm text-zinc-200 hover:bg-zinc-800/50 flex items-center gap-3 transition menu-text">🏆 Leaderboard</button>
+      <button data-menu-item="friends" class="w-full text-left px-4 py-2.5 text-sm text-zinc-200 hover:bg-zinc-800/50 flex items-center gap-3 transition menu-text">👥 Friends</button>
+      <button data-menu-item="coach" class="w-full text-left px-4 py-2.5 text-sm text-zinc-200 hover:bg-zinc-800/50 flex items-center gap-3 transition menu-text">💡 Coach</button>
+      <button data-menu-item="badges" class="w-full text-left px-4 py-2.5 text-sm text-zinc-200 hover:bg-zinc-800/50 flex items-center gap-3 transition menu-text">🏅 Badges</button>
+      <button data-menu-item="worlds" class="w-full text-left px-4 py-2.5 text-sm text-zinc-200 hover:bg-zinc-800/50 flex items-center gap-3 transition menu-text">🌍 Worlds</button>
+      <button data-menu-item="settings" class="w-full text-left px-4 py-2.5 text-sm text-zinc-200 hover:bg-zinc-800/50 flex items-center gap-3 transition menu-text">⚙️ Settings</button>
+      <button data-menu-item="pause" class="w-full text-left px-4 py-2.5 text-sm text-zinc-200 hover:bg-zinc-800/50 flex items-center gap-3 transition menu-text">⏸ Pause</button>
       <div class="border-t border-zinc-700/60"></div>
-      <button data-menu-item="mute" class="w-full text-left px-4 py-2.5 text-sm text-zinc-200 hover:bg-zinc-800/50 flex items-center gap-3 transition">🔊 Mute</button>
+      <button data-menu-item="mute" class="w-full text-left px-4 py-2.5 text-sm text-zinc-200 hover:bg-zinc-800/50 flex items-center gap-3 transition menu-text">🔊 Mute</button>
     </div>
   </div>
 
@@ -573,10 +638,14 @@
   <button id="worlds-btn" title="Worlds" aria-label="Toggle worlds"
           class="fixed top-[10.75rem] right-3 z-30 w-12 h-12 sm:w-9 sm:h-9 rounded-full bg-black/50 hover:bg-black/70 text-zinc-100 text-lg leading-none flex items-center justify-center transition hover:scale-110 active:scale-95 cursor-pointer">🌍</button>
 
+  <!-- Daily Theme toggle: below the coach button. Hidden in Time Attack mode. -->
+  <button id="theme-btn" title="Daily Build Theme" aria-label="Daily Build Theme"
+          class="fixed top-[10.5rem] right-3 z-30 w-9 h-9 rounded-full bg-black/50 hover:bg-black/70 text-zinc-100 text-lg leading-none flex items-center justify-center transition-colors cursor-pointer">🌟</button>
+
   <!-- Build/version stamp: always visible, dim, so the running build can be
        confirmed at a glance. Bump BUILD_VERSION (below) on every change.
-       Shifted down to make room for the leaderboard, friends, and coach buttons above. -->
-  <div id="build-stamp" class="pointer-events-none fixed top-[10.5rem] right-3 z-20 text-[11px] text-zinc-300/70 bg-black/40 rounded px-2 py-1 font-mono"></div>
+       Shifted down to make room for the leaderboard, friends, coach, and theme buttons above. -->
+  <div id="build-stamp" class="pointer-events-none fixed top-[12.75rem] right-3 z-20 text-[11px] text-zinc-300/70 bg-black/40 rounded px-2 py-1 font-mono"></div>
 
   <!-- Mini-map: top-down 128×128 px overhead view of the 32×32 world.
        Hidden until a play mode is chosen; shown/hidden via JS. -->
@@ -584,8 +653,8 @@
           class="hidden fixed z-20 pointer-events-none"
           style="top: 11.5rem; right: 0.75rem; border-radius: 6px; border: 1px solid rgba(255,255,255,0.15); opacity: 0.9"></canvas>
 
-  <!-- AI Coach bubble: appears on the left side with a tip. Hidden by default. -->
-  <div id="coach-bubble" class="hidden fixed left-4 top-1/2 -translate-y-1/2 z-20 max-w-[240px]"
+  <!-- AI Coach bubble: persistent floating bubble in bottom-left corner. Hidden by default. -->
+  <div id="coach-bubble" class="hidden fixed bottom-4 left-4 z-20 max-w-[240px]"
        style="transition: opacity 0.3s; opacity: 0">
     <div class="bg-black/75 backdrop-blur rounded-xl px-4 py-3 text-sm text-zinc-100 shadow-xl">
       <div class="flex items-start gap-2">
@@ -600,7 +669,7 @@
        default; toggled by the trophy button. -->
   <div id="badges-panel" class="hidden fixed top-16 right-3 z-30 w-full sm:w-72 max-w-[90vw] rounded-xl bg-black/70 backdrop-blur px-3 py-4 sm:p-4 text-sm text-zinc-200 shadow-xl">
     <div class="flex items-center justify-between mb-3">
-      <h2 class="font-bold text-zinc-100">Badges</h2>
+      <h2 class="font-bold text-zinc-100" id="badges-panel-title">Badges</h2>
       <button id="badges-close" aria-label="Close badges" class="text-zinc-400 hover:text-zinc-100 cursor-pointer leading-none transition-colors">✕</button>
     </div>
     <div id="badges-list" class="space-y-2 sm:space-y-1.5 max-h-[calc(100vh-200px)] sm:max-h-96 overflow-y-auto pr-0.5"></div>
@@ -610,30 +679,41 @@
        default; toggled by the gear button. -->
   <div id="settings-panel" class="hidden fixed top-16 right-3 z-30 w-full sm:w-72 max-w-[90vw] rounded-xl bg-black/70 backdrop-blur px-3 py-4 sm:p-4 text-sm text-zinc-200 shadow-xl">
     <div class="flex items-center justify-between mb-3">
-      <h2 class="font-bold text-zinc-100">Settings</h2>
+      <h2 class="font-bold text-zinc-100" id="settings-panel-title">Settings</h2>
       <button id="settings-close" aria-label="Close settings" class="text-zinc-400 hover:text-zinc-100 cursor-pointer leading-none transition-colors">✕</button>
     </div>
     <div class="space-y-4">
       <!-- Sound on/off -->
       <div class="flex items-center justify-between gap-3">
         <div>
-          <div class="font-semibold text-zinc-100">Sound</div>
-          <div class="text-xs text-zinc-400">Music &amp; sound effects</div>
+          <div class="font-semibold text-zinc-100" id="settings-sound-label">Sound</div>
+          <div class="text-xs text-zinc-400" id="settings-sound-desc">Music &amp; sound effects</div>
         </div>
         <button id="settings-sound-toggle" role="switch" aria-checked="true"
                 class="relative w-12 h-7 rounded-full bg-emerald-600 transition-colors cursor-pointer flex-shrink-0">
           <span id="settings-sound-knob" class="absolute top-0.5 left-0.5 w-6 h-6 rounded-full bg-white shadow transition-transform" style="transform: translateX(20px)"></span>
         </button>
       </div>
+      <!-- Language toggle -->
+      <div class="flex items-center justify-between gap-3">
+        <div>
+          <div class="font-semibold text-zinc-100" id="settings-language-label">Language</div>
+          <div class="text-xs text-zinc-400" id="settings-language-desc">Indonesian / English</div>
+        </div>
+        <button id="settings-language-toggle" role="switch" aria-checked="false"
+                class="relative w-12 h-7 rounded-full bg-violet-600 transition-colors cursor-pointer flex-shrink-0">
+          <span id="settings-language-knob" class="absolute top-0.5 left-0.5 w-6 h-6 rounded-full bg-white shadow transition-transform" style="transform: translateX(0px)"></span>
+        </button>
+      </div>
       <!-- Time Attack difficulty -->
       <div>
-        <div class="font-semibold text-zinc-100 mb-1">Time Attack difficulty</div>
+        <div class="font-semibold text-zinc-100 mb-1" id="settings-ta-label">Time Attack difficulty</div>
         <div class="flex items-center justify-between gap-2">
           <button id="settings-diff-down" class="w-9 h-9 rounded bg-zinc-700 hover:bg-zinc-600 text-zinc-200 font-bold text-sm leading-none transition hover:scale-110 active:scale-95">←</button>
           <span id="settings-diff-label" class="text-sm font-semibold text-amber-400 flex-1 text-center">Easy</span>
           <button id="settings-diff-up" class="w-9 h-9 rounded bg-zinc-700 hover:bg-zinc-600 text-zinc-200 font-bold text-sm leading-none transition hover:scale-110 active:scale-95">→</button>
         </div>
-        <div class="text-xs text-zinc-400 mt-1">Also auto-adjusts based on your recent runs.</div>
+        <div class="text-xs text-zinc-400 mt-1" id="settings-ta-desc">Also auto-adjusts based on your recent runs.</div>
       </div>
     </div>
   </div>
@@ -641,7 +721,7 @@
   <!-- World Slots panel: lists saved custom worlds. Hidden by default. -->
   <div id="worlds-panel" class="hidden fixed top-16 right-3 z-30 w-full sm:w-80 max-w-[90vw] rounded-xl bg-black/70 backdrop-blur px-3 py-4 sm:p-4 text-sm text-zinc-200 shadow-xl">
     <div class="flex items-center justify-between mb-3">
-      <h2 class="font-bold text-zinc-100">Worlds</h2>
+      <h2 class="font-bold text-zinc-100" id="worlds-panel-title">Worlds</h2>
       <button id="worlds-close" aria-label="Close worlds" class="text-zinc-400 hover:text-zinc-100 cursor-pointer leading-none transition-colors">✕</button>
     </div>
     <div class="mb-3">
@@ -676,14 +756,27 @@
        to clear the on-screen action cluster). Hidden until init() loads data. -->
   <div id="challenge-hud" class="hidden pointer-events-none fixed right-3 z-20 w-36 rounded-lg bg-black/55 px-2 py-1.5 text-xs text-white/90"></div>
 
+  <!-- Blocks Placed HUD: personal lifetime stat, bottom-left corner.
+       Bottom position set by JS (raised on touch to clear movement pad). -->
+  <div id="blocks-placed-hud" class="hidden pointer-events-none fixed left-3 z-20 rounded-lg bg-black/55 px-2 py-1.5 text-white/90">
+    <div class="text-[9px] font-bold uppercase tracking-widest text-white/60 leading-tight">Blocks Placed</div>
+    <div id="blocks-placed-count" class="text-lg font-mono font-bold leading-tight tabular-nums">0</div>
+  </div>
+
+  <!-- Player HP HUD: shown in Classic mode only. -->
+  <div id="hp-hud" class="hidden pointer-events-none fixed bottom-24 left-4 z-20 rounded-lg bg-black/55 px-2 py-1.5 text-xs text-white/90 font-semibold whitespace-nowrap">&#10084; <span id="hp-value">10</span></div>
+
+  <!-- Damage vignette: brief red flash when the player takes mob damage. -->
+  <div id="damage-vignette" class="pointer-events-none fixed inset-0 z-[60]" style="background:rgba(239,68,68,0);transition:background 0.45s;"></div>
+
   <!-- Controls overlay: a help panel listing every key/mouse binding. Hidden
        by default; toggled by pressing `h` or clicking the "(?)" button. -->
   <div id="controls" class="hidden fixed top-28 right-3 z-30 w-full sm:w-72 max-w-[90vw] rounded-xl bg-black/70 backdrop-blur px-3 py-4 sm:p-4 text-base sm:text-sm text-zinc-200 shadow-xl">
     <div class="flex items-center justify-between mb-2">
-      <h2 class="font-bold text-zinc-100">Controls</h2>
+      <h2 class="font-bold text-zinc-100" id="controls-panel-title">Controls</h2>
       <button id="controls-close" aria-label="Close controls" class="text-zinc-400 hover:text-zinc-100 cursor-pointer leading-none transition-colors">✕</button>
     </div>
-    <ul class="space-y-2 sm:space-y-1.5">
+    <ul class="space-y-2 sm:space-y-1.5" id="controls-list">
       <li><span class="font-semibold">WASD</span> / arrows — move</li>
       <li><span class="font-semibold">Space</span> / <span class="font-semibold">Shift</span> — up / down</li>
       <li><span class="font-semibold">Left-click</span> or <span class="font-semibold">F</span> — add a block</li>
@@ -695,9 +788,33 @@
       <li><span class="font-semibold">Enter</span> — open / close chat</li>
       <li><span class="font-semibold">L</span> or <span class="font-semibold">🏆</span> — leaderboard</li>
       <li><span class="font-semibold">M</span> or <span class="font-semibold">🔊</span> — mute / unmute audio</li>
+      <li><span class="font-semibold">Ctrl+Z</span> — undo last action (Classic)</li>
+      <li><span class="font-semibold">Ctrl+Y</span> — redo (Classic)</li>
       <li><span class="font-semibold">Esc</span> — close panel / release / menu</li>
       <li><span class="font-semibold">Power-ups</span> — collect glowing cubes for Speed, Jump, or Rapid Place (hold F/Add)</li>
     </ul>
+  </div>
+
+  <!-- Tutorial overlay: shown once to first-time Classic players.
+       Spotlight + tooltip card walk through 5 core mechanics.
+       Dismissed state stored in localStorage under blockgame-tutorial-seen. -->
+  <div id="tutorial-overlay" class="hidden fixed inset-0 z-[60]" role="dialog" aria-modal="true" aria-label="Game tutorial">
+    <!-- Full-screen backdrop (used when there is no spotlight target) -->
+    <div id="tutorial-backdrop" class="absolute inset-0 bg-black/55 pointer-events-auto" style="transition: opacity 0.2s;"></div>
+    <!-- Spotlight cutout: box-shadow dims everything outside this element -->
+    <div id="tutorial-spotlight" class="absolute rounded-2xl pointer-events-none" style="box-shadow: 0 0 0 9999px rgba(0,0,0,0.62); transition: left 0.25s ease, top 0.25s ease, width 0.25s ease, height 0.25s ease; opacity: 0;"></div>
+    <!-- Tooltip card -->
+    <div id="tutorial-card" class="fixed pointer-events-auto bg-black/85 backdrop-blur-sm rounded-2xl px-5 py-4 shadow-2xl" style="width: 300px; z-index: 61; transition: left 0.25s ease, top 0.25s ease;">
+      <span id="tutorial-counter" class="block text-[11px] font-semibold text-zinc-400 uppercase tracking-widest mb-2"></span>
+      <p id="tutorial-copy" class="text-sm leading-relaxed text-zinc-100 mb-4"></p>
+      <div class="flex items-center justify-between gap-2">
+        <button id="tutorial-skip" class="text-xs text-zinc-500 hover:text-zinc-300 cursor-pointer transition-colors shrink-0">Skip tutorial</button>
+        <div class="flex gap-2 shrink-0">
+          <button id="tutorial-back" class="hidden px-3 py-1.5 rounded-lg bg-zinc-700 hover:bg-zinc-600 text-xs font-semibold text-zinc-200 transition-colors cursor-pointer">Back</button>
+          <button id="tutorial-next" class="px-4 py-1.5 rounded-lg bg-violet-600 hover:bg-violet-500 text-xs font-semibold text-white transition-colors cursor-pointer">Next →</button>
+        </div>
+      </div>
+    </div>
   </div>
 
   <!-- Leaderboard overlay: top 10 builders. Hidden by default; toggled by
@@ -705,12 +822,13 @@
   <div id="leaderboard" class="hidden fixed top-28 right-3 z-30 w-full sm:w-72 max-w-[90vw] rounded-xl bg-black/70 backdrop-blur px-3 py-4 sm:p-4 text-base sm:text-sm text-zinc-200 shadow-xl">
     <div class="flex items-center justify-between mb-2">
       <div class="flex gap-1 overflow-x-auto">
-        <button id="tab-alltime" class="px-2 py-0.5 rounded text-xs font-semibold bg-zinc-700 text-zinc-100 cursor-pointer transition-colors whitespace-nowrap">All-time</button>
-        <button id="tab-tournament" class="px-2 py-0.5 rounded text-xs font-semibold text-zinc-400 hover:text-zinc-200 cursor-pointer transition-colors whitespace-nowrap">This Week</button>
-        <button id="tab-ta" class="px-2 py-0.5 rounded text-xs font-semibold text-zinc-400 hover:text-zinc-200 cursor-pointer transition-colors whitespace-nowrap">Time Attack</button>
-        <button id="tab-ta-60" class="px-2 py-0.5 rounded text-xs font-semibold text-zinc-400 hover:text-zinc-200 cursor-pointer transition-colors whitespace-nowrap">TA (60s)</button>
-        <button id="tab-daily-challenge" class="px-2 py-0.5 rounded text-xs font-semibold text-zinc-400 hover:text-zinc-200 cursor-pointer transition-colors whitespace-nowrap">Daily</button>
-        <button id="tab-endless" class="px-2 py-0.5 rounded text-xs font-semibold text-zinc-400 hover:text-zinc-200 cursor-pointer transition-colors whitespace-nowrap">Endless</button>
+        <button id="tab-alltime" class="px-2 py-0.5 rounded text-xs font-semibold bg-zinc-700 text-zinc-100 cursor-pointer transition-colors whitespace-nowrap" data-tab="alltime">All-time</button>
+        <button id="tab-tournament" class="px-2 py-0.5 rounded text-xs font-semibold text-zinc-400 hover:text-zinc-200 cursor-pointer transition-colors whitespace-nowrap" data-tab="tournament">This Week</button>
+        <button id="tab-ta" class="px-2 py-0.5 rounded text-xs font-semibold text-zinc-400 hover:text-zinc-200 cursor-pointer transition-colors whitespace-nowrap" data-tab="ta">Time Attack</button>
+        <button id="tab-ta-60" class="px-2 py-0.5 rounded text-xs font-semibold text-zinc-400 hover:text-zinc-200 cursor-pointer transition-colors whitespace-nowrap" data-tab="ta-60">TA (60s)</button>
+        <button id="tab-daily-challenge" class="px-2 py-0.5 rounded text-xs font-semibold text-zinc-400 hover:text-zinc-200 cursor-pointer transition-colors whitespace-nowrap" data-tab="daily">Daily</button>
+        <button id="tab-endless" class="px-2 py-0.5 rounded text-xs font-semibold text-zinc-400 hover:text-zinc-200 cursor-pointer transition-colors whitespace-nowrap" data-tab="endless">Endless</button>
+        <button id="tab-puzzle" class="px-2 py-0.5 rounded text-xs font-semibold text-zinc-400 hover:text-zinc-200 cursor-pointer transition-colors whitespace-nowrap" data-tab="puzzle">Puzzle</button>
       </div>
       <button id="leaderboard-close" aria-label="Close leaderboard" class="text-zinc-400 hover:text-zinc-100 cursor-pointer leading-none transition-colors">✕</button>
     </div>
@@ -721,16 +839,35 @@
        Hidden by default; toggled by the 👥 button. -->
   <div id="friends-panel" class="hidden fixed top-28 right-3 z-30 w-full sm:w-72 max-w-[90vw] rounded-xl bg-black/70 backdrop-blur px-3 py-4 sm:p-4 text-base sm:text-sm text-zinc-200 shadow-xl">
     <div class="flex items-center justify-between mb-3">
-      <h2 class="font-bold text-zinc-100">Friends</h2>
+      <h2 class="font-bold text-zinc-100" id="friends-panel-title">Friends</h2>
       <button id="friends-close" aria-label="Close friends" class="text-zinc-400 hover:text-zinc-100 cursor-pointer leading-none transition-colors">✕</button>
     </div>
     <div id="friends-content" class="text-zinc-400 text-center py-2 text-xs">Loading…</div>
     <div class="mt-3 pt-3 border-t border-zinc-700/60 flex gap-2">
       <input id="friends-input" type="text" placeholder="Add by username…" maxlength="100" autocomplete="off"
-             class="flex-1 min-w-0 bg-zinc-800 text-zinc-100 text-xs sm:text-xs rounded px-2 py-1.5 border border-zinc-700 focus:border-violet-500 outline-none placeholder-zinc-500">
-      <button id="friends-add-btn" class="shrink-0 px-3 py-1.5 bg-violet-600 hover:bg-violet-500 active:bg-violet-700 text-white text-xs font-semibold rounded cursor-pointer transition hover:scale-105 active:scale-95">Add</button>
+             class="flex-1 min-w-0 bg-zinc-800 text-zinc-100 text-xs sm:text-xs rounded px-2 py-1.5 border border-zinc-700 focus:border-violet-500 outline-none placeholder-zinc-500" id="friends-input-placeholder">
+      <button id="friends-add-btn" class="shrink-0 px-3 py-1.5 bg-violet-600 hover:bg-violet-500 active:bg-violet-700 text-white text-xs font-semibold rounded cursor-pointer transition hover:scale-105 active:scale-95" id="friends-add-btn-text">Add</button>
     </div>
     <div id="friends-add-status" class="mt-1 text-xs text-center min-h-[1.2em]"></div>
+  </div>
+
+  <!-- Daily Build Theme panel: nominations list, voting, and nominate form.
+       Hidden by default; toggled by the 🌟 button. Hidden in Time Attack mode. -->
+  <div id="theme-panel" class="hidden fixed top-28 right-3 z-30 w-72 max-w-[90vw] rounded-xl bg-black/70 backdrop-blur p-4 text-sm text-zinc-200 shadow-xl">
+    <div class="flex items-center justify-between mb-3">
+      <h2 class="font-bold text-zinc-100">Daily Theme</h2>
+      <button id="theme-close" aria-label="Close theme panel" class="text-zinc-400 hover:text-zinc-100 cursor-pointer leading-none">✕</button>
+    </div>
+    <div id="theme-content" class="text-zinc-400 text-center py-2 text-xs">Loading…</div>
+  </div>
+
+  <!-- Player profile panel: displays stats, badges, and ranks for any clicked leaderboard player -->
+  <div id="profile-panel" class="hidden fixed top-28 right-3 z-30 w-full sm:w-96 max-w-[90vw] rounded-xl bg-black/70 backdrop-blur px-3 py-4 sm:p-4 text-base sm:text-sm text-zinc-200 shadow-xl">
+    <div class="flex items-center justify-between mb-4">
+      <h2 id="profile-username" class="font-bold text-zinc-100 truncate">Loading…</h2>
+      <button id="profile-close" aria-label="Close profile" class="text-zinc-400 hover:text-zinc-100 cursor-pointer leading-none transition-colors">✕</button>
+    </div>
+    <div id="profile-content" class="text-zinc-400 text-center py-2 text-xs">Loading…</div>
   </div>
 
   <!-- Touch controls: translucent on-screen overlay shown only on touch devices
@@ -762,6 +899,9 @@
         <button data-act="break" class="touch-ctrl pointer-events-auto w-14 h-14 sm:w-16 sm:h-16 rounded-2xl bg-rose-600/55 active:bg-rose-500/80 active:scale-95 text-xs sm:text-sm font-bold text-white flex items-center justify-center">Delete</button>
         <button data-act="place" class="touch-ctrl pointer-events-auto w-14 h-14 sm:w-16 sm:h-16 rounded-2xl bg-emerald-600/55 active:bg-emerald-500/80 active:scale-95 text-xs sm:text-sm font-bold text-white flex items-center justify-center">Add</button>
       </div>
+      <div class="flex gap-1 sm:gap-2">
+        <button data-act="stamp" class="touch-ctrl pointer-events-auto w-14 h-14 sm:w-16 sm:h-16 rounded-2xl bg-cyan-600/55 active:bg-cyan-500/80 active:scale-95 text-xs sm:text-sm font-bold text-white flex items-center justify-center">📦 Stamp</button>
+      </div>
     </div>
   </div>
 
@@ -792,6 +932,7 @@
   <div id="ta-hud" class="hidden pointer-events-none fixed top-3 left-3 z-20 flex flex-col gap-1">
     <div id="ta-timer" class="text-2xl sm:text-3xl font-mono font-bold text-white bg-black/50 rounded-xl px-3 sm:px-4 py-1.5 sm:py-2 tabular-nums leading-tight">1:00</div>
     <div id="ta-score" class="text-xs sm:text-sm font-semibold text-zinc-200 bg-black/50 rounded-xl px-3 sm:px-4 py-1 sm:py-1.5 text-center">0 blocks</div>
+    <div id="ta-best" class="hidden text-xs sm:text-sm font-semibold text-zinc-400 bg-black/50 rounded-xl px-3 sm:px-4 py-1 sm:py-1.5 text-center">Best: <span id="ta-best-value">0</span> blocks</div>
     <div id="ta-difficulty-label" class="text-[11px] sm:text-xs font-semibold text-zinc-400 bg-black/50 rounded-xl px-3 sm:px-4 py-0.5 sm:py-1 text-center">Difficulty: Easy</div>
   </div>
 
@@ -799,12 +940,14 @@
   <div id="ta-60-hud" class="hidden pointer-events-none fixed top-3 left-3 z-20 flex flex-col gap-1">
     <div id="ta-60-timer" class="text-2xl sm:text-3xl font-mono font-bold text-white bg-black/50 rounded-xl px-3 sm:px-4 py-1.5 sm:py-2 tabular-nums leading-tight border border-cyan-600/50">1:00</div>
     <div id="ta-60-score" class="text-xs sm:text-sm font-semibold text-zinc-200 bg-black/50 rounded-xl px-3 sm:px-4 py-1 sm:py-1.5 text-center">0 blocks</div>
+    <div id="ta-60-best" class="hidden text-xs sm:text-sm font-semibold text-zinc-400 bg-black/50 rounded-xl px-3 sm:px-4 py-1 sm:py-1.5 text-center">Best: <span id="ta-60-best-value">0</span> blocks</div>
   </div>
 
   <!-- Endless Mode HUD: moves counter shown only during Endless mode -->
   <div id="endless-hud" class="hidden pointer-events-none fixed top-3 left-3 z-20 flex flex-col gap-1">
     <div id="endless-moves" class="text-2xl sm:text-3xl font-mono font-bold text-white bg-black/50 rounded-xl px-3 sm:px-4 py-1.5 sm:py-2 tabular-nums leading-tight">999</div>
     <div id="endless-placed" class="text-xs sm:text-sm font-semibold text-zinc-200 bg-black/50 rounded-xl px-3 sm:px-4 py-1 sm:py-1.5 text-center">0 blocks</div>
+    <div id="endless-best" class="hidden text-xs sm:text-sm font-semibold text-zinc-400 bg-black/50 rounded-xl px-3 sm:px-4 py-1 sm:py-1.5 text-center">Best: <span id="endless-best-value">0</span> blocks</div>
   </div>
 
   <!-- Combo HUD: placement streak multiplier badge shown in Classic mode -->
@@ -813,9 +956,12 @@
   </div>
 
   <!-- Score HUD: shows session score during Classic mode -->
-  <div id="score-hud" class="hidden pointer-events-none fixed top-12 left-3 z-20 transition-opacity duration-200">
+  <div id="score-hud" class="hidden pointer-events-none fixed top-12 left-3 z-20 flex flex-col gap-1 transition-opacity duration-200">
     <div id="score-display" class="text-xs sm:text-sm font-semibold text-zinc-200 bg-black/50 rounded-xl px-3 sm:px-4 py-1 sm:py-1.5">
       Score: <span id="score-value">0</span>
+    </div>
+    <div id="score-best" class="hidden text-xs sm:text-sm font-semibold text-zinc-400 bg-black/50 rounded-xl px-3 sm:px-4 py-1 sm:py-1.5">
+      Best: <span id="score-best-value">0</span>
     </div>
   </div>
 
@@ -831,6 +977,26 @@
   <!-- Tutorial hints: on-screen instructions and step progression -->
   <div id="tutorial-hints" class="pointer-events-none fixed inset-0 z-20"></div>
 
+  <!-- Pause button: shown during active gameplay -->
+  <button id="pause-btn" title="Pause (P)" aria-label="Pause game"
+          class="hidden pointer-events-auto fixed top-3 z-30 w-12 h-12 sm:w-9 sm:h-9 rounded-full bg-black/50 hover:bg-black/70 text-zinc-100 text-lg leading-none flex items-center justify-center transition hover:scale-110 active:scale-95 cursor-pointer" style="right: 11.25rem">⏸</button>
+
+  <!-- Pause overlay: shown when game is paused -->
+  <div id="pause-overlay" class="hidden fixed inset-0 z-40 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+    <div id="pause-card" class="max-w-sm w-full mx-4 bg-zinc-900/95 rounded-2xl p-6 sm:p-8 text-center shadow-xl">
+      <h2 class="text-3xl font-bold mb-4">PAUSED</h2>
+      <div id="pause-info" class="text-zinc-300 text-sm mb-6 space-y-1">
+        <div id="pause-timer" class="hidden text-lg font-mono font-bold"></div>
+        <div id="pause-score" class="hidden"></div>
+      </div>
+      <div class="flex flex-col gap-2 justify-center">
+        <button id="pause-resume" class="w-full px-6 py-3 rounded-lg bg-violet-600 hover:bg-violet-500 font-semibold transition hover:scale-105 active:scale-95">Resume</button>
+        <button id="pause-settings" class="w-full px-6 py-3 rounded-lg bg-zinc-700 hover:bg-zinc-600 font-semibold transition hover:scale-105 active:scale-95">Settings</button>
+        <button id="pause-quit" class="w-full px-6 py-3 rounded-lg bg-zinc-700 hover:bg-zinc-600 font-semibold transition hover:scale-105 active:scale-95">Quit to Menu</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Time Attack game-over overlay -->
   <div id="ta-gameover" class="hidden fixed inset-0 z-30 flex items-center justify-center bg-black/60 backdrop-blur-sm">
     <div id="ta-gameover-card" class="max-w-sm w-full mx-4 bg-zinc-900/95 rounded-2xl p-6 sm:p-8 text-center shadow-xl">
@@ -838,10 +1004,13 @@
       <div id="ta-best-banner" class="hidden mb-3 rounded-xl bg-gradient-to-r from-amber-500 to-yellow-400 text-zinc-900 font-bold py-2 px-3 text-sm shadow">🎉 New personal best!</div>
       <p id="ta-final-score" class="text-zinc-300 text-lg mb-2">You cleared 0 blocks</p>
       <p id="ta-feedback-msg" class="text-zinc-500 text-sm mb-6"></p>
-      <div class="flex flex-col sm:flex-row gap-2 sm:gap-3 justify-center">
-        <button id="ta-share-btn" class="w-full sm:w-auto px-6 py-3 rounded-lg bg-amber-600 hover:bg-amber-500 font-semibold transition hover:scale-105 active:scale-95">Share Score</button>
-        <button id="ta-play-again" class="w-full sm:w-auto px-6 py-3 rounded-lg bg-amber-600 hover:bg-amber-500 font-semibold transition hover:scale-105 active:scale-95">Play Again</button>
-        <button id="ta-back-menu" class="w-full sm:w-auto px-6 py-3 rounded-lg bg-zinc-700 hover:bg-zinc-600 font-semibold transition hover:scale-105 active:scale-95">Back to Menu</button>
+      <div class="flex flex-col gap-2 justify-center">
+        <div class="flex flex-col sm:flex-row gap-2 sm:gap-3 justify-center">
+          <button id="ta-share-btn" class="w-full sm:w-auto px-6 py-3 rounded-lg bg-amber-600 hover:bg-amber-500 font-semibold transition hover:scale-105 active:scale-95">Share Score</button>
+          <button id="ta-play-again" class="w-full sm:w-auto px-6 py-3 rounded-lg bg-amber-600 hover:bg-amber-500 font-semibold transition hover:scale-105 active:scale-95">Play Again</button>
+          <button id="ta-back-menu" class="w-full sm:w-auto px-6 py-3 rounded-lg bg-zinc-700 hover:bg-zinc-600 font-semibold transition hover:scale-105 active:scale-95">Back to Menu</button>
+        </div>
+        <button id="ta-share-score" class="w-full px-6 py-3 rounded-lg bg-purple-600 hover:bg-purple-500 font-semibold transition hover:scale-105 active:scale-95">Share Score 📸</button>
       </div>
     </div>
   </div>
@@ -853,10 +1022,13 @@
       <div id="ta-60-best-banner" class="hidden mb-3 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-400 text-zinc-900 font-bold py-2 px-3 text-sm shadow">🎉 New personal best!</div>
       <p id="ta-60-final-score" class="text-zinc-300 text-lg mb-2">You cleared 0 blocks</p>
       <p id="ta-60-feedback-msg" class="text-zinc-500 text-sm mb-6"></p>
-      <div class="flex flex-col sm:flex-row gap-2 sm:gap-3 justify-center">
-        <button id="ta-60-share-btn" class="w-full sm:w-auto px-6 py-3 rounded-lg bg-cyan-600 hover:bg-cyan-500 font-semibold transition hover:scale-105 active:scale-95">Share Score</button>
-        <button id="ta-60-play-again" class="w-full sm:w-auto px-6 py-3 rounded-lg bg-cyan-600 hover:bg-cyan-500 font-semibold transition hover:scale-105 active:scale-95">Play Again</button>
-        <button id="ta-60-back-menu" class="w-full sm:w-auto px-6 py-3 rounded-lg bg-zinc-700 hover:bg-zinc-600 font-semibold transition hover:scale-105 active:scale-95">Back to Menu</button>
+      <div class="flex flex-col gap-2 justify-center">
+        <div class="flex flex-col sm:flex-row gap-2 sm:gap-3 justify-center">
+          <button id="ta-60-share-btn" class="w-full sm:w-auto px-6 py-3 rounded-lg bg-cyan-600 hover:bg-cyan-500 font-semibold transition hover:scale-105 active:scale-95">Share Score</button>
+          <button id="ta-60-play-again" class="w-full sm:w-auto px-6 py-3 rounded-lg bg-cyan-600 hover:bg-cyan-500 font-semibold transition hover:scale-105 active:scale-95">Play Again</button>
+          <button id="ta-60-back-menu" class="w-full sm:w-auto px-6 py-3 rounded-lg bg-zinc-700 hover:bg-zinc-600 font-semibold transition hover:scale-105 active:scale-95">Back to Menu</button>
+        </div>
+        <button id="ta-60-share-score" class="w-full px-6 py-3 rounded-lg bg-purple-600 hover:bg-purple-500 font-semibold transition hover:scale-105 active:scale-95">Share Score 📸</button>
       </div>
     </div>
   </div>
@@ -868,10 +1040,13 @@
       <div id="endless-best-banner" class="hidden mb-3 rounded-xl bg-gradient-to-r from-rose-500 to-pink-400 text-zinc-900 font-bold py-2 px-3 text-sm shadow">🎉 New personal best!</div>
       <p id="endless-final-placed" class="text-zinc-300 text-lg mb-2">You placed 0 blocks</p>
       <p id="endless-moves-survived" class="text-zinc-500 text-sm mb-6">Survived 0 move decisions</p>
-      <div class="flex flex-col sm:flex-row gap-2 sm:gap-3 justify-center">
-        <button id="endless-share-btn" class="w-full sm:w-auto px-6 py-3 rounded-lg bg-rose-600 hover:bg-rose-500 font-semibold transition hover:scale-105 active:scale-95">Share Score</button>
-        <button id="endless-play-again" class="w-full sm:w-auto px-6 py-3 rounded-lg bg-rose-600 hover:bg-rose-500 font-semibold transition hover:scale-105 active:scale-95">Play Again</button>
-        <button id="endless-back-menu" class="w-full sm:w-auto px-6 py-3 rounded-lg bg-zinc-700 hover:bg-zinc-600 font-semibold transition hover:scale-105 active:scale-95">Back to Menu</button>
+      <div class="flex flex-col gap-2 justify-center">
+        <div class="flex flex-col sm:flex-row gap-2 sm:gap-3 justify-center">
+          <button id="endless-share-btn" class="w-full sm:w-auto px-6 py-3 rounded-lg bg-rose-600 hover:bg-rose-500 font-semibold transition hover:scale-105 active:scale-95">Share Score</button>
+          <button id="endless-play-again" class="w-full sm:w-auto px-6 py-3 rounded-lg bg-rose-600 hover:bg-rose-500 font-semibold transition hover:scale-105 active:scale-95">Play Again</button>
+          <button id="endless-back-menu" class="w-full sm:w-auto px-6 py-3 rounded-lg bg-zinc-700 hover:bg-zinc-600 font-semibold transition hover:scale-105 active:scale-95">Back to Menu</button>
+        </div>
+        <button id="endless-share-score" class="w-full px-6 py-3 rounded-lg bg-purple-600 hover:bg-purple-500 font-semibold transition hover:scale-105 active:scale-95">Share Score 📸</button>
       </div>
     </div>
   </div>
@@ -924,7 +1099,7 @@
 
     // Build identifier — bump this (to the deploying commit short SHA) on every
     // change so the top-right stamp confirms exactly which code is running.
-    const BUILD_VERSION = 'power-ups+hold-queue+achievements-badges+chat+daily-challenge+leaderboard+online-presence+block-attribution+audio-sfx+next-piece-preview+spectator-mode+weekly-tournament+friends+day-night-cycle+minimap+ai-coach+natural-disasters+undo-stack+pastel-chrome';
+    const BUILD_VERSION = 'power-ups+hold-queue+achievements-badges+chat+daily-challenge+leaderboard+online-presence+block-attribution+audio-sfx+next-piece-preview+spectator-mode+weekly-tournament+friends+blocks-placed-hud+day-night-cycle+minimap+ai-coach+daily-theme-voting+natural-disasters+undo-redo-history+pastel-chrome+mobs';
 
     // Badge definitions — mirror of the server-side BADGES array, extended with
     // a `hint` field shown in the panel for unearned badges.
@@ -944,6 +1119,7 @@
       { id: 'streak_7',        name: 'Week Warrior',    icon: '🗓️', flavour: 'A full week of building!',       hint: 'Log in 7 days in a row' },
       { id: 'streak_14',       name: 'Fortnight Pro',   icon: '🏆', flavour: 'Two weeks of daily play!',       hint: 'Log in 14 days in a row' },
       { id: 'streak_30',       name: 'Monthly Master',  icon: '👑', flavour: 'A full month on the block!',     hint: 'Log in 30 days in a row' },
+      { id: 'theme_winner',   name: 'Theme Champion',  icon: '🥇', flavour: 'First place in the daily build theme vote!', hint: 'Win the daily build theme vote' },
     ];
 
     // Touch capability: drives (a) the on-screen control overlay, (b) skipping
@@ -1230,20 +1406,354 @@
       return { init, playPlace, playBreak, playDisasterSound, playGameOver, playFanfare, toggleMute, isMuted, playLineClear, stopMusic };
     })();
 
+    // ---- Language system ----
+    const translations = {
+      en: {
+        // Header and subtitle
+        app_title: 'block-game',
+        app_subtitle: 'A shared 3D world — build, challenge, or just watch.',
+        choose_mode: 'Choose a mode to start.',
+
+        // Mode titles and descriptions
+        mode_classic_title: 'Classic Mode',
+        mode_classic_desc: 'Fly around a shared 3D world. Place and break blocks with other players. No timer, no score.',
+        mode_classic_btn: 'Play Classic',
+
+        mode_ta_title: 'Time Attack',
+        mode_ta_desc: 'Break as many blocks as you can against the clock. Solo challenge, fresh layout every run.',
+        mode_ta_btn: 'Play Time Attack',
+
+        mode_ta_60_title: 'Time Attack (60s)',
+        mode_ta_60_desc: 'Clear as many blocks as you can in 60 seconds. Blocks stack—no clearing allowed. Single-player only.',
+        mode_ta_60_btn: 'Play Time Attack (60s)',
+
+        mode_daily_title: 'Daily Challenge',
+        mode_daily_desc: 'Same objective for all players. Resets every 24 hours. Compete on the leaderboard.',
+        mode_daily_btn: 'Play Daily Challenge',
+
+        mode_endless_title: 'Endless Mode',
+        mode_endless_desc: 'Build forever on an endless grid. No timer, no score multiplier—just how long until you run out of valid moves?',
+        mode_endless_btn: 'Play Endless',
+
+        mode_puzzle_title: '🧩 Puzzle Mode',
+        mode_puzzle_desc: 'Clear a fixed set of blocks level by level. Solve increasingly difficult puzzles.',
+        mode_puzzle_btn: 'Play Puzzle',
+
+        mode_tutorial_title: 'Tutorial',
+        mode_tutorial_desc: 'Learn the basics step-by-step: place blocks, break them, earn points, and clear lines.',
+        mode_tutorial_btn: '📚 Start Tutorial',
+
+        mode_learn_title: 'Learn Mode',
+        mode_learn_desc: 'Perfect for getting started. Learn the basics at your own pace with helpful hints.',
+        mode_learn_btn: 'Play Learn',
+
+        mode_spectate_title: 'Watch',
+        mode_spectate_desc: 'Fly through the world as a spectator. No building required — just explore and chat.',
+        mode_spectate_btn: 'Watch World',
+
+        // Menu
+        menu_title: 'Menu',
+        menu_help: 'Help',
+        menu_leaderboard: 'Leaderboard',
+        menu_friends: 'Friends',
+        menu_coach: 'Coach',
+        menu_badges: 'Badges',
+        menu_worlds: 'Worlds',
+        menu_settings: 'Settings',
+        menu_mute: 'Mute',
+
+        // Settings panel
+        settings_title: 'Settings',
+        settings_sound_label: 'Sound',
+        settings_sound_desc: 'Music & sound effects',
+        settings_language_label: 'Language',
+        settings_language_desc: 'Indonesian / English',
+        settings_ta_label: 'Time Attack difficulty',
+        settings_ta_desc: 'Also auto-adjusts based on your recent runs.',
+
+        // Panels
+        badges_title: 'Badges',
+        worlds_title: 'Worlds',
+        friends_title: 'Friends',
+        friends_add_placeholder: 'Add by username…',
+        friends_add_btn: 'Add',
+        save_world_btn: 'Save Current World',
+
+        // Controls
+        controls_title: 'Controls',
+
+        // Footer
+        footer_copyright: '© 2026 block-game',
+        footer_credit: 'Built with Three.js and Tailwind CSS',
+
+        // Difficulty levels
+        difficulty_easy: 'Easy',
+        difficulty_medium: 'Medium',
+        difficulty_hard: 'Hard',
+
+        // Leaderboard tabs
+        tab_alltime: 'All-time',
+        tab_tournament: 'This Week',
+        tab_ta: 'Time Attack',
+        tab_ta_60: 'TA (60s)',
+        tab_daily: 'Daily',
+        tab_endless: 'Endless',
+        tab_puzzle: 'Puzzle',
+      },
+      id: {
+        // Header and subtitle
+        app_title: 'block-game',
+        app_subtitle: 'Dunia 3D bersama — bangun, tantang, atau sekedar saksikan.',
+        choose_mode: 'Pilih mode untuk memulai.',
+
+        // Mode titles and descriptions
+        mode_classic_title: 'Mode Klasik',
+        mode_classic_desc: 'Terbang mengelilingi dunia 3D bersama. Tempatkan dan hancurkan blok dengan pemain lain. Tidak ada waktu, tidak ada poin.',
+        mode_classic_btn: 'Mainkan Klasik',
+
+        mode_ta_title: 'Serangan Waktu',
+        mode_ta_desc: 'Hancurkan sebanyak mungkin blok melawan waktu. Tantangan solo, tata letak baru setiap kali.',
+        mode_ta_btn: 'Mainkan Serangan Waktu',
+
+        mode_ta_60_title: 'Serangan Waktu (60d)',
+        mode_ta_60_desc: 'Hapus sebanyak mungkin blok dalam 60 detik. Blok bertumpuk—tidak ada pembersihan. Hanya pemain tunggal.',
+        mode_ta_60_btn: 'Mainkan Serangan Waktu (60d)',
+
+        mode_daily_title: 'Tantangan Harian',
+        mode_daily_desc: 'Objektif yang sama untuk semua pemain. Direset setiap 24 jam. Bersaing di papan peringkat.',
+        mode_daily_btn: 'Mainkan Tantangan Harian',
+
+        mode_endless_title: 'Mode Tak Terbatas',
+        mode_endless_desc: 'Bangun selamanya di grid tak terbatas. Tidak ada waktu, tidak ada pengganda poin—seberapa lama sampai Anda kehabisan gerakan yang valid?',
+        mode_endless_btn: 'Mainkan Tak Terbatas',
+
+        mode_puzzle_title: '🧩 Mode Puzzle',
+        mode_puzzle_desc: 'Hapus satu set blok tetap tingkat demi tingkat. Pecahkan puzzle yang semakin sulit.',
+        mode_puzzle_btn: 'Mainkan Puzzle',
+
+        mode_tutorial_title: 'Tutorial',
+        mode_tutorial_desc: 'Pelajari dasar-dasarnya langkah demi langkah: tempatkan blok, hancurkan, dapatkan poin, dan hapus baris.',
+        mode_tutorial_btn: '📚 Mulai Tutorial',
+
+        mode_learn_title: 'Mode Belajar',
+        mode_learn_desc: 'Sempurna untuk memulai. Pelajari dasar-dasarnya dengan kecepatan Anda sendiri dengan petunjuk bermanfaat.',
+        mode_learn_btn: 'Mainkan Belajar',
+
+        mode_spectate_title: 'Saksikan',
+        mode_spectate_desc: 'Terbang melalui dunia sebagai penonton. Tidak perlu membangun — hanya jelajahi dan obrolan.',
+        mode_spectate_btn: 'Saksikan Dunia',
+
+        // Menu
+        menu_title: 'Menu',
+        menu_help: 'Bantuan',
+        menu_leaderboard: 'Papan Peringkat',
+        menu_friends: 'Teman',
+        menu_coach: 'Pelatih',
+        menu_badges: 'Lencana',
+        menu_worlds: 'Dunia',
+        menu_settings: 'Setelan',
+        menu_mute: 'Senyap',
+
+        // Settings panel
+        settings_title: 'Setelan',
+        settings_sound_label: 'Suara',
+        settings_sound_desc: 'Musik & efek suara',
+        settings_language_label: 'Bahasa',
+        settings_language_desc: 'Indonesia / English',
+        settings_ta_label: 'Kesulitan Serangan Waktu',
+        settings_ta_desc: 'Juga secara otomatis menyesuaikan berdasarkan lari terbaru Anda.',
+
+        // Panels
+        badges_title: 'Lencana',
+        worlds_title: 'Dunia',
+        friends_title: 'Teman',
+        friends_add_placeholder: 'Tambahkan berdasarkan nama pengguna…',
+        friends_add_btn: 'Tambahkan',
+        save_world_btn: 'Simpan Dunia Saat Ini',
+
+        // Controls
+        controls_title: 'Kontrol',
+
+        // Footer
+        footer_copyright: '© 2026 block-game',
+        footer_credit: 'Dibuat dengan Three.js dan Tailwind CSS',
+
+        // Difficulty levels
+        difficulty_easy: 'Mudah',
+        difficulty_medium: 'Menengah',
+        difficulty_hard: 'Sulit',
+
+        // Leaderboard tabs
+        tab_alltime: 'Sepanjang Masa',
+        tab_tournament: 'Minggu Ini',
+        tab_ta: 'Serangan Waktu',
+        tab_ta_60: 'ST (60d)',
+        tab_daily: 'Harian',
+        tab_endless: 'Tak Terbatas',
+        tab_puzzle: 'Puzzle',
+      }
+    };
+
+    // Initialize language
+    let currentLanguage = localStorage.getItem('blockgame-language');
+    if (!currentLanguage) {
+      currentLanguage = navigator.language.startsWith('id') ? 'id' : 'en';
+    }
+
+    function t(key) {
+      return translations[currentLanguage]?.[key] || translations.en[key] || key;
+    }
+
+    function setLanguage(lang) {
+      currentLanguage = lang;
+      localStorage.setItem('blockgame-language', lang);
+      document.getElementById('html-root').lang = lang;
+      updateUILanguage();
+    }
+
+    function updateUILanguage() {
+      // Header
+      document.getElementById('header-title').textContent = t('app_title');
+      document.getElementById('header-subtitle').textContent = t('app_subtitle');
+      document.getElementById('overlay-help').textContent = t('choose_mode');
+
+      // Mode cards
+      const modeConfigs = {
+        classic: { title: 'mode_classic_title', desc: 'mode_classic_desc', btn: 'mode_classic_btn' },
+        ta: { title: 'mode_ta_title', desc: 'mode_ta_desc', btn: 'mode_ta_btn' },
+        'ta-60': { title: 'mode_ta_60_title', desc: 'mode_ta_60_desc', btn: 'mode_ta_60_btn' },
+        'daily-challenge': { title: 'mode_daily_title', desc: 'mode_daily_desc', btn: 'mode_daily_btn' },
+        endless: { title: 'mode_endless_title', desc: 'mode_endless_desc', btn: 'mode_endless_btn' },
+        tutorial: { title: 'mode_tutorial_title', desc: 'mode_tutorial_desc', btn: 'mode_tutorial_btn' },
+        learn: { title: 'mode_learn_title', desc: 'mode_learn_desc', btn: 'mode_learn_btn' },
+        spectate: { title: 'mode_spectate_title', desc: 'mode_spectate_desc', btn: 'mode_spectate_btn' },
+      };
+
+      for (const [mode, keys] of Object.entries(modeConfigs)) {
+        const card = document.querySelector(`[data-mode="${mode}"]`);
+        if (card) {
+          const titleEl = card.querySelector('.mode-title');
+          const descEl = card.querySelector('.mode-desc');
+          const btnEl = card.querySelector('.mode-btn');
+          if (titleEl) titleEl.textContent = t(keys.title);
+          if (descEl) descEl.textContent = t(keys.desc);
+          if (btnEl) {
+            const icon = btnEl.textContent.match(/^📚\s+/) ? '📚 ' : '';
+            btnEl.textContent = icon + t(keys.btn);
+          }
+        }
+      }
+
+      // Menu items
+      const menuItems = {
+        help: 'menu_help',
+        leaderboard: 'menu_leaderboard',
+        friends: 'menu_friends',
+        coach: 'menu_coach',
+        badges: 'menu_badges',
+        worlds: 'menu_worlds',
+        settings: 'menu_settings',
+        mute: 'menu_mute',
+      };
+      for (const [item, key] of Object.entries(menuItems)) {
+        const el = document.querySelector(`[data-menu-item="${item}"]`);
+        if (el) {
+          const emoji = el.textContent.match(/^[^\s]/)[0];
+          el.textContent = emoji + ' ' + t(key);
+        }
+      }
+
+      // Panels
+      document.getElementById('menu-panel-title').textContent = t('menu_title');
+      document.getElementById('badges-panel-title').textContent = t('badges_title');
+      document.getElementById('settings-panel-title').textContent = t('settings_title');
+      document.getElementById('worlds-panel-title').textContent = t('worlds_title');
+      document.getElementById('friends-panel-title').textContent = t('friends_title');
+      document.getElementById('controls-panel-title').textContent = t('controls_title');
+
+      // Settings panel
+      document.getElementById('settings-sound-label').textContent = t('settings_sound_label');
+      document.getElementById('settings-sound-desc').textContent = t('settings_sound_desc');
+      document.getElementById('settings-language-label').textContent = t('settings_language_label');
+      document.getElementById('settings-language-desc').textContent = t('settings_language_desc');
+      document.getElementById('settings-ta-label').textContent = t('settings_ta_label');
+      document.getElementById('settings-ta-desc').textContent = t('settings_ta_desc');
+
+      // Friends panel
+      document.getElementById('friends-input').placeholder = t('friends_add_placeholder');
+      document.getElementById('friends-add-btn').textContent = t('friends_add_btn');
+      document.getElementById('save-world-btn').textContent = t('save_world_btn');
+
+      // Footer
+      document.getElementById('footer-copyright').textContent = t('footer_copyright');
+      document.getElementById('footer-credit').textContent = t('footer_credit');
+
+      // Leaderboard tabs
+      const tabConfigs = {
+        'tab-alltime': 'tab_alltime',
+        'tab-tournament': 'tab_tournament',
+        'tab-ta': 'tab_ta',
+        'tab-ta-60': 'tab_ta_60',
+        'tab-daily-challenge': 'tab_daily',
+        'tab-endless': 'tab_endless',
+        'tab-puzzle': 'tab_puzzle',
+      };
+      for (const [id, key] of Object.entries(tabConfigs)) {
+        const el = document.getElementById(id);
+        if (el) el.textContent = t(key);
+      }
+    }
+
+    // Set up language toggle in settings
+    const languageToggle = document.getElementById('settings-language-toggle');
+    const languageKnob = document.getElementById('settings-language-knob');
+
+    function updateLanguageToggleUI() {
+      const isIndonesian = currentLanguage === 'id';
+      languageToggle.setAttribute('aria-checked', isIndonesian);
+      languageKnob.style.transform = isIndonesian ? 'translateX(20px)' : 'translateX(0px)';
+      languageToggle.style.backgroundColor = isIndonesian ? '#8b5cf6' : '#7c3aed';
+    }
+
+    languageToggle.addEventListener('click', () => {
+      setLanguage(currentLanguage === 'id' ? 'en' : 'id');
+      updateLanguageToggleUI();
+    });
+
+    // Initialize UI language
+    document.getElementById('html-root').lang = currentLanguage;
+    updateUILanguage();
+    updateLanguageToggleUI();
+
     const buildStampEl = document.getElementById('build-stamp');
     buildStampEl.textContent = 'build ' + BUILD_VERSION;
 
     // Daily Challenge HUD element — bottom position raised on touch to clear
     // the on-screen fly/build action cluster that lives at bottom-right.
     const challengeHudEl = document.getElementById('challenge-hud');
-    challengeHudEl.style.bottom = isTouch ? '10rem' : '1rem';
+    challengeHudEl.style.bottom = isTouch ? '15rem' : '1rem';
+    const blocksPlacedHudEl = document.getElementById('blocks-placed-hud');
+    blocksPlacedHudEl.style.bottom = isTouch ? '18rem' : '5.5rem';
 
     // Streak HUD pill sits above the challenge HUD.
     const streakHudEl = document.getElementById('streak-hud');
     const CHALLENGE_HUD_HEIGHT_PX = 54; // approx rendered height (px) of challenge pill
     const STREAK_GAP_PX = 6;
-    const challengeHudBottomPx = isTouch ? 160 : 16; // 10rem=160px, 1rem=16px
+    const challengeHudBottomPx = isTouch ? 240 : 16; // 15rem=240px, 1rem=16px
     streakHudEl.style.bottom = (challengeHudBottomPx + CHALLENGE_HUD_HEIGHT_PX + STREAK_GAP_PX) + 'px';
+
+    // Apply touch-device layout overrides once at startup.
+    if (isTouch) {
+      document.body.classList.add('touch-device');
+      // Raise the powerup buff HUD above the on-screen action cluster + palette.
+      document.getElementById('powerup-hud').style.bottom = '14rem';
+      // Raise badge toast container above the action cluster.
+      document.getElementById('badge-toasts').style.bottom = '14rem';
+      // Move chat toggle to the top-right area to avoid the crowded bottom strip.
+      const chatToggleEl = document.getElementById('chat-toggle');
+      chatToggleEl.style.bottom = 'auto';
+      chatToggleEl.style.top = '11rem';
+    }
 
     function updateStreakHud(current) {
       if (current <= 0) return;
@@ -1274,6 +1784,12 @@
     let heldType = null;    // block type ID currently in the hold slot, or null
     let holdLocked = false; // true after a hold swap; cleared on next block placement
 
+    // ---- Undo/Redo history ----
+    const UNDO_LIMIT = 20;
+    const undoStack = []; // { x, y, z, from, to, blockName, ts }
+    const redoStack = [];
+    let isStaging = false;
+
     // ---- Badge state ----
     const earnedBadges = new Map(); // badge_id -> { earned_at }
     let badgesOpen = false;
@@ -1297,9 +1813,12 @@
     const COACH_COOLDOWN_MS = 30_000;
     let coachGrantRequired = false;  // true if LLM proxy returned grant_required
     let coachFetching = false;       // prevents concurrent tip fetches
-    let coachDismissTimer = null;
     let sessionBlocksPlaced = 0;     // placements this session, for milestone trigger
     let sessionScore = 0;
+    let sessionClassicBest = 0;
+    let sessionTaBest = 0;
+    let sessionTa60Best = 0;
+    let sessionEndlessBest = 0;
 
     // ---- Undo stack (Classic mode only) ----
     const undoStack = [];  // entries: { x, y, z, prevType, newType }, newest last, max 5
@@ -1331,6 +1850,19 @@
       if (sEl) sEl.textContent = label;
     }
 
+    // ---- Mob / creature state ----
+    const mobMap    = new Map();   // id -> { ...serverData, group: THREE.Group }
+    const mobMeshes = new Map();   // bodyMesh -> mob id (raycaster hit detection)
+    const MOB_ATTACK_RANGES = { zombie: 1.5, phantom: 2.5 };
+    const MOB_DAMAGE_RATES  = { zombie: 1,   phantom: 2   };
+    const PLAYER_MAX_HP = 10;
+    let playerHp           = PLAYER_MAX_HP;
+    let lastDamagedAt      = 0;   // ms; 2-second inter-hit immunity
+    let deathInvincibleUntil = 0; // ms; 5-second post-respawn invincibility
+
+    // ---- Blocks placed (lifetime) ----
+    let myBlocksPlaced = 0;
+
     // ---- Game mode state ----
     let gameMode = null;           // null | 'classic' | 'timeattack' | 'endless' | 'learn' | 'tutorial' | 'time-attack-60'
     const taBlocks = new Map();    // TA layout: client-only, never written to server
@@ -1359,6 +1891,14 @@
     let endlessBlocksPlaced = 0;         // blocks placed in current run
     let endlessMovesStarted = 0;         // moves made in this run
     let pendingEndlessInit = false;      // true while waiting for play-entry to fire initEndlessMode
+
+    // ---- Puzzle Mode state ----
+    const puzzleBlocks = new Map();      // Puzzle session: key = 'x,y,z', value = block_type
+    let puzzleLevel = 1;                 // current puzzle level
+    let puzzleTarget = 10;               // blocks to clear this level
+    let puzzleCleared = 0;               // blocks cleared so far
+    let puzzleStartTime = null;          // when the level started
+    let pendingPuzzleInit = false;       // true while waiting for play-entry to fire initPuzzleMode
 
     // ---- Learn Mode state ----
     const learnBlocks = new Map();       // Learn session: key = 'x,y,z', value = block_type
@@ -1609,6 +2149,11 @@
     }
     const powerupGroup = new THREE.Group();
     scene.add(powerupGroup);
+
+    // Mob group: all creature meshes; hidden until Classic mode is entered.
+    const mobGroup = new THREE.Group();
+    mobGroup.visible = false;
+    scene.add(mobGroup);
 
     // ---- Particle system ----
     const PARTICLE_POOL_SIZE = 150;
@@ -1866,6 +2411,12 @@
     previewMesh.visible = false;
     scene.add(previewMesh);
 
+    // Stamp preview: wireframe box showing the rectangular region during a stamp drag
+    const stampMaterial = new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.5 });
+    stampPreviewMesh = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(1, 1, 1)), stampMaterial);
+    stampPreviewMesh.visible = false;
+    scene.add(stampPreviewMesh);
+
     // ---- Raycast from screen center to find the aimed cell + face ----
     const raycaster = new THREE.Raycaster();
     const centre = new THREE.Vector2(0, 0);
@@ -2029,7 +2580,7 @@
     function handleDisasterEvent(event) {
       showDisasterToast(event);
       startCameraShake(event.type);
-      Audio.playDisasterSound(event.type);
+      audio.playDisasterSound(event.type);
       showDisasterFlash(event.type);
     }
 
@@ -2204,6 +2755,7 @@
       target = null;
       highlight.visible = false;
       previewMesh.visible = false;
+      stampPreviewMesh.visible = false;
       if (!hits.length) return;
       const hit = hits[0];
       const cells = hit.object.userData.cells;
@@ -2216,10 +2768,20 @@
       };
       highlight.position.set(cell.x + 0.5, cell.y + 0.5, cell.z + 0.5);
       highlight.visible = true;
-      // Show ghost at the prospective placement cell if playing, in bounds, and unoccupied.
-      const p = target.place;
-      if (playing && inBounds(p.x, p.y, p.z) && !blocks.has(key(p.x, p.y, p.z))) {
-        previewMesh.position.set(p.x + 0.5, p.y + 0.5, p.z + 0.5);
+      if (stampDragInProgress && stampStartCell) {
+        stampEndCell = cell;
+        const minX = Math.min(stampStartCell.x, stampEndCell.x);
+        const maxX = Math.max(stampStartCell.x, stampEndCell.x);
+        const minZ = Math.min(stampStartCell.z, stampEndCell.z);
+        const maxZ = Math.max(stampStartCell.z, stampEndCell.z);
+        const y = stampStartCell.y;
+        const w = maxX - minX + 1;
+        const h = maxZ - minZ + 1;
+        stampPreviewMesh.scale.set(w, 1, h);
+        stampPreviewMesh.position.set(minX + w / 2, y + 0.5, minZ + h / 2);
+        stampPreviewMesh.visible = true;
+      } else if (playing && !stampModeActive && inBounds(target.place.x, target.place.y, target.place.z) && !blocks.has(key(target.place.x, target.place.y, target.place.z))) {
+        previewMesh.position.set(target.place.x + 0.5, target.place.y + 0.5, target.place.z + 0.5);
         previewMesh.visible = true;
       }
     }
@@ -2261,6 +2823,10 @@
       if (data.streak !== undefined) dailyChallengeStreak = data.streak;
       renderChallenge();
       if (gameMode !== 'spectate') challengeHudEl.classList.remove('hidden');
+    }
+
+    function renderBlocksPlacedHud() {
+      document.getElementById('blocks-placed-count').textContent = myBlocksPlaced.toLocaleString();
     }
 
     async function sendEdit(x, y, z, t, prevType) {
@@ -2326,6 +2892,11 @@
             buildPalette(); // re-render palette so the newly unlocked swatch activates
           }
           if (data.challenge) syncChallenge(data.challenge);
+          if (t !== 0) {
+            myBlocksPlaced++;
+            renderBlocksPlacedHud();
+            blocksPlacedHudEl.classList.remove('hidden');
+          }
         }
       } catch (e) { /* poll loop will reconcile */ }
     }
@@ -2370,6 +2941,8 @@
     // ---- Score HUD ----
     const scoreHudEl = document.getElementById('score-hud');
     const scoreValueEl = document.getElementById('score-value');
+    const scoreBestEl = document.getElementById('score-best');
+    const scoreBestValueEl = document.getElementById('score-best-value');
 
     function updateScoreHud() {
       if (gameMode !== 'classic' || !playing) {
@@ -2377,6 +2950,13 @@
         return;
       }
       scoreValueEl.textContent = sessionScore;
+      if (sessionScore > sessionClassicBest) {
+        sessionClassicBest = sessionScore;
+        scoreBestValueEl.textContent = sessionClassicBest;
+      }
+      if (sessionClassicBest > 0) {
+        scoreBestEl.classList.remove('hidden');
+      }
       scoreHudEl.classList.remove('hidden');
     }
 
@@ -2658,7 +3238,7 @@
     });
 
     function placeBlock() {
-      if (!target) return;
+      if (!target || paused) return;
       const { x, y, z } = target.place;
       if (!inBounds(x, y, z)) return;
       if (gameMode === 'timeattack') {
@@ -2723,13 +3303,80 @@
       audio.playPlace();
       emitBlockPlace(x + 0.5, y + 0.5, z + 0.5);
       sendEdit(x, y, z, selectedType, prevType);
+      pushHistory(x, y, z, prevType, selectedType);
       // Unlock hold after each successful placement (Tetris lock rule)
       holdLocked = false;
       updateHoldPanel();
     }
 
+    function toggleStampMode() {
+      if (gameMode !== 'classic' && gameMode !== null && currentWorldId <= 0) return;
+      stampModeActive = !stampModeActive;
+      const stampBtn = document.querySelector('#palette [data-id="stamp"]');
+      if (stampBtn) {
+        stampBtn.classList.toggle('ring-2', stampModeActive);
+        stampBtn.classList.toggle('ring-white', stampModeActive);
+      }
+    }
+
+    function placeStamp(startCell, endCell) {
+      if (!startCell || !endCell) return;
+      const minX = Math.min(startCell.x, endCell.x);
+      const maxX = Math.max(startCell.x, endCell.x);
+      const minZ = Math.min(startCell.z, endCell.z);
+      const maxZ = Math.max(startCell.z, endCell.z);
+      const y = startCell.y;
+      const cellsToPlace = [];
+      for (let x = minX; x <= maxX; x++) {
+        for (let z = minZ; z <= maxZ; z++) {
+          if (inBounds(x, y, z)) {
+            cellsToPlace.push({ x, y, z });
+          }
+        }
+      }
+      if (cellsToPlace.length === 0) return;
+      for (const cell of cellsToPlace) {
+        const k = key(cell.x, cell.y, cell.z);
+        if (blocks.get(k) !== selectedType) {
+          const prevType = blocks.get(k) ?? 0;
+          const isNewBlock = prevType === 0;
+          blocks.set(k, selectedType);
+          emitBlockPlace(cell.x + 0.5, cell.y + 0.5, cell.z + 0.5);
+          if (isNewBlock && gameMode === 'classic' && challengeDate && !challengeCompleted) {
+            challengePlaced++;
+          }
+          sessionBlocksPlaced++;
+        }
+      }
+      audio.playPlace();
+      rebuildBlockMeshes();
+      if (gameMode === 'classic' && challengeDate && !challengeCompleted && challengePlaced >= challengeTarget) {
+        challengeCompleted = true;
+        fetchCoachTip('daily_complete');
+      }
+      if (sessionBlocksPlaced % 25 === 0) fetchCoachTip('block_milestone');
+      renderChallenge();
+      for (const cell of cellsToPlace) {
+        const prevType = 0;
+        const k = key(cell.x, cell.y, cell.z);
+        const newType = blocks.get(k);
+        if (!undoInProgress && gameMode === 'classic' && newType !== prevType) {
+          pushUndo(cell.x, cell.y, cell.z, prevType, newType);
+        }
+        sendEdit(cell.x, cell.y, cell.z, newType, prevType);
+      }
+    }
+
     function breakBlock() {
-      if (!target) return;
+      // In Classic mode, check if the crosshair is aimed at a mob before a block.
+      if (playing && gameMode === 'classic' && mobMeshes.size > 0) {
+        const hits = raycaster.intersectObjects([...mobMeshes.keys()], false);
+        if (hits.length > 0 && hits[0].distance < 8) {
+          const mobId = mobMeshes.get(hits[0].object);
+          if (mobId !== undefined) { hitMob(mobId); return; }
+        }
+      }
+      if (!target || paused) return;
       const { x, y, z } = target.cell;
       if (y < 1) return;
       if (gameMode === 'timeattack') {
@@ -2801,12 +3448,252 @@
       audio.playBreak();
       emitBlockBreak(x + 0.5, y + 0.5, z + 0.5, brokenType);
       sendEdit(x, y, z, 0, brokenType);
+      pushHistory(x, y, z, brokenType, 0);
+    }
+
+    // ---- Undo/Redo history functions ----
+
+    function timeAgo(ts) {
+      const s = Math.floor((Date.now() - ts) / 1000);
+      if (s < 2) return 'just now';
+      if (s < 60) return s + 's ago';
+      const m = Math.floor(s / 60);
+      if (m < 60) return m + 'm ago';
+      return Math.floor(m / 60) + 'h ago';
+    }
+
+    function renderHistoryPanel() {
+      const listEl = document.getElementById('history-list');
+      const emptyEl = document.getElementById('history-empty');
+      if (!listEl || !emptyEl) return;
+      const undoDisabled = undoStack.length === 0;
+      const redoDisabled = redoStack.length === 0;
+      for (const id of ['undo-btn', 'redo-btn', 'history-undo-btn', 'history-redo-btn']) {
+        const btn = document.getElementById(id);
+        if (!btn) continue;
+        const isUndo = id === 'undo-btn' || id === 'history-undo-btn';
+        btn.disabled = isUndo ? undoDisabled : redoDisabled;
+      }
+      if (undoStack.length === 0) {
+        listEl.innerHTML = '';
+        emptyEl.classList.remove('hidden');
+        return;
+      }
+      emptyEl.classList.add('hidden');
+      const items = [...undoStack].reverse();
+      listEl.innerHTML = items.map((entry, i) => {
+        const relevantType = entry.to !== 0 ? entry.to : entry.from;
+        const p = PALETTE.find((q) => q.id === relevantType);
+        const color = p ? p.color : '#888888';
+        const name = entry.blockName || (p ? p.name : 'Block');
+        const action = entry.to !== 0 ? 'Placed' : 'Broke';
+        const ago = timeAgo(entry.ts);
+        const isActive = i === 0;
+        return '<li class="flex items-center gap-2 rounded px-1.5 py-1 text-xs' + (isActive ? ' bg-white/10' : '') + '">' +
+          '<span class="w-4 h-4 rounded-sm shrink-0" style="background:' + color + '"></span>' +
+          '<span class="flex-1 text-zinc-200 truncate">' + action + ' <span style="font-weight:600">' + name + '</span></span>' +
+          '<span class="text-zinc-500 whitespace-nowrap shrink-0">' + ago + '</span>' +
+          '</li>';
+      }).join('');
+    }
+
+    function pushHistory(x, y, z, from, to) {
+      const relevantType = to !== 0 ? to : from;
+      const p = PALETTE.find((q) => q.id === relevantType);
+      undoStack.push({ x, y, z, from, to, blockName: p ? p.name : 'Block', ts: Date.now() });
+      redoStack.length = 0;
+      if (undoStack.length > UNDO_LIMIT) undoStack.shift();
+      renderHistoryPanel();
+    }
+
+    function undo() {
+      if (undoStack.length === 0 || gameMode !== 'classic') return;
+      const entry = undoStack.pop();
+      redoStack.push(entry);
+      sendEdit(entry.x, entry.y, entry.z, entry.from);
+      renderHistoryPanel();
+    }
+
+    function redo() {
+      if (redoStack.length === 0 || gameMode !== 'classic') return;
+      const entry = redoStack.pop();
+      undoStack.push(entry);
+      sendEdit(entry.x, entry.y, entry.z, entry.to);
+      renderHistoryPanel();
+    }
+
+    // ---- Mob / creature rendering ----
+
+    function _makeMobLabelTexture(label) {
+      const c = document.createElement('canvas');
+      c.width = 128; c.height = 32;
+      const ctx2d = c.getContext('2d');
+      ctx2d.fillStyle = 'rgba(0,0,0,0.6)';
+      ctx2d.fillRect(0, 0, 128, 32);
+      ctx2d.fillStyle = '#ffffff';
+      ctx2d.font = 'bold 14px sans-serif';
+      ctx2d.textAlign = 'center';
+      ctx2d.textBaseline = 'middle';
+      ctx2d.fillText(label, 64, 16);
+      return new THREE.CanvasTexture(c);
+    }
+    const MOB_LABEL_TEX = {
+      slime:   _makeMobLabelTexture('Slime'),
+      zombie:  _makeMobLabelTexture('Zombie'),
+      phantom: _makeMobLabelTexture('Phantom'),
+    };
+    const MOB_COLORS     = { slime: '#6fcf3a', zombie: '#4a7c59', phantom: '#7c3aed' };
+    const MOB_PART_TYPES = { slime: 5, zombie: 3, phantom: 10 }; // palette ids for hit particles
+
+    function _createMobGroup(mob) {
+      const g = new THREE.Group();
+      let bGeom;
+      if (mob.type === 'slime')       bGeom = new THREE.BoxGeometry(0.7, 0.7, 0.7);
+      else if (mob.type === 'zombie') bGeom = new THREE.BoxGeometry(0.6, 1.2, 0.6);
+      else                            bGeom = new THREE.BoxGeometry(0.8, 0.3, 0.8);
+      const bMesh = new THREE.Mesh(bGeom,
+        new THREE.MeshLambertMaterial({ color: MOB_COLORS[mob.type] || '#888888' }));
+      g.add(bMesh);
+      mobMeshes.set(bMesh, mob.id);
+
+      const hpBg = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.07, 0.07),
+        new THREE.MeshBasicMaterial({ color: '#444444' }));
+      hpBg.position.y = 1.1;
+      g.add(hpBg);
+
+      const hpFill = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.07, 0.07),
+        new THREE.MeshBasicMaterial({ color: '#22c55e' }));
+      hpFill.position.y = 1.1;
+      g.add(hpFill);
+
+      const labelSprite = new THREE.Sprite(
+        new THREE.SpriteMaterial({ map: MOB_LABEL_TEX[mob.type], transparent: true, depthWrite: false })
+      );
+      labelSprite.scale.set(1.2, 0.3, 1);
+      labelSprite.position.y = 1.45;
+      g.add(labelSprite);
+
+      g.userData.mobId    = mob.id;
+      g.userData.bodyMesh = bMesh;
+      g.userData.hpFill   = hpFill;
+      g.userData.phase    = mob.phase || 0;
+
+      _updateMobHpBar(g, mob.hp, mob.maxHp);
+      return g;
+    }
+
+    function _updateMobHpBar(g, hp, maxHp) {
+      const fill = g.userData.hpFill;
+      if (!fill) return;
+      const frac = Math.max(0, Math.min(1, hp / maxHp));
+      fill.scale.x = Math.max(0.001, frac);
+      fill.position.x = (frac - 1) * 0.4;
+      fill.material.color.set(frac > 0.5 ? '#22c55e' : frac > 0.25 ? '#f59e0b' : '#ef4444');
+    }
+
+    // ---- Player HP helpers ----
+    const hpHudEl          = document.getElementById('hp-hud');
+    const hpValueEl        = document.getElementById('hp-value');
+    const damageVignetteEl = document.getElementById('damage-vignette');
+
+    function updateHpHud() {
+      if (hpValueEl) hpValueEl.textContent = String(Math.max(0, playerHp));
+    }
+
+    function flashDamage(strong) {
+      if (!damageVignetteEl) return;
+      damageVignetteEl.style.transition = 'none';
+      damageVignetteEl.style.background = strong
+        ? 'rgba(239,68,68,0.7)' : 'rgba(239,68,68,0.38)';
+      requestAnimationFrame(() => {
+        damageVignetteEl.style.transition = strong ? 'background 1s' : 'background 0.45s';
+        damageVignetteEl.style.background = 'rgba(239,68,68,0)';
+      });
+    }
+
+    function playerDie(now) {
+      flashDamage(true);
+      spawnCamera();
+      playerHp = PLAYER_MAX_HP;
+      deathInvincibleUntil = now + 5000;
+      updateHpHud();
+    }
+
+    // ---- Mob world sync ----
+    async function pollMobs() {
+      if (document.hidden) return;
+      try {
+        const res = await fetch('/api/mobs', { headers });
+        if (!res.ok) return;
+        const { mobs: serverMobs } = await res.json();
+        const serverIds = new Set(serverMobs.map((m) => m.id));
+
+        for (const [id, entry] of mobMap) {
+          if (!serverIds.has(id)) {
+            if (entry.group) {
+              emitBlockBreak(entry.group.position.x, entry.group.position.y,
+                entry.group.position.z, MOB_PART_TYPES[entry.type] || 3);
+              mobMeshes.delete(entry.group.userData.bodyMesh);
+              mobGroup.remove(entry.group);
+            }
+            mobMap.delete(id);
+          }
+        }
+
+        for (const m of serverMobs) {
+          if (!mobMap.has(m.id)) {
+            const g = _createMobGroup(m);
+            mobGroup.add(g);
+            mobMap.set(m.id, { ...m, group: g });
+          } else {
+            const entry = mobMap.get(m.id);
+            const prevHp = entry.hp;
+            Object.assign(entry, m);
+            if (entry.hp !== prevHp && entry.group) _updateMobHpBar(entry.group, entry.hp, entry.maxHp);
+          }
+        }
+      } catch (_) { /* transient */ }
+    }
+
+    async function hitMob(id) {
+      const entry = mobMap.get(id);
+      if (!entry || !entry.group) return;
+      entry.hp = Math.max(0, entry.hp - 1);
+      _updateMobHpBar(entry.group, entry.hp, entry.maxHp);
+      emitBlockBreak(entry.group.position.x, entry.group.position.y,
+        entry.group.position.z, MOB_PART_TYPES[entry.type] || 3);
+      if (entry.hp <= 0) {
+        mobMeshes.delete(entry.group.userData.bodyMesh);
+        mobGroup.remove(entry.group);
+        mobMap.delete(id);
+      }
+      try {
+        const res = await fetch('/api/mobs/' + id + '/hit', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...headers },
+        });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (data.dead) {
+          const e = mobMap.get(id);
+          if (e && e.group) {
+            mobMeshes.delete(e.group.userData.bodyMesh);
+            mobGroup.remove(e.group);
+          }
+          mobMap.delete(id);
+        } else if (mobMap.has(id)) {
+          const e = mobMap.get(id);
+          e.hp = data.hp;
+          if (e.group) _updateMobHpBar(e.group, data.hp, e.maxHp);
+        }
+      } catch (_) { /* transient; next poll will sync */ }
     }
 
     // ---- Pointer-lock fly camera ----
     let yaw = 0, pitch = 0;
     let locked = false;
     let playing = false;
+    let paused = false;
     let turntableEnabled = true;
     let turntableAngle = 0;
     let dragMode = false;
@@ -2815,6 +3702,11 @@
     let dragging = false;
     let pressX = 0, pressY = 0;
     const DRAG_THRESHOLD = 5;
+    let stampModeActive = false;
+    let stampStartCell = null;
+    let stampEndCell = null;
+    let stampDragInProgress = false;
+    let stampPreviewMesh = null;
     const move = { f: false, b: false, l: false, r: false, up: false, down: false };
     const SPEED = 9, SENS = 0.0022;
 
@@ -2977,6 +3869,7 @@
     }
 
     function tickTimer() {
+      if (paused) return;
       taTimeLeft--;
       updateTaTimerDisplay();
       if (taTimeLeft <= 0) {
@@ -3028,6 +3921,13 @@
     async function submitTaScore(cleared, difficulty) {
       const bannerEl = document.getElementById('ta-best-banner');
       const fbEl = document.getElementById('ta-feedback-msg');
+      if (cleared > sessionTaBest) {
+        sessionTaBest = cleared;
+        document.getElementById('ta-best-value').textContent = sessionTaBest;
+      }
+      if (sessionTaBest > 0) {
+        document.getElementById('ta-best').classList.remove('hidden');
+      }
       try {
         const res = await fetch('/api/ta-score', {
           method: 'POST',
@@ -3095,6 +3995,8 @@
       document.getElementById('ta-feedback-msg').textContent = feedbackMsg;
       document.getElementById('ta-best-banner').classList.add('hidden');
       document.getElementById('ta-gameover').classList.remove('hidden');
+      // Restore theme button when Time Attack ends.
+      themeBtnEl.classList.remove('hidden');
 
       // Persist the run + play the appropriate end-of-run cue (fanfare on a
       // new personal best, otherwise the "time's up" tone).
@@ -3119,6 +4021,7 @@
     }
 
     function tickTimer60() {
+      if (paused) return;
       ta60TimeLeft--;
       updateTa60TimerDisplay();
       if (ta60TimeLeft <= 0) {
@@ -3166,6 +4069,13 @@
     async function submitTa60Score(cleared) {
       const bannerEl = document.getElementById('ta-60-best-banner');
       const fbEl = document.getElementById('ta-60-feedback-msg');
+      if (cleared > sessionTa60Best) {
+        sessionTa60Best = cleared;
+        document.getElementById('ta-60-best-value').textContent = sessionTa60Best;
+      }
+      if (sessionTa60Best > 0) {
+        document.getElementById('ta-60-best').classList.remove('hidden');
+      }
       try {
         const res = await fetch('/api/ta-60-score', {
           method: 'POST',
@@ -3271,6 +4181,13 @@
     }
 
     async function submitEndlessScore(placed, movesSurvived) {
+      if (placed > sessionEndlessBest) {
+        sessionEndlessBest = placed;
+        document.getElementById('endless-best-value').textContent = sessionEndlessBest;
+      }
+      if (sessionEndlessBest > 0) {
+        document.getElementById('endless-best').classList.remove('hidden');
+      }
       try {
         const res = await fetch('/api/endless-score', {
           method: 'POST',
@@ -3363,6 +4280,9 @@
         initTimeAttack();
         hideScoreHud();
         coachBtnEl.classList.remove('hidden');
+        // Hide theme button and panel during Time Attack.
+        themeBtnEl.classList.add('hidden');
+        closeThemePanel();
         setTimeout(() => fetchCoachTip('time_attack_start'), 2000);
       } else if (pendingTa60Init) {
         pendingTa60Init = false;
@@ -3387,11 +4307,21 @@
         updateScoreHud();
         if (!pollHandle) pollHandle = setInterval(poll, 1500);
         coachBtnEl.classList.remove('hidden');
-        setTimeout(() => fetchCoachTip('mode_start'), 3000);
+        document.getElementById('undo-redo-hud').classList.remove('hidden');
+        hpHudEl.classList.remove('hidden');
+        updateHpHud();
+        mobGroup.visible = true;
+        if (!lsGet('blockgame-tutorial-seen', false)) {
+          setTimeout(showTutorial, 600);
+        } else {
+          setTimeout(() => fetchCoachTip('mode_start'), 3000);
+        }
       } else if (gameMode === 'spectate') {
         if (!pollHandle) pollHandle = setInterval(poll, 1500);
         document.getElementById('palette').classList.add('hidden');
         document.getElementById('hold-panel').classList.add('hidden');
+        document.getElementById('undo-redo-hud').classList.add('hidden');
+        document.getElementById('history-panel').classList.add('hidden');
         challengeHudEl.classList.add('hidden');
         document.getElementById('crosshair').style.opacity = '0.3';
         // Hide coach in spectate mode — player isn't building.
@@ -3407,6 +4337,7 @@
       if (mode === 'timeattack') pendingTaInit = true;
       if (mode === 'time-attack-60') pendingTa60Init = true;
       if (mode === 'endless') pendingEndlessInit = true;
+      if (mode === 'puzzle') pendingPuzzleInit = true;
       if (mode === 'learn') pendingLearnInit = true;
       if (mode === 'tutorial') pendingTutorialInit = true;
       refreshUndoButton();
@@ -3442,6 +4373,7 @@
         ? 'Click a mode — drag to look, click to build, press Esc for this menu.'
         : 'Click a mode — move the mouse to look, press Esc to release. If your browser blocks mouse-lock, you can drag to look instead.';
       lookModeEl.classList.toggle('hidden', !playing);
+      pauseBtnEl.classList.toggle('hidden', !playing || gameMode === 'spectate');
     }
 
     function clearLockTimer() {
@@ -3497,9 +4429,12 @@
 
       gameMode = null;
       playing = false;
+      paused = false;
       dragMode = false;
       resetMove();
       canvas.style.cursor = '';
+      pauseOverlayEl.classList.add('hidden');
+      canvas.style.pointerEvents = 'auto';
       refreshUndoButton();
 
       taBlocks.clear();
@@ -3512,15 +4447,20 @@
       document.getElementById('learn-hints').innerHTML = '';
       document.getElementById('palette').classList.remove('hidden');
       document.getElementById('hold-panel').classList.remove('hidden');
+      document.getElementById('undo-redo-hud').classList.add('hidden');
+      document.getElementById('history-panel').classList.add('hidden');
       document.getElementById('crosshair').style.opacity = '';
       hideComboHud();
       hideScoreHud();
 
+      hpHudEl.classList.add('hidden');
+      playerHp = PLAYER_MAX_HP;
+      deathInvincibleUntil = 0;
+      mobGroup.visible = false;
       hideMinimap();
       // Dismiss any active coach tip and restore coach button.
       coachBubbleEl.classList.add('hidden');
       coachBubbleEl.style.opacity = '0';
-      if (coachDismissTimer) { clearTimeout(coachDismissTimer); coachDismissTimer = null; }
       coachBtnEl.classList.remove('hidden');
       overlayEl.style.display = 'flex';
       refreshControlCopy();
@@ -3529,6 +4469,7 @@
 
     function updateTouchControlsVisibility() {
       touchControlsEl.classList.toggle('hidden', !(isTouch && playing));
+      document.getElementById('palette').classList.toggle('touch-playing', !!(isTouch && playing));
     }
 
     function tryPointerLock() {
@@ -3600,6 +4541,7 @@
     document.getElementById('play-ta-60-btn').addEventListener('click', () => { audio.init(); startMode('time-attack-60'); });
     document.getElementById('play-daily-challenge-btn').addEventListener('click', () => { audio.init(); startMode('daily-challenge'); });
     document.getElementById('play-endless-btn').addEventListener('click', () => { audio.init(); startMode('endless'); });
+    document.getElementById('play-puzzle-btn').addEventListener('click', () => { audio.init(); startMode('puzzle'); });
     document.getElementById('play-tutorial-btn').addEventListener('click', () => { audio.init(); startMode('tutorial'); });
     document.getElementById('play-learn-btn').addEventListener('click', () => { audio.init(); startMode('learn'); });
     document.getElementById('play-spectate-btn').addEventListener('click', () => { audio.init(); startMode('spectate'); });
@@ -3754,6 +4696,12 @@
         return;
       }
       if (!playing) return;
+      if (stampModeActive && e.button === 0) {
+        stampStartCell = target ? target.cell : null;
+        stampDragInProgress = true;
+        stampEndCell = null;
+        return;
+      }
       dragging = true;
       pressX = e.clientX;
       pressY = e.clientY;
@@ -3761,6 +4709,16 @@
     });
     window.addEventListener('mouseup', (e) => {
       if (e.button === 0) placeHeld = false; // always clear regardless of mode
+      if (stampDragInProgress && e.button === 0) {
+        stampDragInProgress = false;
+        const moved = stampStartCell && stampEndCell ? Math.hypot(stampStartCell.x - stampEndCell.x, stampStartCell.z - stampEndCell.z) : 0;
+        if (moved >= 1 && gameMode !== 'spectate') {
+          placeStamp(stampStartCell, stampEndCell);
+        }
+        stampStartCell = null;
+        stampEndCell = null;
+        return;
+      }
       if (locked || !playing || !dragging) return;
       dragging = false;
       canvas.style.cursor = 'grab';
@@ -3815,6 +4773,15 @@
         lastRapidPlace = performance.now();
       }
       if (e.code === 'KeyG' && playing && gameMode !== 'spectate') breakBlock();
+      // Ctrl+Z = undo, Ctrl+Y / Ctrl+Shift+Z = redo (Classic mode only).
+      if (e.ctrlKey && e.code === 'KeyZ' && gameMode === 'classic') {
+        e.preventDefault();
+        if (e.shiftKey) redo(); else undo();
+      }
+      if (e.ctrlKey && e.code === 'KeyY' && gameMode === 'classic') {
+        e.preventDefault();
+        redo();
+      }
       // H is context-aware: triggers hold/swap while playing, toggles the
       // controls overlay when the menu/overlay is up.
       if (e.code === 'KeyH') {
@@ -3824,14 +4791,23 @@
       // L toggles the leaderboard panel.
       if (e.code === 'KeyL') toggleLeaderboard();
       if (e.code === 'KeyM') { toggleSound(); }
+      // P toggles pause while playing (only in playable modes, not spectate).
+      if (e.code === 'KeyP' && playing && gameMode !== 'spectate') {
+        e.preventDefault();
+        togglePause();
+      }
       // Escape: close overlays in priority order, then handle mode exit.
       // In native (locked) mode the browser handles Esc and fires
       // pointerlockchange, which restores the overlay there.
       if (e.code === 'Escape') {
-        if (!leaderboardEl.classList.contains('hidden')) {
+        if (stampModeActive) {
+          toggleStampMode();
+        } else if (!leaderboardEl.classList.contains('hidden')) {
           closeLeaderboard();
         } else if (!friendsPanelEl.classList.contains('hidden')) {
           closeFriends();
+        } else if (!themePanelEl.classList.contains('hidden')) {
+          closeThemePanel();
         } else if (dragMode && playing) {
           if (gameMode === 'timeattack') {
             endTimeAttack();
@@ -3909,11 +4885,39 @@
         const releasePlaceHeld = (e) => { if (e.cancelable) e.preventDefault(); placeHeld = false; };
         el.addEventListener('touchend', releasePlaceHeld);
         el.addEventListener('touchcancel', releasePlaceHeld);
+      } else if (act === 'stamp') {
+        // Stamp needs drag tracking similar to drag mode
+        el.addEventListener('touchstart', (e) => {
+          e.preventDefault();
+          if (!playing || gameMode !== 'classic') return;
+          stampStartCell = target ? target.cell : null;
+          stampDragInProgress = true;
+        }, { passive: false });
+        el.addEventListener('touchend', (e) => {
+          if (stampDragInProgress) {
+            e.preventDefault();
+            stampDragInProgress = false;
+            if (stampStartCell && stampEndCell) {
+              const moved = Math.hypot(stampStartCell.x - stampEndCell.x, stampStartCell.z - stampEndCell.z);
+              if (moved >= 1 && gameMode !== 'spectate') {
+                placeStamp(stampStartCell, stampEndCell);
+              }
+            }
+            stampStartCell = null;
+            stampEndCell = null;
+          }
+        }, { passive: false });
+        el.addEventListener('touchcancel', (e) => {
+          stampDragInProgress = false;
+          stampStartCell = null;
+          stampEndCell = null;
+        });
       } else {
         bindTap(el, () => {
           if (act === 'break' && playing && gameMode !== 'spectate') breakBlock();
           else if (act === 'hold' && playing && gameMode !== 'spectate') holdBlock();
           else if (act === 'undo' && playing && gameMode === 'classic') undoLastMove();
+          else if (act === 'stamp') toggleStampMode();
           else if (act === 'menu') {
             if (gameMode === 'timeattack' && playing) endTimeAttack();
             else exitToMenu();
@@ -3935,6 +4939,7 @@
         '<li><span class="font-semibold">Add</span> / <span class="font-semibold">Delete</span> — place / remove a block at the crosshair</li>',
         '<li><span class="font-semibold">↩ Undo</span> — undo last action (Classic only)</li>',
         '<li><span class="font-semibold">Hold</span> — swap the active block type with the hold slot</li>',
+        '<li><span class="font-semibold">📦 Stamp</span> — click and drag to place a block region (Classic only)</li>',
         '<li><span class="font-semibold">Palette</span> — tap a swatch to pick a block</li>',
         '<li><span class="font-semibold">💬</span> — open / close chat</li>',
         '<li><span class="font-semibold">🏆</span> — leaderboard</li>',
@@ -3993,6 +4998,7 @@
           'coach': 'coach-btn',
           'badges': 'badges-btn',
           'settings': 'settings-btn',
+          'pause': 'pause-btn',
           'mute': 'mute-btn'
         };
 
@@ -4029,13 +5035,293 @@
         closeLeaderboard();
       }
     }
+
+    // ---- Pause / Resume ----
+    const pauseOverlayEl = document.getElementById('pause-overlay');
+    const pauseResumeBtn = document.getElementById('pause-resume');
+    const pauseQuitBtn = document.getElementById('pause-quit');
+    const pauseSettingsBtn = document.getElementById('pause-settings');
+    const pauseBtnEl = document.getElementById('pause-btn');
+    const pauseTimerEl = document.getElementById('pause-timer');
+    const pauseScoreEl = document.getElementById('pause-score');
+
+    function formatTimeForPause(seconds) {
+      const mins = Math.floor(seconds / 60);
+      const secs = seconds % 60;
+      return mins + ':' + String(secs).padStart(2, '0');
+    }
+
+    function updatePauseInfo() {
+      // Show relevant info in the pause overlay based on game mode
+      pauseTimerEl.classList.add('hidden');
+      pauseScoreEl.classList.add('hidden');
+
+      if (gameMode === 'timeattack') {
+        pauseTimerEl.textContent = `Time Left: ${formatTimeForPause(taTimeLeft)}`;
+        pauseTimerEl.classList.remove('hidden');
+        pauseScoreEl.textContent = `Cleared: ${taScore} blocks`;
+        pauseScoreEl.classList.remove('hidden');
+      } else if (gameMode === 'time-attack-60') {
+        pauseTimerEl.textContent = `Time Left: ${formatTimeForPause(ta60TimeLeft)}`;
+        pauseTimerEl.classList.remove('hidden');
+        pauseScoreEl.textContent = `Cleared: ${ta60Score} blocks`;
+        pauseScoreEl.classList.remove('hidden');
+      } else if (gameMode === 'endless') {
+        pauseScoreEl.textContent = `Moves Remaining: ${endlessMovesRemaining} · Placed: ${endlessBlocksPlaced}`;
+        pauseScoreEl.classList.remove('hidden');
+      } else if (gameMode === 'classic') {
+        pauseScoreEl.textContent = `Score: ${sessionScore}`;
+        pauseScoreEl.classList.remove('hidden');
+      }
+    }
+
+    function togglePause() {
+      if (!playing || gameMode === 'spectate') return;
+      paused = !paused;
+      if (paused) {
+        pauseOverlayEl.classList.remove('hidden');
+        canvas.style.pointerEvents = 'none';
+        updatePauseInfo();
+      } else {
+        pauseOverlayEl.classList.add('hidden');
+        canvas.style.pointerEvents = 'auto';
+      }
+    }
+
+    function resumeGame() {
+      paused = false;
+      pauseOverlayEl.classList.add('hidden');
+      canvas.style.pointerEvents = 'auto';
+    }
+
+    pauseBtnEl.addEventListener('click', togglePause);
+    pauseResumeBtn.addEventListener('click', resumeGame);
+    pauseQuitBtn.addEventListener('click', exitToMenu);
+    pauseSettingsBtn.addEventListener('click', () => {
+      paused = false;
+      pauseOverlayEl.classList.add('hidden');
+      canvas.style.pointerEvents = 'auto';
+      toggleSettings();
+    });
+
     function escapeHtml(s) {
       return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
     }
 
+    // ---- Share Score: image generation and download ----
+    let taLeaderboardData = null;
+    let ta60LeaderboardData = null;
+    let endlessLeaderboardData = null;
+
+    async function generateScoreImage(mode, primaryStat, secondaryStat, callback) {
+      const canvas = document.createElement('canvas');
+      canvas.width = 600;
+      canvas.height = 800;
+      const ctx = canvas.getContext('2d');
+
+      // Draw gradient background
+      const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
+      gradient.addColorStop(0, '#1f2937');
+      gradient.addColorStop(1, '#111827');
+      ctx.fillStyle = gradient;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      // Mode info
+      const modeInfo = {
+        ta: { emoji: '⚡', label: 'Time Attack', color: '#fbbf24' },
+        'ta-60': { emoji: '⏱️', label: 'Time Attack (60s)', color: '#06b6d4' },
+        endless: { emoji: '♾️', label: 'Endless Mode', color: '#f43f5e' }
+      }[mode];
+
+      const username = myUsername || 'Anonymous Player';
+
+      // Header: mode emoji + label
+      ctx.font = 'bold 32px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+      ctx.fillStyle = modeInfo.color;
+      ctx.textAlign = 'center';
+      ctx.fillText(modeInfo.emoji, canvas.width / 2, 80);
+
+      ctx.font = 'bold 28px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+      ctx.fillStyle = '#f3f4f6';
+      ctx.fillText(modeInfo.label, canvas.width / 2, 130);
+
+      // Score section
+      ctx.font = 'bold 48px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+      ctx.fillStyle = modeInfo.color;
+      if (mode === 'ta') {
+        ctx.fillText(primaryStat + ' Blocks', canvas.width / 2, 220);
+      } else if (mode === 'ta-60') {
+        ctx.fillText(primaryStat + ' Blocks', canvas.width / 2, 220);
+      } else {
+        ctx.fillText(primaryStat + ' Placed', canvas.width / 2, 220);
+      }
+
+      // Secondary stat for endless
+      if (mode === 'endless' && secondaryStat !== null) {
+        ctx.font = 'bold 24px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+        ctx.fillStyle = '#d1d5db';
+        ctx.fillText(secondaryStat + ' Moves Survived', canvas.width / 2, 270);
+      }
+
+      // Username and rank section
+      ctx.font = 'bold 24px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+      ctx.fillStyle = '#9ca3af';
+      const usernameY = mode === 'endless' && secondaryStat !== null ? 350 : 300;
+      ctx.fillText(username, canvas.width / 2, usernameY);
+
+      // Rank if available
+      if (callback) {
+        try {
+          const leaderboardRes = await fetch(callback.endpoint, { headers });
+          if (leaderboardRes.ok) {
+            const leaderboardData = await leaderboardRes.json();
+            if (leaderboardData.self && leaderboardData.self.rank) {
+              ctx.font = 'bold 32px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+              ctx.fillStyle = modeInfo.color;
+              ctx.fillText('#' + leaderboardData.self.rank + ' on leaderboard', canvas.width / 2, usernameY + 70);
+            }
+          }
+        } catch (_) {
+          // Rank unavailable, continue without it
+        }
+      }
+
+      // Footer branding
+      ctx.font = 'bold 18px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+      ctx.fillStyle = '#6b7280';
+      ctx.fillText('block-game', canvas.width / 2, canvas.height - 60);
+      ctx.font = '14px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+      ctx.fillStyle = '#4b5563';
+      ctx.fillText('Share your score 🎮', canvas.width / 2, canvas.height - 20);
+
+      // Download the image
+      canvas.toBlob((blob) => {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'block-game-score-' + Date.now() + '.png';
+        a.click();
+        URL.revokeObjectURL(url);
+      }, 'image/png');
+    }
+
+    // Share Score button handlers
+    document.getElementById('ta-share-score').addEventListener('click', () => {
+      generateScoreImage('ta', taScore, null, { endpoint: '/api/ta-leaderboard' });
+    });
+
+    document.getElementById('ta-60-share-score').addEventListener('click', () => {
+      generateScoreImage('ta-60', ta60Score, null, { endpoint: '/api/ta-60-leaderboard' });
+    });
+
+    document.getElementById('endless-share-score').addEventListener('click', () => {
+      generateScoreImage('endless', endlessBlocksPlaced, endlessMovesStarted, { endpoint: '/api/endless-leaderboard' });
+    });
+
+    // ---- Player profile panel ----
+    const profilePanelEl = document.getElementById('profile-panel');
+    const profileUsernameEl = document.getElementById('profile-username');
+    const profileContentEl = document.getElementById('profile-content');
+
+    function closeProfile() {
+      profilePanelEl.classList.add('hidden');
+    }
+
+    async function showProfile(username) {
+      profilePanelEl.classList.remove('hidden');
+      profileUsernameEl.textContent = 'Loading…';
+      profileContentEl.innerHTML = '<div class="text-zinc-400 text-xs">Fetching profile…</div>';
+
+      try {
+        const res = await fetch('/api/profile/' + encodeURIComponent(username), { headers });
+        if (!res.ok) {
+          profileContentEl.innerHTML = '<p class="py-2 text-zinc-400 text-xs">Player not found</p>';
+          profileUsernameEl.textContent = username;
+          return;
+        }
+        const profile = await res.json();
+        renderProfileData(profile);
+      } catch (err) {
+        profileContentEl.innerHTML = '<p class="py-2 text-zinc-400 text-xs">Error loading profile</p>';
+        profileUsernameEl.textContent = username;
+      }
+    }
+
+    function renderProfileData(profile) {
+      profileUsernameEl.textContent = profile.username;
+      let html = '';
+
+      // Classic mode
+      if (profile.stats.classic.blocks_placed > 0 || profile.stats.classic.total_score > 0) {
+        html += '<div class="mb-3 pb-3 border-b border-zinc-700/60">' +
+          '<div class="text-xs font-semibold text-zinc-300 mb-2">🏗️ Classic</div>' +
+          '<div class="text-xs space-y-1">' +
+          '<div class="flex justify-between"><span class="text-zinc-400">Score</span><span class="text-zinc-100 font-mono">' + profile.stats.classic.total_score + '</span></div>' +
+          '<div class="flex justify-between"><span class="text-zinc-400">Blocks</span><span class="text-zinc-100 font-mono">' + profile.stats.classic.blocks_placed + '</span></div>' +
+          '<div class="flex justify-between"><span class="text-zinc-400">Best Combo</span><span class="text-zinc-100 font-mono">×' + profile.stats.classic.best_combo + '</span></div>' +
+          (profile.stats.classic.rank ? '<div class="flex justify-between"><span class="text-zinc-400">Rank</span><span class="text-amber-400 font-mono">#' + profile.stats.classic.rank + '</span></div>' : '') +
+          '</div></div>';
+      }
+
+      // Time Attack
+      if (profile.stats.ta.best_cleared > 0) {
+        html += '<div class="mb-3 pb-3 border-b border-zinc-700/60">' +
+          '<div class="text-xs font-semibold text-zinc-300 mb-2">⚡ Time Attack</div>' +
+          '<div class="text-xs space-y-1">' +
+          '<div class="flex justify-between"><span class="text-zinc-400">Best Cleared</span><span class="text-zinc-100 font-mono">' + profile.stats.ta.best_cleared + '</span></div>' +
+          '<div class="flex justify-between"><span class="text-zinc-400">Difficulty</span><span class="text-amber-400 font-mono">Lvl ' + profile.stats.ta.best_difficulty + '</span></div>' +
+          (profile.stats.ta.rank ? '<div class="flex justify-between"><span class="text-zinc-400">Rank</span><span class="text-amber-400 font-mono">#' + profile.stats.ta.rank + '</span></div>' : '') +
+          '</div></div>';
+      }
+
+      // Time Attack 60s
+      if (profile.stats.ta_60.best_cleared > 0) {
+        html += '<div class="mb-3 pb-3 border-b border-zinc-700/60">' +
+          '<div class="text-xs font-semibold text-zinc-300 mb-2">⏱️ Time Attack (60s)</div>' +
+          '<div class="text-xs space-y-1">' +
+          '<div class="flex justify-between"><span class="text-zinc-400">Best Cleared</span><span class="text-zinc-100 font-mono">' + profile.stats.ta_60.best_cleared + '</span></div>' +
+          (profile.stats.ta_60.rank ? '<div class="flex justify-between"><span class="text-zinc-400">Rank</span><span class="text-cyan-400 font-mono">#' + profile.stats.ta_60.rank + '</span></div>' : '') +
+          '</div></div>';
+      }
+
+      // Endless mode
+      if (profile.stats.endless.best_placed > 0) {
+        html += '<div class="mb-3 pb-3 border-b border-zinc-700/60">' +
+          '<div class="text-xs font-semibold text-zinc-300 mb-2">♾️ Endless</div>' +
+          '<div class="text-xs space-y-1">' +
+          '<div class="flex justify-between"><span class="text-zinc-400">Best Placed</span><span class="text-zinc-100 font-mono">' + profile.stats.endless.best_placed + '</span></div>' +
+          '<div class="flex justify-between"><span class="text-zinc-400">Moves Survived</span><span class="text-zinc-100 font-mono">' + profile.stats.endless.best_moves_survived + '</span></div>' +
+          (profile.stats.endless.rank ? '<div class="flex justify-between"><span class="text-zinc-400">Rank</span><span class="text-green-400 font-mono">#' + profile.stats.endless.rank + '</span></div>' : '') +
+          '</div></div>';
+      }
+
+      // Badges
+      if (profile.badges.length > 0) {
+        html += '<div class="mb-3 pb-3 border-b border-zinc-700/60">' +
+          '<div class="text-xs font-semibold text-zinc-300 mb-2">🏅 Badges (' + profile.badges.length + ')</div>' +
+          '<div class="flex flex-wrap gap-2">';
+        for (const badge of profile.badges) {
+          html += '<div class="group relative">' +
+            '<span class="text-lg cursor-help">' + escapeHtml(badge.icon) + '</span>' +
+            '<div class="invisible group-hover:visible absolute bottom-full left-0 bg-zinc-800 text-zinc-100 text-xs p-2 rounded whitespace-nowrap z-50">' +
+            escapeHtml(badge.name) + '</div></div>';
+        }
+        html += '</div></div>';
+      }
+
+      // Block types
+      if (profile.block_types_used > 0) {
+        html += '<div class="text-xs text-zinc-400">' +
+          'Block types used: <span class="text-zinc-100 font-semibold">' + profile.block_types_used + '</span>' +
+          '</div>';
+      }
+
+      profileContentEl.innerHTML = html || '<p class="text-zinc-400 text-xs">No stats yet</p>';
+    }
+
     function setLeaderboardTab(tab) {
       leaderboardTab = tab;
-      const tabs = { alltime: 'tab-alltime', tournament: 'tab-tournament', ta: 'tab-ta', 'ta-60': 'tab-ta-60', 'daily-challenge': 'tab-daily-challenge', endless: 'tab-endless' };
+      const tabs = { alltime: 'tab-alltime', tournament: 'tab-tournament', ta: 'tab-ta', 'ta-60': 'tab-ta-60', 'daily-challenge': 'tab-daily-challenge', endless: 'tab-endless', puzzle: 'tab-puzzle' };
       for (const [key2, id] of Object.entries(tabs)) {
         const el = document.getElementById(id);
         if (!el) continue;
@@ -4087,7 +5373,7 @@
           data.entries.map(e =>
             '<tr class="border-b border-zinc-800/60 last:border-0">' +
             '<td class="py-1">' + (medals[e.rank - 1] || e.rank) + '</td>' +
-            '<td class="py-1 pl-2 max-w-[160px] truncate">' + escapeHtml(e.username) + '</td>' +
+            '<td class="py-1 pl-2 max-w-[160px] truncate"><button class="text-violet-400 hover:text-violet-300 hover:underline cursor-pointer" data-profile-btn>' + escapeHtml(e.username) + '</button></td>' +
             '<td class="py-1 text-right font-mono text-zinc-100">' + e.score + '</td></tr>'
           ).join('') +
           '</tbody></table>';
@@ -4095,7 +5381,7 @@
           html += '<div class="mt-2 pt-2 border-t border-zinc-700 text-xs">' +
             '<table class="w-full"><tbody><tr class="text-violet-300">' +
             '<td class="w-8">' + (medals[data.self.rank - 1] || data.self.rank) + '</td>' +
-            '<td class="pl-2 max-w-[140px] truncate">' + escapeHtml(data.self.username) + ' (you)</td>' +
+            '<td class="pl-2 max-w-[140px] truncate"><button class="text-violet-300 hover:text-violet-200 hover:underline cursor-pointer" data-profile-btn>' + escapeHtml(data.self.username) + '</button> (you)</td>' +
             '<td class="text-right font-mono">' + data.self.score + '</td>' +
             '</tr></tbody></table></div>';
         }
@@ -4108,12 +5394,16 @@
           '<div class="text-zinc-500 text-xs mb-1">Last week (' + escapeHtml(formatWeekRange(lws, lwe)) + ')</div>' +
           data.last_week.entries.map(e =>
             '<div class="flex justify-between text-xs py-0.5">' +
-            '<span>' + (medals[e.rank - 1] || e.rank) + ' ' + escapeHtml(e.username) + '</span>' +
+            '<span>' + (medals[e.rank - 1] || e.rank) + ' <button class="text-violet-400 hover:text-violet-300 hover:underline cursor-pointer" data-profile-btn>' + escapeHtml(e.username) + '</button></span>' +
             '<span class="font-mono text-zinc-300">' + e.score + '</span></div>'
           ).join('') + '</div>';
       }
 
       leaderboardContentEl.innerHTML = html;
+      // Attach click handlers to profile buttons
+      for (const btn of leaderboardContentEl.querySelectorAll('[data-profile-btn]')) {
+        btn.addEventListener('click', () => showProfile(btn.textContent));
+      }
     }
 
     function renderTaLeaderboard(data) {
@@ -4133,7 +5423,7 @@
         data.entries.map(e =>
           '<tr class="border-b border-zinc-800/60 last:border-0">' +
           '<td class="py-1">' + (medals[e.rank - 1] || e.rank) + '</td>' +
-          '<td class="py-1 pl-2 max-w-[130px] truncate">' + escapeHtml(e.username) + '</td>' +
+          '<td class="py-1 pl-2 max-w-[130px] truncate"><button class="text-violet-400 hover:text-violet-300 hover:underline cursor-pointer" data-profile-btn>' + escapeHtml(e.username) + '</button></td>' +
           '<td class="py-1 text-right font-mono text-zinc-100">' + e.best_cleared + '</td>' +
           '<td class="py-1 text-right pl-2 text-amber-400">' + escapeHtml(diffLabel(e.best_difficulty)) + '</td></tr>'
         ).join('') +
@@ -4142,12 +5432,16 @@
         html += '<div class="mt-2 pt-2 border-t border-zinc-700 text-xs">' +
           '<table class="w-full"><tbody><tr class="text-violet-300">' +
           '<td class="w-8">' + (medals[data.self.rank - 1] || data.self.rank) + '</td>' +
-          '<td class="pl-2 max-w-[120px] truncate">' + escapeHtml(data.self.username) + ' (you)</td>' +
+          '<td class="pl-2 max-w-[120px] truncate"><button class="text-violet-300 hover:text-violet-200 hover:underline cursor-pointer" data-profile-btn>' + escapeHtml(data.self.username) + '</button> (you)</td>' +
           '<td class="text-right font-mono">' + data.self.best_cleared + '</td>' +
           '<td class="text-right pl-2 text-amber-400">' + escapeHtml(diffLabel(data.self.best_difficulty)) + '</td>' +
           '</tr></tbody></table></div>';
       }
       leaderboardContentEl.innerHTML = html;
+      // Attach click handlers to profile buttons
+      for (const btn of leaderboardContentEl.querySelectorAll('[data-profile-btn]')) {
+        btn.addEventListener('click', () => showProfile(btn.textContent));
+      }
     }
 
     function renderTa60Leaderboard(data) {
@@ -4165,7 +5459,7 @@
         data.entries.map(e =>
           '<tr class="border-b border-zinc-800/60 last:border-0">' +
           '<td class="py-1">' + (medals[e.rank - 1] || e.rank) + '</td>' +
-          '<td class="py-1 pl-2 max-w-[130px] truncate">' + escapeHtml(e.username) + '</td>' +
+          '<td class="py-1 pl-2 max-w-[130px] truncate"><button class="text-violet-400 hover:text-violet-300 hover:underline cursor-pointer" data-profile-btn>' + escapeHtml(e.username) + '</button></td>' +
           '<td class="py-1 text-right font-mono text-zinc-100">' + e.best_cleared + '</td></tr>'
         ).join('') +
         '</tbody></table>';
@@ -4173,11 +5467,15 @@
         html += '<div class="mt-2 pt-2 border-t border-zinc-700 text-xs">' +
           '<table class="w-full"><tbody><tr class="text-cyan-300">' +
           '<td class="w-8">' + (medals[data.self.rank - 1] || data.self.rank) + '</td>' +
-          '<td class="pl-2 max-w-[120px] truncate">' + escapeHtml(data.self.username) + ' (you)</td>' +
+          '<td class="pl-2 max-w-[120px] truncate"><button class="text-cyan-300 hover:text-cyan-200 hover:underline cursor-pointer" data-profile-btn>' + escapeHtml(data.self.username) + '</button> (you)</td>' +
           '<td class="text-right font-mono">' + data.self.best_cleared + '</td>' +
           '</tr></tbody></table></div>';
       }
       leaderboardContentEl.innerHTML = html;
+      // Attach click handlers to profile buttons
+      for (const btn of leaderboardContentEl.querySelectorAll('[data-profile-btn]')) {
+        btn.addEventListener('click', () => showProfile(btn.textContent));
+      }
     }
 
     async function loadTournamentTeaser() {
@@ -4244,11 +5542,25 @@
         } catch (_) {
           leaderboardContentEl.innerHTML = '<p class="py-1 text-zinc-500">Couldn\'t load Endless scores.</p>';
         }
+      } else if (leaderboardTab === 'puzzle') {
+        try {
+          const res = await fetch('/api/puzzle-leaderboard', { headers });
+          if (!res.ok) throw new Error('fetch failed');
+          renderPuzzleLeaderboard(await res.json());
+        } catch (_) {
+          leaderboardContentEl.innerHTML = '<p class="py-1 text-zinc-500">Couldn\'t load Puzzle scores.</p>';
+        }
       } else {
         try {
           const res = await fetch('/api/leaderboard', { headers });
           if (!res.ok) throw new Error('fetch failed');
-          const { entries } = await res.json();
+          const lbData = await res.json();
+          const { entries } = lbData;
+          if (lbData.self != null) {
+            myBlocksPlaced = lbData.self.blocks_placed;
+            renderBlocksPlacedHud();
+            blocksPlacedHudEl.classList.remove('hidden');
+          }
           if (!entries.length) {
             leaderboardContentEl.innerHTML = '<p class="py-1">No builders yet — be the first!</p>';
           } else {
@@ -4261,10 +5573,14 @@
               entries.map(e =>
                 '<tr class="border-b border-zinc-800/60 last:border-0">' +
                 '<td class="py-1 text-zinc-500">' + e.rank + '</td>' +
-                '<td class="py-1 pl-2 max-w-[180px] truncate">' + escapeHtml(e.username) + '</td>' +
+                '<td class="py-1 pl-2 max-w-[180px] truncate"><button class="text-violet-400 hover:text-violet-300 hover:underline cursor-pointer" data-profile-btn>' + escapeHtml(e.username) + '</button></td>' +
                 '<td class="py-1 text-right font-mono text-zinc-100">' + e.count + '</td></tr>'
               ).join('') +
               '</tbody></table>';
+            // Attach click handlers to profile buttons
+            for (const btn of leaderboardContentEl.querySelectorAll('[data-profile-btn]')) {
+              btn.addEventListener('click', () => showProfile(btn.textContent));
+            }
           }
         } catch (_) {
           leaderboardContentEl.innerHTML = '<p class="py-1 text-zinc-500">Couldn\'t load leaderboard.</p>';
@@ -4303,7 +5619,7 @@
           }
           return '<tr class="border-b border-zinc-800/60 last:border-0">' +
             '<td class="py-1">' + (medals[e.rank - 1] || e.rank) + '</td>' +
-            '<td class="py-1 pl-2 max-w-[120px] truncate">' + escapeHtml(e.username) + '</td>' +
+            '<td class="py-1 pl-2 max-w-[120px] truncate"><button class="text-violet-400 hover:text-violet-300 hover:underline cursor-pointer" data-profile-btn>' + escapeHtml(e.username) + '</button></td>' +
             '<td class="py-1 text-right font-mono text-zinc-100">' + e.blocks_placed + '</td>' +
             '<td class="py-1 text-right pl-1 text-fuchsia-400">' + timeStr + '</td></tr>';
         }).join('') +
@@ -4320,12 +5636,16 @@
         html += '<div class="mt-2 pt-2 border-t border-zinc-700 text-xs">' +
           '<table class="w-full"><tbody><tr class="text-fuchsia-300">' +
           '<td class="w-8">' + (medals[data.self.rank - 1] || data.self.rank) + '</td>' +
-          '<td class="pl-2 max-w-[100px] truncate">' + escapeHtml(data.self.username) + ' (you)</td>' +
+          '<td class="pl-2 max-w-[100px] truncate"><button class="text-fuchsia-300 hover:text-fuchsia-200 hover:underline cursor-pointer" data-profile-btn>' + escapeHtml(data.self.username) + '</button> (you)</td>' +
           '<td class="text-right font-mono">' + data.self.blocks_placed + '</td>' +
           '<td class="text-right pl-1">' + timeStr + '</td>' +
           '</tr></tbody></table></div>';
       }
       leaderboardContentEl.innerHTML = html;
+      // Attach click handlers to profile buttons
+      for (const btn of leaderboardContentEl.querySelectorAll('[data-profile-btn]')) {
+        btn.addEventListener('click', () => showProfile(btn.textContent));
+      }
     }
 
     function renderEndlessLeaderboard(data) {
@@ -4344,7 +5664,7 @@
         data.entries.map(e =>
           '<tr class="border-b border-zinc-800/60 last:border-0">' +
           '<td class="py-1">' + (medals[e.rank - 1] || e.rank) + '</td>' +
-          '<td class="py-1 pl-2 max-w-[130px] truncate">' + escapeHtml(e.username) + '</td>' +
+          '<td class="py-1 pl-2 max-w-[130px] truncate"><button class="text-violet-400 hover:text-violet-300 hover:underline cursor-pointer" data-profile-btn>' + escapeHtml(e.username) + '</button></td>' +
           '<td class="py-1 text-right font-mono text-zinc-100">' + e.best_placed + '</td>' +
           '<td class="py-1 text-right pl-1 text-rose-400">' + e.best_moves_survived + '</td></tr>'
         ).join('') +
@@ -4353,21 +5673,73 @@
         html += '<div class="mt-2 pt-2 border-t border-zinc-700 text-xs">' +
           '<table class="w-full"><tbody><tr class="text-rose-300">' +
           '<td class="w-8">' + (medals[data.self.rank - 1] || data.self.rank) + '</td>' +
-          '<td class="pl-2 max-w-[110px] truncate">' + escapeHtml(data.self.username) + ' (you)</td>' +
+          '<td class="pl-2 max-w-[110px] truncate"><button class="text-rose-300 hover:text-rose-200 hover:underline cursor-pointer" data-profile-btn>' + escapeHtml(data.self.username) + '</button> (you)</td>' +
           '<td class="text-right font-mono">' + data.self.best_placed + '</td>' +
           '<td class="text-right pl-1 text-rose-300">' + data.self.best_moves_survived + '</td>' +
           '</tr></tbody></table></div>';
       }
       leaderboardContentEl.innerHTML = html;
+      // Attach click handlers to profile buttons
+      for (const btn of leaderboardContentEl.querySelectorAll('[data-profile-btn]')) {
+        btn.addEventListener('click', () => showProfile(btn.textContent));
+      }
     }
+
+    function renderPuzzleLeaderboard(data) {
+      const medals = ['🥇', '🥈', '🥉'];
+      if (!data.entries.length) {
+        leaderboardContentEl.innerHTML =
+          '<p class="py-1 text-center text-zinc-400">No scores yet — solve some puzzles!</p>';
+        return;
+      }
+      let html = '<table class="w-full text-xs">' +
+        '<thead><tr class="text-zinc-500 uppercase border-b border-zinc-700">' +
+        '<th class="text-left pb-1 w-8">#</th>' +
+        '<th class="text-left pb-1 pl-2">Player</th>' +
+        '<th class="text-right pb-1">Level</th>' +
+        '<th class="text-right pb-1 pl-1">Blocks</th></tr></thead><tbody>' +
+        data.entries.map(e =>
+          '<tr class="border-b border-zinc-800/60 last:border-0">' +
+          '<td class="py-1">' + (medals[e.rank - 1] || e.rank) + '</td>' +
+          '<td class="py-1 pl-2 max-w-[130px] truncate"><button class="text-violet-400 hover:text-violet-300 hover:underline cursor-pointer" data-profile-btn>' + escapeHtml(e.username) + '</button></td>' +
+          '<td class="py-1 text-right font-mono text-zinc-100">' + e.highest_level + '</td>' +
+          '<td class="py-1 text-right pl-1 text-indigo-400">' + e.total_blocks_cleared_best_session + '</td></tr>'
+        ).join('') +
+        '</tbody></table>';
+      if (data.self && !data.entries.find(e => e.user_id === data.self.user_id)) {
+        html += '<div class="mt-2 pt-2 border-t border-zinc-700 text-xs">' +
+          '<table class="w-full"><tbody><tr class="text-indigo-300">' +
+          '<td class="w-8">' + (medals[data.self.rank - 1] || data.self.rank) + '</td>' +
+          '<td class="pl-2 max-w-[110px] truncate"><button class="text-indigo-300 hover:text-indigo-200 hover:underline cursor-pointer" data-profile-btn>' + escapeHtml(data.self.username) + '</button> (you)</td>' +
+          '<td class="text-right font-mono">' + data.self.highest_level + '</td>' +
+          '<td class="text-right pl-1 text-indigo-300">' + data.self.total_blocks_cleared_best_session + '</td>' +
+          '</tr></tbody></table></div>';
+      }
+      leaderboardContentEl.innerHTML = html;
+      // Attach click handlers to profile buttons
+      for (const btn of leaderboardContentEl.querySelectorAll('[data-profile-btn]')) {
+        btn.addEventListener('click', () => showProfile(btn.textContent));
+      }
+    }
+
     document.getElementById('leaderboard-btn').addEventListener('click', toggleLeaderboard);
     document.getElementById('leaderboard-close').addEventListener('click', closeLeaderboard);
+    document.getElementById('profile-close').addEventListener('click', closeProfile);
     document.getElementById('tab-alltime').addEventListener('click', () => setLeaderboardTab('alltime'));
     document.getElementById('tab-tournament').addEventListener('click', () => setLeaderboardTab('tournament'));
     document.getElementById('tab-ta').addEventListener('click', () => setLeaderboardTab('ta'));
     document.getElementById('tab-ta-60').addEventListener('click', () => setLeaderboardTab('ta-60'));
     document.getElementById('tab-daily-challenge').addEventListener('click', () => setLeaderboardTab('daily-challenge'));
     document.getElementById('tab-endless').addEventListener('click', () => setLeaderboardTab('endless'));
+    document.getElementById('tab-puzzle').addEventListener('click', () => setLeaderboardTab('puzzle'));
+
+    // Close profile on ESC key
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        if (!profilePanelEl.classList.contains('hidden')) closeProfile();
+        else if (!leaderboardEl.classList.contains('hidden')) closeLeaderboard();
+      }
+    });
 
     // ---- Friends panel ----
     const friendsPanelEl = document.getElementById('friends-panel');
@@ -4546,31 +5918,13 @@
       // Force reflow then fade in.
       void coachBubbleEl.offsetWidth;
       coachBubbleEl.style.opacity = '1';
-      if (coachDismissTimer) clearTimeout(coachDismissTimer);
-      coachDismissTimer = setTimeout(() => {
-        coachBubbleEl.style.opacity = '0';
-        coachDismissTimer = setTimeout(() => {
-          coachBubbleEl.classList.add('hidden');
-          coachDismissTimer = null;
-        }, 350);
-      }, 8000);
     }
 
     function showCoachUnavailable() {
-      const prev = coachTipTextEl.textContent;
       coachTipTextEl.textContent = 'Coach is resting — try again later.';
       coachBubbleEl.classList.remove('hidden');
       void coachBubbleEl.offsetWidth;
       coachBubbleEl.style.opacity = '1';
-      if (coachDismissTimer) clearTimeout(coachDismissTimer);
-      coachDismissTimer = setTimeout(() => {
-        coachBubbleEl.style.opacity = '0';
-        coachDismissTimer = setTimeout(() => {
-          coachBubbleEl.classList.add('hidden');
-          coachTipTextEl.textContent = prev;
-          coachDismissTimer = null;
-        }, 350);
-      }, 3000);
     }
 
     async function fetchCoachTip(trigger, badgeName, _retried) {
@@ -4630,9 +5984,234 @@
       }
     }
 
+    // ---- Undo/Redo/History button wiring ----
+    document.getElementById('undo-btn').addEventListener('click', undo);
+    document.getElementById('redo-btn').addEventListener('click', redo);
+    document.getElementById('history-undo-btn').addEventListener('click', undo);
+    document.getElementById('history-redo-btn').addEventListener('click', redo);
+    document.getElementById('history-btn').addEventListener('click', () => {
+      document.getElementById('history-panel').classList.toggle('hidden');
+    });
+    document.getElementById('history-close').addEventListener('click', () => {
+      document.getElementById('history-panel').classList.add('hidden');
+    });
+
     coachBtnEl.addEventListener('click', () => fetchCoachTip('player_asked'));
+
+    // ---- Daily Build Theme panel ----
+    const themePanelEl = document.getElementById('theme-panel');
+    const themeContentEl = document.getElementById('theme-content');
+    const themeBtnEl = document.getElementById('theme-btn');
+    let themeTimer = null;
+    let themeData = null;
+
+    function closeThemePanel() {
+      themePanelEl.classList.add('hidden');
+      if (themeTimer !== null) { clearTimeout(themeTimer); themeTimer = null; }
+    }
+
+    function toggleThemePanel() {
+      if (themePanelEl.classList.contains('hidden')) {
+        themePanelEl.classList.remove('hidden');
+        fetchTheme();
+      } else {
+        closeThemePanel();
+      }
+    }
+
+    function themeCountdownText(themeDateStr) {
+      const midnight = new Date(themeDateStr + 'T00:00:00Z').getTime() + 86400000;
+      const msLeft = midnight - Date.now();
+      return msLeft > 0 ? formatCountdown(msLeft) : 'Closed';
+    }
+
+    function renderThemePanel(data) {
+      themeData = data;
+      const yesterday = data.yesterday;
+      const nominations = data.nominations || [];
+      const myNom = data.my_nomination;
+      const myVote = data.my_vote;
+      let html = '';
+
+      // Yesterday's winner
+      if (yesterday) {
+        html += '<div class="mb-3 pb-2 border-b border-zinc-700/60 text-xs">';
+        html += '<div class="text-zinc-500 mb-0.5">Yesterday — ' + escapeHtml(yesterday.theme_name) + '</div>';
+        if (yesterday.winner_username) {
+          let jumpBtn = '';
+          if (yesterday.anchor) {
+            jumpBtn = ' <button class="theme-jump-btn text-violet-400 hover:text-violet-300 underline cursor-pointer" data-x="' +
+              yesterday.anchor.anchor_x + '" data-y="' + yesterday.anchor.anchor_y + '" data-z="' + yesterday.anchor.anchor_z +
+              '" title="Jump to build">view</button>';
+          }
+          html += '<div class="font-semibold text-amber-300">🥇 ' + escapeHtml(yesterday.winner_username) + jumpBtn + '</div>';
+        } else {
+          html += '<div class="text-zinc-600 italic">No nominations yesterday</div>';
+        }
+        html += '</div>';
+      }
+
+      // Today's theme header
+      html += '<div class="mb-3">';
+      html += '<div class="text-base font-bold text-zinc-100">🎨 ' + escapeHtml(data.theme_name) + '</div>';
+      html += '<div class="text-xs text-zinc-400 mt-0.5">Closes in ' + themeCountdownText(data.theme_date) + '</div>';
+      html += '</div>';
+
+      // Nominate section
+      if (!myNom) {
+        html += '<div id="theme-nominate-area" class="mb-3">';
+        html += '<button id="theme-nominate-btn" class="w-full py-1.5 px-3 bg-violet-600 hover:bg-violet-500 active:bg-violet-700 text-white text-xs font-semibold rounded cursor-pointer transition-colors">Nominate my build</button>';
+        html += '</div>';
+      } else {
+        html += '<div class="mb-2 text-xs text-emerald-400 font-semibold">✓ You nominated — ' + escapeHtml(myNom.description) + '</div>';
+      }
+
+      // Nominations list
+      if (!nominations.length) {
+        html += '<p class="text-zinc-500 text-xs py-1">No nominations yet — be first!</p>';
+      } else {
+        html += '<div class="text-zinc-500 text-[10px] font-semibold uppercase tracking-wide mb-1.5">Nominations</div>';
+        html += '<div class="space-y-2 max-h-52 overflow-y-auto pr-0.5">';
+        for (const nom of nominations) {
+          const isMine = myNom && nom.user_id === myNom.user_id;
+          const isVoted = myVote === nom.user_id;
+          const canVote = !isMine && myVote === null;
+          html += '<div class="flex items-start gap-2">';
+          // Vote control
+          if (isMine) {
+            html += '<span class="shrink-0 text-[10px] text-violet-400 mt-1 font-semibold leading-none">you</span>';
+          } else if (isVoted) {
+            html += '<span class="shrink-0 text-base text-amber-400 leading-none mt-0.5" title="Your vote">👍</span>';
+          } else if (canVote) {
+            html += '<button class="theme-vote-btn shrink-0 text-base text-zinc-500 hover:text-amber-400 cursor-pointer transition-colors leading-none mt-0.5" data-uid="' + nom.user_id + '" title="Vote">👍</button>';
+          } else {
+            html += '<span class="shrink-0 text-base text-zinc-700 leading-none mt-0.5">👍</span>';
+          }
+          html += '<div class="flex-1 min-w-0">';
+          html += '<div class="flex items-center gap-1">';
+          html += '<span class="font-semibold text-xs truncate' + (isMine ? ' text-violet-300' : '') + '">' + escapeHtml(nom.username) + '</span>';
+          html += '<span class="text-[10px] text-zinc-500 font-mono ml-auto shrink-0">' + nom.vote_count + 'v</span>';
+          html += '<button class="theme-jump-btn shrink-0 text-[11px] text-zinc-500 hover:text-violet-400 cursor-pointer ml-1 leading-none" data-x="' +
+            nom.anchor_x + '" data-y="' + nom.anchor_y + '" data-z="' + nom.anchor_z + '" title="Fly to build">⊙</button>';
+          html += '</div>';
+          html += '<div class="text-[11px] text-zinc-400 truncate leading-tight">' + escapeHtml(nom.description) + '</div>';
+          html += '</div>';
+          html += '</div>';
+        }
+        html += '</div>';
+      }
+
+      themeContentEl.innerHTML = html;
+
+      // Bind vote buttons
+      for (const btn of themeContentEl.querySelectorAll('.theme-vote-btn')) {
+        btn.addEventListener('click', () => castThemeVote(Number(btn.dataset.uid)));
+      }
+      // Bind jump buttons (camera teleport, suppressed during Time Attack)
+      for (const btn of themeContentEl.querySelectorAll('.theme-jump-btn')) {
+        btn.addEventListener('click', () => {
+          if (gameMode === 'timeattack') return;
+          const x = Number(btn.dataset.x), y = Number(btn.dataset.y), z = Number(btn.dataset.z);
+          camera.position.set(x + 0.5, y + 5, z + 9);
+          const dir = new THREE.Vector3(x + 0.5, y + 1, z + 0.5).sub(camera.position).normalize();
+          pitch = Math.asin(Math.max(-1, Math.min(1, dir.y)));
+          yaw = Math.atan2(-dir.x, -dir.z);
+          applyLook();
+        });
+      }
+      // Bind nominate button
+      const nomBtnEl = document.getElementById('theme-nominate-btn');
+      if (nomBtnEl) nomBtnEl.addEventListener('click', showNominateForm);
+    }
+
+    function showNominateForm() {
+      const areaEl = document.getElementById('theme-nominate-area');
+      if (!areaEl) return;
+      const ax = Math.round(Math.max(0, Math.min(31, camera.position.x)));
+      const ay = Math.max(1, Math.min(23, Math.round(camera.position.y - 1)));
+      const az = Math.round(Math.max(0, Math.min(31, camera.position.z)));
+      areaEl.innerHTML =
+        '<div class="text-[10px] text-zinc-500 mb-1">Anchor: (' + ax + ', ' + ay + ', ' + az + ') — your current position</div>' +
+        '<input id="theme-desc-input" type="text" maxlength="80" placeholder="Describe your build…" autocomplete="off"' +
+        '  class="w-full bg-zinc-800 text-zinc-100 text-xs rounded px-2 py-1.5 border border-zinc-700 focus:border-violet-500 outline-none placeholder-zinc-500 mb-1.5">' +
+        '<div id="theme-desc-count" class="text-[10px] text-zinc-500 text-right mb-1">0 / 80</div>' +
+        '<div class="flex gap-2">' +
+        '  <button id="theme-submit-btn" class="flex-1 py-1.5 bg-violet-600 hover:bg-violet-500 text-white text-xs font-semibold rounded cursor-pointer transition-colors">Submit</button>' +
+        '  <button id="theme-cancel-btn" class="px-3 py-1.5 bg-zinc-700 hover:bg-zinc-600 text-zinc-200 text-xs rounded cursor-pointer">Cancel</button>' +
+        '</div>' +
+        '<div id="theme-nominate-status" class="mt-1 text-xs text-center min-h-[1.2em]"></div>';
+
+      const descInput = document.getElementById('theme-desc-input');
+      const countEl = document.getElementById('theme-desc-count');
+      descInput.addEventListener('input', () => { countEl.textContent = descInput.value.length + ' / 80'; });
+      descInput.addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.preventDefault(); fetchTheme(); } });
+      setTimeout(() => descInput.focus(), 30);
+
+      document.getElementById('theme-cancel-btn').addEventListener('click', fetchTheme);
+      document.getElementById('theme-submit-btn').addEventListener('click', async () => {
+        const desc = descInput.value.trim();
+        const statusEl = document.getElementById('theme-nominate-status');
+        if (!desc) { statusEl.textContent = 'Please enter a description.'; statusEl.className = 'mt-1 text-xs text-center text-red-400 min-h-[1.2em]'; return; }
+        statusEl.textContent = '';
+        try {
+          const res = await fetch('/api/theme/nominate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...headers },
+            body: JSON.stringify({ description: desc, anchor_x: ax, anchor_y: ay, anchor_z: az }),
+          });
+          const data = await res.json();
+          if (!res.ok) {
+            statusEl.textContent = data.error || 'Failed.';
+            statusEl.className = 'mt-1 text-xs text-center text-red-400 min-h-[1.2em]';
+          } else {
+            fetchTheme();
+          }
+        } catch (_) {
+          statusEl.textContent = 'Network error.';
+        }
+      });
+    }
+
+    async function castThemeVote(nomineeUserId) {
+      try {
+        const res = await fetch('/api/theme/vote', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...headers },
+          body: JSON.stringify({ nominee_user_id: nomineeUserId }),
+        });
+        if (res.ok) fetchTheme();
+      } catch (_) { /* transient */ }
+    }
+
+    async function fetchTheme() {
+      clearTimeout(themeTimer);
+      themeTimer = null;
+      try {
+        const res = await fetch('/api/theme/today', { headers });
+        if (!res.ok) return;
+        const data = await res.json();
+        renderThemePanel(data);
+        // Refresh earned badges if theme_winner was just awarded (lazy resolution).
+        if (data.yesterday?.winner_user_id && !earnedBadges.has('theme_winner')) {
+          try {
+            const br = await fetch('/api/badges', { headers });
+            if (br.ok) {
+              const bd = await br.json();
+              for (const b of bd.badges) earnedBadges.set(b.id, { earned_at: b.earned_at });
+              if (badgesOpen) renderBadgesPanel();
+            }
+          } catch (_) {}
+        }
+      } catch (_) {}
+      if (!themePanelEl.classList.contains('hidden')) {
+        themeTimer = setTimeout(fetchTheme, 30000);
+      }
+    }
+
+    themeBtnEl.addEventListener('click', toggleThemePanel);
+    document.getElementById('theme-close').addEventListener('click', closeThemePanel);
+
     document.getElementById('coach-dismiss').addEventListener('click', () => {
-      if (coachDismissTimer) { clearTimeout(coachDismissTimer); coachDismissTimer = null; }
       coachBubbleEl.style.opacity = '0';
       setTimeout(() => coachBubbleEl.classList.add('hidden'), 350);
     });
@@ -4856,6 +6435,17 @@
         }
         wrap.appendChild(btn);
       });
+      const stampBtn = document.createElement('button');
+      stampBtn.dataset.id = 'stamp';
+      stampBtn.title = 'Stamp — click and drag to place blocks (mode: ' + (gameMode === 'classic' ? 'enabled' : 'disabled') + ')';
+      stampBtn.className = 'relative w-10 h-10 rounded-md ring-offset-1 ring-offset-black/0 transition text-lg flex items-center justify-center bg-zinc-700 hover:bg-zinc-600';
+      stampBtn.textContent = '📦';
+      if (gameMode !== 'classic' && gameMode !== null && currentWorldId <= 0) {
+        stampBtn.style.opacity = '0.4';
+        stampBtn.style.pointerEvents = 'none';
+      }
+      stampBtn.addEventListener('click', toggleStampMode);
+      wrap.appendChild(stampBtn);
       selectType(selectedType);
       // Reset hold state on world/palette load
       heldType = null;
@@ -4865,9 +6455,18 @@
 
     // ---- Hold queue ----
     function updateHoldPanel() {
+      const p = heldType !== null ? PALETTE.find((q) => q.id === heldType) : null;
+      // On touch the #hold-panel is hidden; reflect hold state on the Hold button instead.
+      if (isTouch) {
+        const holdBtnEl = touchControlsEl.querySelector('[data-act="hold"]');
+        if (holdBtnEl) {
+          holdBtnEl.style.background = p ? p.color : '';
+          holdBtnEl.style.opacity = (p && holdLocked) ? '0.5' : '';
+        }
+        return;
+      }
       const swatchEl = document.getElementById('hold-swatch');
       if (!swatchEl) return;
-      const p = heldType !== null ? PALETTE.find((q) => q.id === heldType) : null;
       if (!p) {
         swatchEl.style.background = '';
         swatchEl.style.opacity = '';
@@ -5003,6 +6602,7 @@
       cursor = data.cursor || 0;
       eventsCursor = data.maxDisasterId || 0;
       unlockedTypes = new Set(data.unlockedTypes || []);
+      isStaging = !!data.isStaging;
       selectedType = PALETTE[0] ? PALETTE[0].id : 1;
       blocks.clear();
       for (const b of data.blocks) blocks.set(key(b.x, b.y, b.z), b.t);
@@ -5011,6 +6611,23 @@
       buildPalette();
       rebuildBlockMeshes();
       spawnCamera();
+      // Pre-populate the undo stack in staging so the history panel has visible content.
+      if (isStaging) {
+        const now = Date.now();
+        const demoEntries = [
+          { x: 16, y: 1, z: 13, from: 0, to: 6 },
+          { x: 14, y: 1, z: 14, from: 0, to: 3 },
+          { x: 18, y: 2, z: 16, from: 0, to: 8 },
+          { x: 16, y: 3, z: 14, from: 0, to: 3 },
+          { x: 16, y: 4, z: 16, from: 0, to: 4 },
+        ];
+        for (let i = 0; i < demoEntries.length; i++) {
+          const e = demoEntries[i];
+          const p = PALETTE.find((q) => q.id === e.to);
+          undoStack.push({ ...e, blockName: p ? p.name : 'Block', ts: now - (demoEntries.length - i) * 30000 });
+        }
+        renderHistoryPanel();
+      }
       return true;
     }
 
@@ -5116,7 +6733,7 @@
     }
 
     async function poll() {
-      if (document.hidden) return;
+      if (document.hidden || paused) return;
 
       // World changes (shared or custom world)
       try {
@@ -5194,8 +6811,11 @@
       updateDayNightCycle(now);
 
       // Expire old buffs so the HUD and multipliers are always current.
-      for (const [type, expiresAt] of activeBuff) {
-        if (now > expiresAt) activeBuff.delete(type);
+      // (only expire while not paused so pause freezes countdown timers)
+      if (!paused) {
+        for (const [type, expiresAt] of activeBuff) {
+          if (now > expiresAt) activeBuff.delete(type);
+        }
       }
 
       if (!playing && turntableEnabled) {
@@ -5263,6 +6883,42 @@
         }
       }
 
+      // Animate mob meshes (position + per-type motion).
+      for (const [, entry] of mobMap) {
+        const g = entry.group;
+        if (!g) continue;
+        const ph = g.userData.phase;
+        if (entry.type === 'slime') {
+          g.position.set(entry.x + 0.5, 1.35 + 0.5 * Math.abs(Math.sin(now * 0.003 + ph)), entry.z + 0.5);
+        } else if (entry.type === 'zombie') {
+          g.position.set(entry.x + 0.5, 1.6, entry.z + 0.5);
+          g.userData.bodyMesh.rotation.z = 0.1 * Math.sin(now * 0.002 + ph);
+        } else {
+          g.position.set(entry.x + 0.5, entry.y + 2 * Math.sin(now * 0.0015 + ph), entry.z + 0.5);
+        }
+      }
+
+      // Hostile mob damage (Classic mode; 2-second inter-hit immunity).
+      if (gameMode === 'classic' && playing && now > deathInvincibleUntil) {
+        for (const [, entry] of mobMap) {
+          const range = MOB_ATTACK_RANGES[entry.type];
+          if (!range) continue;
+          const gx = entry.group ? entry.group.position.x : entry.x + 0.5;
+          const gy = entry.group ? entry.group.position.y : entry.y;
+          const gz = entry.group ? entry.group.position.z : entry.z + 0.5;
+          const dx = camera.position.x - gx;
+          const dy = camera.position.y - gy;
+          const dz = camera.position.z - gz;
+          if (Math.sqrt(dx * dx + dy * dy + dz * dz) < range && now > lastDamagedAt + 2000) {
+            playerHp = Math.max(0, playerHp - MOB_DAMAGE_RATES[entry.type]);
+            lastDamagedAt = now;
+            flashDamage(false);
+            updateHpHud();
+            if (playerHp <= 0) { playerDie(now); break; }
+          }
+        }
+      }
+
       tickParticles(dt);
       updateTarget();
       updateAttribution();
@@ -5285,11 +6941,148 @@
     // Fade the controls hint after a few seconds.
     setTimeout(() => { hintEl.style.opacity = '0'; hintFallbackEl.style.opacity = '0'; }, 6000);
 
+    // ---- First-time tutorial overlay ----
+    // Steps walk new Classic-mode players through 5 core mechanics.
+    // Dismissal is stored in localStorage so it never re-appears.
+    const TUTORIAL_STEPS = [
+      {
+        target: '#crosshair',
+        copy: 'Click anywhere on the screen to lock your mouse and look around. Drag the mouse to turn. Press Esc any time to release.',
+        mobileCopy: 'Drag anywhere on the screen to look around.',
+        padding: 56,
+        cardPos: 'below-center',
+      },
+      {
+        target: null,
+        copy: 'Fly with WASD. Space floats you up; Shift drops you down.',
+        mobileCopy: 'Use the on-screen D-pad to move. Tap Up or Down on the right side to fly.',
+        padding: 0,
+        cardPos: 'center',
+      },
+      {
+        target: '#crosshair',
+        copy: 'Left-click (or press F) to place a block exactly where the crosshair points. Right-click (or press G) to remove one.',
+        mobileCopy: 'Tap Add to place a block where the crosshair points. Tap Delete to remove one.',
+        padding: 56,
+        cardPos: 'below-center',
+      },
+      {
+        target: '#palette',
+        copy: 'Choose a block type from the palette — click a swatch or press keys 1–9. New types unlock as you build more!',
+        padding: 10,
+        cardPos: 'above',
+      },
+      {
+        target: null,
+        copy: 'Place 3+ blocks within 10 seconds to trigger a combo multiplier — reach 2×, 3×, or 5×! Watch the top-left corner for your badge. Also grab glowing orbs around the world for speed and placement boosts.',
+        padding: 0,
+        cardPos: 'center',
+      },
+    ];
+
+    function showTutorial() {
+      const tutorialEl = document.getElementById('tutorial-overlay');
+      const spotlightEl = document.getElementById('tutorial-spotlight');
+      const cardEl = document.getElementById('tutorial-card');
+      const copyEl = document.getElementById('tutorial-copy');
+      const counterEl = document.getElementById('tutorial-counter');
+      const backBtn = document.getElementById('tutorial-back');
+      const nextBtn = document.getElementById('tutorial-next');
+      const skipBtn = document.getElementById('tutorial-skip');
+      const backdropEl = document.getElementById('tutorial-backdrop');
+
+      const isMobile = window.matchMedia('(pointer: coarse)').matches;
+      let step = 0;
+
+      tutorialEl.classList.remove('hidden');
+
+      function placeCard(rect, cardPos) {
+        const margin = 12;
+        const vw = window.innerWidth;
+        const vh = window.innerHeight;
+        const cardW = Math.min(300, vw - margin * 2);
+        cardEl.style.width = cardW + 'px';
+
+        if (!rect || cardPos === 'center') {
+          cardEl.style.left = Math.round((vw - cardW) / 2) + 'px';
+          cardEl.style.top = Math.round(vh / 2 - 90) + 'px';
+          return;
+        }
+        if (cardPos === 'above') {
+          const cardH = cardEl.offsetHeight || 170;
+          cardEl.style.left = Math.max(margin, Math.min(vw - cardW - margin, rect.left)) + 'px';
+          cardEl.style.top = Math.max(margin, rect.top - cardH - 16) + 'px';
+          return;
+        }
+        // below-center default
+        const x = Math.round((rect.left + rect.right) / 2 - cardW / 2);
+        cardEl.style.left = Math.max(margin, Math.min(vw - cardW - margin, x)) + 'px';
+        cardEl.style.top = Math.min(vh - 200, rect.bottom + 20) + 'px';
+      }
+
+      function renderStep(i) {
+        const s = TUTORIAL_STEPS[i];
+        counterEl.textContent = 'Step ' + (i + 1) + ' of ' + TUTORIAL_STEPS.length;
+        copyEl.textContent = (isMobile && s.mobileCopy) ? s.mobileCopy : s.copy;
+        backBtn.classList.toggle('hidden', i === 0);
+        nextBtn.textContent = (i === TUTORIAL_STEPS.length - 1) ? 'Got it!' : 'Next →';
+
+        const targetEl = s.target ? document.querySelector(s.target) : null;
+        const r = targetEl ? targetEl.getBoundingClientRect() : null;
+        const hasSpot = r && r.width > 0 && r.height > 0;
+
+        if (hasSpot) {
+          const p = s.padding || 16;
+          backdropEl.style.opacity = '0';
+          spotlightEl.style.opacity = '1';
+          spotlightEl.style.left = (r.left - p) + 'px';
+          spotlightEl.style.top = (r.top - p) + 'px';
+          spotlightEl.style.width = (r.width + p * 2) + 'px';
+          spotlightEl.style.height = (r.height + p * 2) + 'px';
+          placeCard({ left: r.left - p, right: r.right + p, top: r.top - p, bottom: r.bottom + p }, s.cardPos);
+        } else {
+          backdropEl.style.opacity = '1';
+          spotlightEl.style.opacity = '0';
+          placeCard(null, 'center');
+        }
+      }
+
+      function closeTutorial() {
+        lsSet('blockgame-tutorial-seen', true);
+        tutorialEl.classList.add('hidden');
+        setTimeout(() => fetchCoachTip('mode_start'), 1500);
+      }
+
+      renderStep(0);
+      nextBtn.addEventListener('click', () => {
+        if (step < TUTORIAL_STEPS.length - 1) { step++; renderStep(step); }
+        else closeTutorial();
+      });
+      backBtn.addEventListener('click', () => { if (step > 0) { step--; renderStep(step); } });
+      skipBtn.addEventListener('click', closeTutorial);
+    }
+
     (async function init() {
       updateOrientation();
       refreshControlCopy();
-      // Initialize audio system and start menu background music
+      // Initialize audio system and start menu background music. The
+      // AudioContext is created here, but browser autoplay policy keeps it
+      // suspended until the player's first gesture — so also wire one-shot
+      // listeners that re-run the (idempotent) init on first interaction,
+      // which actually resumes the context and makes the menu music audible.
       audio.init();
+      let audioGestureDone = false;
+      const resumeAudioOnGesture = () => {
+        if (audioGestureDone) return;
+        audioGestureDone = true;
+        audio.init();
+        document.removeEventListener('pointerdown', resumeAudioOnGesture);
+        document.removeEventListener('keydown', resumeAudioOnGesture);
+        document.removeEventListener('touchstart', resumeAudioOnGesture);
+      };
+      document.addEventListener('pointerdown', resumeAudioOnGesture);
+      document.addEventListener('keydown', resumeAudioOnGesture);
+      document.addEventListener('touchstart', resumeAudioOnGesture);
       const ok = await loadWorld();
       if (!ok) return;
       // Fetch earned badges so the panel renders correctly from the first open.
@@ -5325,6 +7118,12 @@
         }
       } catch (_) {}
 
+      // Load initial blocks-placed count from leaderboard self row.
+      fetchLeaderboard().catch(() => {});
+
+      // Load today's build theme (non-fatal).
+      fetchTheme().catch(() => {});
+
       requestAnimationFrame(loop);
       // Poll is started per-mode in onPlayEntered(), not here.
       heartbeat();
@@ -5333,6 +7132,8 @@
       setInterval(pollPresence, 15000);
       pollPowerUps();
       setInterval(pollPowerUps, 1500);
+      pollMobs();
+      setInterval(pollMobs, 2000);
       // Re-fetch challenge every 30s to catch midnight UTC rollover and
       // progress made in other tabs.
       setInterval(async () => {
