@@ -2574,6 +2574,40 @@
       }
     }
 
+    function emitLineClearExplosion(yLevel, lineCount) {
+      if (reducedMotion) return;
+      const lineClearColors = [
+        0xff7f00, 0x00ffff, 0x00ff00, 0xff1493, 0xffff00, 0xee82ee, 0xff4444
+      ];
+      for (let _line = 0; _line < lineCount; _line++) {
+        const cy = yLevel + _line + 0.5;
+        for (let _k = 0; _k < 26; _k++) {
+          const slot = _acquireParticle();
+          if (!slot) break;
+          const angle = Math.random() * Math.PI * 2;
+          const speed = 3 + Math.random() * 2;
+          const verticalVel = (Math.random() - 0.5) * 1;
+          const colorIdx = Math.floor(Math.random() * lineClearColors.length);
+          slot.mesh.material.color.setHex(lineClearColors[colorIdx]);
+          slot.mesh.material.opacity = 1;
+          slot.startOpacity = 1;
+          slot.vx = Math.cos(angle) * speed;
+          slot.vy = verticalVel;
+          slot.vz = Math.sin(angle) * speed;
+          slot.gravity = 2;
+          slot.age = 0;
+          slot.maxAge = 0.7;
+          const scale = 0.4 + Math.random() * 0.3;
+          slot.mesh.scale.setScalar(scale);
+          const randX = Math.random() * DIMS.w;
+          const randZ = Math.random() * DIMS.d;
+          slot.mesh.position.set(randX + 0.5, cy, randZ + 0.5);
+          slot.mesh.visible = true;
+          slot.active = true;
+        }
+      }
+    }
+
     function tickParticles(dt) {
       for (let _j = 0; _j < PARTICLE_POOL_SIZE; _j++) {
         const slot = particlePool[_j];
@@ -3223,6 +3257,9 @@
             if (data.lines_cleared > 0) {
               showLineClearToast(data.line_clear_points);
               audio.playLineClear();
+              const clearedRows = data.lines_cleared || 0;
+              const yLevel = data.lines_cleared_at ? data.lines_cleared_at[0] : 12;
+              emitLineClearExplosion(yLevel, clearedRows);
             }
           }
           if (data.seq && data.seq > cursor) cursor = data.seq;
