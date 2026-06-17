@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en" class="dark">
+<html lang="en" class="dark" id="html-root">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -411,70 +411,70 @@
     <div class="max-w-sm sm:max-w-xl lg:max-w-4xl w-full px-4">
       <div class="text-center mb-6">
         <h1 class="text-3xl sm:text-2xl lg:text-3xl font-bold mb-2" id="header-title">block-game</h1>
-        <p class="text-zinc-300 text-sm">A shared 3D world — build, challenge, or just watch.</p>
+        <p class="text-zinc-300 text-sm" id="header-subtitle">A shared 3D world — build, challenge, or just watch.</p>
         <p id="overlay-help" class="text-zinc-500 text-xs mt-2">Choose a mode to start.</p>
       </div>
       <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-5 lg:gap-6">
-        <div class="bg-zinc-900/80 rounded-xl p-5 sm:p-6 lg:p-7 transition hover:bg-zinc-800/80">
+        <div class="bg-zinc-900/80 rounded-xl p-5 sm:p-6 lg:p-7 transition hover:bg-zinc-800/80" data-mode="classic">
           <canvas id="preview-classic" class="w-full rounded-lg mb-4" height="140"></canvas>
-          <h2 class="font-semibold text-lg sm:text-base lg:text-lg text-zinc-100 mb-2">Classic Mode</h2>
-          <p class="text-zinc-400 text-sm sm:text-sm lg:text-sm mb-5">Fly around a shared 3D world. Place and break blocks with other players. No timer, no score.</p>
-          <button id="play-classic-btn" class="w-full px-4 py-3 rounded-lg bg-violet-600 hover:bg-violet-500 font-semibold text-sm sm:text-sm lg:text-base transition hover:scale-[1.02] active:scale-[0.98]">Play Classic</button>
+          <h2 class="font-semibold text-lg sm:text-base lg:text-lg text-zinc-100 mb-2 mode-title">Classic Mode</h2>
+          <p class="text-zinc-400 text-sm sm:text-sm lg:text-sm mb-5 mode-desc">Fly around a shared 3D world. Place and break blocks with other players. No timer, no score.</p>
+          <button id="play-classic-btn" class="w-full px-4 py-3 rounded-lg bg-violet-600 hover:bg-violet-500 font-semibold text-sm sm:text-sm lg:text-base transition hover:scale-[1.02] active:scale-[0.98] mode-btn">Play Classic</button>
         </div>
-        <div class="bg-zinc-900/80 rounded-xl p-5 sm:p-6 lg:p-7 transition hover:bg-zinc-800/80">
+        <div class="bg-zinc-900/80 rounded-xl p-5 sm:p-6 lg:p-7 transition hover:bg-zinc-800/80" data-mode="ta">
           <canvas id="preview-ta" class="w-full rounded-lg mb-4" height="140"></canvas>
-          <h2 class="font-semibold text-lg sm:text-base lg:text-lg text-zinc-100 mb-2">Time Attack</h2>
-          <p class="text-zinc-400 text-sm sm:text-sm lg:text-sm mb-4">Break as many blocks as you can against the clock. Solo challenge, fresh layout every run.</p>
+          <h2 class="font-semibold text-lg sm:text-base lg:text-lg text-zinc-100 mb-2 mode-title">Time Attack</h2>
+          <p class="text-zinc-400 text-sm sm:text-sm lg:text-sm mb-4 mode-desc">Break as many blocks as you can against the clock. Solo challenge, fresh layout every run.</p>
           <div class="flex items-center justify-center gap-2 mb-4">
             <button id="ta-tier-down" class="w-12 h-12 sm:w-10 sm:h-10 rounded bg-zinc-700 hover:bg-zinc-600 text-zinc-200 font-bold text-base leading-none transition hover:scale-110 active:scale-95">←</button>
             <span id="ta-tier-label" class="text-base sm:text-sm font-semibold text-amber-400 w-20 text-center">Easy</span>
             <button id="ta-tier-up" class="w-12 h-12 sm:w-10 sm:h-10 rounded bg-zinc-700 hover:bg-zinc-600 text-zinc-200 font-bold text-base leading-none transition hover:scale-110 active:scale-95">→</button>
           </div>
-          <button id="play-ta-btn" class="w-full px-4 py-3 rounded-lg bg-amber-600 hover:bg-amber-500 font-semibold text-sm sm:text-sm lg:text-base transition hover:scale-[1.02] active:scale-[0.98]">Play Time Attack</button>
+          <button id="play-ta-btn" class="w-full px-4 py-3 rounded-lg bg-amber-600 hover:bg-amber-500 font-semibold text-sm sm:text-sm lg:text-base transition hover:scale-[1.02] active:scale-[0.98] mode-btn">Play Time Attack</button>
         </div>
-        <div class="bg-zinc-900/80 rounded-xl p-5 sm:p-6 lg:p-7 transition hover:bg-zinc-800/80">
+        <div class="bg-zinc-900/80 rounded-xl p-5 sm:p-6 lg:p-7 transition hover:bg-zinc-800/80" data-mode="ta-60">
           <canvas id="preview-ta-60" class="w-full rounded-lg mb-4" height="140"></canvas>
-          <h2 class="font-semibold text-lg sm:text-base lg:text-lg text-zinc-100 mb-2">Time Attack (60s)</h2>
-          <p class="text-zinc-400 text-sm sm:text-sm lg:text-sm mb-5">Clear as many blocks as you can in 60 seconds. Blocks stack—no clearing allowed. Single-player only.</p>
-          <button id="play-ta-60-btn" class="w-full px-4 py-3 rounded-lg bg-cyan-600 hover:bg-cyan-500 font-semibold text-sm sm:text-sm lg:text-base transition hover:scale-[1.02] active:scale-[0.98]">Play Time Attack (60s)</button>
+          <h2 class="font-semibold text-lg sm:text-base lg:text-lg text-zinc-100 mb-2 mode-title">Time Attack (60s)</h2>
+          <p class="text-zinc-400 text-sm sm:text-sm lg:text-sm mb-5 mode-desc">Clear as many blocks as you can in 60 seconds. Blocks stack—no clearing allowed. Single-player only.</p>
+          <button id="play-ta-60-btn" class="w-full px-4 py-3 rounded-lg bg-cyan-600 hover:bg-cyan-500 font-semibold text-sm sm:text-sm lg:text-base transition hover:scale-[1.02] active:scale-[0.98] mode-btn">Play Time Attack (60s)</button>
         </div>
-        <div class="bg-zinc-900/80 rounded-xl p-5 sm:p-6 lg:p-7 transition hover:bg-zinc-800/80">
+        <div class="bg-zinc-900/80 rounded-xl p-5 sm:p-6 lg:p-7 transition hover:bg-zinc-800/80" data-mode="daily-challenge">
           <canvas id="preview-daily-challenge" class="w-full rounded-lg mb-4" height="140"></canvas>
-          <h2 class="font-semibold text-lg sm:text-base lg:text-lg text-zinc-100 mb-2">Daily Challenge</h2>
-          <p class="text-zinc-400 text-sm sm:text-sm lg:text-sm mb-5">Same objective for all players. Resets every 24 hours. Compete on the leaderboard.</p>
-          <button id="play-daily-challenge-btn" class="w-full px-4 py-3 rounded-lg bg-fuchsia-600 hover:bg-fuchsia-500 font-semibold text-sm sm:text-sm lg:text-base transition hover:scale-[1.02] active:scale-[0.98]">Play Daily Challenge</button>
+          <h2 class="font-semibold text-lg sm:text-base lg:text-lg text-zinc-100 mb-2 mode-title">Daily Challenge</h2>
+          <p class="text-zinc-400 text-sm sm:text-sm lg:text-sm mb-5 mode-desc">Same objective for all players. Resets every 24 hours. Compete on the leaderboard.</p>
+          <button id="play-daily-challenge-btn" class="w-full px-4 py-3 rounded-lg bg-fuchsia-600 hover:bg-fuchsia-500 font-semibold text-sm sm:text-sm lg:text-base transition hover:scale-[1.02] active:scale-[0.98] mode-btn">Play Daily Challenge</button>
         </div>
-        <div class="bg-zinc-900/80 rounded-xl p-5 sm:p-6 lg:p-7 transition hover:bg-zinc-800/80">
+        <div class="bg-zinc-900/80 rounded-xl p-5 sm:p-6 lg:p-7 transition hover:bg-zinc-800/80" data-mode="endless">
           <canvas id="preview-endless" class="w-full rounded-lg mb-4" height="140"></canvas>
-          <h2 class="font-semibold text-lg sm:text-base lg:text-lg text-zinc-100 mb-2">Endless Mode</h2>
-          <p class="text-zinc-400 text-sm sm:text-sm lg:text-sm mb-5">Build forever on an endless grid. No timer, no score multiplier—just how long until you run out of valid moves?</p>
-          <button id="play-endless-btn" class="w-full px-4 py-3 rounded-lg bg-rose-600 hover:bg-rose-500 font-semibold text-sm sm:text-sm lg:text-base transition hover:scale-[1.02] active:scale-[0.98]">Play Endless</button>
+          <h2 class="font-semibold text-lg sm:text-base lg:text-lg text-zinc-100 mb-2 mode-title">Endless Mode</h2>
+          <p class="text-zinc-400 text-sm sm:text-sm lg:text-sm mb-5 mode-desc">Build forever on an endless grid. No timer, no score multiplier—just how long until you run out of valid moves?</p>
+          <button id="play-endless-btn" class="w-full px-4 py-3 rounded-lg bg-rose-600 hover:bg-rose-500 font-semibold text-sm sm:text-sm lg:text-base transition hover:scale-[1.02] active:scale-[0.98] mode-btn">Play Endless</button>
         </div>
-        <div class="bg-zinc-900/80 rounded-xl p-5 sm:p-6 lg:p-7 transition hover:bg-zinc-800/80">
+        <div class="bg-zinc-900/80 rounded-xl p-5 sm:p-6 lg:p-7 transition hover:bg-zinc-800/80" data-mode="tutorial">
           <canvas id="preview-tutorial" class="w-full rounded-lg mb-4" height="140"></canvas>
-          <h2 class="font-semibold text-lg sm:text-base lg:text-lg text-zinc-100 mb-2">Tutorial</h2>
-          <p class="text-zinc-400 text-sm sm:text-sm lg:text-sm mb-5">Learn the basics step-by-step: place blocks, break them, earn points, and clear lines.</p>
-          <button id="play-tutorial-btn" class="w-full px-4 py-3 rounded-lg bg-green-600 hover:bg-green-500 font-semibold text-sm sm:text-sm lg:text-base transition hover:scale-[1.02] active:scale-[0.98]">📚 Start Tutorial</button>
+          <h2 class="font-semibold text-lg sm:text-base lg:text-lg text-zinc-100 mb-2 mode-title">Tutorial</h2>
+          <p class="text-zinc-400 text-sm sm:text-sm lg:text-sm mb-5 mode-desc">Learn the basics step-by-step: place blocks, break them, earn points, and clear lines.</p>
+          <button id="play-tutorial-btn" class="w-full px-4 py-3 rounded-lg bg-green-600 hover:bg-green-500 font-semibold text-sm sm:text-sm lg:text-base transition hover:scale-[1.02] active:scale-[0.98] mode-btn">📚 Start Tutorial</button>
         </div>
-        <div class="bg-zinc-900/80 rounded-xl p-5 sm:p-6 lg:p-7 transition hover:bg-zinc-800/80">
+        <div class="bg-zinc-900/80 rounded-xl p-5 sm:p-6 lg:p-7 transition hover:bg-zinc-800/80" data-mode="learn">
           <canvas id="preview-learn" class="w-full rounded-lg mb-4" height="140"></canvas>
-          <h2 class="font-semibold text-lg sm:text-base lg:text-lg text-zinc-100 mb-2">Learn Mode</h2>
-          <p class="text-zinc-400 text-sm sm:text-sm lg:text-sm mb-5">Perfect for getting started. Learn the basics at your own pace with helpful hints.</p>
-          <button id="play-learn-btn" class="w-full px-4 py-3 rounded-lg bg-green-600 hover:bg-green-500 font-semibold text-sm sm:text-sm lg:text-base transition hover:scale-[1.02] active:scale-[0.98]">Play Learn</button>
+          <h2 class="font-semibold text-lg sm:text-base lg:text-lg text-zinc-100 mb-2 mode-title">Learn Mode</h2>
+          <p class="text-zinc-400 text-sm sm:text-sm lg:text-sm mb-5 mode-desc">Perfect for getting started. Learn the basics at your own pace with helpful hints.</p>
+          <button id="play-learn-btn" class="w-full px-4 py-3 rounded-lg bg-green-600 hover:bg-green-500 font-semibold text-sm sm:text-sm lg:text-base transition hover:scale-[1.02] active:scale-[0.98] mode-btn">Play Learn</button>
         </div>
-        <div class="bg-zinc-900/80 rounded-xl p-5 sm:p-6 lg:p-7 transition hover:bg-zinc-800/80">
+        <div class="bg-zinc-900/80 rounded-xl p-5 sm:p-6 lg:p-7 transition hover:bg-zinc-800/80" data-mode="spectate">
           <canvas id="preview-spectate" class="w-full rounded-lg mb-4" height="140"></canvas>
-          <h2 class="font-semibold text-lg sm:text-base lg:text-lg text-zinc-100 mb-2">Watch</h2>
-          <p class="text-zinc-400 text-sm sm:text-sm lg:text-sm mb-5">Fly through the world as a spectator. No building required — just explore and chat.</p>
-          <button id="play-spectate-btn" class="w-full px-4 py-3 rounded-lg bg-teal-600 hover:bg-teal-500 font-semibold text-sm sm:text-sm lg:text-base transition hover:scale-[1.02] active:scale-[0.98]">Watch World</button>
+          <h2 class="font-semibold text-lg sm:text-base lg:text-lg text-zinc-100 mb-2 mode-title">Watch</h2>
+          <p class="text-zinc-400 text-sm sm:text-sm lg:text-sm mb-5 mode-desc">Fly through the world as a spectator. No building required — just explore and chat.</p>
+          <button id="play-spectate-btn" class="w-full px-4 py-3 rounded-lg bg-teal-600 hover:bg-teal-500 font-semibold text-sm sm:text-sm lg:text-base transition hover:scale-[1.02] active:scale-[0.98] mode-btn">Watch World</button>
         </div>
       </div>
       <div id="tournament-teaser" class="hidden mt-3 rounded-xl bg-zinc-900/60 px-4 py-2.5 text-xs text-zinc-300"></div>
       <div id="status" class="mt-3 text-xs text-zinc-500 text-center"></div>
       <div id="online-list" class="mt-3 text-sm text-zinc-400 text-center"></div>
       <div id="footer" class="mt-4 pt-3 border-t border-zinc-700/60 text-xs text-zinc-500 text-center">
-        <p class="mb-1">© 2026 block-game</p>
-        <p>Built with Three.js and Tailwind CSS</p>
+        <p class="mb-1" id="footer-copyright">© 2026 block-game</p>
+        <p id="footer-credit">Built with Three.js and Tailwind CSS</p>
       </div>
     </div>
   </div>
@@ -536,18 +536,18 @@
   <!-- Menu panel: dropdown for phones (<640px), hidden by default -->
   <div id="menu-panel" class="hidden fixed top-14 right-3 z-30 w-56 rounded-xl bg-black/70 backdrop-blur shadow-xl overflow-y-auto max-h-[calc(100vh-100px)]">
     <div class="px-3 py-2 border-b border-zinc-700/60 sticky top-0 bg-black/70">
-      <h3 class="font-semibold text-zinc-100 text-sm">Menu</h3>
+      <h3 class="font-semibold text-zinc-100 text-sm" id="menu-panel-title">Menu</h3>
     </div>
     <div class="py-1">
-      <button data-menu-item="help" class="w-full text-left px-4 py-2.5 text-sm text-zinc-200 hover:bg-zinc-800/50 flex items-center gap-3 transition">❓ Help</button>
-      <button data-menu-item="leaderboard" class="w-full text-left px-4 py-2.5 text-sm text-zinc-200 hover:bg-zinc-800/50 flex items-center gap-3 transition">🏆 Leaderboard</button>
-      <button data-menu-item="friends" class="w-full text-left px-4 py-2.5 text-sm text-zinc-200 hover:bg-zinc-800/50 flex items-center gap-3 transition">👥 Friends</button>
-      <button data-menu-item="coach" class="w-full text-left px-4 py-2.5 text-sm text-zinc-200 hover:bg-zinc-800/50 flex items-center gap-3 transition">💡 Coach</button>
-      <button data-menu-item="badges" class="w-full text-left px-4 py-2.5 text-sm text-zinc-200 hover:bg-zinc-800/50 flex items-center gap-3 transition">🏅 Badges</button>
-      <button data-menu-item="worlds" class="w-full text-left px-4 py-2.5 text-sm text-zinc-200 hover:bg-zinc-800/50 flex items-center gap-3 transition">🌍 Worlds</button>
-      <button data-menu-item="settings" class="w-full text-left px-4 py-2.5 text-sm text-zinc-200 hover:bg-zinc-800/50 flex items-center gap-3 transition">⚙️ Settings</button>
+      <button data-menu-item="help" class="w-full text-left px-4 py-2.5 text-sm text-zinc-200 hover:bg-zinc-800/50 flex items-center gap-3 transition menu-text">❓ Help</button>
+      <button data-menu-item="leaderboard" class="w-full text-left px-4 py-2.5 text-sm text-zinc-200 hover:bg-zinc-800/50 flex items-center gap-3 transition menu-text">🏆 Leaderboard</button>
+      <button data-menu-item="friends" class="w-full text-left px-4 py-2.5 text-sm text-zinc-200 hover:bg-zinc-800/50 flex items-center gap-3 transition menu-text">👥 Friends</button>
+      <button data-menu-item="coach" class="w-full text-left px-4 py-2.5 text-sm text-zinc-200 hover:bg-zinc-800/50 flex items-center gap-3 transition menu-text">💡 Coach</button>
+      <button data-menu-item="badges" class="w-full text-left px-4 py-2.5 text-sm text-zinc-200 hover:bg-zinc-800/50 flex items-center gap-3 transition menu-text">🏅 Badges</button>
+      <button data-menu-item="worlds" class="w-full text-left px-4 py-2.5 text-sm text-zinc-200 hover:bg-zinc-800/50 flex items-center gap-3 transition menu-text">🌍 Worlds</button>
+      <button data-menu-item="settings" class="w-full text-left px-4 py-2.5 text-sm text-zinc-200 hover:bg-zinc-800/50 flex items-center gap-3 transition menu-text">⚙️ Settings</button>
       <div class="border-t border-zinc-700/60"></div>
-      <button data-menu-item="mute" class="w-full text-left px-4 py-2.5 text-sm text-zinc-200 hover:bg-zinc-800/50 flex items-center gap-3 transition">🔊 Mute</button>
+      <button data-menu-item="mute" class="w-full text-left px-4 py-2.5 text-sm text-zinc-200 hover:bg-zinc-800/50 flex items-center gap-3 transition menu-text">🔊 Mute</button>
     </div>
   </div>
 
@@ -600,7 +600,7 @@
        default; toggled by the trophy button. -->
   <div id="badges-panel" class="hidden fixed top-16 right-3 z-30 w-full sm:w-72 max-w-[90vw] rounded-xl bg-black/70 backdrop-blur px-3 py-4 sm:p-4 text-sm text-zinc-200 shadow-xl">
     <div class="flex items-center justify-between mb-3">
-      <h2 class="font-bold text-zinc-100">Badges</h2>
+      <h2 class="font-bold text-zinc-100" id="badges-panel-title">Badges</h2>
       <button id="badges-close" aria-label="Close badges" class="text-zinc-400 hover:text-zinc-100 cursor-pointer leading-none transition-colors">✕</button>
     </div>
     <div id="badges-list" class="space-y-2 sm:space-y-1.5 max-h-[calc(100vh-200px)] sm:max-h-96 overflow-y-auto pr-0.5"></div>
@@ -610,30 +610,41 @@
        default; toggled by the gear button. -->
   <div id="settings-panel" class="hidden fixed top-16 right-3 z-30 w-full sm:w-72 max-w-[90vw] rounded-xl bg-black/70 backdrop-blur px-3 py-4 sm:p-4 text-sm text-zinc-200 shadow-xl">
     <div class="flex items-center justify-between mb-3">
-      <h2 class="font-bold text-zinc-100">Settings</h2>
+      <h2 class="font-bold text-zinc-100" id="settings-panel-title">Settings</h2>
       <button id="settings-close" aria-label="Close settings" class="text-zinc-400 hover:text-zinc-100 cursor-pointer leading-none transition-colors">✕</button>
     </div>
     <div class="space-y-4">
       <!-- Sound on/off -->
       <div class="flex items-center justify-between gap-3">
         <div>
-          <div class="font-semibold text-zinc-100">Sound</div>
-          <div class="text-xs text-zinc-400">Music &amp; sound effects</div>
+          <div class="font-semibold text-zinc-100" id="settings-sound-label">Sound</div>
+          <div class="text-xs text-zinc-400" id="settings-sound-desc">Music &amp; sound effects</div>
         </div>
         <button id="settings-sound-toggle" role="switch" aria-checked="true"
                 class="relative w-12 h-7 rounded-full bg-emerald-600 transition-colors cursor-pointer flex-shrink-0">
           <span id="settings-sound-knob" class="absolute top-0.5 left-0.5 w-6 h-6 rounded-full bg-white shadow transition-transform" style="transform: translateX(20px)"></span>
         </button>
       </div>
+      <!-- Language toggle -->
+      <div class="flex items-center justify-between gap-3">
+        <div>
+          <div class="font-semibold text-zinc-100" id="settings-language-label">Language</div>
+          <div class="text-xs text-zinc-400" id="settings-language-desc">Indonesian / English</div>
+        </div>
+        <button id="settings-language-toggle" role="switch" aria-checked="false"
+                class="relative w-12 h-7 rounded-full bg-violet-600 transition-colors cursor-pointer flex-shrink-0">
+          <span id="settings-language-knob" class="absolute top-0.5 left-0.5 w-6 h-6 rounded-full bg-white shadow transition-transform" style="transform: translateX(0px)"></span>
+        </button>
+      </div>
       <!-- Time Attack difficulty -->
       <div>
-        <div class="font-semibold text-zinc-100 mb-1">Time Attack difficulty</div>
+        <div class="font-semibold text-zinc-100 mb-1" id="settings-ta-label">Time Attack difficulty</div>
         <div class="flex items-center justify-between gap-2">
           <button id="settings-diff-down" class="w-9 h-9 rounded bg-zinc-700 hover:bg-zinc-600 text-zinc-200 font-bold text-sm leading-none transition hover:scale-110 active:scale-95">←</button>
           <span id="settings-diff-label" class="text-sm font-semibold text-amber-400 flex-1 text-center">Easy</span>
           <button id="settings-diff-up" class="w-9 h-9 rounded bg-zinc-700 hover:bg-zinc-600 text-zinc-200 font-bold text-sm leading-none transition hover:scale-110 active:scale-95">→</button>
         </div>
-        <div class="text-xs text-zinc-400 mt-1">Also auto-adjusts based on your recent runs.</div>
+        <div class="text-xs text-zinc-400 mt-1" id="settings-ta-desc">Also auto-adjusts based on your recent runs.</div>
       </div>
     </div>
   </div>
@@ -641,7 +652,7 @@
   <!-- World Slots panel: lists saved custom worlds. Hidden by default. -->
   <div id="worlds-panel" class="hidden fixed top-16 right-3 z-30 w-full sm:w-80 max-w-[90vw] rounded-xl bg-black/70 backdrop-blur px-3 py-4 sm:p-4 text-sm text-zinc-200 shadow-xl">
     <div class="flex items-center justify-between mb-3">
-      <h2 class="font-bold text-zinc-100">Worlds</h2>
+      <h2 class="font-bold text-zinc-100" id="worlds-panel-title">Worlds</h2>
       <button id="worlds-close" aria-label="Close worlds" class="text-zinc-400 hover:text-zinc-100 cursor-pointer leading-none transition-colors">✕</button>
     </div>
     <div class="mb-3">
@@ -680,10 +691,10 @@
        by default; toggled by pressing `h` or clicking the "(?)" button. -->
   <div id="controls" class="hidden fixed top-28 right-3 z-30 w-full sm:w-72 max-w-[90vw] rounded-xl bg-black/70 backdrop-blur px-3 py-4 sm:p-4 text-base sm:text-sm text-zinc-200 shadow-xl">
     <div class="flex items-center justify-between mb-2">
-      <h2 class="font-bold text-zinc-100">Controls</h2>
+      <h2 class="font-bold text-zinc-100" id="controls-panel-title">Controls</h2>
       <button id="controls-close" aria-label="Close controls" class="text-zinc-400 hover:text-zinc-100 cursor-pointer leading-none transition-colors">✕</button>
     </div>
-    <ul class="space-y-2 sm:space-y-1.5">
+    <ul class="space-y-2 sm:space-y-1.5" id="controls-list">
       <li><span class="font-semibold">WASD</span> / arrows — move</li>
       <li><span class="font-semibold">Space</span> / <span class="font-semibold">Shift</span> — up / down</li>
       <li><span class="font-semibold">Left-click</span> or <span class="font-semibold">F</span> — add a block</li>
@@ -705,12 +716,12 @@
   <div id="leaderboard" class="hidden fixed top-28 right-3 z-30 w-full sm:w-72 max-w-[90vw] rounded-xl bg-black/70 backdrop-blur px-3 py-4 sm:p-4 text-base sm:text-sm text-zinc-200 shadow-xl">
     <div class="flex items-center justify-between mb-2">
       <div class="flex gap-1 overflow-x-auto">
-        <button id="tab-alltime" class="px-2 py-0.5 rounded text-xs font-semibold bg-zinc-700 text-zinc-100 cursor-pointer transition-colors whitespace-nowrap">All-time</button>
-        <button id="tab-tournament" class="px-2 py-0.5 rounded text-xs font-semibold text-zinc-400 hover:text-zinc-200 cursor-pointer transition-colors whitespace-nowrap">This Week</button>
-        <button id="tab-ta" class="px-2 py-0.5 rounded text-xs font-semibold text-zinc-400 hover:text-zinc-200 cursor-pointer transition-colors whitespace-nowrap">Time Attack</button>
-        <button id="tab-ta-60" class="px-2 py-0.5 rounded text-xs font-semibold text-zinc-400 hover:text-zinc-200 cursor-pointer transition-colors whitespace-nowrap">TA (60s)</button>
-        <button id="tab-daily-challenge" class="px-2 py-0.5 rounded text-xs font-semibold text-zinc-400 hover:text-zinc-200 cursor-pointer transition-colors whitespace-nowrap">Daily</button>
-        <button id="tab-endless" class="px-2 py-0.5 rounded text-xs font-semibold text-zinc-400 hover:text-zinc-200 cursor-pointer transition-colors whitespace-nowrap">Endless</button>
+        <button id="tab-alltime" class="px-2 py-0.5 rounded text-xs font-semibold bg-zinc-700 text-zinc-100 cursor-pointer transition-colors whitespace-nowrap" data-tab="alltime">All-time</button>
+        <button id="tab-tournament" class="px-2 py-0.5 rounded text-xs font-semibold text-zinc-400 hover:text-zinc-200 cursor-pointer transition-colors whitespace-nowrap" data-tab="tournament">This Week</button>
+        <button id="tab-ta" class="px-2 py-0.5 rounded text-xs font-semibold text-zinc-400 hover:text-zinc-200 cursor-pointer transition-colors whitespace-nowrap" data-tab="ta">Time Attack</button>
+        <button id="tab-ta-60" class="px-2 py-0.5 rounded text-xs font-semibold text-zinc-400 hover:text-zinc-200 cursor-pointer transition-colors whitespace-nowrap" data-tab="ta-60">TA (60s)</button>
+        <button id="tab-daily-challenge" class="px-2 py-0.5 rounded text-xs font-semibold text-zinc-400 hover:text-zinc-200 cursor-pointer transition-colors whitespace-nowrap" data-tab="daily">Daily</button>
+        <button id="tab-endless" class="px-2 py-0.5 rounded text-xs font-semibold text-zinc-400 hover:text-zinc-200 cursor-pointer transition-colors whitespace-nowrap" data-tab="endless">Endless</button>
       </div>
       <button id="leaderboard-close" aria-label="Close leaderboard" class="text-zinc-400 hover:text-zinc-100 cursor-pointer leading-none transition-colors">✕</button>
     </div>
@@ -721,14 +732,14 @@
        Hidden by default; toggled by the 👥 button. -->
   <div id="friends-panel" class="hidden fixed top-28 right-3 z-30 w-full sm:w-72 max-w-[90vw] rounded-xl bg-black/70 backdrop-blur px-3 py-4 sm:p-4 text-base sm:text-sm text-zinc-200 shadow-xl">
     <div class="flex items-center justify-between mb-3">
-      <h2 class="font-bold text-zinc-100">Friends</h2>
+      <h2 class="font-bold text-zinc-100" id="friends-panel-title">Friends</h2>
       <button id="friends-close" aria-label="Close friends" class="text-zinc-400 hover:text-zinc-100 cursor-pointer leading-none transition-colors">✕</button>
     </div>
     <div id="friends-content" class="text-zinc-400 text-center py-2 text-xs">Loading…</div>
     <div class="mt-3 pt-3 border-t border-zinc-700/60 flex gap-2">
       <input id="friends-input" type="text" placeholder="Add by username…" maxlength="100" autocomplete="off"
-             class="flex-1 min-w-0 bg-zinc-800 text-zinc-100 text-xs sm:text-xs rounded px-2 py-1.5 border border-zinc-700 focus:border-violet-500 outline-none placeholder-zinc-500">
-      <button id="friends-add-btn" class="shrink-0 px-3 py-1.5 bg-violet-600 hover:bg-violet-500 active:bg-violet-700 text-white text-xs font-semibold rounded cursor-pointer transition hover:scale-105 active:scale-95">Add</button>
+             class="flex-1 min-w-0 bg-zinc-800 text-zinc-100 text-xs sm:text-xs rounded px-2 py-1.5 border border-zinc-700 focus:border-violet-500 outline-none placeholder-zinc-500" id="friends-input-placeholder">
+      <button id="friends-add-btn" class="shrink-0 px-3 py-1.5 bg-violet-600 hover:bg-violet-500 active:bg-violet-700 text-white text-xs font-semibold rounded cursor-pointer transition hover:scale-105 active:scale-95" id="friends-add-btn-text">Add</button>
     </div>
     <div id="friends-add-status" class="mt-1 text-xs text-center min-h-[1.2em]"></div>
   </div>
@@ -1209,6 +1220,314 @@
 
       return { init, playPlace, playBreak, playDisasterSound, playGameOver, playFanfare, toggleMute, isMuted, playLineClear, stopMusic };
     })();
+
+    // ---- Language system ----
+    const translations = {
+      en: {
+        // Header and subtitle
+        app_title: 'block-game',
+        app_subtitle: 'A shared 3D world — build, challenge, or just watch.',
+        choose_mode: 'Choose a mode to start.',
+
+        // Mode titles and descriptions
+        mode_classic_title: 'Classic Mode',
+        mode_classic_desc: 'Fly around a shared 3D world. Place and break blocks with other players. No timer, no score.',
+        mode_classic_btn: 'Play Classic',
+
+        mode_ta_title: 'Time Attack',
+        mode_ta_desc: 'Break as many blocks as you can against the clock. Solo challenge, fresh layout every run.',
+        mode_ta_btn: 'Play Time Attack',
+
+        mode_ta_60_title: 'Time Attack (60s)',
+        mode_ta_60_desc: 'Clear as many blocks as you can in 60 seconds. Blocks stack—no clearing allowed. Single-player only.',
+        mode_ta_60_btn: 'Play Time Attack (60s)',
+
+        mode_daily_title: 'Daily Challenge',
+        mode_daily_desc: 'Same objective for all players. Resets every 24 hours. Compete on the leaderboard.',
+        mode_daily_btn: 'Play Daily Challenge',
+
+        mode_endless_title: 'Endless Mode',
+        mode_endless_desc: 'Build forever on an endless grid. No timer, no score multiplier—just how long until you run out of valid moves?',
+        mode_endless_btn: 'Play Endless',
+
+        mode_tutorial_title: 'Tutorial',
+        mode_tutorial_desc: 'Learn the basics step-by-step: place blocks, break them, earn points, and clear lines.',
+        mode_tutorial_btn: '📚 Start Tutorial',
+
+        mode_learn_title: 'Learn Mode',
+        mode_learn_desc: 'Perfect for getting started. Learn the basics at your own pace with helpful hints.',
+        mode_learn_btn: 'Play Learn',
+
+        mode_spectate_title: 'Watch',
+        mode_spectate_desc: 'Fly through the world as a spectator. No building required — just explore and chat.',
+        mode_spectate_btn: 'Watch World',
+
+        // Menu
+        menu_title: 'Menu',
+        menu_help: 'Help',
+        menu_leaderboard: 'Leaderboard',
+        menu_friends: 'Friends',
+        menu_coach: 'Coach',
+        menu_badges: 'Badges',
+        menu_worlds: 'Worlds',
+        menu_settings: 'Settings',
+        menu_mute: 'Mute',
+
+        // Settings panel
+        settings_title: 'Settings',
+        settings_sound_label: 'Sound',
+        settings_sound_desc: 'Music & sound effects',
+        settings_language_label: 'Language',
+        settings_language_desc: 'Indonesian / English',
+        settings_ta_label: 'Time Attack difficulty',
+        settings_ta_desc: 'Also auto-adjusts based on your recent runs.',
+
+        // Panels
+        badges_title: 'Badges',
+        worlds_title: 'Worlds',
+        friends_title: 'Friends',
+        friends_add_placeholder: 'Add by username…',
+        friends_add_btn: 'Add',
+        save_world_btn: 'Save Current World',
+
+        // Controls
+        controls_title: 'Controls',
+
+        // Footer
+        footer_copyright: '© 2026 block-game',
+        footer_credit: 'Built with Three.js and Tailwind CSS',
+
+        // Difficulty levels
+        difficulty_easy: 'Easy',
+        difficulty_medium: 'Medium',
+        difficulty_hard: 'Hard',
+
+        // Leaderboard tabs
+        tab_alltime: 'All-time',
+        tab_tournament: 'This Week',
+        tab_ta: 'Time Attack',
+        tab_ta_60: 'TA (60s)',
+        tab_daily: 'Daily',
+        tab_endless: 'Endless',
+      },
+      id: {
+        // Header and subtitle
+        app_title: 'block-game',
+        app_subtitle: 'Dunia 3D bersama — bangun, tantang, atau sekedar saksikan.',
+        choose_mode: 'Pilih mode untuk memulai.',
+
+        // Mode titles and descriptions
+        mode_classic_title: 'Mode Klasik',
+        mode_classic_desc: 'Terbang mengelilingi dunia 3D bersama. Tempatkan dan hancurkan blok dengan pemain lain. Tidak ada waktu, tidak ada poin.',
+        mode_classic_btn: 'Mainkan Klasik',
+
+        mode_ta_title: 'Serangan Waktu',
+        mode_ta_desc: 'Hancurkan sebanyak mungkin blok melawan waktu. Tantangan solo, tata letak baru setiap kali.',
+        mode_ta_btn: 'Mainkan Serangan Waktu',
+
+        mode_ta_60_title: 'Serangan Waktu (60d)',
+        mode_ta_60_desc: 'Hapus sebanyak mungkin blok dalam 60 detik. Blok bertumpuk—tidak ada pembersihan. Hanya pemain tunggal.',
+        mode_ta_60_btn: 'Mainkan Serangan Waktu (60d)',
+
+        mode_daily_title: 'Tantangan Harian',
+        mode_daily_desc: 'Objektif yang sama untuk semua pemain. Direset setiap 24 jam. Bersaing di papan peringkat.',
+        mode_daily_btn: 'Mainkan Tantangan Harian',
+
+        mode_endless_title: 'Mode Tak Terbatas',
+        mode_endless_desc: 'Bangun selamanya di grid tak terbatas. Tidak ada waktu, tidak ada pengganda poin—seberapa lama sampai Anda kehabisan gerakan yang valid?',
+        mode_endless_btn: 'Mainkan Tak Terbatas',
+
+        mode_tutorial_title: 'Tutorial',
+        mode_tutorial_desc: 'Pelajari dasar-dasarnya langkah demi langkah: tempatkan blok, hancurkan, dapatkan poin, dan hapus baris.',
+        mode_tutorial_btn: '📚 Mulai Tutorial',
+
+        mode_learn_title: 'Mode Belajar',
+        mode_learn_desc: 'Sempurna untuk memulai. Pelajari dasar-dasarnya dengan kecepatan Anda sendiri dengan petunjuk bermanfaat.',
+        mode_learn_btn: 'Mainkan Belajar',
+
+        mode_spectate_title: 'Saksikan',
+        mode_spectate_desc: 'Terbang melalui dunia sebagai penonton. Tidak perlu membangun — hanya jelajahi dan obrolan.',
+        mode_spectate_btn: 'Saksikan Dunia',
+
+        // Menu
+        menu_title: 'Menu',
+        menu_help: 'Bantuan',
+        menu_leaderboard: 'Papan Peringkat',
+        menu_friends: 'Teman',
+        menu_coach: 'Pelatih',
+        menu_badges: 'Lencana',
+        menu_worlds: 'Dunia',
+        menu_settings: 'Setelan',
+        menu_mute: 'Senyap',
+
+        // Settings panel
+        settings_title: 'Setelan',
+        settings_sound_label: 'Suara',
+        settings_sound_desc: 'Musik & efek suara',
+        settings_language_label: 'Bahasa',
+        settings_language_desc: 'Indonesia / English',
+        settings_ta_label: 'Kesulitan Serangan Waktu',
+        settings_ta_desc: 'Juga secara otomatis menyesuaikan berdasarkan lari terbaru Anda.',
+
+        // Panels
+        badges_title: 'Lencana',
+        worlds_title: 'Dunia',
+        friends_title: 'Teman',
+        friends_add_placeholder: 'Tambahkan berdasarkan nama pengguna…',
+        friends_add_btn: 'Tambahkan',
+        save_world_btn: 'Simpan Dunia Saat Ini',
+
+        // Controls
+        controls_title: 'Kontrol',
+
+        // Footer
+        footer_copyright: '© 2026 block-game',
+        footer_credit: 'Dibuat dengan Three.js dan Tailwind CSS',
+
+        // Difficulty levels
+        difficulty_easy: 'Mudah',
+        difficulty_medium: 'Menengah',
+        difficulty_hard: 'Sulit',
+
+        // Leaderboard tabs
+        tab_alltime: 'Sepanjang Masa',
+        tab_tournament: 'Minggu Ini',
+        tab_ta: 'Serangan Waktu',
+        tab_ta_60: 'ST (60d)',
+        tab_daily: 'Harian',
+        tab_endless: 'Tak Terbatas',
+      }
+    };
+
+    // Initialize language
+    let currentLanguage = localStorage.getItem('blockgame-language');
+    if (!currentLanguage) {
+      currentLanguage = navigator.language.startsWith('id') ? 'id' : 'en';
+    }
+
+    function t(key) {
+      return translations[currentLanguage]?.[key] || translations.en[key] || key;
+    }
+
+    function setLanguage(lang) {
+      currentLanguage = lang;
+      localStorage.setItem('blockgame-language', lang);
+      document.getElementById('html-root').lang = lang;
+      updateUILanguage();
+    }
+
+    function updateUILanguage() {
+      // Header
+      document.getElementById('header-title').textContent = t('app_title');
+      document.getElementById('header-subtitle').textContent = t('app_subtitle');
+      document.getElementById('overlay-help').textContent = t('choose_mode');
+
+      // Mode cards
+      const modeConfigs = {
+        classic: { title: 'mode_classic_title', desc: 'mode_classic_desc', btn: 'mode_classic_btn' },
+        ta: { title: 'mode_ta_title', desc: 'mode_ta_desc', btn: 'mode_ta_btn' },
+        'ta-60': { title: 'mode_ta_60_title', desc: 'mode_ta_60_desc', btn: 'mode_ta_60_btn' },
+        'daily-challenge': { title: 'mode_daily_title', desc: 'mode_daily_desc', btn: 'mode_daily_btn' },
+        endless: { title: 'mode_endless_title', desc: 'mode_endless_desc', btn: 'mode_endless_btn' },
+        tutorial: { title: 'mode_tutorial_title', desc: 'mode_tutorial_desc', btn: 'mode_tutorial_btn' },
+        learn: { title: 'mode_learn_title', desc: 'mode_learn_desc', btn: 'mode_learn_btn' },
+        spectate: { title: 'mode_spectate_title', desc: 'mode_spectate_desc', btn: 'mode_spectate_btn' },
+      };
+
+      for (const [mode, keys] of Object.entries(modeConfigs)) {
+        const card = document.querySelector(`[data-mode="${mode}"]`);
+        if (card) {
+          const titleEl = card.querySelector('.mode-title');
+          const descEl = card.querySelector('.mode-desc');
+          const btnEl = card.querySelector('.mode-btn');
+          if (titleEl) titleEl.textContent = t(keys.title);
+          if (descEl) descEl.textContent = t(keys.desc);
+          if (btnEl) {
+            const icon = btnEl.textContent.match(/^📚\s+/) ? '📚 ' : '';
+            btnEl.textContent = icon + t(keys.btn);
+          }
+        }
+      }
+
+      // Menu items
+      const menuItems = {
+        help: 'menu_help',
+        leaderboard: 'menu_leaderboard',
+        friends: 'menu_friends',
+        coach: 'menu_coach',
+        badges: 'menu_badges',
+        worlds: 'menu_worlds',
+        settings: 'menu_settings',
+        mute: 'menu_mute',
+      };
+      for (const [item, key] of Object.entries(menuItems)) {
+        const el = document.querySelector(`[data-menu-item="${item}"]`);
+        if (el) {
+          const emoji = el.textContent.match(/^[^\s]/)[0];
+          el.textContent = emoji + ' ' + t(key);
+        }
+      }
+
+      // Panels
+      document.getElementById('menu-panel-title').textContent = t('menu_title');
+      document.getElementById('badges-panel-title').textContent = t('badges_title');
+      document.getElementById('settings-panel-title').textContent = t('settings_title');
+      document.getElementById('worlds-panel-title').textContent = t('worlds_title');
+      document.getElementById('friends-panel-title').textContent = t('friends_title');
+      document.getElementById('controls-panel-title').textContent = t('controls_title');
+
+      // Settings panel
+      document.getElementById('settings-sound-label').textContent = t('settings_sound_label');
+      document.getElementById('settings-sound-desc').textContent = t('settings_sound_desc');
+      document.getElementById('settings-language-label').textContent = t('settings_language_label');
+      document.getElementById('settings-language-desc').textContent = t('settings_language_desc');
+      document.getElementById('settings-ta-label').textContent = t('settings_ta_label');
+      document.getElementById('settings-ta-desc').textContent = t('settings_ta_desc');
+
+      // Friends panel
+      document.getElementById('friends-input').placeholder = t('friends_add_placeholder');
+      document.getElementById('friends-add-btn').textContent = t('friends_add_btn');
+      document.getElementById('save-world-btn').textContent = t('save_world_btn');
+
+      // Footer
+      document.getElementById('footer-copyright').textContent = t('footer_copyright');
+      document.getElementById('footer-credit').textContent = t('footer_credit');
+
+      // Leaderboard tabs
+      const tabConfigs = {
+        'tab-alltime': 'tab_alltime',
+        'tab-tournament': 'tab_tournament',
+        'tab-ta': 'tab_ta',
+        'tab-ta-60': 'tab_ta_60',
+        'tab-daily-challenge': 'tab_daily',
+        'tab-endless': 'tab_endless',
+      };
+      for (const [id, key] of Object.entries(tabConfigs)) {
+        const el = document.getElementById(id);
+        if (el) el.textContent = t(key);
+      }
+    }
+
+    // Set up language toggle in settings
+    const languageToggle = document.getElementById('settings-language-toggle');
+    const languageKnob = document.getElementById('settings-language-knob');
+
+    function updateLanguageToggleUI() {
+      const isIndonesian = currentLanguage === 'id';
+      languageToggle.setAttribute('aria-checked', isIndonesian);
+      languageKnob.style.transform = isIndonesian ? 'translateX(20px)' : 'translateX(0px)';
+      languageToggle.style.backgroundColor = isIndonesian ? '#8b5cf6' : '#7c3aed';
+    }
+
+    languageToggle.addEventListener('click', () => {
+      setLanguage(currentLanguage === 'id' ? 'en' : 'id');
+      updateLanguageToggleUI();
+    });
+
+    // Initialize UI language
+    document.getElementById('html-root').lang = currentLanguage;
+    updateUILanguage();
+    updateLanguageToggleUI();
 
     const buildStampEl = document.getElementById('build-stamp');
     buildStampEl.textContent = 'build ' + BUILD_VERSION;
