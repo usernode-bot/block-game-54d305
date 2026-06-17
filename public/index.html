@@ -945,14 +945,18 @@
     </div>
   </div>
 
-  <!-- Badges panel: lists all 10 badges with earned/locked state. Hidden by
-       default; toggled by the trophy button. -->
-  <div id="badges-panel" class="hidden fixed top-16 right-3 z-30 w-full sm:w-72 max-w-[90vw] rounded-xl bg-black/70 backdrop-blur px-3 py-4 sm:p-4 text-sm text-zinc-200 shadow-xl">
+  <!-- Profile panel: Stats + Badges tabs. Hidden by default; toggled by the trophy button. -->
+  <div id="badges-panel" class="hidden fixed top-16 right-3 z-30 w-full sm:w-72 max-w-[90vw] rounded-xl bg-black/70 backdrop-blur p-4 text-sm text-zinc-200 shadow-xl">
     <div class="flex items-center justify-between mb-3">
-      <h2 class="font-bold text-zinc-100" id="badges-panel-title">Badges</h2>
-      <button id="badges-close" aria-label="Close badges" class="text-zinc-400 hover:text-zinc-100 cursor-pointer leading-none transition-colors">✕</button>
+      <h2 class="font-bold text-zinc-100" id="badges-panel-title">Profile</h2>
+      <button id="badges-close" aria-label="Close profile" class="text-zinc-400 hover:text-zinc-100 cursor-pointer leading-none transition-colors">✕</button>
     </div>
-    <div id="badges-list" class="space-y-2 sm:space-y-1.5 max-h-[calc(100vh-200px)] sm:max-h-96 overflow-y-auto pr-0.5"></div>
+    <div class="flex gap-1 mb-3">
+      <button id="profile-tab-stats"  class="px-2 py-0.5 rounded text-xs font-semibold bg-zinc-700 text-zinc-100 cursor-pointer">Stats</button>
+      <button id="profile-tab-badges" class="px-2 py-0.5 rounded text-xs font-semibold text-zinc-400 hover:text-zinc-200 cursor-pointer">Badges</button>
+    </div>
+    <div id="profile-stats-content"  class="text-zinc-400 text-center py-2 text-xs">Loading…</div>
+    <div id="badges-list" class="hidden space-y-2 sm:space-y-1.5 max-h-[calc(100vh-200px)] sm:max-h-80 overflow-y-auto pr-0.5"></div>
   </div>
 
   <!-- Settings panel: sound on/off + Time Attack difficulty. Hidden by
@@ -1194,7 +1198,7 @@
         <button id="tab-monuments" class="px-2 py-0.5 rounded text-xs font-semibold text-zinc-400 hover:text-zinc-200 cursor-pointer transition-colors whitespace-nowrap" data-tab="monuments">Monuments</button>
         <button id="tab-ta" class="px-2 py-0.5 rounded text-xs font-semibold text-zinc-400 hover:text-zinc-200 cursor-pointer transition-colors whitespace-nowrap" data-tab="ta">Time Attack</button>
         <button id="tab-ta-60" class="px-2 py-0.5 rounded text-xs font-semibold text-zinc-400 hover:text-zinc-200 cursor-pointer transition-colors whitespace-nowrap" data-tab="ta-60">TA (60s)</button>
-        <button id="tab-daily-challenge" class="px-2 py-0.5 rounded text-xs font-semibold text-zinc-400 hover:text-zinc-200 cursor-pointer transition-colors whitespace-nowrap" data-tab="daily">Daily</button>
+        <button id="tab-daily-challenge" class="px-2 py-0.5 rounded text-xs font-semibold text-zinc-400 hover:text-zinc-200 cursor-pointer transition-colors whitespace-nowrap" data-tab="daily-challenge">Daily</button>
         <button id="tab-endless" class="px-2 py-0.5 rounded text-xs font-semibold text-zinc-400 hover:text-zinc-200 cursor-pointer transition-colors whitespace-nowrap" data-tab="endless">Endless</button>
         <button id="tab-puzzle" class="px-2 py-0.5 rounded text-xs font-semibold text-zinc-400 hover:text-zinc-200 cursor-pointer transition-colors whitespace-nowrap" data-tab="puzzle">Puzzle</button>
         <button id="tab-prompt" class="px-2 py-0.5 rounded text-xs font-semibold text-zinc-400 hover:text-zinc-200 cursor-pointer transition-colors whitespace-nowrap" data-tab="prompt">Prompt</button>
@@ -1561,7 +1565,7 @@
 
     // Build identifier — bump this (to the deploying commit short SHA) on every
     // change so the top-right stamp confirms exactly which code is running.
-    const BUILD_VERSION = 'power-ups+hold-queue+achievements-badges+chat+daily-challenge+leaderboard+online-presence+block-attribution+audio-sfx+next-piece-preview+spectator-mode+weekly-tournament+friends+betting-system+blocks-placed-hud+day-night-cycle+minimap+ai-coach+daily-theme-voting+natural-disasters+community-monuments+undo-redo-history+pastel-chrome+mobs+message-in-a-block+accessibility-panel+pixel-pets+versus-mode';
+    const BUILD_VERSION = 'power-ups+hold-queue+achievements-badges+chat+daily-challenge+leaderboard+online-presence+block-attribution+audio-sfx+next-piece-preview+spectator-mode+weekly-tournament+friends+betting-system+blocks-placed-hud+day-night-cycle+minimap+ai-coach+player-stats+leaderboard-daily+new-badges+daily-theme-voting+natural-disasters+community-monuments+undo-redo-history+pastel-chrome+mobs+message-in-a-block+accessibility-panel+pixel-pets+versus-mode';
 
     // Badge definitions — mirror of the server-side BADGES array, extended with
     // a `hint` field shown in the panel for unearned badges.
@@ -1579,8 +1583,17 @@
       { id: 'crystal_placer',  name: 'Crystal Placer',  icon: '💎', flavour: 'Placed a Crystal Block!',        hint: 'Place a Crystal Block (unlock by placing 50 blocks first)' },
       { id: 'streak_3',        name: 'Hot Start',       icon: '🔥', flavour: 'Logged in 3 days in a row!',     hint: 'Log in 3 days in a row' },
       { id: 'streak_7',        name: 'Week Warrior',    icon: '🗓️', flavour: 'A full week of building!',       hint: 'Log in 7 days in a row' },
-      { id: 'theme_winner',    name: 'Theme Champion',  icon: '🥇', flavour: 'First place in the daily build theme vote!', hint: 'Win the daily build theme vote' },
-      { id: 'daily_devotee',   name: 'Daily Devotee',   icon: '🌟', flavour: 'Completed the daily challenge 7 days in a row!', hint: 'Complete the daily challenge 7 days in a row' },
+      { id: 'streak_14',        name: 'Fortnight Pro',    icon: '🏆', flavour: 'Two weeks of daily play!',       hint: 'Log in 14 days in a row' },
+      { id: 'streak_30',        name: 'Monthly Master',   icon: '👑', flavour: 'A full month on the block!',    hint: 'Log in 30 days in a row' },
+      { id: 'master_comboist',  name: 'Combo King',       icon: '💥', flavour: 'Achieved a ×5 combo!',         hint: 'Achieve a ×5 combo (10+ blocks in 10 seconds)' },
+      { id: 'overachiever',     name: 'Overachiever',     icon: '🏅', flavour: 'Earned 5,000 total score!',    hint: 'Accumulate 5,000 total score points' },
+      { id: 'legendary_builder',name: 'Legendary Builder',icon: '🌟', flavour: 'Placed 500 blocks!',           hint: 'Place 500 blocks total' },
+      { id: 'daily_regular',    name: 'Daily Regular',    icon: '📅', flavour: 'Completed 5 daily challenges!',hint: 'Complete 5 daily challenges' },
+      { id: 'speed_demon',      name: 'Speed Demon',      icon: '⚡', flavour: 'Cleared 30+ blocks in Time Attack!', hint: 'Clear 30+ blocks in a single Time Attack run' },
+      { id: 'theme_winner',     name: 'Theme Champion',   icon: '🥇', flavour: 'First place in the daily build theme vote!', hint: 'Win the daily build theme vote' },
+      { id: 'daily_devotee',    name: 'Daily Devotee',    icon: '🌟', flavour: 'Completed the daily challenge 7 days in a row!', hint: 'Complete the daily challenge 7 days in a row' },
+      { id: 'daily_champion',   name: 'Daily Champion',   icon: '👑', flavour: 'Won the Daily Challenge!',     hint: 'Rank #1 on the daily challenge leaderboard' },
+      { id: 'speedrunner',      name: 'Speedrunner',      icon: '⚡', flavour: 'Blazing fast block placement!',hint: 'Complete the daily challenge in under 2 minutes' },
     ];
 
     // Wager tier definitions — mirror of WAGER_TIERS in server.js.
@@ -2377,9 +2390,12 @@
     const redoStack = [];
     let isStaging = false;
 
-    // ---- Badge state ----
+    // ---- Badge / Profile panel state ----
     const earnedBadges = new Map(); // badge_id -> { earned_at }
     let badgesOpen = false;
+    let profileTab = 'stats'; // 'stats' | 'badges'
+    let profileStatsCache = null;   // cached /api/stats/me response
+    let profileStatsCacheAt = 0;   // timestamp when cache was populated
 
     // ---- Chat state ----
     let chatCursor = 0;    // last chat message id seen
@@ -3221,8 +3237,76 @@
     }
 
     // ---- Badge panel rendering ----
+    // ---- Profile panel: stats + badges tabs ----
+
+    function setProfileTab(tab) {
+      profileTab = tab;
+      const statsBtn  = document.getElementById('profile-tab-stats');
+      const badgesBtn = document.getElementById('profile-tab-badges');
+      const statsEl   = document.getElementById('profile-stats-content');
+      const badgesEl  = document.getElementById('badges-list');
+      const isStats = tab === 'stats';
+      statsBtn.classList.toggle('bg-zinc-700',    isStats);
+      statsBtn.classList.toggle('text-zinc-100',  isStats);
+      statsBtn.classList.toggle('text-zinc-400',  !isStats);
+      badgesBtn.classList.toggle('bg-zinc-700',   !isStats);
+      badgesBtn.classList.toggle('text-zinc-100', !isStats);
+      badgesBtn.classList.toggle('text-zinc-400', isStats);
+      statsEl.classList.toggle('hidden',  !isStats);
+      badgesEl.classList.toggle('hidden',  isStats);
+      if (isStats) loadAndRenderStats();
+      else renderBadgesPanel();
+    }
+
+    async function loadAndRenderStats() {
+      const statsEl = document.getElementById('profile-stats-content');
+      const now = Date.now();
+      if (!profileStatsCache || now - profileStatsCacheAt > 60000) {
+        statsEl.innerHTML = '<span class="text-zinc-500">Loading…</span>';
+        try {
+          const res = await fetch('/api/stats/me', { headers });
+          if (!res.ok) throw new Error('fetch failed');
+          profileStatsCache = await res.json();
+          profileStatsCacheAt = Date.now();
+        } catch (_) {
+          statsEl.innerHTML = '<span class="text-zinc-500">Couldn\'t load stats.</span>';
+          return;
+        }
+      }
+      renderStatsTab(profileStatsCache);
+    }
+
+    function renderStatsTab(s) {
+      const statsEl = document.getElementById('profile-stats-content');
+      const comboLabel = s.best_combo >= 4 ? '×5' : s.best_combo >= 3 ? '×3' : s.best_combo >= 2 ? '×2' : '×1';
+      const rows = [
+        ['Total Score',     s.total_score.toLocaleString() + ' pts'],
+        ['Blocks Placed',   s.blocks_placed.toLocaleString()],
+        ['Best Combo',      comboLabel],
+        ['Login Streak',    '🔥 ' + s.current_streak + ' day' + (s.current_streak !== 1 ? 's' : '') + (s.longest_streak > s.current_streak ? ' (best: ' + s.longest_streak + ')' : '')],
+        ['Daily Challenges',s.daily_challenges_completed + ' completed'],
+        ['Badges',          s.badges_earned + ' / ' + s.badges_total],
+      ];
+      if (s.best_time_attack_score > 0) {
+        rows.push(['Best Time Attack', s.best_time_attack_score + ' blocks']);
+      }
+      if (!s.total_score && !s.blocks_placed) {
+        statsEl.innerHTML = '<p class="text-zinc-500 py-2">No data yet — start building!</p>';
+        return;
+      }
+      statsEl.innerHTML =
+        '<div class="grid grid-cols-2 gap-x-4 gap-y-2">' +
+        rows.map(([label, val]) =>
+          '<div class="text-zinc-500 text-xs">' + escapeHtml(label) + '</div>' +
+          '<div class="text-zinc-100 text-xs font-semibold text-right">' + escapeHtml(String(val)) + '</div>'
+        ).join('') +
+        '</div>';
+    }
+
     function renderBadgesPanel() {
       const listEl = document.getElementById('badges-list');
+      // Use cached stats for progress indicators if available
+      const stats = profileStatsCache;
       listEl.innerHTML = '';
       for (const b of BADGES_DEF) {
         const earned = earnedBadges.get(b.id);
@@ -3238,9 +3322,26 @@
         nameEl.textContent = b.name;
         const subEl = document.createElement('div');
         subEl.className = 'text-zinc-400 text-xs mt-0.5 leading-snug';
-        subEl.textContent = earned
-          ? b.flavour + ' · earned ' + relativeTime(earned.earned_at)
-          : b.hint;
+        if (earned) {
+          subEl.textContent = b.flavour + ' · earned ' + relativeTime(earned.earned_at);
+        } else {
+          let progressNote = '';
+          if (stats) {
+            switch (b.id) {
+              case 'builder':          progressNote = stats.blocks_placed + '/10 blocks'; break;
+              case 'architect':        progressNote = stats.blocks_placed + '/100 blocks'; break;
+              case 'legendary_builder':progressNote = stats.blocks_placed + '/500 blocks'; break;
+              case 'high_scorer':      progressNote = stats.total_score.toLocaleString() + '/1,000 pts'; break;
+              case 'overachiever':     progressNote = stats.total_score.toLocaleString() + '/5,000 pts'; break;
+              case 'streak_3':         progressNote = 'current streak: ' + stats.current_streak + '🔥'; break;
+              case 'streak_7':         progressNote = 'current streak: ' + stats.current_streak + '🔥'; break;
+              case 'streak_14':        progressNote = 'current streak: ' + stats.current_streak + '🔥'; break;
+              case 'streak_30':        progressNote = 'current streak: ' + stats.current_streak + '🔥'; break;
+              case 'daily_regular':    progressNote = stats.daily_challenges_completed + '/5 challenges'; break;
+            }
+          }
+          subEl.textContent = b.hint + (progressNote ? ' · ' + progressNote : '');
+        }
         info.appendChild(nameEl);
         info.appendChild(subEl);
         item.appendChild(iconEl);
@@ -3783,7 +3884,8 @@
               showBadgeToast(badge);
             }
             fetchCoachTip('badge_earned', data.newly_earned_badges[0].name);
-            if (badgesOpen) renderBadgesPanel();
+            profileStatsCache = null; // invalidate so stats tab refreshes on next open
+            if (badgesOpen) setProfileTab(profileTab);
           }
           if (data.newly_unlocked_types && data.newly_unlocked_types.length) {
             for (const ut of data.newly_unlocked_types) {
@@ -4832,14 +4934,14 @@
       syncTurntableBtn();
     });
 
-    // Badges button: toggle the badges panel.
+    // Profile panel (badges-btn): toggle + tabs.
     const badgesBtnEl = document.getElementById('badges-btn');
     const badgesPanelEl = document.getElementById('badges-panel');
     badgesBtnEl.addEventListener('click', () => {
       badgesOpen = !badgesOpen;
       if (badgesOpen) {
-        renderBadgesPanel();
         badgesPanelEl.classList.remove('hidden');
+        setProfileTab(profileTab); // restore last active tab
       } else {
         badgesPanelEl.classList.add('hidden');
       }
@@ -4848,6 +4950,8 @@
       badgesOpen = false;
       badgesPanelEl.classList.add('hidden');
     });
+    document.getElementById('profile-tab-stats').addEventListener('click',  () => setProfileTab('stats'));
+    document.getElementById('profile-tab-badges').addEventListener('click', () => setProfileTab('badges'));
 
     // ---- Pet panel ----
     const petBtnEl    = document.getElementById('pet-btn');
@@ -5435,6 +5539,29 @@
       document.getElementById('learn-hints').innerHTML = '';
       refreshControlCopy();
       updateTouchControlsVisibility();
+
+      // Persist personal best and check speed_demon badge.
+      if (taScore > 0) {
+        (async () => {
+          try {
+            const res = await fetch('/api/time-attack/score', {
+              method: 'POST',
+              headers,
+              body: JSON.stringify({ blocks_cleared: taScore }),
+            });
+            if (!res.ok) return;
+            const data = await res.json();
+            if (data.earned && data.earned.includes('speed_demon')) {
+              const def = BADGES_DEF.find((b) => b.id === 'speed_demon');
+              if (def) {
+                earnedBadges.set('speed_demon', { earned_at: new Date().toISOString() });
+                showBadgeToast(def);
+                profileStatsCache = null;
+              }
+            }
+          } catch (_) {}
+        })();
+      }
     }
 
     // ---- Versus Mode functions ----
@@ -7437,6 +7564,15 @@
       } catch (_) { /* non-fatal */ }
     }
 
+    function relTimeShort(ts) {
+      if (!ts) return '';
+      const diff = Math.floor((Date.now() - new Date(ts).getTime()) / 1000);
+      if (diff < 60) return 'just now';
+      if (diff < 3600) return Math.floor(diff / 60) + 'm ago';
+      if (diff < 86400) return Math.floor(diff / 3600) + 'h ago';
+      return Math.floor(diff / 86400) + 'd ago';
+    }
+
     function syncPromptHud() {
       if (!currentPromptText) return;
       promptHudEl.innerHTML = '<div class="text-zinc-400 text-[10px] uppercase tracking-wide">Today\'s prompt</div>' +
@@ -7613,7 +7749,7 @@
           const res = await fetch('/api/leaderboard', { headers });
           if (!res.ok) throw new Error('fetch failed');
           const lbData = await res.json();
-          const { entries } = lbData;
+          const { entries, self } = lbData;
           if (lbData.self != null) {
             myBlocksPlaced = lbData.self.blocks_placed;
             renderBlocksPlacedHud();
@@ -7622,23 +7758,33 @@
           if (!entries.length) {
             leaderboardContentEl.innerHTML = '<p class="py-1">No builders yet — be the first!</p>';
           } else {
-            leaderboardContentEl.innerHTML =
+            let html =
               '<table class="w-full text-xs">' +
               '<thead><tr class="text-zinc-500 uppercase border-b border-zinc-700">' +
               '<th class="text-left pb-1 w-6">#</th>' +
               '<th class="text-left pb-1 pl-2">Player</th>' +
-              '<th class="text-right pb-1">Blocks</th></tr></thead><tbody>' +
+              '<th class="text-right pb-1">Score</th></tr></thead><tbody>' +
               entries.map(e =>
                 '<tr class="border-b border-zinc-800/60 last:border-0">' +
                 '<td class="py-1 text-zinc-500">' + e.rank + '</td>' +
                 '<td class="py-1 pl-2 max-w-[180px] truncate"><button class="text-violet-400 hover:text-violet-300 hover:underline cursor-pointer" data-profile-btn>' + escapeHtml(e.username) + '</button></td>' +
-                '<td class="py-1 text-right font-mono text-zinc-100">' + e.count + '</td></tr>'
+                '<td class="py-1 text-right font-mono text-zinc-100">' + e.total_score.toLocaleString() + '</td></tr>'
               ).join('') +
               '</tbody></table>';
             // Attach click handlers to profile buttons
             for (const btn of leaderboardContentEl.querySelectorAll('[data-profile-btn]')) {
               btn.addEventListener('click', () => showProfile(btn.textContent));
             }
+            // Show self row if outside top 10
+            if (self && !entries.find(e => e.user_id === self.user_id)) {
+              html += '<div class="mt-2 pt-2 border-t border-zinc-700 text-xs">' +
+                '<table class="w-full"><tbody><tr class="text-violet-300">' +
+                '<td class="w-6">' + self.rank + '</td>' +
+                '<td class="pl-2 max-w-[140px] truncate">' + escapeHtml(self.username) + ' (you)</td>' +
+                '<td class="text-right font-mono">' + self.total_score.toLocaleString() + '</td>' +
+                '</tr></tbody></table></div>';
+            }
+            leaderboardContentEl.innerHTML = html;
           }
         } catch (_) {
           leaderboardContentEl.innerHTML = '<p class="py-1 text-zinc-500">Couldn\'t load leaderboard.</p>';
@@ -8771,7 +8917,8 @@
             earnedBadges.set(badge.id, { earned_at: badge.earned_at });
             showBadgeToast(badge);
           }
-          renderBadgesPanel();
+          profileStatsCache = null;
+          if (badgesOpen) setProfileTab(profileTab);
         }
       } catch (_) { /* transient */ }
     }
