@@ -367,11 +367,25 @@ app.get('/api/world/changes', async (req, res) => {
 app.get('/api/chat', async (req, res) => {
   try {
     const since = Number(req.query.since) || 0;
-    const limit = since === 0 ? 50 : 500;
-    const { rows } = await pool.query(
-      `SELECT id, username, body, created_at FROM chat_messages WHERE id > $1 ORDER BY id LIMIT $2`,
-      [since, limit]
-    );
+    let rows;
+    if (since === 0) {
+      // Initial load: grab the 50 NEWEST messages (id DESC) then re-sort
+      // ascending so they render oldest-to-newest in the drawer.
+      const r = await pool.query(
+        `SELECT id, username, body, created_at FROM (
+           SELECT id, username, body, created_at FROM chat_messages
+           ORDER BY id DESC LIMIT 50
+         ) recent ORDER BY id ASC`
+      );
+      rows = r.rows;
+    } else {
+      // Delta poll: everything strictly newer than the client's cursor.
+      const r = await pool.query(
+        `SELECT id, username, body, created_at FROM chat_messages WHERE id > $1 ORDER BY id LIMIT 500`,
+        [since]
+      );
+      rows = r.rows;
+    }
     const cursor = rows.length ? Number(rows[rows.length - 1].id) : since;
     res.json({
       messages: rows.map((r) => ({
