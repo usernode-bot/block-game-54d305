@@ -194,6 +194,8 @@ app.get('/api/world', async (req, res) => {
     const lbRow = await pool.query(`SELECT blocks_placed FROM leaderboard WHERE user_id = $1`, [req.user.id]);
     const userPlaced = lbRow.rows.length ? Number(lbRow.rows[0].blocks_placed) : 0;
     const unlockedTypes = PALETTE.filter((p) => p.unlockAt && userPlaced >= p.unlockAt).map((p) => p.id);
+    const tutorialRes = await pool.query(`SELECT user_id FROM player_tutorial_completed WHERE user_id = $1`, [req.user.id]);
+    const tutorial_completed = tutorialRes.rows.length > 0;
     res.json({
       dims: DIMS,
       palette: PALETTE,
@@ -201,6 +203,7 @@ app.get('/api/world', async (req, res) => {
       cursor: Number(cur.rows[0].cursor),
       maxDisasterId: Number(maxDisasterRes.rows[0].max_disaster_id),
       unlockedTypes,
+      tutorial_completed,
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -565,6 +568,34 @@ app.get('/api/chat', async (req, res) => {
       })),
       cursor,
     });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- Tutorial: check completion status ----
+app.get('/api/tutorial/status', async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT user_id FROM player_tutorial_completed WHERE user_id = $1`,
+      [req.user.id]
+    );
+    res.json({ completed: rows.length > 0 });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- Tutorial: mark as completed ----
+app.post('/api/tutorial/complete', async (req, res) => {
+  try {
+    await pool.query(
+      `INSERT INTO player_tutorial_completed (user_id, completed_at)
+       VALUES ($1, NOW())
+       ON CONFLICT (user_id) DO NOTHING`,
+      [req.user.id]
+    );
+    res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -2076,6 +2107,14 @@ async function seedStaging() {
     );
   }
 
+  // Tutorial completion seed: some players have completed, some haven't.
+  // User -1 (alice) and -2 (bob) have completed; others haven't for testing first-time flow.
+  await pool.query(
+    `INSERT INTO player_tutorial_completed (user_id, completed_at)
+     VALUES (-1, NOW() - INTERVAL '5 days'), (-2, NOW() - INTERVAL '2 days')
+     ON CONFLICT DO NOTHING`
+  );
+
   // Daily challenge progress seed: three personas at different completion states
   // so both in-progress and complete widget states can be verified.
   const now = new Date();
@@ -2808,6 +2847,15 @@ async function start() {
       id        INTEGER PRIMARY KEY CHECK (id = 1),
       fire_at   TIMESTAMPTZ  NOT NULL,
       next_type VARCHAR(20)  NOT NULL
+    )
+  `);
+
+  // Tutorial completion tracking: one row per user who completes tutorial.
+  // Public table — only tracks completion status, no sensitive data.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS player_tutorial_completed (
+      user_id INTEGER PRIMARY KEY,
+      completed_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
   `);
 
