@@ -2231,11 +2231,12 @@
     const DAY_DURATION_MS = 600_000; // 10 minutes per full cycle
 
     // Sky color keyframes: [midnight, dawn, noon, dusk]
+    // Darkened by 22% (multiply by 0.78) for subdued atmosphere
     const SKY_KEYS = [
-      { zenith: new THREE.Color('#05101f'), horizon: new THREE.Color('#0a1230'), fog: new THREE.Color('#0a1230'), ambient: 0.30, sunInt: 0.0, sunColor: new THREE.Color('#b0c8ff') },
-      { zenith: new THREE.Color('#1a2a6c'), horizon: new THREE.Color('#ff5722'), fog: new THREE.Color('#d85f1f'), ambient: 0.50, sunInt: 0.5, sunColor: new THREE.Color('#ffb070') },
-      { zenith: new THREE.Color('#4ab8ff'), horizon: new THREE.Color('#7dd9ff'), fog: new THREE.Color('#7dd9ff'), ambient: 0.65, sunInt: 0.9, sunColor: new THREE.Color('#fffaeb') },
-      { zenith: new THREE.Color('#1a2a6c'), horizon: new THREE.Color('#ff4500'), fog: new THREE.Color('#b83a0a'), ambient: 0.50, sunInt: 0.5, sunColor: new THREE.Color('#ff9040') },
+      { zenith: new THREE.Color('#040c18'), horizon: new THREE.Color('#080e25'), fog: new THREE.Color('#080e25'), ambient: 0.23, sunInt: 0.0, sunColor: new THREE.Color('#8c9fcc') },
+      { zenith: new THREE.Color('#152154'), horizon: new THREE.Color('#cc4719'), fog: new THREE.Color('#ab4a18'), ambient: 0.39, sunInt: 0.5, sunColor: new THREE.Color('#cc8d59') },
+      { zenith: new THREE.Color('#3a91cc'), horizon: new THREE.Color('#65aacb'), fog: new THREE.Color('#65aacb'), ambient: 0.51, sunInt: 0.9, sunColor: new THREE.Color('#cdc6ba') },
+      { zenith: new THREE.Color('#152154'), horizon: new THREE.Color('#cc3805'), fog: new THREE.Color('#902e08'), ambient: 0.39, sunInt: 0.5, sunColor: new THREE.Color('#cc7232') },
     ];
 
     function skyColors(phase) {
@@ -8469,7 +8470,7 @@
         drift: rand(-0.3, 0.3),
         angle: rand(0, Math.PI * 2),
         angleSpeed: rand(0.006, 0.010) * (Math.random() < 0.5 ? 1 : -1),
-        alpha: rand(0.45, 0.80),
+        alpha: rand(0.35, 0.62),
         color: COLORS[Math.floor(Math.random() * COLORS.length)],
       };
     }
