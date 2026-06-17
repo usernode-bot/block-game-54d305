@@ -94,6 +94,10 @@ const BADGES = [
   { id: 'streak_7',        name: 'Week Warrior',     icon: '🗓️', flavour: 'A full week of building!' },
   { id: 'streak_14',       name: 'Fortnight Pro',    icon: '🏆', flavour: 'Two weeks of daily play!' },
   { id: 'streak_30',       name: 'Monthly Master',   icon: '👑', flavour: 'A full month on the block!' },
+  { id: 'mission_complete',  name: 'Mission Complete', icon: '🎯', flavour: 'Completed your first daily mission!' },
+  { id: 'mission_streak_3',  name: 'Mission Regular',  icon: '📋', flavour: 'Completed missions 3 days in a row!' },
+  { id: 'mission_streak_7',  name: 'Mission Pro',      icon: '📊', flavour: 'Completed missions 7 days in a row!' },
+  { id: 'mission_streak_30', name: 'Mission Master',   icon: '🏅', flavour: 'Completed missions 30 days in a row!' },
 ];
 
 const STREAK_BADGE_MILESTONES = [
@@ -101,6 +105,12 @@ const STREAK_BADGE_MILESTONES = [
   { days: 7,  id: 'streak_7' },
   { days: 14, id: 'streak_14' },
   { days: 30, id: 'streak_30' },
+];
+
+const MISSION_STREAK_BADGE_MILESTONES = [
+  { days: 3,  id: 'mission_streak_3' },
+  { days: 7,  id: 'mission_streak_7' },
+  { days: 30, id: 'mission_streak_30' },
 ];
 
 // Returns badges from BADGES that are newly earned given updated leaderboard
@@ -141,6 +151,35 @@ function dailyTarget(dateObj) {
   const m = dateObj.getUTCMonth() + 1;
   const d = dateObj.getUTCDate();
   return 20 + ((y * 31 + m * 7 + d) % 81);
+}
+
+// Fixed pool of daily missions rotated deterministically by UTC date.
+// Three mission types: place_type (place N blocks of a specific type),
+// reach_height (place any block at y >= target), break_blocks (break N blocks).
+const MISSION_POOL = [
+  { type: 'place_type',   target: 20, blockType: 3,  label: 'Place 20 Stone blocks' },
+  { type: 'place_type',   target: 15, blockType: 7,  label: 'Place 15 Brick blocks' },
+  { type: 'place_type',   target: 12, blockType: 8,  label: 'Place 12 Glass blocks' },
+  { type: 'place_type',   target: 25, blockType: 1,  label: 'Place 25 Grass blocks' },
+  { type: 'place_type',   target: 10, blockType: 14, label: 'Place 10 Gold Blocks' },
+  { type: 'place_type',   target: 15, blockType: 15, label: 'Place 15 Glowstone blocks' },
+  { type: 'place_type',   target: 20, blockType: 6,  label: 'Place 20 Sand blocks' },
+  { type: 'place_type',   target: 15, blockType: 16, label: 'Place 15 Obsidian blocks' },
+  { type: 'reach_height', target: 8,  label: 'Reach height 8 — place any block at y ≥ 8' },
+  { type: 'reach_height', target: 10, label: 'Reach height 10 — place any block at y ≥ 10' },
+  { type: 'reach_height', target: 12, label: 'Reach height 12 — place any block at y ≥ 12' },
+  { type: 'reach_height', target: 15, label: 'Reach height 15 — place any block at y ≥ 15' },
+  { type: 'break_blocks', target: 15, label: 'Break 15 blocks' },
+  { type: 'break_blocks', target: 20, label: 'Break 20 blocks' },
+  { type: 'break_blocks', target: 30, label: 'Break 30 blocks' },
+  { type: 'break_blocks', target: 40, label: 'Break 40 blocks' },
+];
+
+function dailyMission(dateObj) {
+  const y = dateObj.getUTCFullYear();
+  const m = dateObj.getUTCMonth() + 1;
+  const d = dateObj.getUTCDate();
+  return MISSION_POOL[(y * 31 + m * 7 + d * 13 + 5) % MISSION_POOL.length];
 }
 
 // Returns the ISO date string (YYYY-MM-DD) for the Monday that starts the
@@ -255,13 +294,13 @@ app.post('/api/block', async (req, res) => {
 
     // Track challenge progress for placements only (breaks don't count).
     let challenge = null;
+    const now = new Date();
+    const dateStr = now.toISOString().slice(0, 10);
     // ---- Scoring (placements only; breaks earn 0) ----
     let earned = 0, combo_multiplier = 1, rainbow_multiplier = 1, combo_tier = 1;
     let newly_earned_badges = [];
     let newly_unlocked_types = [];
     if (t !== 0) {
-      const now = new Date();
-      const dateStr = now.toISOString().slice(0, 10);
       const target = dailyTarget(now);
       const cr = await pool.query(
         `INSERT INTO daily_challenge_progress
@@ -388,7 +427,134 @@ app.post('/api/block', async (req, res) => {
       }
     }
 
-    res.json({ ok: true, seq, ...(challenge ? { challenge } : {}), earned, combo_multiplier, rainbow_multiplier, newly_earned_badges, newly_unlocked_types });
+    // ---- Daily mission progress (runs for placements and breaks) ----
+    let newly_earned_mission_badges = [];
+    let mission_data = null;
+    {
+      const mission = dailyMission(now);
+      let advances = false;
+      let delta = 0;
+      if (mission.type === 'place_type' && t === mission.blockType) {
+        advances = true; delta = 1;
+      } else if (mission.type === 'reach_height' && t !== 0 && y >= mission.target) {
+        advances = true; delta = mission.target;
+      } else if (mission.type === 'break_blocks' && t === 0) {
+        advances = true; delta = 1;
+      }
+
+      if (advances) {
+        const prevRes = await pool.query(
+          `SELECT progress, completed_at FROM daily_mission_progress WHERE mission_date = $1 AND user_id = $2`,
+          [dateStr, req.user.id]
+        );
+        const prevRow = prevRes.rows[0];
+        const wasCompleted = prevRow && prevRow.completed_at !== null;
+
+        if (!wasCompleted) {
+          const currentProgress = prevRow ? Number(prevRow.progress) : 0;
+          const newProgress = mission.type === 'reach_height'
+            ? mission.target
+            : Math.min(mission.target, currentProgress + delta);
+          const justCompleted = newProgress >= mission.target;
+          const completedAtVal = justCompleted ? new Date() : null;
+
+          await pool.query(
+            `INSERT INTO daily_mission_progress
+               (mission_date, user_id, username, mission_type, progress, target, completed_at, updated_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+             ON CONFLICT (mission_date, user_id) DO UPDATE SET
+               progress = $5,
+               username = EXCLUDED.username,
+               completed_at = COALESCE(daily_mission_progress.completed_at, $7),
+               updated_at = NOW()`,
+            [dateStr, req.user.id, req.user.username, mission.type, newProgress, mission.target, completedAtVal]
+          );
+
+          if (justCompleted) {
+            // Award 50 bonus points to leaderboard and weekly tournament.
+            await pool.query(
+              `INSERT INTO leaderboard (user_id, username, total_score, blocks_placed, best_combo, updated_at)
+               VALUES ($1, $2, 50, 0, 1, NOW())
+               ON CONFLICT (user_id) DO UPDATE SET
+                 total_score = leaderboard.total_score + 50,
+                 username = EXCLUDED.username,
+                 updated_at = NOW()`,
+              [req.user.id, req.user.username]
+            );
+            await pool.query(
+              `INSERT INTO tournament_scores (week_start, user_id, username, score, blocks_placed, updated_at)
+               VALUES ($1, $2, $3, 50, 0, NOW())
+               ON CONFLICT (week_start, user_id) DO UPDATE SET
+                 score = tournament_scores.score + 50,
+                 username = EXCLUDED.username,
+                 updated_at = NOW()`,
+              [weekStart(now), req.user.id, req.user.username]
+            );
+
+            // Update mission completion streak.
+            const missionStreakRes = await pool.query(
+              `INSERT INTO mission_streaks (user_id, username, last_completed_date, current_streak, longest_streak, updated_at)
+               VALUES ($1, $2, CURRENT_DATE, 1, 1, NOW())
+               ON CONFLICT (user_id) DO UPDATE SET
+                 username = EXCLUDED.username,
+                 current_streak = CASE
+                   WHEN mission_streaks.last_completed_date = CURRENT_DATE     THEN mission_streaks.current_streak
+                   WHEN mission_streaks.last_completed_date = CURRENT_DATE - 1 THEN mission_streaks.current_streak + 1
+                   ELSE 1
+                 END,
+                 longest_streak = GREATEST(mission_streaks.longest_streak, CASE
+                   WHEN mission_streaks.last_completed_date = CURRENT_DATE     THEN mission_streaks.current_streak
+                   WHEN mission_streaks.last_completed_date = CURRENT_DATE - 1 THEN mission_streaks.current_streak + 1
+                   ELSE 1
+                 END),
+                 last_completed_date = CASE
+                   WHEN mission_streaks.last_completed_date = CURRENT_DATE THEN mission_streaks.last_completed_date
+                   ELSE CURRENT_DATE
+                 END,
+                 updated_at = NOW()
+               RETURNING current_streak`,
+              [req.user.id, req.user.username]
+            );
+            const missionStreak = Number(missionStreakRes.rows[0].current_streak);
+
+            // Check and award mission-specific badges.
+            const missionEarnedRes = await pool.query(
+              `SELECT badge_id FROM player_badges WHERE user_id = $1 AND badge_id LIKE 'mission_%'`,
+              [req.user.id]
+            );
+            const missionEarnedIds = new Set(missionEarnedRes.rows.map((r) => r.badge_id));
+            const missionBadgesToCheck = [
+              { id: 'mission_complete', condition: true },
+              ...MISSION_STREAK_BADGE_MILESTONES.map(({ days, id }) => ({ id, condition: missionStreak >= days })),
+            ];
+            for (const { id, condition } of missionBadgesToCheck) {
+              if (condition && !missionEarnedIds.has(id)) {
+                const ins = await pool.query(
+                  `INSERT INTO player_badges (user_id, badge_id, earned_at)
+                   VALUES ($1, $2, NOW())
+                   ON CONFLICT DO NOTHING
+                   RETURNING badge_id`,
+                  [req.user.id, id]
+                );
+                if (ins.rows.length > 0) {
+                  const def = BADGES.find((b) => b.id === id);
+                  if (def) newly_earned_mission_badges.push({ id: def.id, name: def.name, icon: def.icon, flavour: def.flavour });
+                }
+              }
+            }
+          }
+
+          mission_data = {
+            progress: newProgress,
+            target: mission.target,
+            completed_at: completedAtVal ? completedAtVal.toISOString() : null,
+            newly_earned_mission_badges,
+          };
+        }
+      }
+    }
+
+    res.json({ ok: true, seq, ...(challenge ? { challenge } : {}), earned, combo_multiplier, rainbow_multiplier, newly_earned_badges, newly_unlocked_types, ...(mission_data ? { mission: mission_data } : {}) });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -736,6 +902,42 @@ app.get('/api/challenge/today', async (req, res) => {
       target,
       placed: row ? row.blocks_placed : 0,
       completed_at: row ? row.completed_at : null,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- Daily Mission: today's mission definition and the requesting user's progress. ----
+app.get('/api/mission/today', async (req, res) => {
+  try {
+    const now = new Date();
+    const dateStr = now.toISOString().slice(0, 10);
+    const mission = dailyMission(now);
+
+    const progressRes = await pool.query(
+      `SELECT progress, completed_at FROM daily_mission_progress WHERE mission_date = $1 AND user_id = $2`,
+      [dateStr, req.user.id]
+    );
+    const row = progressRes.rows[0];
+
+    const streakRes = await pool.query(
+      `SELECT current_streak, longest_streak FROM mission_streaks WHERE user_id = $1`,
+      [req.user.id]
+    );
+    const streakRow = streakRes.rows[0];
+
+    res.json({
+      date: dateStr,
+      type: mission.type,
+      label: mission.label,
+      target: mission.target,
+      ...(mission.blockType ? { blockType: mission.blockType } : {}),
+      progress: row ? Number(row.progress) : 0,
+      completed_at: row ? row.completed_at : null,
+      mission_streak: streakRow
+        ? { current: streakRow.current_streak, longest: streakRow.longest_streak }
+        : { current: 0, longest: 0 },
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -1221,6 +1423,44 @@ async function seedStaging() {
     [todayStr, targetToday]
   );
 
+  // Seed daily_mission_progress for three personas: partial, completed, not started.
+  const missionToday = dailyMission(now);
+  await pool.query(
+    `INSERT INTO daily_mission_progress
+       (mission_date, user_id, username, mission_type, progress, target, completed_at, updated_at)
+     VALUES
+       ($1, -1, 'alice_builder', $2, $3, $4, NULL,                          NOW()),
+       ($1, -2, 'reza99',        $2, $4, $4, NOW() - INTERVAL '2 hours',    NOW())
+     ON CONFLICT (mission_date, user_id) DO NOTHING`,
+    [todayStr, missionToday.type, Math.floor(missionToday.target * 0.6), missionToday.target]
+  );
+
+  // Seed mission_streaks for staging personas.
+  await pool.query(
+    `INSERT INTO mission_streaks (user_id, username, last_completed_date, current_streak, longest_streak)
+     VALUES
+       (-1, 'alice_builder', CURRENT_DATE - 1, 3,  7),
+       (-2, 'reza99',        CURRENT_DATE,     7, 14)
+     ON CONFLICT (user_id) DO NOTHING`
+  );
+
+  // Seed mission badges so the badges panel shows the new entries.
+  const missionBadgeSeed = [
+    { userId: -1, badgeId: 'mission_complete' },
+    { userId: -1, badgeId: 'mission_streak_3' },
+    { userId: -2, badgeId: 'mission_complete' },
+    { userId: -2, badgeId: 'mission_streak_3' },
+    { userId: -2, badgeId: 'mission_streak_7' },
+  ];
+  for (const b of missionBadgeSeed) {
+    await pool.query(
+      `INSERT INTO player_badges (user_id, badge_id, earned_at)
+       VALUES ($1, $2, NOW() - INTERVAL '1 day')
+       ON CONFLICT DO NOTHING`,
+      [b.userId, b.badgeId]
+    );
+  }
+
   // Seed one of each power-up type at fixed, open positions so testers can
   // immediately see and collect them. Skipped if any unclaimed power-ups
   // already exist (e.g. after a hot-reload during the same staging run).
@@ -1623,6 +1863,36 @@ async function start() {
       current_streak INTEGER NOT NULL DEFAULT 1,
       longest_streak INTEGER NOT NULL DEFAULT 1,
       updated_at     TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+
+  // Daily mission progress: one row per (date, user). Stores which mission type
+  // was active (for display) and the current progress count toward the target.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS daily_mission_progress (
+      mission_date DATE        NOT NULL,
+      user_id      INTEGER     NOT NULL,
+      username     VARCHAR(255) NOT NULL,
+      mission_type VARCHAR(30) NOT NULL,
+      progress     INTEGER     NOT NULL DEFAULT 0,
+      target       INTEGER     NOT NULL,
+      completed_at TIMESTAMPTZ,
+      updated_at   TIMESTAMPTZ DEFAULT NOW(),
+      PRIMARY KEY (mission_date, user_id)
+    )
+  `);
+
+  // Mission completion streaks: one row per user, updated when each daily mission
+  // is completed. Separate from login_streaks — measures consecutive mission
+  // completions, not logins.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS mission_streaks (
+      user_id             INTEGER PRIMARY KEY,
+      username            VARCHAR(255) NOT NULL,
+      last_completed_date DATE        NOT NULL,
+      current_streak      INTEGER     NOT NULL DEFAULT 1,
+      longest_streak      INTEGER     NOT NULL DEFAULT 1,
+      updated_at          TIMESTAMPTZ DEFAULT NOW()
     )
   `);
 
