@@ -574,16 +574,20 @@
   <button id="worlds-btn" title="Worlds" aria-label="Toggle worlds"
           class="fixed top-[10.75rem] right-3 z-30 w-12 h-12 sm:w-9 sm:h-9 rounded-full bg-black/50 hover:bg-black/70 text-zinc-100 text-lg leading-none flex items-center justify-center transition hover:scale-110 active:scale-95 cursor-pointer">🌍</button>
 
+  <!-- Game toggle: below the worlds button. -->
+  <button id="game-btn" title="Game (G)" aria-label="Toggle game"
+          class="fixed top-[13rem] right-3 z-30 w-12 h-12 sm:w-9 sm:h-9 rounded-full bg-black/50 hover:bg-black/70 text-zinc-100 text-lg leading-none flex items-center justify-center transition hover:scale-110 active:scale-95 cursor-pointer">🎮</button>
+
   <!-- Build/version stamp: always visible, dim, so the running build can be
        confirmed at a glance. Bump BUILD_VERSION (below) on every change.
        Shifted down to make room for the leaderboard, friends, and coach buttons above. -->
-  <div id="build-stamp" class="pointer-events-none fixed top-[10.5rem] right-3 z-20 text-[11px] text-zinc-300/70 bg-black/40 rounded px-2 py-1 font-mono"></div>
+  <div id="build-stamp" class="pointer-events-none fixed top-[15.25rem] right-3 z-20 text-[11px] text-zinc-300/70 bg-black/40 rounded px-2 py-1 font-mono"></div>
 
   <!-- Mini-map: top-down 128×128 px overhead view of the 32×32 world.
        Hidden until a play mode is chosen; shown/hidden via JS. -->
   <canvas id="minimap" width="128" height="128"
           class="hidden fixed z-20 pointer-events-none"
-          style="top: 11.5rem; right: 0.75rem; border-radius: 6px; border: 1px solid rgba(255,255,255,0.15); opacity: 0.9"></canvas>
+          style="top: 13.5rem; right: 0.75rem; border-radius: 6px; border: 1px solid rgba(255,255,255,0.15); opacity: 0.9"></canvas>
 
   <!-- AI Coach bubble: appears on the left side with a tip. Hidden by default. -->
   <div id="coach-bubble" class="hidden fixed left-4 top-1/2 -translate-y-1/2 z-20 max-w-[240px]"
@@ -660,6 +664,104 @@
       <button id="save-world-btn" class="w-full px-3 py-2 rounded bg-violet-600 hover:bg-violet-500 active:bg-violet-700 text-white text-sm font-semibold transition">Save Current World</button>
     </div>
     <div id="worlds-list" class="space-y-2 sm:space-y-1.5 max-h-[calc(100vh-300px)] sm:max-h-96 overflow-y-auto pr-0.5"></div>
+  </div>
+
+  <!-- Game panel: game mode selection, quick settings, and online players.
+       Hidden by default; toggled by the 🎮 Game button. -->
+  <div id="game-panel" class="hidden fixed top-16 right-3 z-30 w-full sm:w-96 max-w-[90vw] rounded-xl bg-black/70 backdrop-blur px-3 py-4 sm:p-4 text-sm text-zinc-200 shadow-xl max-h-[calc(100vh-120px)] overflow-y-auto">
+    <div class="flex items-center justify-between mb-4">
+      <h2 class="font-bold text-zinc-100" id="game-panel-title">Game</h2>
+      <button id="game-close" aria-label="Close game" class="text-zinc-400 hover:text-zinc-100 cursor-pointer leading-none transition-colors">✕</button>
+    </div>
+
+    <!-- Quick Settings -->
+    <div class="mb-4 space-y-3 pb-3 border-b border-zinc-700/60">
+      <!-- Sound toggle -->
+      <div class="flex items-center justify-between gap-3">
+        <div>
+          <div class="font-semibold text-zinc-100 text-xs" id="game-sound-label">Sound</div>
+          <div class="text-[10px] text-zinc-400" id="game-sound-desc">Music &amp; effects</div>
+        </div>
+        <button id="game-sound-toggle" role="switch" aria-checked="true"
+                class="relative w-10 h-6 rounded-full bg-emerald-600 transition-colors cursor-pointer flex-shrink-0">
+          <span id="game-sound-knob" class="absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform" style="transform: translateX(16px)"></span>
+        </button>
+      </div>
+      <!-- Time Attack difficulty -->
+      <div>
+        <div class="font-semibold text-zinc-100 text-xs mb-1" id="game-ta-diff-label">TA Difficulty</div>
+        <div class="flex items-center justify-between gap-2">
+          <button id="game-diff-down" class="w-8 h-8 rounded bg-zinc-700 hover:bg-zinc-600 text-zinc-200 font-bold text-xs leading-none transition hover:scale-110 active:scale-95">←</button>
+          <span id="game-diff-label" class="text-xs font-semibold text-amber-400 flex-1 text-center">Easy</span>
+          <button id="game-diff-up" class="w-8 h-8 rounded bg-zinc-700 hover:bg-zinc-600 text-zinc-200 font-bold text-xs leading-none transition hover:scale-110 active:scale-95">→</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Game Modes Grid -->
+    <div class="space-y-2 mb-4">
+      <!-- Classic Mode -->
+      <div class="bg-zinc-800/50 rounded-lg p-2.5 hover:bg-zinc-800/70 transition cursor-pointer" data-game-mode="classic">
+        <h3 class="font-semibold text-xs text-zinc-100 mb-0.5">Classic Mode</h3>
+        <p class="text-[10px] text-zinc-400 mb-2">Free-play in a shared world. No timer, no score.</p>
+        <button class="w-full px-2 py-1.5 rounded bg-violet-600 hover:bg-violet-500 font-semibold text-xs transition">Play Classic</button>
+      </div>
+
+      <!-- Time Attack -->
+      <div class="bg-zinc-800/50 rounded-lg p-2.5 hover:bg-zinc-800/70 transition cursor-pointer" data-game-mode="ta">
+        <h3 class="font-semibold text-xs text-zinc-100 mb-0.5">Time Attack</h3>
+        <p class="text-[10px] text-zinc-400 mb-2">Break blocks against the clock. Solo, difficulty-based.</p>
+        <button class="w-full px-2 py-1.5 rounded bg-amber-600 hover:bg-amber-500 font-semibold text-xs transition">Play Time Attack</button>
+      </div>
+
+      <!-- Time Attack 60s -->
+      <div class="bg-zinc-800/50 rounded-lg p-2.5 hover:bg-zinc-800/70 transition cursor-pointer" data-game-mode="ta-60">
+        <h3 class="font-semibold text-xs text-zinc-100 mb-0.5">Time Attack (60s)</h3>
+        <p class="text-[10px] text-zinc-400 mb-2">Clear blocks in 60 seconds. No clearing—blocks stack.</p>
+        <button class="w-full px-2 py-1.5 rounded bg-cyan-600 hover:bg-cyan-500 font-semibold text-xs transition">Play TA (60s)</button>
+      </div>
+
+      <!-- Daily Challenge -->
+      <div class="bg-zinc-800/50 rounded-lg p-2.5 hover:bg-zinc-800/70 transition cursor-pointer" data-game-mode="daily-challenge">
+        <h3 class="font-semibold text-xs text-zinc-100 mb-0.5">Daily Challenge</h3>
+        <p class="text-[10px] text-zinc-400 mb-2">Same objective for all. Resets daily. Compete on leaderboard.</p>
+        <button class="w-full px-2 py-1.5 rounded bg-fuchsia-600 hover:bg-fuchsia-500 font-semibold text-xs transition">Play Daily</button>
+      </div>
+
+      <!-- Endless Mode -->
+      <div class="bg-zinc-800/50 rounded-lg p-2.5 hover:bg-zinc-800/70 transition cursor-pointer" data-game-mode="endless">
+        <h3 class="font-semibold text-xs text-zinc-100 mb-0.5">Endless Mode</h3>
+        <p class="text-[10px] text-zinc-400 mb-2">Build forever. No timer—how long until no valid moves?</p>
+        <button class="w-full px-2 py-1.5 rounded bg-rose-600 hover:bg-rose-500 font-semibold text-xs transition">Play Endless</button>
+      </div>
+
+      <!-- Tutorial -->
+      <div class="bg-zinc-800/50 rounded-lg p-2.5 hover:bg-zinc-800/70 transition cursor-pointer" data-game-mode="tutorial">
+        <h3 class="font-semibold text-xs text-zinc-100 mb-0.5">Tutorial</h3>
+        <p class="text-[10px] text-zinc-400 mb-2">Learn step-by-step: place, break, earn, clear.</p>
+        <button class="w-full px-2 py-1.5 rounded bg-green-600 hover:bg-green-500 font-semibold text-xs transition">📚 Start Tutorial</button>
+      </div>
+
+      <!-- Learn Mode -->
+      <div class="bg-zinc-800/50 rounded-lg p-2.5 hover:bg-zinc-800/70 transition cursor-pointer" data-game-mode="learn">
+        <h3 class="font-semibold text-xs text-zinc-100 mb-0.5">Learn Mode</h3>
+        <p class="text-[10px] text-zinc-400 mb-2">Get started at your own pace with helpful hints.</p>
+        <button class="w-full px-2 py-1.5 rounded bg-green-600 hover:bg-green-500 font-semibold text-xs transition">Play Learn</button>
+      </div>
+
+      <!-- Watch -->
+      <div class="bg-zinc-800/50 rounded-lg p-2.5 hover:bg-zinc-800/70 transition cursor-pointer" data-game-mode="spectate">
+        <h3 class="font-semibold text-xs text-zinc-100 mb-0.5">Watch</h3>
+        <p class="text-[10px] text-zinc-400 mb-2">Spectate the world. Explore and chat—no building.</p>
+        <button class="w-full px-2 py-1.5 rounded bg-teal-600 hover:bg-teal-500 font-semibold text-xs transition">Watch World</button>
+      </div>
+    </div>
+
+    <!-- Online Players -->
+    <div class="pt-3 border-t border-zinc-700/60">
+      <div class="text-xs font-semibold text-zinc-400 mb-2">Online Players</div>
+      <div id="game-online-list" class="text-[10px] text-zinc-400 space-y-1">Loading…</div>
+    </div>
   </div>
 
   <!-- Full-screen flash overlay for disaster visual effects. -->
@@ -4013,6 +4115,137 @@
     document.getElementById('play-learn-btn').addEventListener('click', () => { audio.init(); startMode('learn'); });
     document.getElementById('play-spectate-btn').addEventListener('click', () => { audio.init(); startMode('spectate'); });
 
+    // ---- Game Panel Toggle & Mode Selection ----
+    const gamePanelEl = document.getElementById('game-panel');
+    const gameBtn = document.getElementById('game-btn');
+    const gameCloseBtn = document.getElementById('game-close');
+    const gameOnlineListEl = document.getElementById('game-online-list');
+
+    gameBtn.addEventListener('click', () => {
+      gamePanelEl.classList.toggle('hidden');
+    });
+
+    gameCloseBtn.addEventListener('click', () => {
+      gamePanelEl.classList.add('hidden');
+    });
+
+    // Wire up game mode cards to launch modes
+    for (const card of document.querySelectorAll('[data-game-mode]')) {
+      const mode = card.dataset.gameMode;
+      const button = card.querySelector('button');
+      button.addEventListener('click', () => {
+        gamePanelEl.classList.add('hidden');
+        audio.init();
+        const modeMap = {
+          'classic': 'classic',
+          'ta': 'timeattack',
+          'ta-60': 'time-attack-60',
+          'daily-challenge': 'daily-challenge',
+          'endless': 'endless',
+          'tutorial': 'tutorial',
+          'learn': 'learn',
+          'spectate': 'spectate',
+        };
+        startMode(modeMap[mode]);
+      });
+    }
+
+    // Sync game panel sound toggle with settings panel
+    const gameSoundToggle = document.getElementById('game-sound-toggle');
+    const gameSoundKnob = document.getElementById('game-sound-knob');
+    const settingsSoundToggle = document.getElementById('settings-sound-toggle');
+    const settingsSoundKnob = document.getElementById('settings-sound-knob');
+
+    function updateGameSoundToggle() {
+      const muted = localStorage.getItem('blockgame-muted') === 'true';
+      if (muted) {
+        gameSoundToggle.classList.remove('bg-emerald-600');
+        gameSoundToggle.classList.add('bg-zinc-600');
+        gameSoundKnob.style.transform = 'translateX(0px)';
+        gameSoundToggle.setAttribute('aria-checked', 'false');
+      } else {
+        gameSoundToggle.classList.remove('bg-zinc-600');
+        gameSoundToggle.classList.add('bg-emerald-600');
+        gameSoundKnob.style.transform = 'translateX(16px)';
+        gameSoundToggle.setAttribute('aria-checked', 'true');
+      }
+    }
+
+    gameSoundToggle.addEventListener('click', () => {
+      audio.toggle();
+      updateGameSoundToggle();
+      // Also update settings panel toggle
+      const isMuted = localStorage.getItem('blockgame-muted') === 'true';
+      if (isMuted) {
+        settingsSoundToggle.classList.remove('bg-emerald-600');
+        settingsSoundToggle.classList.add('bg-zinc-600');
+        settingsSoundKnob.style.transform = 'translateX(0px)';
+        settingsSoundToggle.setAttribute('aria-checked', 'false');
+      } else {
+        settingsSoundToggle.classList.remove('bg-zinc-600');
+        settingsSoundToggle.classList.add('bg-emerald-600');
+        settingsSoundKnob.style.transform = 'translateX(20px)';
+        settingsSoundToggle.setAttribute('aria-checked', 'true');
+      }
+    });
+
+    updateGameSoundToggle();
+
+    // Game panel difficulty controls
+    const gameDiffDown = document.getElementById('game-diff-down');
+    const gameDiffUp = document.getElementById('game-diff-up');
+    const gameDiffLabel = document.getElementById('game-diff-label');
+    const settingsDiffDown = document.getElementById('settings-diff-down');
+    const settingsDiffUp = document.getElementById('settings-diff-up');
+    const settingsDiffLabel = document.getElementById('settings-diff-label');
+
+    function updateGameDiffLabel() {
+      const diffLabels = ['Easy', 'Medium', 'Hard', 'Expert', 'Nightmare'];
+      gameDiffLabel.textContent = diffLabels[taDifficulty - 1] || 'Easy';
+    }
+
+    gameDiffDown.addEventListener('click', () => {
+      if (taDifficulty > 1) {
+        taDifficulty--;
+        lsSet('ta_difficulty', taDifficulty);
+        updateGameDiffLabel();
+        settingsDiffLabel.textContent = ['Easy', 'Medium', 'Hard', 'Expert', 'Nightmare'][taDifficulty - 1] || 'Easy';
+      }
+    });
+
+    gameDiffUp.addEventListener('click', () => {
+      if (taDifficulty < 5) {
+        taDifficulty++;
+        lsSet('ta_difficulty', taDifficulty);
+        updateGameDiffLabel();
+        settingsDiffLabel.textContent = ['Easy', 'Medium', 'Hard', 'Expert', 'Nightmare'][taDifficulty - 1] || 'Easy';
+      }
+    });
+
+    updateGameDiffLabel();
+
+    // Fetch and display online players in game panel
+    async function updateGameOnlineList() {
+      try {
+        const resp = await fetch('/api/presence/online', { headers });
+        if (!resp.ok) return;
+        const data = await resp.json();
+        const list = data.online || [];
+        if (list.length === 0) {
+          gameOnlineListEl.innerHTML = '<div class="text-zinc-500">No one online</div>';
+        } else {
+          gameOnlineListEl.innerHTML = list
+            .map(u => `<div class="text-zinc-300">${u.username} (${u.mode})</div>`)
+            .join('');
+        }
+      } catch (_) {
+        gameOnlineListEl.innerHTML = '<div class="text-zinc-500">Failed to load</div>';
+      }
+    }
+
+    updateGameOnlineList();
+    setInterval(updateGameOnlineList, 10000);
+
     document.getElementById('ta-tier-down').addEventListener('click', () => {
       if (taDifficulty > 1) { taDifficulty--; lsSet('ta_difficulty', taDifficulty); updateTaTierPicker(); }
     });
@@ -4168,6 +4401,8 @@
       if (e.code === 'Escape') {
         if (stampModeActive) {
           toggleStampMode();
+        } else if (!gamePanelEl.classList.contains('hidden')) {
+          gamePanelEl.classList.add('hidden');
         } else if (!leaderboardEl.classList.contains('hidden')) {
           closeLeaderboard();
         } else if (!friendsPanelEl.classList.contains('hidden')) {
