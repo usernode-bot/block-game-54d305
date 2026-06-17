@@ -355,11 +355,13 @@ app.get('/api/chat', async (req, res) => {
 // ---- Presence: heartbeat ping ----
 app.post('/api/presence/ping', async (req, res) => {
   try {
+    const rawMode = req.body && req.body.mode;
+    const mode = ['classic', 'spectate'].includes(rawMode) ? rawMode : 'classic';
     await pool.query(
-      `INSERT INTO user_presence (user_id, username, last_seen)
-       VALUES ($1, $2, NOW())
-       ON CONFLICT (user_id) DO UPDATE SET username = EXCLUDED.username, last_seen = NOW()`,
-      [req.user.id, req.user.username]
+      `INSERT INTO user_presence (user_id, username, last_seen, mode)
+       VALUES ($1, $2, NOW(), $3)
+       ON CONFLICT (user_id) DO UPDATE SET username = EXCLUDED.username, last_seen = NOW(), mode = EXCLUDED.mode`,
+      [req.user.id, req.user.username, mode]
     );
     res.json({ ok: true });
   } catch (err) {
@@ -368,20 +370,14 @@ app.post('/api/presence/ping', async (req, res) => {
 });
 
 // ---- Presence: who is online (seen in the last 60s) ----
-const STAGING_DEMO_USERS = [
-  { username: 'Staging Builder A' },
-  { username: 'Staging Builder B' },
-  { username: 'Staging Builder C' },
-  { username: 'Staging Builder D' },
-];
 app.get('/api/presence/online', async (req, res) => {
   try {
     const { rows } = await pool.query(
-      `SELECT username FROM user_presence
+      `SELECT username, mode FROM user_presence
        WHERE last_seen > NOW() - INTERVAL '60 seconds'
        ORDER BY username`
     );
-    const users = rows.map((r) => ({ username: r.username }));
+    const users = rows.map((r) => ({ username: r.username, mode: r.mode || 'classic' }));
     if (IS_STAGING) users.push(...STAGING_DEMO_USERS);
     res.json({ users });
   } catch (err) {
@@ -798,10 +794,15 @@ async function start() {
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS user_presence (
-      user_id  INTEGER PRIMARY KEY,
-      username VARCHAR(255) NOT NULL,
-      last_seen TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      user_id   INTEGER PRIMARY KEY,
+      username  VARCHAR(255) NOT NULL,
+      last_seen TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      mode      VARCHAR(20) NOT NULL DEFAULT 'classic'
     )
+  `);
+  await pool.query(`
+    ALTER TABLE user_presence
+      ADD COLUMN IF NOT EXISTS mode VARCHAR(20) NOT NULL DEFAULT 'classic'
   `);
 
   // Daily challenge progress: one row per (date, user). Public table —
@@ -830,6 +831,15 @@ async function start() {
     catch (err) { console.error('staging chat seed failed', err); }
     try { await seedLeaderboard(); }
     catch (err) { console.error('leaderboard seed failed', err); }
+    try {
+      // Two fake spectators so the eye-icon path is exercisable in staging.
+      await pool.query(
+        `INSERT INTO user_presence (user_id, username, last_seen, mode)
+         VALUES (-9001, 'Staging demo spectator — Alice', NOW(), 'spectate'),
+                (-9002, 'Staging demo spectator — Bob',   NOW(), 'spectate')
+         ON CONFLICT (user_id) DO UPDATE SET last_seen = NOW(), mode = EXCLUDED.mode`
+      );
+    } catch (err) { console.error('staging spectator seed failed', err); }
   }
 
   app.listen(port, () => console.log(`Listening on :${port}`));
