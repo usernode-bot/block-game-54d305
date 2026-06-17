@@ -82,7 +82,12 @@ const BADGES = [
   { id: 'streak_3',        name: 'Hot Start',       icon: '🔥', flavour: 'Logged in 3 days in a row!' },
   { id: 'streak_7',        name: 'Week Warrior',     icon: '🗓️', flavour: 'A full week of building!' },
   { id: 'streak_14',       name: 'Fortnight Pro',    icon: '🏆', flavour: 'Two weeks of daily play!' },
-  { id: 'streak_30',       name: 'Monthly Master',   icon: '👑', flavour: 'A full month on the block!' },
+  { id: 'streak_30',        name: 'Monthly Master',    icon: '👑', flavour: 'A full month on the block!' },
+  { id: 'master_comboist',  name: 'Combo King',        icon: '💥', flavour: 'Achieved a ×5 combo!' },
+  { id: 'overachiever',     name: 'Overachiever',      icon: '🏅', flavour: 'Earned 5,000 total score!' },
+  { id: 'legendary_builder',name: 'Legendary Builder', icon: '🌟', flavour: 'Placed 500 blocks!' },
+  { id: 'daily_regular',    name: 'Daily Regular',     icon: '📅', flavour: 'Completed 5 daily challenges!' },
+  { id: 'speed_demon',      name: 'Speed Demon',       icon: '⚡', flavour: 'Cleared 30+ blocks in Time Attack!' },
 ];
 
 const STREAK_BADGE_MILESTONES = [
@@ -109,8 +114,11 @@ function checkBadges({ lb, justPlacedType, typeCount }, earnedIds) {
       case 'golden_touch':    earned = justPlacedType === 14; break;
       case 'glowmaster':      earned = justPlacedType === 15; break;
       case 'shadow_sculptor': earned = justPlacedType === 16; break;
-      case 'material_artist': earned = typeCount >= 8; break;
-      case 'crystal_placer':  earned = justPlacedType === 18; break;
+      case 'material_artist':   earned = typeCount >= 8; break;
+      case 'crystal_placer':    earned = justPlacedType === 18; break;
+      case 'master_comboist':   earned = lb.best_combo >= 4; break;
+      case 'overachiever':      earned = lb.total_score >= 5000; break;
+      case 'legendary_builder': earned = lb.blocks_placed >= 500; break;
     }
     if (earned) newBadges.push(badge);
   }
@@ -366,6 +374,25 @@ app.post('/api/block', async (req, res) => {
       }
       newly_earned_badges = newBadges.map((b) => ({ id: b.id, name: b.name, icon: b.icon, flavour: b.flavour }));
 
+      // Check daily_regular badge: fires when the challenge is completed and the
+      // player hasn't earned it yet. Queries total completions only at that moment.
+      if (challenge && challenge.completed_at && !earnedIds.has('daily_regular')) {
+        const { rows: dcRows } = await pool.query(
+          `SELECT COUNT(*)::int AS c FROM daily_challenge_progress WHERE user_id = $1 AND completed_at IS NOT NULL`,
+          [req.user.id]
+        );
+        if (Number(dcRows[0].c) >= 5) {
+          const ins = await pool.query(
+            `INSERT INTO player_badges (user_id, badge_id, earned_at) VALUES ($1, 'daily_regular', NOW()) ON CONFLICT DO NOTHING RETURNING badge_id`,
+            [req.user.id]
+          );
+          if (ins.rows.length > 0) {
+            const def = BADGES.find((b) => b.id === 'daily_regular');
+            if (def) newly_earned_badges.push({ id: def.id, name: def.name, icon: def.icon, flavour: def.flavour });
+          }
+        }
+      }
+
       // Detect first crossing of any block unlock threshold (blocks_placed increments by 1 per
       // placement, so === only fires once — the exact turn the threshold is first reached).
       for (const up of PALETTE.filter((p) => p.unlockAt)) {
@@ -562,6 +589,121 @@ app.get('/api/leaderboard', async (req, res) => {
     res.json({
       entries: topRes.rows.map(toRow),
       self: selfRes.rows.length ? toRow(selfRes.rows[0]) : null,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- Player stats: full snapshot for the current user's Profile panel ----
+app.get('/api/stats/me', async (req, res) => {
+  try {
+    const uid = req.user.id;
+    const [lbRes, streakRes, typeRes, dcRes, badgeRes] = await Promise.all([
+      pool.query(`SELECT total_score, blocks_placed, best_combo, best_time_attack_score FROM leaderboard WHERE user_id = $1`, [uid]),
+      pool.query(`SELECT current_streak, longest_streak FROM login_streaks WHERE user_id = $1`, [uid]),
+      pool.query(`SELECT COUNT(*)::int AS c FROM player_type_usage WHERE user_id = $1`, [uid]),
+      pool.query(`SELECT COUNT(*)::int AS c FROM daily_challenge_progress WHERE user_id = $1 AND completed_at IS NOT NULL`, [uid]),
+      pool.query(`SELECT COUNT(*)::int AS c FROM player_badges WHERE user_id = $1`, [uid]),
+    ]);
+    const lb = lbRes.rows[0];
+    const streak = streakRes.rows[0];
+    res.json({
+      total_score:              lb ? Number(lb.total_score)   : 0,
+      blocks_placed:            lb ? Number(lb.blocks_placed) : 0,
+      best_combo:               lb ? lb.best_combo            : 1,
+      best_time_attack_score:   lb ? Number(lb.best_time_attack_score) : 0,
+      current_streak:           streak ? streak.current_streak  : 0,
+      longest_streak:           streak ? streak.longest_streak  : 0,
+      distinct_types_used:      typeRes.rows[0].c,
+      daily_challenges_completed: dcRes.rows[0].c,
+      badges_earned:            badgeRes.rows[0].c,
+      badges_total:             BADGES.length,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- Time Attack score: persist personal best, award speed_demon badge ----
+app.post('/api/time-attack/score', async (req, res) => {
+  try {
+    const blocksCleared = Number(req.body.blocks_cleared);
+    if (!Number.isInteger(blocksCleared) || blocksCleared < 0 || blocksCleared > 1800) {
+      return res.status(400).json({ error: 'invalid blocks_cleared value' });
+    }
+    // Upsert leaderboard row (ensures it exists) and update TA best only if higher.
+    await pool.query(
+      `INSERT INTO leaderboard (user_id, username, best_time_attack_score, updated_at)
+       VALUES ($1, $2, $3, NOW())
+       ON CONFLICT (user_id) DO UPDATE SET
+         best_time_attack_score = GREATEST(leaderboard.best_time_attack_score, EXCLUDED.best_time_attack_score),
+         username = EXCLUDED.username,
+         updated_at = NOW()`,
+      [req.user.id, req.user.username, blocksCleared]
+    );
+    const { rows: [lbRow] } = await pool.query(
+      `SELECT best_time_attack_score FROM leaderboard WHERE user_id = $1`, [req.user.id]
+    );
+    const best = Number(lbRow.best_time_attack_score);
+
+    // Check speed_demon badge (clear 30+ blocks in a single TA run).
+    const earned = [];
+    if (blocksCleared >= 30) {
+      const { rows: alreadyEarned } = await pool.query(
+        `SELECT 1 FROM player_badges WHERE user_id = $1 AND badge_id = 'speed_demon'`, [req.user.id]
+      );
+      if (!alreadyEarned.length) {
+        const ins = await pool.query(
+          `INSERT INTO player_badges (user_id, badge_id, earned_at) VALUES ($1, 'speed_demon', NOW()) ON CONFLICT DO NOTHING RETURNING badge_id`,
+          [req.user.id]
+        );
+        if (ins.rows.length > 0) earned.push('speed_demon');
+      }
+    }
+    res.json({ best, earned });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- Daily leaderboard: today's challenge completers (earliest first) ----
+app.get('/api/leaderboard/daily', async (req, res) => {
+  try {
+    const now = new Date();
+    const dateStr = now.toISOString().slice(0, 10);
+    const target = dailyTarget(now);
+    const topRes = await pool.query(
+      `SELECT rank() OVER (ORDER BY completed_at ASC) AS rank,
+              user_id, username, completed_at
+       FROM daily_challenge_progress
+       WHERE challenge_date = $1 AND completed_at IS NOT NULL
+       ORDER BY completed_at ASC
+       LIMIT 10`,
+      [dateStr]
+    );
+    const selfRes = await pool.query(
+      `SELECT user_id, username, blocks_placed, completed_at
+       FROM daily_challenge_progress
+       WHERE challenge_date = $1 AND user_id = $2`,
+      [dateStr, req.user.id]
+    );
+    const toEntry = (r, i) => ({
+      rank: Number(r.rank),
+      user_id: r.user_id,
+      username: r.username,
+      completed_at: r.completed_at,
+    });
+    const selfRow = selfRes.rows[0];
+    res.json({
+      entries: topRes.rows.map(toEntry),
+      self: selfRow ? {
+        user_id: selfRow.user_id,
+        username: selfRow.username,
+        blocks_placed: Number(selfRow.blocks_placed),
+        completed_at: selfRow.completed_at,
+        target,
+      } : { user_id: req.user.id, username: req.user.username, blocks_placed: 0, completed_at: null, target },
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -1103,18 +1245,18 @@ async function seedStaging() {
   // Seed leaderboard with obviously-fake entries (negative user IDs avoid
   // colliding with real platform user IDs, which are positive integers).
   const fakeScores = [
-    { id: -1, username: 'staging-demo-alice', total_score: 1450, blocks_placed: 320, best_combo: 3 },
-    { id: -2, username: 'staging-demo-bob',   total_score: 980,  blocks_placed: 210, best_combo: 3 },
-    { id: -3, username: 'staging-demo-carol', total_score: 720,  blocks_placed: 180, best_combo: 2 },
-    { id: -4, username: 'staging-demo-dave',  total_score: 440,  blocks_placed:  95, best_combo: 1 },
-    { id: -5, username: 'staging-demo-eve',   total_score: 115,  blocks_placed:  30, best_combo: 1 },
+    { id: -1, username: 'Staging demo Alice', total_score: 5200, blocks_placed: 520, best_combo: 4, ta: 42 },
+    { id: -2, username: 'Staging demo Bob',   total_score: 980,  blocks_placed: 210, best_combo: 3, ta: 31 },
+    { id: -3, username: 'Staging demo Carol', total_score: 720,  blocks_placed: 180, best_combo: 2, ta: 15 },
+    { id: -4, username: 'Staging demo Dave',  total_score: 440,  blocks_placed:  95, best_combo: 1, ta: 0  },
+    { id: -5, username: 'Staging demo Eve',   total_score: 115,  blocks_placed:  30, best_combo: 1, ta: 0  },
   ];
   for (const s of fakeScores) {
     await pool.query(
-      `INSERT INTO leaderboard (user_id, username, total_score, blocks_placed, best_combo, updated_at)
-       VALUES ($1, $2, $3, $4, $5, NOW())
-       ON CONFLICT (user_id) DO NOTHING`,
-      [s.id, s.username, s.total_score, s.blocks_placed, s.best_combo]
+      `INSERT INTO leaderboard (user_id, username, total_score, blocks_placed, best_combo, best_time_attack_score, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, NOW())
+       ON CONFLICT (user_id) DO UPDATE SET best_time_attack_score = GREATEST(leaderboard.best_time_attack_score, EXCLUDED.best_time_attack_score)`,
+      [s.id, s.username, s.total_score, s.blocks_placed, s.best_combo, s.ta]
     );
   }
 
@@ -1152,8 +1294,15 @@ async function seedStaging() {
     { userId: -2, badgeId: 'rainbow_placer' },
     { userId: -2, badgeId: 'comboist' },
     { userId: -3, badgeId: 'first_block' },
+    { userId: -3, badgeId: 'speed_demon' },
     { userId: -4, badgeId: 'first_block' },
     { userId: -4, badgeId: 'builder' },
+    // New badges for staging demo users
+    { userId: -1, badgeId: 'master_comboist' },
+    { userId: -1, badgeId: 'overachiever' },
+    { userId: -1, badgeId: 'legendary_builder' },
+    { userId: -2, badgeId: 'daily_regular' },
+    { userId: -2, badgeId: 'speed_demon' },
   ];
   for (const b of badgeSeed) {
     await pool.query(
@@ -1164,8 +1313,9 @@ async function seedStaging() {
     );
   }
 
-  // Daily challenge progress seed: three personas at different completion states
-  // so both in-progress and complete widget states can be verified.
+  // Daily challenge progress seed: personas at different completion states so
+  // both in-progress and complete widget/leaderboard states can be verified.
+  // Carol (-3) completed 45 min ago (ranked #1), Bob (-2) just now (#2), Alice in-progress.
   const now = new Date();
   const todayStr = now.toISOString().slice(0, 10);
   const targetToday = dailyTarget(now);
@@ -1173,12 +1323,24 @@ async function seedStaging() {
     `INSERT INTO daily_challenge_progress
        (challenge_date, user_id, username, blocks_placed, completed_at, updated_at)
      VALUES
-       ($1,  0, 'Staging demo',  5,           NULL, NOW()),
-       ($1, -1, 'alice_builder', 38,          NULL, NOW()),
-       ($1, -2, 'reza99',        $2, NOW(), NOW())
+       ($1,  0, 'Staging demo',        5,  NULL, NOW()),
+       ($1, -1, 'Staging demo Alice',  38, NULL, NOW()),
+       ($1, -2, 'Staging demo Bob',    $2, NOW() - INTERVAL '5 minutes',  NOW()),
+       ($1, -3, 'Staging demo Carol',  $2, NOW() - INTERVAL '45 minutes', NOW())
      ON CONFLICT (challenge_date, user_id) DO NOTHING`,
     [todayStr, targetToday]
   );
+  // Also seed 5 prior daily completions for alice (-1) to unlock the daily_regular badge display.
+  for (let d = 1; d <= 5; d++) {
+    const priorDate = new Date(now.getTime() - d * 86400000).toISOString().slice(0, 10);
+    const priorTarget = dailyTarget(new Date(now.getTime() - d * 86400000));
+    await pool.query(
+      `INSERT INTO daily_challenge_progress (challenge_date, user_id, username, blocks_placed, completed_at, updated_at)
+       VALUES ($1, -1, 'Staging demo Alice', $2, NOW() - INTERVAL '1 hour', NOW())
+       ON CONFLICT (challenge_date, user_id) DO NOTHING`,
+      [priorDate, priorTarget]
+    );
+  }
 
   // Seed one of each power-up type at fixed, open positions so testers can
   // immediately see and collect them. Skipped if any unclaimed power-ups
@@ -1357,6 +1519,7 @@ async function start() {
       updated_at    TIMESTAMPTZ DEFAULT NOW()
     )
   `);
+  await pool.query(`ALTER TABLE leaderboard ADD COLUMN IF NOT EXISTS best_time_attack_score SMALLINT NOT NULL DEFAULT 0`);
 
   // Tracks which block types each player has ever placed. The blocks table
   // records only the current placer of each cell, so overwrites erase
