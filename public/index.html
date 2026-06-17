@@ -1434,6 +1434,13 @@
     <div id="combo-badge" class="text-2xl sm:text-3xl font-mono font-bold text-white rounded-xl px-3 sm:px-4 py-1 sm:py-2 leading-tight tabular-nums bg-amber-500" style="transition: transform 0.15s ease-out;">2×</div>
   </div>
 
+  <!-- Move Analyzer HUD: chess-style rating badge shown after each Classic placement -->
+  <div id="move-rating-hud" class="hidden pointer-events-none fixed bottom-24 left-4 z-20" style="transition: opacity 0.3s;">
+    <div id="move-rating-badge" class="flex items-center gap-1.5 text-sm font-semibold text-white rounded-full px-3 py-1 bg-black/80 backdrop-blur" style="transition: transform 0.15s ease-out;">
+      <span id="move-rating-icon"></span><span id="move-rating-label"></span>
+    </div>
+  </div>
+
   <!-- Score HUD: shows session score during Classic mode -->
   <div id="score-hud" class="hidden pointer-events-none fixed top-12 left-3 z-20 flex flex-col gap-1 transition-opacity duration-200">
     <div id="score-display" class="text-xs sm:text-sm font-semibold text-zinc-200 bg-black/50 rounded-xl px-3 sm:px-4 py-1 sm:py-1.5">
@@ -2416,6 +2423,15 @@
       streakHudEl.textContent = current === 1 ? '🔥 Day 1' : '🔥 ' + current + ' day streak';
       streakHudEl.classList.remove('hidden');
     }
+
+    // ---- Move Analyzer: block point values (mirrors BLOCK_POINTS in server.js) ----
+    const MOVE_POINTS = {
+      1:1, 2:1, 3:1, 4:1, 5:1, 6:1, 13:1,  // Grass, Dirt, Stone, Wood, Leaves, Sand, Snow
+      7:2, 8:2, 9:2, 10:2, 11:2, 12:2,      // Brick, Glass, Red, Blue, Yellow, White
+      15:3, 18:3,                            // Glowstone, Crystal
+      16:4,                                  // Obsidian
+      14:5, 17:5,                            // Gold Block, Rainbow Block
+    };
 
     // ---- World/runtime state ----
     let DIMS = { w: 32, d: 32, h: 24 };
@@ -4604,6 +4620,64 @@
       }, 3000);
     }
 
+    // ---- Move Analyzer ----
+    const moveRatingHudEl = document.getElementById('move-rating-hud');
+    const moveRatingBadgeEl = document.getElementById('move-rating-badge');
+    const moveRatingIconEl = document.getElementById('move-rating-icon');
+    const moveRatingLabelEl = document.getElementById('move-rating-label');
+    let moveRatingTimer = null;
+
+    function countNeighbors(x, y, z) {
+      const dirs = [[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]];
+      let count = 0;
+      for (const [dx, dy, dz] of dirs) {
+        const ny = y + dy;
+        if (ny < 0) { count++; continue; } // ground layer is always solid
+        if (blocks.has(key(x + dx, ny, z + dz))) count++;
+      }
+      return count;
+    }
+
+    const MOVE_TIERS = [
+      { icon: '🌟', label: 'Brilliant', bg: 'bg-violet-600' },
+      { icon: '✨', label: 'Great',     bg: 'bg-blue-600'   },
+      { icon: '👍', label: 'Good',      bg: 'bg-zinc-600'   },
+      { icon: '〰️', label: 'Inaccuracy',bg: 'bg-zinc-700'   },
+      { icon: '⚠️', label: 'Mistake',   bg: 'bg-orange-600' },
+      { icon: '💥', label: 'Blunder',   bg: 'bg-red-700'    },
+    ];
+    const BG_CLASSES = MOVE_TIERS.map((t) => t.bg);
+
+    function getTier(neighbors, blockType) {
+      const pts = MOVE_POINTS[blockType] || 1;
+      if (neighbors >= 5) return 0; // Brilliant
+      if (neighbors >= 3) return 1; // Great
+      if (neighbors >= 2) return 2; // Good
+      if (neighbors === 1 && pts >= 4) return 2; // Good
+      if (neighbors === 1) return 3; // Inaccuracy
+      if (pts >= 4) return 3; // Inaccuracy (alone but premium)
+      if (pts >= 2) return 4; // Mistake
+      return 5; // Blunder
+    }
+
+    function showMoveRating(neighbors, blockType) {
+      const tier = MOVE_TIERS[getTier(neighbors, blockType)];
+      moveRatingIconEl.textContent = tier.icon;
+      moveRatingLabelEl.textContent = tier.label;
+      BG_CLASSES.forEach((c) => moveRatingBadgeEl.classList.remove(c));
+      moveRatingBadgeEl.classList.add(tier.bg);
+      moveRatingBadgeEl.style.transform = 'scale(1.15)';
+      requestAnimationFrame(() => requestAnimationFrame(() => { moveRatingBadgeEl.style.transform = ''; }));
+      moveRatingHudEl.style.opacity = '1';
+      moveRatingHudEl.classList.remove('hidden');
+      if (moveRatingTimer !== null) clearTimeout(moveRatingTimer);
+      moveRatingTimer = setTimeout(() => {
+        moveRatingHudEl.style.opacity = '0';
+        setTimeout(() => { moveRatingHudEl.classList.add('hidden'); }, 300);
+        moveRatingTimer = null;
+      }, 2500);
+    }
+
     // ---- Score HUD ----
     const scoreHudEl = document.getElementById('score-hud');
     const scoreValueEl = document.getElementById('score-value');
@@ -4973,11 +5047,13 @@
       if (mode === 'speedrun') speedrunSendBlock(x, y, z, actualType);
       else {
         emitBlockPlace(x + 0.5, y + 0.5, z + 0.5);
+        const ratingNeighbors = countNeighbors(x, y, z);
         sendEdit(x, y, z, actualType, prevType);
         pushHistory(x, y, z, prevType, actualType);
         // Unlock hold after each successful placement (Tetris lock rule)
         holdLocked = false;
         updateHoldPanel();
+        showMoveRating(ratingNeighbors, actualType);
       }
     }
 
