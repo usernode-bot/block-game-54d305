@@ -46,24 +46,24 @@ const DIMS = { w: 32, d: 32, h: 24 }; // x in [0,w-1], z in [0,d-1], y in [0,h-1
 // `material` 'standard' uses MeshStandardMaterial (PBR); default is Lambert.
 // `emissive` / `emissiveIntensity` add a glow. `powerup` marks animated blocks.
 const PALETTE = [
-  { id: 1,  name: 'Grass',         color: '#3dd847' },
-  { id: 2,  name: 'Dirt',          color: '#b8643e' },
-  { id: 3,  name: 'Stone',         color: '#a8aeb8' },
-  { id: 4,  name: 'Wood',          color: '#d4944f' },
-  { id: 5,  name: 'Leaves',        color: '#2ac142' },
-  { id: 6,  name: 'Sand',          color: '#fce67f' },
-  { id: 7,  name: 'Brick',         color: '#f04a38' },
-  { id: 8,  name: 'Glass',         color: '#6fe3ff', opacity: 0.45 },
-  { id: 9,  name: 'Red',           color: '#ff2626' },
-  { id: 10, name: 'Blue',          color: '#2563ff' },
-  { id: 11, name: 'Yellow',        color: '#ffd600' },
-  { id: 12, name: 'White',         color: '#f4f4f8' },
-  { id: 13, name: 'Snow',          color: '#d0e8ff' },
-  { id: 14, name: 'Gold Block',    color: '#ffb800', material: 'standard', metalness: 0.85, roughness: 0.2 },
-  { id: 15, name: 'Glowstone',     color: '#ffb43d', emissive: '#ff6a00', emissiveIntensity: 0.6 },
-  { id: 16, name: 'Obsidian',      color: '#2d1555', material: 'standard', metalness: 0.3, roughness: 0.1 },
-  { id: 17, name: 'Rainbow Block', color: '#ff1493', powerup: true },
-  { id: 18, name: 'Crystal',       color: '#b39dff', opacity: 0.65, emissive: '#7a4dff', emissiveIntensity: 0.3, material: 'standard', metalness: 0.1, roughness: 0.2, unlockAt: 50, unlockIcon: '💎' },
+  { id: 1,  name: 'Grass',         color: '#7ed98a' },
+  { id: 2,  name: 'Dirt',          color: '#c9917a' },
+  { id: 3,  name: 'Stone',         color: '#c2c6cf' },
+  { id: 4,  name: 'Wood',          color: '#ddb680' },
+  { id: 5,  name: 'Leaves',        color: '#6ec67a' },
+  { id: 6,  name: 'Sand',          color: '#fdf0a8' },
+  { id: 7,  name: 'Brick',         color: '#e88c82' },
+  { id: 8,  name: 'Glass',         color: '#b3e8f5', opacity: 0.45 },
+  { id: 9,  name: 'Red',           color: '#f09090' },
+  { id: 10, name: 'Blue',          color: '#80a8f0' },
+  { id: 11, name: 'Yellow',        color: '#ffe580' },
+  { id: 12, name: 'White',         color: '#f8f6ff' },
+  { id: 13, name: 'Snow',          color: '#e4eeff' },
+  { id: 14, name: 'Gold Block',    color: '#f5d27a', material: 'standard', metalness: 0.85, roughness: 0.2 },
+  { id: 15, name: 'Glowstone',     color: '#ffd099', emissive: '#f0a870', emissiveIntensity: 0.6 },
+  { id: 16, name: 'Obsidian',      color: '#6b5588', material: 'standard', metalness: 0.3, roughness: 0.1 },
+  { id: 17, name: 'Rainbow Block', color: '#f0a8c5', powerup: true },
+  { id: 18, name: 'Crystal',       color: '#d4c8ff', opacity: 0.65, emissive: '#b0a0ff', emissiveIntensity: 0.3, material: 'standard', metalness: 0.1, roughness: 0.2, unlockAt: 50, unlockIcon: '💎' },
   { id: 19, name: 'Ice',           color: '#aadeef', opacity: 0.55 },
   { id: 20, name: 'Lava',          color: '#e8540f', emissive: '#ff2200', emissiveIntensity: 0.8 },
   { id: 21, name: 'Lime',          color: '#78de3e' },
@@ -72,6 +72,7 @@ const PALETTE = [
   { id: 24, name: 'Cyan',          color: '#29b8b8' },
   { id: 25, name: 'Iron Block',    color: '#d4d4dc', material: 'standard', metalness: 0.9, roughness: 0.3 },
   { id: 26, name: 'Terracotta',    color: '#c5694a' },
+  { id: 27, name: 'Gold Star',     color: '#ffd700', wildcard: true, material: 'standard', metalness: 0.85, roughness: 0.12, emissive: '#ffa500', emissiveIntensity: 0.4, unlockIcon: '⭐' },
 ];
 const VALID_TYPES = new Set(PALETTE.map((p) => p.id)); // does NOT include 0
 
@@ -90,6 +91,7 @@ const BLOCK_POINTS = {
   21: 2, 22: 2, 23: 2, 24: 2, // Lime, Orange, Purple, Cyan
   25: 4,  // Iron Block
   26: 1,  // Terracotta
+  27: 5,  // Gold Star
 };
 
 // Sentinel "user" id for staging seed rows so they never reference a real user.
@@ -188,9 +190,18 @@ const BADGES = [
   { id: 'material_artist', name: 'Material Artist', icon: '🎨', flavour: 'Used 8+ different block types!' },
   { id: 'crystal_placer',  name: 'Crystal Placer',  icon: '💎', flavour: 'Placed a Crystal Block!' },
   { id: 'streak_3',        name: 'Hot Start',       icon: '🔥', flavour: 'Logged in 3 days in a row!' },
-  { id: 'streak_7',        name: 'Week Warrior',    icon: '🗓️', flavour: 'A full week of building!' },
-  { id: 'theme_winner',    name: 'Theme Champion',  icon: '🥇', flavour: 'First place in the daily build theme vote!' },
-  { id: 'daily_devotee',   name: 'Daily Devotee',   icon: '🌟', flavour: 'Completed the daily challenge 7 days in a row!' },
+  { id: 'streak_7',         name: 'Week Warrior',     icon: '🗓️', flavour: 'A full week of building!' },
+  { id: 'streak_14',        name: 'Fortnight Pro',    icon: '🏆', flavour: 'Two weeks of daily play!' },
+  { id: 'streak_30',        name: 'Monthly Master',   icon: '👑', flavour: 'A full month on the block!' },
+  { id: 'master_comboist',  name: 'Combo King',       icon: '💥', flavour: 'Achieved a ×5 combo!' },
+  { id: 'overachiever',     name: 'Overachiever',     icon: '🏅', flavour: 'Earned 5,000 total score!' },
+  { id: 'legendary_builder',name: 'Legendary Builder',icon: '🌟', flavour: 'Placed 500 blocks!' },
+  { id: 'daily_regular',    name: 'Daily Regular',    icon: '📅', flavour: 'Completed 5 daily challenges!' },
+  { id: 'speed_demon',      name: 'Speed Demon',      icon: '⚡', flavour: 'Cleared 30+ blocks in Time Attack!' },
+  { id: 'theme_winner',     name: 'Theme Champion',   icon: '🥇', flavour: 'First place in the daily build theme vote!' },
+  { id: 'daily_devotee',    name: 'Daily Devotee',    icon: '🌟', flavour: 'Completed the daily challenge 7 days in a row!' },
+  { id: 'daily_champion',   name: 'Daily Champion',   icon: '👑', flavour: 'Won the Daily Challenge!' },
+  { id: 'speedrunner',      name: 'Speedrunner',      icon: '⚡', flavour: 'Blazing fast block placement!' },
 ];
 
 const STREAK_BADGE_MILESTONES = [
@@ -280,8 +291,11 @@ function checkBadges({ lb, justPlacedType, typeCount }, earnedIds) {
       case 'golden_touch':    earned = justPlacedType === 14; break;
       case 'glowmaster':      earned = justPlacedType === 15; break;
       case 'shadow_sculptor': earned = justPlacedType === 16; break;
-      case 'material_artist': earned = typeCount >= 8; break;
-      case 'crystal_placer':  earned = justPlacedType === 18; break;
+      case 'material_artist':   earned = typeCount >= 8; break;
+      case 'crystal_placer':    earned = justPlacedType === 18; break;
+      case 'master_comboist':   earned = lb.best_combo >= 4; break;
+      case 'overachiever':      earned = lb.total_score >= 5000; break;
+      case 'legendary_builder': earned = lb.blocks_placed >= 500; break;
     }
     if (earned) newBadges.push(badge);
   }
@@ -678,6 +692,25 @@ app.post('/api/block', async (req, res) => {
       }
       newly_earned_badges = newBadges.map((b) => ({ id: b.id, name: b.name, icon: b.icon, flavour: b.flavour }));
 
+      // Check daily_regular badge: fires when the challenge is completed and the
+      // player hasn't earned it yet. Queries total completions only at that moment.
+      if (challenge && challenge.completed_at && !earnedIds.has('daily_regular')) {
+        const { rows: dcRows } = await pool.query(
+          `SELECT COUNT(*)::int AS c FROM daily_challenge_progress WHERE user_id = $1 AND completed_at IS NOT NULL`,
+          [req.user.id]
+        );
+        if (Number(dcRows[0].c) >= 5) {
+          const ins = await pool.query(
+            `INSERT INTO player_badges (user_id, badge_id, earned_at) VALUES ($1, 'daily_regular', NOW()) ON CONFLICT DO NOTHING RETURNING badge_id`,
+            [req.user.id]
+          );
+          if (ins.rows.length > 0) {
+            const def = BADGES.find((b) => b.id === 'daily_regular');
+            if (def) newly_earned_badges.push({ id: def.id, name: def.name, icon: def.icon, flavour: def.flavour });
+          }
+        }
+      }
+
       // Detect first crossing of any block unlock threshold (blocks_placed increments by 1 per
       // placement, so === only fires once — the exact turn the threshold is first reached).
       for (const up of PALETTE.filter((p) => p.unlockAt)) {
@@ -929,7 +962,7 @@ app.post('/api/tutorial/complete', async (req, res) => {
 app.post('/api/presence/ping', async (req, res) => {
   try {
     const rawMode = req.body && req.body.mode;
-    const mode = ['classic', 'spectate'].includes(rawMode) ? rawMode : 'classic';
+    const mode = ['classic', 'spectate', 'versus'].includes(rawMode) ? rawMode : 'classic';
     const current_world_id = req.body && req.body.current_world_id ? Number(req.body.current_world_id) : null;
     await pool.query(
       `INSERT INTO user_presence (user_id, username, last_seen, mode, current_world_id)
@@ -1371,6 +1404,36 @@ app.get('/api/leaderboard', async (req, res) => {
   }
 });
 
+// ---- Player stats: full snapshot for the current user's Profile panel ----
+app.get('/api/stats/me', async (req, res) => {
+  try {
+    const uid = req.user.id;
+    const [lbRes, streakRes, typeRes, dcRes, badgeRes] = await Promise.all([
+      pool.query(`SELECT total_score, blocks_placed, best_combo, best_time_attack_score FROM leaderboard WHERE user_id = $1`, [uid]),
+      pool.query(`SELECT current_streak, longest_streak FROM login_streaks WHERE user_id = $1`, [uid]),
+      pool.query(`SELECT COUNT(*)::int AS c FROM player_type_usage WHERE user_id = $1`, [uid]),
+      pool.query(`SELECT COUNT(*)::int AS c FROM daily_challenge_progress WHERE user_id = $1 AND completed_at IS NOT NULL`, [uid]),
+      pool.query(`SELECT COUNT(*)::int AS c FROM player_badges WHERE user_id = $1`, [uid]),
+    ]);
+    const lb = lbRes.rows[0];
+    const streak = streakRes.rows[0];
+    res.json({
+      total_score:              lb ? Number(lb.total_score)   : 0,
+      blocks_placed:            lb ? Number(lb.blocks_placed) : 0,
+      best_combo:               lb ? lb.best_combo            : 1,
+      best_time_attack_score:   lb ? Number(lb.best_time_attack_score) : 0,
+      current_streak:           streak ? streak.current_streak  : 0,
+      longest_streak:           streak ? streak.longest_streak  : 0,
+      distinct_types_used:      typeRes.rows[0].c,
+      daily_challenges_completed: dcRes.rows[0].c,
+      badges_earned:            badgeRes.rows[0].c,
+      badges_total:             BADGES.length,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ---- Community Monuments: ranked list of all crowned sectors ----
 app.get('/api/monuments', async (_req, res) => {
   try {
@@ -1390,6 +1453,49 @@ app.get('/api/monuments', async (_req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
+// ---- Time Attack score: persist personal best, award speed_demon badge ----
+app.post('/api/time-attack/score', async (req, res) => {
+  try {
+    const blocksCleared = Number(req.body.blocks_cleared);
+    if (!Number.isInteger(blocksCleared) || blocksCleared < 0 || blocksCleared > 1800) {
+      return res.status(400).json({ error: 'invalid blocks_cleared value' });
+    }
+    // Upsert leaderboard row (ensures it exists) and update TA best only if higher.
+    await pool.query(
+      `INSERT INTO leaderboard (user_id, username, best_time_attack_score, updated_at)
+       VALUES ($1, $2, $3, NOW())
+       ON CONFLICT (user_id) DO UPDATE SET
+         best_time_attack_score = GREATEST(leaderboard.best_time_attack_score, EXCLUDED.best_time_attack_score),
+         username = EXCLUDED.username,
+         updated_at = NOW()`,
+      [req.user.id, req.user.username, blocksCleared]
+    );
+    const { rows: [lbRow] } = await pool.query(
+      `SELECT best_time_attack_score FROM leaderboard WHERE user_id = $1`, [req.user.id]
+    );
+    const best = Number(lbRow.best_time_attack_score);
+
+    // Check speed_demon badge (clear 30+ blocks in a single TA run).
+    const earned = [];
+    if (blocksCleared >= 30) {
+      const { rows: alreadyEarned } = await pool.query(
+        `SELECT 1 FROM player_badges WHERE user_id = $1 AND badge_id = 'speed_demon'`, [req.user.id]
+      );
+      if (!alreadyEarned.length) {
+        const ins = await pool.query(
+          `INSERT INTO player_badges (user_id, badge_id, earned_at) VALUES ($1, 'speed_demon', NOW()) ON CONFLICT DO NOTHING RETURNING badge_id`,
+          [req.user.id]
+        );
+        if (ins.rows.length > 0) earned.push('speed_demon');
+      }
+    }
+    res.json({ best, earned });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 
 // ---- Time Attack: submit a completed run ----
 // Body: { cleared, difficulty }. Keeps only the best run per user — the
@@ -1432,6 +1538,49 @@ app.post('/api/ta-score', async (req, res) => {
       is_new_best = false;
     }
     res.json({ ok: true, best_cleared, is_new_best });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- Daily leaderboard: today's challenge completers (earliest first) ----
+app.get('/api/leaderboard/daily', async (req, res) => {
+  try {
+    const now = new Date();
+    const dateStr = now.toISOString().slice(0, 10);
+    const target = dailyTarget(now);
+    const topRes = await pool.query(
+      `SELECT rank() OVER (ORDER BY completed_at ASC) AS rank,
+              user_id, username, completed_at
+       FROM daily_challenge_progress
+       WHERE challenge_date = $1 AND completed_at IS NOT NULL
+       ORDER BY completed_at ASC
+       LIMIT 10`,
+      [dateStr]
+    );
+    const selfRes = await pool.query(
+      `SELECT user_id, username, blocks_placed, completed_at
+       FROM daily_challenge_progress
+       WHERE challenge_date = $1 AND user_id = $2`,
+      [dateStr, req.user.id]
+    );
+    const toEntry = (r, i) => ({
+      rank: Number(r.rank),
+      user_id: r.user_id,
+      username: r.username,
+      completed_at: r.completed_at,
+    });
+    const selfRow = selfRes.rows[0];
+    res.json({
+      entries: topRes.rows.map(toEntry),
+      self: selfRow ? {
+        user_id: selfRow.user_id,
+        username: selfRow.username,
+        blocks_placed: Number(selfRow.blocks_placed),
+        completed_at: selfRow.completed_at,
+        target,
+      } : { user_id: req.user.id, username: req.user.username, blocks_placed: 0, completed_at: null, target },
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -1533,6 +1682,264 @@ app.get('/api/ta-60-leaderboard', async (req, res) => {
       entries: topRes.rows.map(toRow),
       self: selfRes.rows.length ? toRow(selfRes.rows[0]) : null,
     });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- Versus Mode ----
+
+function generateRoomCode() {
+  // Omit easily confused chars: 0/O, 1/I/L
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  let code = '';
+  for (let i = 0; i < 6; i++) code += chars[Math.floor(Math.random() * chars.length)];
+  return code;
+}
+
+// POST /api/versus/create — create a new match and become host
+app.post('/api/versus/create', async (req, res) => {
+  try {
+    let roomCode;
+    for (let attempt = 0; attempt < 10; attempt++) {
+      roomCode = generateRoomCode();
+      const existing = await pool.query(`SELECT id FROM versus_matches WHERE room_code = $1`, [roomCode]);
+      if (!existing.rows.length) break;
+    }
+    const matchRes = await pool.query(
+      `INSERT INTO versus_matches (room_code, status, host_user_id, host_username, max_players, duration_secs)
+       VALUES ($1, 'waiting', $2, $3, 4, 60) RETURNING id`,
+      [roomCode, req.user.id, req.user.username]
+    );
+    const matchId = matchRes.rows[0].id;
+    await pool.query(
+      `INSERT INTO versus_players (match_id, user_id, username) VALUES ($1, $2, $3)
+       ON CONFLICT (match_id, user_id) DO NOTHING`,
+      [matchId, req.user.id, req.user.username]
+    );
+    res.json({ match_id: matchId, room_code: roomCode });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/versus/join — join a match by room code
+app.post('/api/versus/join', async (req, res) => {
+  try {
+    const roomCode = (req.body.room_code || '').toString().toUpperCase().trim();
+    if (!roomCode) return res.status(400).json({ error: 'room_code required' });
+    const matchRes = await pool.query(
+      `SELECT id, status, max_players, host_username, created_at
+       FROM versus_matches WHERE room_code = $1`,
+      [roomCode]
+    );
+    if (!matchRes.rows.length) return res.status(404).json({ error: 'Match not found' });
+    const match = matchRes.rows[0];
+    if (match.status !== 'waiting') return res.status(400).json({ error: 'Match already started' });
+    const ageMs = Date.now() - new Date(match.created_at).getTime();
+    if (ageMs > 10 * 60 * 1000) return res.status(400).json({ error: 'Match expired' });
+    const countRes = await pool.query(
+      `SELECT COUNT(*) AS cnt FROM versus_players WHERE match_id = $1`, [match.id]
+    );
+    if (Number(countRes.rows[0].cnt) >= match.max_players) {
+      return res.status(400).json({ error: 'Match is full' });
+    }
+    await pool.query(
+      `INSERT INTO versus_players (match_id, user_id, username) VALUES ($1, $2, $3)
+       ON CONFLICT (match_id, user_id) DO UPDATE SET username = EXCLUDED.username`,
+      [match.id, req.user.id, req.user.username]
+    );
+    res.json({ ok: true, match_id: match.id, host_username: match.host_username });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/versus/start — host starts the match (triggers 5-second countdown)
+app.post('/api/versus/start', async (req, res) => {
+  try {
+    const matchId = Number(req.body.match_id);
+    if (!matchId) return res.status(400).json({ error: 'match_id required' });
+    const matchRes = await pool.query(
+      `SELECT id, status, host_user_id, duration_secs FROM versus_matches WHERE id = $1`, [matchId]
+    );
+    if (!matchRes.rows.length) return res.status(404).json({ error: 'Match not found' });
+    const match = matchRes.rows[0];
+    if (match.host_user_id !== req.user.id) return res.status(403).json({ error: 'Only the host can start' });
+    if (match.status !== 'waiting') return res.status(400).json({ error: 'Match already started' });
+    const countRes = await pool.query(
+      `SELECT COUNT(*) AS cnt FROM versus_players WHERE match_id = $1`, [matchId]
+    );
+    if (Number(countRes.rows[0].cnt) < 2) {
+      return res.status(400).json({ error: 'Need at least 2 players to start' });
+    }
+    const startAt = new Date(Date.now() + 5000);
+    const endAt = new Date(startAt.getTime() + match.duration_secs * 1000);
+    await pool.query(
+      `UPDATE versus_matches SET status = 'countdown', start_at = $1, end_at = $2 WHERE id = $3`,
+      [startAt, endAt, matchId]
+    );
+    res.json({ ok: true, start_at: startAt.toISOString(), end_at: endAt.toISOString() });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/versus/match/:id — poll match state, optionally report live score
+app.get('/api/versus/match/:id', async (req, res) => {
+  try {
+    const matchId = Number(req.params.id);
+    const liveScoreParam = req.query.live_score;
+    const liveScore = liveScoreParam !== undefined ? Number(liveScoreParam) : null;
+
+    const matchRes = await pool.query(
+      `SELECT id, room_code, status, host_user_id, host_username, start_at, end_at,
+              winner_user_id, winner_username, duration_secs
+       FROM versus_matches WHERE id = $1`,
+      [matchId]
+    );
+    if (!matchRes.rows.length) return res.status(404).json({ error: 'Match not found' });
+    const match = matchRes.rows[0];
+
+    // Only players in the match may poll
+    const callerRes = await pool.query(
+      `SELECT user_id FROM versus_players WHERE match_id = $1 AND user_id = $2`,
+      [matchId, req.user.id]
+    );
+    if (!callerRes.rows.length) return res.status(403).json({ error: 'Not in this match' });
+
+    // Update live score when match is active
+    if (liveScore !== null && Number.isFinite(liveScore) && match.status === 'active') {
+      await pool.query(
+        `UPDATE versus_players SET live_score = $1, live_score_at = NOW()
+         WHERE match_id = $2 AND user_id = $3`,
+        [Math.max(0, Math.floor(liveScore)), matchId, req.user.id]
+      );
+    }
+
+    // Countdown -> active transition
+    if (match.status === 'countdown' && match.start_at && new Date(match.start_at) <= new Date()) {
+      await pool.query(
+        `UPDATE versus_matches SET status = 'active' WHERE id = $1 AND status = 'countdown'`,
+        [matchId]
+      );
+      match.status = 'active';
+    }
+
+    // Check for match completion when active
+    if (match.status === 'active') {
+      const allRes = await pool.query(
+        `SELECT user_id, username, final_score, submitted_at FROM versus_players WHERE match_id = $1`,
+        [matchId]
+      );
+      const allPlayers = allRes.rows;
+      const allSubmitted = allPlayers.every(p => p.submitted_at !== null);
+      const gracePassed = match.end_at &&
+        new Date() > new Date(new Date(match.end_at).getTime() + 15000);
+
+      if (allSubmitted || gracePassed) {
+        let winner = null, topScore = -1;
+        for (const p of allPlayers) {
+          const s = Number(p.final_score) || 0;
+          if (s > topScore) { topScore = s; winner = p; }
+        }
+        await pool.query(
+          `UPDATE versus_matches SET status = 'finished', winner_user_id = $1, winner_username = $2
+           WHERE id = $3 AND status = 'active'`,
+          [winner ? winner.user_id : null, winner ? winner.username : null, matchId]
+        );
+        match.status = 'finished';
+        match.winner_user_id = winner ? winner.user_id : null;
+        match.winner_username = winner ? winner.username : null;
+      }
+    }
+
+    const playersRes = await pool.query(
+      `SELECT user_id, username, live_score, final_score, submitted_at
+       FROM versus_players WHERE match_id = $1 ORDER BY joined_at`,
+      [matchId]
+    );
+    res.json({
+      match: {
+        id: match.id,
+        room_code: match.room_code,
+        status: match.status,
+        host_user_id: match.host_user_id,
+        host_username: match.host_username,
+        start_at: match.start_at,
+        end_at: match.end_at,
+        winner_user_id: match.winner_user_id,
+        winner_username: match.winner_username,
+      },
+      players: playersRes.rows.map(p => ({
+        user_id: p.user_id,
+        username: p.username,
+        live_score: Number(p.live_score) || 0,
+        final_score: p.final_score !== null ? Number(p.final_score) : null,
+        submitted_at: p.submitted_at,
+      })),
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/versus/submit — record final score at end of match
+app.post('/api/versus/submit', async (req, res) => {
+  try {
+    const matchId = Number(req.body.match_id);
+    const score = Number(req.body.score);
+    if (!matchId || !Number.isFinite(score) || score < 0) {
+      return res.status(400).json({ error: 'match_id and non-negative score required' });
+    }
+    const matchRes = await pool.query(
+      `SELECT id, status, end_at FROM versus_matches WHERE id = $1`, [matchId]
+    );
+    if (!matchRes.rows.length) return res.status(404).json({ error: 'Match not found' });
+    const match = matchRes.rows[0];
+    const gracePassed = match.end_at &&
+      new Date() > new Date(new Date(match.end_at).getTime() + 15000);
+    if (match.status === 'finished' || gracePassed) {
+      return res.status(400).json({ error: 'Submission window closed' });
+    }
+    if (match.status !== 'active' && match.status !== 'countdown') {
+      return res.status(400).json({ error: 'Match is not active' });
+    }
+
+    // Ensure caller is in the match
+    const callerRes = await pool.query(
+      `SELECT user_id FROM versus_players WHERE match_id = $1 AND user_id = $2`,
+      [matchId, req.user.id]
+    );
+    if (!callerRes.rows.length) return res.status(403).json({ error: 'Not in this match' });
+
+    await pool.query(
+      `UPDATE versus_players SET final_score = $1, submitted_at = NOW(), live_score = $1
+       WHERE match_id = $2 AND user_id = $3`,
+      [Math.floor(score), matchId, req.user.id]
+    );
+
+    // Check if all players submitted
+    const allRes = await pool.query(
+      `SELECT user_id, username, final_score, submitted_at FROM versus_players WHERE match_id = $1`,
+      [matchId]
+    );
+    const allSubmitted = allRes.rows.every(p => p.submitted_at !== null);
+    let winnerDetermined = false;
+    if (allSubmitted && match.status === 'active') {
+      let winner = null, topScore = -1;
+      for (const p of allRes.rows) {
+        const s = Number(p.final_score) || 0;
+        if (s > topScore) { topScore = s; winner = p; }
+      }
+      await pool.query(
+        `UPDATE versus_matches SET status = 'finished', winner_user_id = $1, winner_username = $2
+         WHERE id = $3`,
+        [winner ? winner.user_id : null, winner ? winner.username : null, matchId]
+      );
+      winnerDetermined = true;
+    }
+    res.json({ ok: true, final_score: Math.floor(score), winner_determined: winnerDetermined });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -3239,6 +3646,9 @@ app.post('/api/share-score', async (req, res) => {
       case 'daily-challenge':
         message = `${username} completed today's Daily Challenge (placed ${score_data.blocks_placed}/${score_data.target_blocks} blocks)! 🔥`;
         break;
+      case 'versus':
+        message = `${username} cleared ${score_data.blocks_cleared} blocks in Versus Mode! ⚔️`;
+        break;
       default:
         return res.status(400).json({ error: 'Invalid mode' });
     }
@@ -3611,18 +4021,18 @@ async function seedStaging() {
   // Seed leaderboard with obviously-fake entries (negative user IDs avoid
   // colliding with real platform user IDs, which are positive integers).
   const fakeScores = [
-    { id: -1, username: 'staging-demo-alice', total_score: 1450, blocks_placed: 320, best_combo: 3 },
-    { id: -2, username: 'staging-demo-bob',   total_score: 980,  blocks_placed: 210, best_combo: 3 },
-    { id: -3, username: 'staging-demo-carol', total_score: 720,  blocks_placed: 180, best_combo: 2 },
-    { id: -4, username: 'staging-demo-dave',  total_score: 440,  blocks_placed:  95, best_combo: 1 },
-    { id: -5, username: 'staging-demo-eve',   total_score: 115,  blocks_placed:  30, best_combo: 1 },
+    { id: -1, username: 'Staging demo Alice', total_score: 5200, blocks_placed: 520, best_combo: 4, ta: 42 },
+    { id: -2, username: 'Staging demo Bob',   total_score: 980,  blocks_placed: 210, best_combo: 3, ta: 31 },
+    { id: -3, username: 'Staging demo Carol', total_score: 720,  blocks_placed: 180, best_combo: 2, ta: 15 },
+    { id: -4, username: 'Staging demo Dave',  total_score: 440,  blocks_placed:  95, best_combo: 1, ta: 0  },
+    { id: -5, username: 'Staging demo Eve',   total_score: 115,  blocks_placed:  30, best_combo: 1, ta: 0  },
   ];
   for (const s of fakeScores) {
     await pool.query(
-      `INSERT INTO leaderboard (user_id, username, total_score, blocks_placed, best_combo, updated_at)
-       VALUES ($1, $2, $3, $4, $5, NOW())
-       ON CONFLICT (user_id) DO NOTHING`,
-      [s.id, s.username, s.total_score, s.blocks_placed, s.best_combo]
+      `INSERT INTO leaderboard (user_id, username, total_score, blocks_placed, best_combo, best_time_attack_score, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, NOW())
+       ON CONFLICT (user_id) DO UPDATE SET best_time_attack_score = GREATEST(leaderboard.best_time_attack_score, EXCLUDED.best_time_attack_score)`,
+      [s.id, s.username, s.total_score, s.blocks_placed, s.best_combo, s.ta]
     );
   }
 
@@ -3648,7 +4058,7 @@ async function seedStaging() {
   // Seed player_badges for staging users to showcase the panel.
   // Each player has diverse badges with different earned times to test the profile view.
   const badgeSeed = [
-    // Alice: 9 badges with varied earned times (leading player)
+    // Alice: badges with varied earned times (leading player)
     { userId: -1, badgeId: 'first_block', daysAgo: 10 },
     { userId: -1, badgeId: 'builder', daysAgo: 9 },
     { userId: -1, badgeId: 'architect', daysAgo: 8 },
@@ -3657,12 +4067,17 @@ async function seedStaging() {
     { userId: -1, badgeId: 'golden_touch', daysAgo: 4 },
     { userId: -1, badgeId: 'material_artist', daysAgo: 3 },
     { userId: -1, badgeId: 'crystal_placer', daysAgo: 2 },
+    { userId: -1, badgeId: 'master_comboist', daysAgo: 2 },
+    { userId: -1, badgeId: 'overachiever', daysAgo: 1 },
+    { userId: -1, badgeId: 'legendary_builder', daysAgo: 1 },
     { userId: -1, badgeId: 'daily_devotee', daysAgo: 1 },
-    // Bob: 4 badges (second player)
+    // Bob: badges (second player)
     { userId: -2, badgeId: 'first_block', daysAgo: 8 },
     { userId: -2, badgeId: 'builder', daysAgo: 6 },
     { userId: -2, badgeId: 'rainbow_placer', daysAgo: 5 },
     { userId: -2, badgeId: 'comboist', daysAgo: 3 },
+    { userId: -2, badgeId: 'daily_regular', daysAgo: 2 },
+    { userId: -2, badgeId: 'speed_demon', daysAgo: 1 },
     // Carol: 3 badges (newer player)
     { userId: -3, badgeId: 'first_block', daysAgo: 3 },
     { userId: -3, badgeId: 'rainbow_placer', daysAgo: 2 },
@@ -3688,8 +4103,9 @@ async function seedStaging() {
      ON CONFLICT DO NOTHING`
   );
 
-  // Daily challenge progress seed: three personas at different completion states
-  // so both in-progress and complete widget states can be verified.
+  // Daily challenge progress seed: personas at different completion states so
+  // both in-progress and complete widget/leaderboard states can be verified.
+  // Carol (-3) completed 45 min ago (ranked #1), Bob (-2) just now (#2), Alice in-progress.
   const now = new Date();
   const todayStr = now.toISOString().slice(0, 10);
   const targetToday = dailyTarget(now);
@@ -3697,12 +4113,24 @@ async function seedStaging() {
     `INSERT INTO daily_challenge_progress
        (challenge_date, user_id, username, blocks_placed, completed_at, updated_at)
      VALUES
-       ($1,  0, 'Staging demo',  5,           NULL, NOW()),
-       ($1, -1, 'alice_builder', 38,          NULL, NOW()),
-       ($1, -2, 'reza99',        $2, NOW(), NOW())
+       ($1,  0, 'Staging demo',        5,  NULL, NOW()),
+       ($1, -1, 'Staging demo Alice',  38, NULL, NOW()),
+       ($1, -2, 'Staging demo Bob',    $2, NOW() - INTERVAL '5 minutes',  NOW()),
+       ($1, -3, 'Staging demo Carol',  $2, NOW() - INTERVAL '45 minutes', NOW())
      ON CONFLICT (challenge_date, user_id) DO NOTHING`,
     [todayStr, targetToday]
   );
+  // Also seed 5 prior daily completions for alice (-1) to unlock the daily_regular badge display.
+  for (let d = 1; d <= 5; d++) {
+    const priorDate = new Date(now.getTime() - d * 86400000).toISOString().slice(0, 10);
+    const priorTarget = dailyTarget(new Date(now.getTime() - d * 86400000));
+    await pool.query(
+      `INSERT INTO daily_challenge_progress (challenge_date, user_id, username, blocks_placed, completed_at, updated_at)
+       VALUES ($1, -1, 'Staging demo Alice', $2, NOW() - INTERVAL '1 hour', NOW())
+       ON CONFLICT (challenge_date, user_id) DO NOTHING`,
+      [priorDate, priorTarget]
+    );
+  }
 
   // Seed monument rows for staging so the leaderboard tab and 3D beacons
   // are visible immediately without waiting for live block thresholds.
@@ -4269,6 +4697,7 @@ function generatePuzzleBlocks(levelNumber) {
 
   const blockCount = 20 + levelNumber * 8; // Increases with level
   const blockTypes = [1, 2, 3, 4, 5, 6, 7, 9, 10, 11]; // Color variety, exclude glass/special
+  if (levelNumber >= 3) blockTypes.push(27); // Gold Star wildcard appears from level 3
 
   for (let i = 0; i < blockCount; i++) {
     const x = Math.floor(nextRandom() * 32);
@@ -4293,6 +4722,8 @@ async function seedPuzzleLevels() {
 
   for (const { level, target } of levelSeeds) {
     const blocks = generatePuzzleBlocks(level);
+    // Guarantee at least one Gold Star wildcard is visible in the level-3 staging seed.
+    if (level === 3) blocks.push({ x: 5, y: 4, z: 5, t: 27 });
     await pool.query(
       `INSERT INTO puzzle_level_definitions (level_number, block_snapshot, target_blocks_to_clear)
        VALUES ($1, $2, $3)
@@ -4315,6 +4746,56 @@ async function seedPuzzleScores() {
        VALUES ($1, $2, $3, $4, NOW())
        ON CONFLICT (user_id) DO NOTHING`,
       [s.userId, s.username, s.level, s.blocks]
+    );
+  }
+}
+
+async function seedVersus() {
+  // Seed a finished demo match so the versus game-over overlay can be previewed.
+  const finishedRes = await pool.query(
+    `INSERT INTO versus_matches (room_code, status, host_user_id, host_username, max_players, duration_secs,
+       start_at, end_at, winner_user_id, winner_username, created_at)
+     VALUES ('DEMO01', 'finished', 0, 'Staging Versus Alice', 4, 60,
+       NOW() - INTERVAL '2 minutes', NOW() - INTERVAL '1 minute',
+       0, 'Staging Versus Alice', NOW() - INTERVAL '3 minutes')
+     ON CONFLICT (room_code) DO NOTHING RETURNING id`
+  );
+  if (finishedRes.rows.length) {
+    const finishedId = finishedRes.rows[0].id;
+    const players = [
+      { uid: -101, uname: 'Staging Versus Alice', score: 87 },
+      { uid: -102, uname: 'Staging Versus Bob',   score: 64 },
+      { uid: -103, uname: 'Staging Versus Carol',  score: 51 },
+      { uid: -104, uname: 'Staging Versus Dan',    score: 12 },
+    ];
+    for (const p of players) {
+      await pool.query(
+        `INSERT INTO versus_players (match_id, user_id, username, live_score, final_score, submitted_at)
+         VALUES ($1, $2, $3, $4, $4, NOW() - INTERVAL '1 minute')
+         ON CONFLICT (match_id, user_id) DO NOTHING`,
+        [finishedId, p.uid, p.uname, p.score]
+      );
+    }
+  }
+  // Seed a waiting match so the join-by-code flow can be tested (enter WAIT01).
+  const waitRes = await pool.query(
+    `INSERT INTO versus_matches (room_code, status, host_user_id, host_username, max_players, duration_secs, created_at)
+     VALUES ('WAIT01', 'waiting', 0, 'Staging Versus Alice', 4, 60, NOW())
+     ON CONFLICT (room_code) DO NOTHING RETURNING id`
+  );
+  if (waitRes.rows.length) {
+    const waitId = waitRes.rows[0].id;
+    await pool.query(
+      `INSERT INTO versus_players (match_id, user_id, username)
+       VALUES ($1, 0, 'Staging Versus Alice')
+       ON CONFLICT (match_id, user_id) DO NOTHING`,
+      [waitId]
+    );
+    await pool.query(
+      `INSERT INTO versus_players (match_id, user_id, username)
+       VALUES ($1, -102, 'Staging Versus Bob')
+       ON CONFLICT (match_id, user_id) DO NOTHING`,
+      [waitId]
     );
   }
 }
@@ -4522,6 +5003,7 @@ async function start() {
       updated_at    TIMESTAMPTZ DEFAULT NOW()
     )
   `);
+  await pool.query(`ALTER TABLE leaderboard ADD COLUMN IF NOT EXISTS best_time_attack_score SMALLINT NOT NULL DEFAULT 0`);
 
   // Time Attack high scores: one row per user holding their best single-run
   // block count and the difficulty (1-5) it was achieved at. Public table —
@@ -4993,6 +5475,39 @@ async function start() {
     CREATE INDEX IF NOT EXISTS fog_revealed_user_idx ON player_fog_revealed (user_id)
   `);
 
+  // Versus Mode match tables: both public (usernames + scores, no sensitive data).
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS versus_matches (
+      id              SERIAL PRIMARY KEY,
+      room_code       VARCHAR(8)   NOT NULL UNIQUE,
+      status          VARCHAR(20)  NOT NULL DEFAULT 'waiting',
+      host_user_id    INTEGER      NOT NULL,
+      host_username   VARCHAR(255) NOT NULL,
+      max_players     SMALLINT     NOT NULL DEFAULT 4,
+      duration_secs   INTEGER      NOT NULL DEFAULT 60,
+      start_at        TIMESTAMPTZ,
+      end_at          TIMESTAMPTZ,
+      winner_user_id  INTEGER,
+      winner_username VARCHAR(255),
+      created_at      TIMESTAMPTZ  DEFAULT NOW()
+    )
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS versus_matches_room_code_idx ON versus_matches (room_code)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS versus_matches_status_created_idx ON versus_matches (status, created_at)`);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS versus_players (
+      match_id        INTEGER      NOT NULL REFERENCES versus_matches(id),
+      user_id         INTEGER      NOT NULL,
+      username        VARCHAR(255) NOT NULL,
+      joined_at       TIMESTAMPTZ  DEFAULT NOW(),
+      live_score      INTEGER      NOT NULL DEFAULT 0,
+      live_score_at   TIMESTAMPTZ,
+      final_score     INTEGER,
+      submitted_at    TIMESTAMPTZ,
+      PRIMARY KEY (match_id, user_id)
+    )
+  `);
+
   // Prime the schedule on first boot; subsequent boots leave the existing row intact.
   const disasterInitDelay = IS_STAGING ? '10 seconds' : '60 seconds';
   await pool.query(
@@ -5037,6 +5552,8 @@ async function start() {
     catch (err) { console.error('puzzle-levels seed failed', err); }
     try { await seedPuzzleScores(); }
     catch (err) { console.error('puzzle-scores seed failed', err); }
+    try { await seedVersus(); }
+    catch (err) { console.error('versus seed failed', err); }
     try { await seedDailyEnergy(); }
     catch (err) { console.error('daily-energy seed failed', err); }
     // Staging spectators are now surfaced via the STAGING_DEMO_USERS constant
