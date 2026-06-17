@@ -589,6 +589,169 @@ app.get('/api/challenge/today', async (req, res) => {
   }
 });
 
+// ---- Friends: list accepted friends + pending requests ----
+app.get('/api/friends', async (req, res) => {
+  const uid = req.user.id;
+  try {
+    const { rows: friendRows } = await pool.query(
+      `SELECT f.id,
+              CASE WHEN f.requester_id = $1 THEN f.addressee_id       ELSE f.requester_id       END AS friend_id,
+              CASE WHEN f.requester_id = $1 THEN f.addressee_username  ELSE f.requester_username  END AS friend_username,
+              (up.user_id IS NOT NULL) AS online
+       FROM friendships f
+       LEFT JOIN user_presence up ON (
+         CASE WHEN f.requester_id = $1 THEN f.addressee_id ELSE f.requester_id END = up.user_id
+         AND up.last_seen > NOW() - INTERVAL '60 seconds'
+       )
+       WHERE (f.requester_id = $1 OR f.addressee_id = $1) AND f.status = 'accepted'
+       ORDER BY online DESC NULLS LAST, friend_username`,
+      [uid]
+    );
+    const { rows: incomingRows } = await pool.query(
+      `SELECT id, requester_id, requester_username FROM friendships
+       WHERE addressee_id = $1 AND status = 'pending'
+       ORDER BY created_at ASC`,
+      [uid]
+    );
+    const { rows: outgoingRows } = await pool.query(
+      `SELECT id, addressee_id, addressee_username FROM friendships
+       WHERE requester_id = $1 AND status = 'pending'
+       ORDER BY created_at ASC`,
+      [uid]
+    );
+
+    const friends = friendRows.map((r) => ({
+      id: Number(r.id),
+      friend_id: r.friend_id,
+      username: r.friend_username,
+      online: r.online,
+    }));
+    const incoming = incomingRows.map((r) => ({
+      id: Number(r.id),
+      from_id: r.requester_id,
+      username: r.requester_username,
+    }));
+    const outgoing = outgoingRows.map((r) => ({
+      id: Number(r.id),
+      to_id: r.addressee_id,
+      username: r.addressee_username,
+    }));
+
+    if (IS_STAGING) {
+      friends.push(
+        { id: -10, friend_id: -101, username: 'Staging Friend A', online: true },
+        { id: -11, friend_id: -102, username: 'Staging Friend B', online: false },
+        { id: -12, friend_id: -103, username: 'Staging Friend C', online: false }
+      );
+      incoming.push({ id: -1, from_id: -201, username: 'Staging Requester X' });
+      outgoing.push({ id: -2, to_id: -202, username: 'Staging Pending Y' });
+    }
+
+    res.json({ friends, incoming, outgoing });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- Friends: send a friend request by username ----
+app.post('/api/friends/request', async (req, res) => {
+  const uid = req.user.id;
+  const uname = req.user.username;
+  const targetUsername = (typeof req.body.username === 'string' ? req.body.username : '').trim();
+  if (!targetUsername) return res.status(400).json({ error: 'username required' });
+
+  try {
+    // Look up the target across leaderboard + user_presence (case-insensitive).
+    // user_presence is preferred when both contain the same user since it is fresher.
+    const { rows } = await pool.query(
+      `SELECT user_id, username FROM (
+         SELECT user_id, username, 1 AS priority FROM user_presence
+         UNION
+         SELECT user_id, username, 2 AS priority FROM leaderboard
+       ) u
+       WHERE LOWER(username) = LOWER($1)
+       ORDER BY priority ASC
+       LIMIT 1`,
+      [targetUsername]
+    );
+    if (!rows.length) return res.status(404).json({ error: 'User not found' });
+    const { user_id: tid, username: tusername } = rows[0];
+    if (tid === uid) return res.status(400).json({ error: 'Cannot add yourself' });
+
+    const { rows: existing } = await pool.query(
+      `SELECT id FROM friendships
+       WHERE (requester_id = $1 AND addressee_id = $2)
+          OR (requester_id = $2 AND addressee_id = $1)`,
+      [uid, tid]
+    );
+    if (existing.length) return res.status(409).json({ error: 'Already friends or request pending' });
+
+    const { rows: inserted } = await pool.query(
+      `INSERT INTO friendships (requester_id, addressee_id, requester_username, addressee_username)
+       VALUES ($1, $2, $3, $4) RETURNING id`,
+      [uid, tid, uname, tusername]
+    );
+    res.json({ ok: true, id: Number(inserted[0].id) });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- Friends: accept an incoming request ----
+app.post('/api/friends/:id/accept', async (req, res) => {
+  const rowId = Number(req.params.id);
+  if (IS_STAGING && rowId < 0) return res.json({ ok: true });
+  try {
+    const { rows } = await pool.query(
+      `UPDATE friendships SET status = 'accepted', updated_at = NOW()
+       WHERE id = $1 AND addressee_id = $2 AND status = 'pending'
+       RETURNING id`,
+      [rowId, req.user.id]
+    );
+    if (!rows.length) return res.status(404).json({ error: 'Request not found' });
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- Friends: decline an incoming request ----
+// The row is kept (status = 'declined') so the requester can't immediately spam again.
+app.post('/api/friends/:id/decline', async (req, res) => {
+  const rowId = Number(req.params.id);
+  if (IS_STAGING && rowId < 0) return res.json({ ok: true });
+  try {
+    const { rows } = await pool.query(
+      `UPDATE friendships SET status = 'declined', updated_at = NOW()
+       WHERE id = $1 AND addressee_id = $2 AND status = 'pending'
+       RETURNING id`,
+      [rowId, req.user.id]
+    );
+    if (!rows.length) return res.status(404).json({ error: 'Request not found' });
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- Friends: remove an accepted friendship or cancel an outgoing request ----
+app.delete('/api/friends/:id', async (req, res) => {
+  const rowId = Number(req.params.id);
+  if (IS_STAGING && rowId < 0) return res.json({ ok: true });
+  try {
+    const { rows } = await pool.query(
+      `DELETE FROM friendships
+       WHERE id = $1 AND (requester_id = $2 OR addressee_id = $2)
+       RETURNING id`,
+      [rowId, req.user.id]
+    );
+    if (!rows.length) return res.status(404).json({ error: 'Friendship not found' });
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.use(express.static(path.join(__dirname, 'public'), {
   setHeaders(res, filePath) {
     // The entire game is inline in index.html, so a cached shell hides a
@@ -951,6 +1114,26 @@ async function start() {
       updated_at     TIMESTAMPTZ DEFAULT NOW()
     )
   `);
+
+  // Social graph: friend requests and accepted friendships.
+  // Marked staging:private — the friend relationships between real users must
+  // not be copied to staging containers.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS friendships (
+      id                 BIGSERIAL PRIMARY KEY,
+      requester_id       INTEGER      NOT NULL,
+      addressee_id       INTEGER      NOT NULL,
+      requester_username VARCHAR(255) NOT NULL,
+      addressee_username VARCHAR(255) NOT NULL,
+      status             VARCHAR(20)  NOT NULL DEFAULT 'pending',
+      created_at         TIMESTAMPTZ  DEFAULT NOW(),
+      updated_at         TIMESTAMPTZ  DEFAULT NOW(),
+      UNIQUE (requester_id, addressee_id)
+    )
+  `);
+  await pool.query(`COMMENT ON TABLE friendships IS 'staging:private'`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS friendships_addressee_status_idx ON friendships (addressee_id, status)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS friendships_requester_status_idx ON friendships (requester_id, status)`);
 
   if (IS_STAGING) {
     try { await seedStaging(); }
