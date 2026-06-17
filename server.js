@@ -271,6 +271,14 @@ app.post('/api/block', async (req, res) => {
       const now = new Date();
       const dateStr = now.toISOString().slice(0, 10);
       const target = dailyTarget(now);
+      // First, fetch the current state to detect if we're completing for the first time
+      const prevRes = await pool.query(
+        `SELECT completed_at FROM daily_challenge_progress
+         WHERE challenge_date = $1 AND user_id = $2`,
+        [dateStr, req.user.id]
+      );
+      const wasAlreadyCompleted = prevRes.rows.length > 0 && prevRes.rows[0].completed_at;
+
       const cr = await pool.query(
         `INSERT INTO daily_challenge_progress
            (challenge_date, user_id, username, blocks_placed, completed_at, updated_at)
@@ -293,6 +301,11 @@ app.post('/api/block', async (req, res) => {
       );
       const cr0 = cr.rows[0];
       challenge = { placed: cr0.blocks_placed, target, completed_at: cr0.completed_at };
+      // Award +1000 bonus if challenge just completed (completed_at is set AND wasn't already completed)
+      let challenge_bonus = 0;
+      if (cr0.completed_at && !wasAlreadyCompleted) {
+        challenge_bonus = 1000;
+      }
 
       const base = 10;
 
@@ -324,6 +337,8 @@ app.post('/api/block', async (req, res) => {
       if (rainbowRes.rows.length > 0) rainbow_multiplier = 2;
 
       earned = Math.round(base * combo_multiplier * rainbow_multiplier);
+      // Add challenge completion bonus to earned score
+      earned += challenge_bonus;
 
       // Upsert leaderboard — RETURNING gives post-upsert totals for badge checks.
       const lbRes = await pool.query(
@@ -485,7 +500,7 @@ app.post('/api/block', async (req, res) => {
       }
     }
 
-    res.json({ ok: true, seq, ...(challenge ? { challenge } : {}), earned, combo_multiplier, rainbow_multiplier, newly_earned_badges, newly_unlocked_types, lines_cleared, line_clear_points });
+    res.json({ ok: true, seq, ...(challenge ? { challenge, challenge_bonus: (challenge_bonus || 0) } : {}), earned, combo_multiplier, rainbow_multiplier, newly_earned_badges, newly_unlocked_types, lines_cleared, line_clear_points });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -845,6 +860,17 @@ app.post('/api/ta-score', async (req, res) => {
       best_cleared = cur.rows.length ? Number(cur.rows[0].best_cleared) : cleared;
       is_new_best = false;
     }
+    // Award +1000 bonus to global leaderboard for completing a TA run
+    const COMPLETION_BONUS = 1000;
+    await pool.query(
+      `INSERT INTO leaderboard (user_id, username, total_score, blocks_placed, best_combo, updated_at)
+       VALUES ($1, $2, $3, 0, 0, NOW())
+       ON CONFLICT (user_id) DO UPDATE SET
+         total_score   = leaderboard.total_score + EXCLUDED.total_score,
+         username      = EXCLUDED.username,
+         updated_at    = NOW()`,
+      [req.user.id, req.user.username, COMPLETION_BONUS]
+    );
     res.json({ ok: true, best_cleared, is_new_best });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -914,6 +940,17 @@ app.post('/api/ta-60-score', async (req, res) => {
       best_cleared = cur.rows.length ? Number(cur.rows[0].best_cleared) : cleared;
       is_new_best = false;
     }
+    // Award +1000 bonus to global leaderboard for completing a TA 60s run
+    const COMPLETION_BONUS = 1000;
+    await pool.query(
+      `INSERT INTO leaderboard (user_id, username, total_score, blocks_placed, best_combo, updated_at)
+       VALUES ($1, $2, $3, 0, 0, NOW())
+       ON CONFLICT (user_id) DO UPDATE SET
+         total_score   = leaderboard.total_score + EXCLUDED.total_score,
+         username      = EXCLUDED.username,
+         updated_at    = NOW()`,
+      [req.user.id, req.user.username, COMPLETION_BONUS]
+    );
     res.json({ ok: true, best_cleared, is_new_best });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -987,6 +1024,17 @@ app.post('/api/endless-score', async (req, res) => {
       best_placed = cur.rows.length ? Number(cur.rows[0].best_placed) : placed;
       is_new_best = false;
     }
+    // Award +1000 bonus to global leaderboard for completing an Endless Mode run
+    const COMPLETION_BONUS = 1000;
+    await pool.query(
+      `INSERT INTO leaderboard (user_id, username, total_score, blocks_placed, best_combo, updated_at)
+       VALUES ($1, $2, $3, 0, 0, NOW())
+       ON CONFLICT (user_id) DO UPDATE SET
+         total_score   = leaderboard.total_score + EXCLUDED.total_score,
+         username      = EXCLUDED.username,
+         updated_at    = NOW()`,
+      [req.user.id, req.user.username, COMPLETION_BONUS]
+    );
     res.json({ ok: true, best_placed, is_new_best });
   } catch (err) {
     res.status(500).json({ error: err.message });
