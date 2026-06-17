@@ -831,6 +831,7 @@
       <div class="flex gap-1 overflow-x-auto">
         <button id="tab-alltime" class="px-2 py-0.5 rounded text-xs font-semibold bg-zinc-700 text-zinc-100 cursor-pointer transition-colors whitespace-nowrap" data-tab="alltime">All-time</button>
         <button id="tab-tournament" class="px-2 py-0.5 rounded text-xs font-semibold text-zinc-400 hover:text-zinc-200 cursor-pointer transition-colors whitespace-nowrap" data-tab="tournament">This Week</button>
+        <button id="tab-monuments" class="px-2 py-0.5 rounded text-xs font-semibold text-zinc-400 hover:text-zinc-200 cursor-pointer transition-colors whitespace-nowrap" data-tab="monuments">Monuments</button>
         <button id="tab-ta" class="px-2 py-0.5 rounded text-xs font-semibold text-zinc-400 hover:text-zinc-200 cursor-pointer transition-colors whitespace-nowrap" data-tab="ta">Time Attack</button>
         <button id="tab-ta-60" class="px-2 py-0.5 rounded text-xs font-semibold text-zinc-400 hover:text-zinc-200 cursor-pointer transition-colors whitespace-nowrap" data-tab="ta-60">TA (60s)</button>
         <button id="tab-daily-challenge" class="px-2 py-0.5 rounded text-xs font-semibold text-zinc-400 hover:text-zinc-200 cursor-pointer transition-colors whitespace-nowrap" data-tab="daily-challenge">Daily</button>
@@ -1077,7 +1078,7 @@
 
     // Build identifier — bump this (to the deploying commit short SHA) on every
     // change so the top-right stamp confirms exactly which code is running.
-    const BUILD_VERSION = 'power-ups+hold-queue+achievements-badges+chat+daily-challenge+leaderboard+online-presence+block-attribution+audio-sfx+next-piece-preview+spectator-mode+weekly-tournament+friends+blocks-placed-hud+day-night-cycle+minimap+ai-coach+player-stats+leaderboard-daily+new-badges+daily-theme-voting+natural-disasters+undo-redo-history+pastel-chrome+mobs';
+    const BUILD_VERSION = 'power-ups+hold-queue+achievements-badges+chat+daily-challenge+leaderboard+online-presence+block-attribution+audio-sfx+next-piece-preview+spectator-mode+weekly-tournament+friends+blocks-placed-hud+day-night-cycle+minimap+ai-coach+player-stats+leaderboard-daily+new-badges+daily-theme-voting+natural-disasters+community-monuments+undo-redo-history+pastel-chrome+mobs';
 
     // Badge definitions — mirror of the server-side BADGES array, extended with
     // a `hint` field shown in the panel for unearned badges.
@@ -2139,6 +2140,35 @@
     const powerupGroup = new THREE.Group();
     scene.add(powerupGroup);
 
+    // ---- Community Monument beacons ----
+    const monumentGroup = new THREE.Group();
+    scene.add(monumentGroup);
+    const monumentOrbs = []; // animated each frame
+    let lastMonumentHash = '';
+    const monumentShaftGeom = new THREE.CylinderGeometry(0.08, 0.08, 17, 8);
+    const monumentOrbGeom = new THREE.SphereGeometry(0.35, 8, 8);
+    const monumentShaftMat = new THREE.MeshBasicMaterial({ color: '#f5c842', transparent: true, opacity: 0.45, fog: false });
+    const monumentOrbMat = new THREE.MeshBasicMaterial({ color: '#f5c842', fog: false });
+
+    function rebuildMonumentMeshes(monuments) {
+      monumentGroup.clear();
+      monumentOrbs.length = 0;
+      for (const m of monuments) {
+        const cx = m.sector_x + 2;
+        const cz = m.sector_z + 2;
+        const shaft = new THREE.Mesh(monumentShaftGeom, monumentShaftMat);
+        shaft.position.set(cx, 9.5, cz);
+        monumentGroup.add(shaft);
+        const orb = new THREE.Mesh(monumentOrbGeom, monumentOrbMat);
+        orb.userData.baseY = 18;
+        orb.userData.phase = (m.id * 2.39996) % (Math.PI * 2);
+        orb.position.set(cx, 18, cz);
+        monumentGroup.add(orb);
+        monumentOrbs.push(orb);
+      }
+      lastMonumentHash = monuments.map(m => m.id).sort().join(',');
+    }
+
     // Mob group: all creature meshes; hidden until Classic mode is entered.
     const mobGroup = new THREE.Group();
     mobGroup.visible = false;
@@ -2551,7 +2581,8 @@
       const toast = document.createElement('div');
       toast.className = 'flex items-center gap-3 bg-black/85 backdrop-blur rounded-xl px-4 py-2.5 text-sm text-zinc-100 shadow-xl' +
         (badge._isUnlock ? ' ring-2 ring-violet-500/60' : '') +
-        (badge._isDisaster ? ' ring-2 ring-red-500/60' : '');
+        (badge._isDisaster ? ' ring-2 ring-red-500/60' : '') +
+        (badge._isMonument ? ' ring-2 ring-yellow-500/60' : '');
       toast.style.cssText = 'opacity:0;transition:opacity 0.3s;';
       const iconSpan = document.createElement('span');
       iconSpan.className = 'text-2xl leading-none flex-shrink-0';
@@ -2963,6 +2994,11 @@
               showUnlockToast(ut);
             }
             buildPalette(); // re-render palette so the newly unlocked swatch activates
+          }
+          if (data.newly_crowned_monuments && data.newly_crowned_monuments.length) {
+            for (const m of data.newly_crowned_monuments) {
+              showBadgeToast({ icon: '🏛️', name: m.name, flavour: 'Community monument crowned!', _isMonument: true });
+            }
           }
           if (data.challenge) syncChallenge(data.challenge);
           if (t !== 0) {
@@ -5319,7 +5355,7 @@
 
     function setLeaderboardTab(tab) {
       leaderboardTab = tab;
-      const tabs = { alltime: 'tab-alltime', tournament: 'tab-tournament', ta: 'tab-ta', 'ta-60': 'tab-ta-60', 'daily-challenge': 'tab-daily-challenge', endless: 'tab-endless', puzzle: 'tab-puzzle' };
+      const tabs = { alltime: 'tab-alltime', tournament: 'tab-tournament', monuments: 'tab-monuments', ta: 'tab-ta', 'ta-60': 'tab-ta-60', 'daily-challenge': 'tab-daily-challenge', endless: 'tab-endless', puzzle: 'tab-puzzle' };
       for (const [key2, id] of Object.entries(tabs)) {
         const el = document.getElementById(id);
         if (!el) continue;
@@ -5506,6 +5542,28 @@
       return Math.floor(diff / 86400) + 'd ago';
     }
 
+    function renderMonuments({ monuments }) {
+      if (!monuments || !monuments.length) {
+        leaderboardContentEl.innerHTML = '<p class="py-1 text-center text-zinc-400">No monuments yet — build together to create one!</p>';
+        return;
+      }
+      leaderboardContentEl.innerHTML =
+        '<table class="w-full text-xs">' +
+        '<thead><tr class="text-zinc-500 uppercase border-b border-zinc-700">' +
+        '<th class="text-left pb-1 w-6">#</th>' +
+        '<th class="text-left pb-1 pl-2">Monument</th>' +
+        '<th class="text-right pb-1">Builders</th>' +
+        '<th class="text-right pb-1 pl-2">Blocks</th></tr></thead><tbody>' +
+        monuments.map((m, i) =>
+          '<tr class="border-b border-zinc-800/60 last:border-0">' +
+          '<td class="py-1 text-zinc-500">' + (i + 1) + '</td>' +
+          '<td class="py-1 pl-2 max-w-[120px] truncate">' + escapeHtml(m.name) + '</td>' +
+          '<td class="py-1 text-right font-mono text-zinc-100">' + m.contributor_count + '</td>' +
+          '<td class="py-1 text-right font-mono text-zinc-100 pl-2">' + m.block_count + '</td></tr>'
+        ).join('') +
+        '</tbody></table>';
+    }
+
     async function fetchLeaderboard() {
       clearTimeout(leaderboardTimer);
       leaderboardTimer = null;
@@ -5516,6 +5574,14 @@
           renderTournament(await res.json());
         } catch (_) {
           leaderboardContentEl.innerHTML = '<p class="py-1 text-zinc-500">Couldn\'t load tournament.</p>';
+        }
+      } else if (leaderboardTab === 'monuments') {
+        try {
+          const res = await fetch('/api/monuments', { headers });
+          if (!res.ok) throw new Error('fetch failed');
+          renderMonuments(await res.json());
+        } catch (_) {
+          leaderboardContentEl.innerHTML = '<p class="py-1 text-zinc-500">Couldn\'t load monuments.</p>';
         }
       } else if (leaderboardTab === 'ta') {
         try {
@@ -5744,6 +5810,7 @@
     document.getElementById('profile-close').addEventListener('click', closeProfile);
     document.getElementById('tab-alltime').addEventListener('click', () => setLeaderboardTab('alltime'));
     document.getElementById('tab-tournament').addEventListener('click', () => setLeaderboardTab('tournament'));
+    document.getElementById('tab-monuments').addEventListener('click', () => setLeaderboardTab('monuments'));
     document.getElementById('tab-ta').addEventListener('click', () => setLeaderboardTab('ta'));
     document.getElementById('tab-ta-60').addEventListener('click', () => setLeaderboardTab('ta-60'));
     document.getElementById('tab-daily-challenge').addEventListener('click', () => setLeaderboardTab('daily-challenge'));
@@ -6637,6 +6704,7 @@
       buildGroundGrid();
       buildPalette();
       rebuildBlockMeshes();
+      rebuildMonumentMeshes(data.monuments || []);
       spawnCamera();
       // Pre-populate the undo stack in staging so the history panel has visible content.
       if (isStaging) {
@@ -6784,6 +6852,10 @@
               if (gameMode !== 'learn' && gameMode !== 'tutorial') handleDisasterEvent(ev);
             }
           }
+          if (data.monuments) {
+            const newHash = data.monuments.map(m => m.id).sort().join(',');
+            if (newHash !== lastMonumentHash) rebuildMonumentMeshes(data.monuments);
+          }
         }
       } catch (e) { /* transient; next tick retries */ }
 
@@ -6909,6 +6981,11 @@
             + Math.sin(now * 0.002 + pu.mesh.userData.phase) * 0.12;
           pu.mesh.rotation.y += dt;
         }
+      }
+
+      // Animate monument orbs — gentle slow bob
+      for (const orb of monumentOrbs) {
+        orb.position.y = orb.userData.baseY + Math.sin(now * 0.0015 + orb.userData.phase) * 0.2;
       }
 
       // Animate mob meshes (position + per-type motion).
