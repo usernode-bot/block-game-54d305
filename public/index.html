@@ -482,13 +482,13 @@
   <!-- Controls hint (fades) -->
   <div id="hint" class="pointer-events-none fixed top-3 left-1/2 -translate-x-1/2 z-20 text-center text-[10px] sm:text-xs text-zinc-300/90 bg-black/40 rounded-lg px-2 sm:px-3 py-1 sm:py-2 transition-opacity duration-700">
     <span class="font-semibold">WASD</span> move · <span class="font-semibold">Space/Shift</span> up·down ·
-    <span class="font-semibold">Left-click/F</span> add · <span class="font-semibold">Right-click/G</span> delete ·
-    <span class="font-semibold">1–9</span> pick block · <span class="font-semibold">H</span> hold/controls · <span class="font-semibold">Enter</span> chat · <span class="font-semibold">M</span> mute · <span class="font-semibold">Esc</span> release
+    <span class="font-semibold">Left-click/F</span> add · <span class="font-semibold">Right-click/G</span> delete · <span class="font-semibold">Drag+📦</span> stamp ·
+    <span class="font-semibold">1–9</span> pick · <span class="font-semibold">H</span> hold · <span class="font-semibold">Enter</span> chat · <span class="font-semibold">Esc</span> release
   </div>
   <div id="hint-fallback" class="hidden pointer-events-none fixed top-3 left-1/2 -translate-x-1/2 z-20 text-center text-[10px] sm:text-xs text-zinc-300/90 bg-black/40 rounded-lg px-2 sm:px-3 py-1 sm:py-2 transition-opacity duration-700">
     <span class="font-semibold">WASD</span> move · <span class="font-semibold">Space/Shift</span> up·down ·
-    <span class="font-semibold">Drag</span> look · <span class="font-semibold">Left-click/F</span> add · <span class="font-semibold">Right-click/G</span> delete ·
-    <span class="font-semibold">1–9</span> pick block · <span class="font-semibold">H</span> hold/controls · <span class="font-semibold">Enter</span> chat · <span class="font-semibold">M</span> mute · <span class="font-semibold">Esc</span> menu
+    <span class="font-semibold">Drag</span> look · <span class="font-semibold">Left-click/F</span> add · <span class="font-semibold">Right-click/G</span> delete · <span class="font-semibold">Drag+📦</span> stamp ·
+    <span class="font-semibold">1–9</span> pick · <span class="font-semibold">H</span> hold · <span class="font-semibold">Enter</span> chat · <span class="font-semibold">Esc</span> menu
   </div>
 
   <!-- Look-mode control: always-visible, clickable, shows the active look
@@ -781,6 +781,9 @@
         <button data-act="undo" id="undo-touch-btn" class="touch-ctrl pointer-events-auto w-14 h-14 sm:w-16 sm:h-16 rounded-2xl bg-amber-600/55 active:bg-amber-400/80 active:scale-95 text-xs sm:text-sm font-bold text-white flex items-center justify-center">↩ Undo</button>
         <button data-act="break" class="touch-ctrl pointer-events-auto w-14 h-14 sm:w-16 sm:h-16 rounded-2xl bg-rose-600/55 active:bg-rose-500/80 active:scale-95 text-xs sm:text-sm font-bold text-white flex items-center justify-center">Delete</button>
         <button data-act="place" class="touch-ctrl pointer-events-auto w-14 h-14 sm:w-16 sm:h-16 rounded-2xl bg-emerald-600/55 active:bg-emerald-500/80 active:scale-95 text-xs sm:text-sm font-bold text-white flex items-center justify-center">Add</button>
+      </div>
+      <div class="flex gap-1 sm:gap-2">
+        <button data-act="stamp" class="touch-ctrl pointer-events-auto w-14 h-14 sm:w-16 sm:h-16 rounded-2xl bg-cyan-600/55 active:bg-cyan-500/80 active:scale-95 text-xs sm:text-sm font-bold text-white flex items-center justify-center">📦 Stamp</button>
       </div>
     </div>
   </div>
@@ -2174,6 +2177,12 @@
     previewMesh.visible = false;
     scene.add(previewMesh);
 
+    // Stamp preview: wireframe box showing the rectangular region during a stamp drag
+    const stampMaterial = new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.5 });
+    stampPreviewMesh = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(1, 1, 1)), stampMaterial);
+    stampPreviewMesh.visible = false;
+    scene.add(stampPreviewMesh);
+
     // ---- Raycast from screen center to find the aimed cell + face ----
     const raycaster = new THREE.Raycaster();
     const centre = new THREE.Vector2(0, 0);
@@ -2512,6 +2521,7 @@
       target = null;
       highlight.visible = false;
       previewMesh.visible = false;
+      stampPreviewMesh.visible = false;
       if (!hits.length) return;
       const hit = hits[0];
       const cells = hit.object.userData.cells;
@@ -2524,10 +2534,20 @@
       };
       highlight.position.set(cell.x + 0.5, cell.y + 0.5, cell.z + 0.5);
       highlight.visible = true;
-      // Show ghost at the prospective placement cell if playing, in bounds, and unoccupied.
-      const p = target.place;
-      if (playing && inBounds(p.x, p.y, p.z) && !blocks.has(key(p.x, p.y, p.z))) {
-        previewMesh.position.set(p.x + 0.5, p.y + 0.5, p.z + 0.5);
+      if (stampDragInProgress && stampStartCell) {
+        stampEndCell = cell;
+        const minX = Math.min(stampStartCell.x, stampEndCell.x);
+        const maxX = Math.max(stampStartCell.x, stampEndCell.x);
+        const minZ = Math.min(stampStartCell.z, stampEndCell.z);
+        const maxZ = Math.max(stampStartCell.z, stampEndCell.z);
+        const y = stampStartCell.y;
+        const w = maxX - minX + 1;
+        const h = maxZ - minZ + 1;
+        stampPreviewMesh.scale.set(w, 1, h);
+        stampPreviewMesh.position.set(minX + w / 2, y + 0.5, minZ + h / 2);
+        stampPreviewMesh.visible = true;
+      } else if (playing && !stampModeActive && inBounds(target.place.x, target.place.y, target.place.z) && !blocks.has(key(target.place.x, target.place.y, target.place.z))) {
+        previewMesh.position.set(target.place.x + 0.5, target.place.y + 0.5, target.place.z + 0.5);
         previewMesh.visible = true;
       }
     }
@@ -3034,6 +3054,64 @@
       updateHoldPanel();
     }
 
+    function toggleStampMode() {
+      if (gameMode !== 'classic' && gameMode !== null && currentWorldId <= 0) return;
+      stampModeActive = !stampModeActive;
+      const stampBtn = document.querySelector('#palette [data-id="stamp"]');
+      if (stampBtn) {
+        stampBtn.classList.toggle('ring-2', stampModeActive);
+        stampBtn.classList.toggle('ring-white', stampModeActive);
+      }
+    }
+
+    function placeStamp(startCell, endCell) {
+      if (!startCell || !endCell) return;
+      const minX = Math.min(startCell.x, endCell.x);
+      const maxX = Math.max(startCell.x, endCell.x);
+      const minZ = Math.min(startCell.z, endCell.z);
+      const maxZ = Math.max(startCell.z, endCell.z);
+      const y = startCell.y;
+      const cellsToPlace = [];
+      for (let x = minX; x <= maxX; x++) {
+        for (let z = minZ; z <= maxZ; z++) {
+          if (inBounds(x, y, z)) {
+            cellsToPlace.push({ x, y, z });
+          }
+        }
+      }
+      if (cellsToPlace.length === 0) return;
+      for (const cell of cellsToPlace) {
+        const k = key(cell.x, cell.y, cell.z);
+        if (blocks.get(k) !== selectedType) {
+          const prevType = blocks.get(k) ?? 0;
+          const isNewBlock = prevType === 0;
+          blocks.set(k, selectedType);
+          emitBlockPlace(cell.x + 0.5, cell.y + 0.5, cell.z + 0.5);
+          if (isNewBlock && gameMode === 'classic' && challengeDate && !challengeCompleted) {
+            challengePlaced++;
+          }
+          sessionBlocksPlaced++;
+        }
+      }
+      audio.playPlace();
+      rebuildBlockMeshes();
+      if (gameMode === 'classic' && challengeDate && !challengeCompleted && challengePlaced >= challengeTarget) {
+        challengeCompleted = true;
+        fetchCoachTip('daily_complete');
+      }
+      if (sessionBlocksPlaced % 25 === 0) fetchCoachTip('block_milestone');
+      renderChallenge();
+      for (const cell of cellsToPlace) {
+        const prevType = 0;
+        const k = key(cell.x, cell.y, cell.z);
+        const newType = blocks.get(k);
+        if (!undoInProgress && gameMode === 'classic' && newType !== prevType) {
+          pushUndo(cell.x, cell.y, cell.z, prevType, newType);
+        }
+        sendEdit(cell.x, cell.y, cell.z, newType, prevType);
+      }
+    }
+
     function breakBlock() {
       if (!target) return;
       const { x, y, z } = target.cell;
@@ -3121,6 +3199,11 @@
     let dragging = false;
     let pressX = 0, pressY = 0;
     const DRAG_THRESHOLD = 5;
+    let stampModeActive = false;
+    let stampStartCell = null;
+    let stampEndCell = null;
+    let stampDragInProgress = false;
+    let stampPreviewMesh = null;
     const move = { f: false, b: false, l: false, r: false, up: false, down: false };
     const SPEED = 9, SENS = 0.0022;
 
@@ -3960,6 +4043,12 @@
         return;
       }
       if (!playing) return;
+      if (stampModeActive && e.button === 0) {
+        stampStartCell = target ? target.cell : null;
+        stampDragInProgress = true;
+        stampEndCell = null;
+        return;
+      }
       dragging = true;
       pressX = e.clientX;
       pressY = e.clientY;
@@ -3967,6 +4056,16 @@
     });
     window.addEventListener('mouseup', (e) => {
       if (e.button === 0) placeHeld = false; // always clear regardless of mode
+      if (stampDragInProgress && e.button === 0) {
+        stampDragInProgress = false;
+        const moved = stampStartCell && stampEndCell ? Math.hypot(stampStartCell.x - stampEndCell.x, stampStartCell.z - stampEndCell.z) : 0;
+        if (moved >= 1 && gameMode !== 'spectate') {
+          placeStamp(stampStartCell, stampEndCell);
+        }
+        stampStartCell = null;
+        stampEndCell = null;
+        return;
+      }
       if (locked || !playing || !dragging) return;
       dragging = false;
       canvas.style.cursor = 'grab';
@@ -4034,7 +4133,9 @@
       // In native (locked) mode the browser handles Esc and fires
       // pointerlockchange, which restores the overlay there.
       if (e.code === 'Escape') {
-        if (!leaderboardEl.classList.contains('hidden')) {
+        if (stampModeActive) {
+          toggleStampMode();
+        } else if (!leaderboardEl.classList.contains('hidden')) {
           closeLeaderboard();
         } else if (!friendsPanelEl.classList.contains('hidden')) {
           closeFriends();
@@ -4115,11 +4216,39 @@
         const releasePlaceHeld = (e) => { if (e.cancelable) e.preventDefault(); placeHeld = false; };
         el.addEventListener('touchend', releasePlaceHeld);
         el.addEventListener('touchcancel', releasePlaceHeld);
+      } else if (act === 'stamp') {
+        // Stamp needs drag tracking similar to drag mode
+        el.addEventListener('touchstart', (e) => {
+          e.preventDefault();
+          if (!playing || gameMode !== 'classic') return;
+          stampStartCell = target ? target.cell : null;
+          stampDragInProgress = true;
+        }, { passive: false });
+        el.addEventListener('touchend', (e) => {
+          if (stampDragInProgress) {
+            e.preventDefault();
+            stampDragInProgress = false;
+            if (stampStartCell && stampEndCell) {
+              const moved = Math.hypot(stampStartCell.x - stampEndCell.x, stampStartCell.z - stampEndCell.z);
+              if (moved >= 1 && gameMode !== 'spectate') {
+                placeStamp(stampStartCell, stampEndCell);
+              }
+            }
+            stampStartCell = null;
+            stampEndCell = null;
+          }
+        }, { passive: false });
+        el.addEventListener('touchcancel', (e) => {
+          stampDragInProgress = false;
+          stampStartCell = null;
+          stampEndCell = null;
+        });
       } else {
         bindTap(el, () => {
           if (act === 'break' && playing && gameMode !== 'spectate') breakBlock();
           else if (act === 'hold' && playing && gameMode !== 'spectate') holdBlock();
           else if (act === 'undo' && playing && gameMode === 'classic') undoLastMove();
+          else if (act === 'stamp') toggleStampMode();
           else if (act === 'menu') {
             if (gameMode === 'timeattack' && playing) endTimeAttack();
             else exitToMenu();
@@ -4141,6 +4270,7 @@
         '<li><span class="font-semibold">Add</span> / <span class="font-semibold">Delete</span> — place / remove a block at the crosshair</li>',
         '<li><span class="font-semibold">↩ Undo</span> — undo last action (Classic only)</li>',
         '<li><span class="font-semibold">Hold</span> — swap the active block type with the hold slot</li>',
+        '<li><span class="font-semibold">📦 Stamp</span> — click and drag to place a block region (Classic only)</li>',
         '<li><span class="font-semibold">Palette</span> — tap a swatch to pick a block</li>',
         '<li><span class="font-semibold">💬</span> — open / close chat</li>',
         '<li><span class="font-semibold">🏆</span> — leaderboard</li>',
@@ -5306,6 +5436,17 @@
         }
         wrap.appendChild(btn);
       });
+      const stampBtn = document.createElement('button');
+      stampBtn.dataset.id = 'stamp';
+      stampBtn.title = 'Stamp — click and drag to place blocks (mode: ' + (gameMode === 'classic' ? 'enabled' : 'disabled') + ')';
+      stampBtn.className = 'relative w-10 h-10 rounded-md ring-offset-1 ring-offset-black/0 transition text-lg flex items-center justify-center bg-zinc-700 hover:bg-zinc-600';
+      stampBtn.textContent = '📦';
+      if (gameMode !== 'classic' && gameMode !== null && currentWorldId <= 0) {
+        stampBtn.style.opacity = '0.4';
+        stampBtn.style.pointerEvents = 'none';
+      }
+      stampBtn.addEventListener('click', toggleStampMode);
+      wrap.appendChild(stampBtn);
       selectType(selectedType);
       // Reset hold state on world/palette load
       heldType = null;
