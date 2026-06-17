@@ -770,6 +770,10 @@
        Positioned bottom-right above the palette. -->
   <div id="powerup-hud" class="pointer-events-none fixed bottom-24 right-4 z-20 flex flex-col items-end gap-1"></div>
 
+  <!-- Weather / time-of-day indicator: bottom-left, above the hold panel.
+       Fades in when weather changes, fades out after 6s of stability. -->
+  <div id="weather-hud" class="pointer-events-none fixed left-4 z-20 text-xs font-semibold text-white/90 bg-black/55 rounded-lg px-2 py-1.5 whitespace-nowrap" style="bottom: 5.5rem; opacity: 0; transition: opacity 0.7s;"></div>
+
   <!-- Mode-select / start overlay -->
   <div id="overlay" class="fixed inset-0 z-30 flex items-center justify-center bg-black/60 backdrop-blur-sm">
     <div class="max-w-sm sm:max-w-xl lg:max-w-4xl w-full px-4">
@@ -1139,9 +1143,17 @@
   <button id="worlds-btn" title="Worlds" aria-label="Toggle worlds"
           class="fixed top-[10.75rem] right-3 z-30 w-12 h-12 sm:w-9 sm:h-9 rounded-full bg-black/50 hover:bg-black/70 text-zinc-100 text-lg leading-none flex items-center justify-center transition-colors cursor-pointer">🌍</button>
 
+  <!-- Blueprints toggle: sits below friends button. -->
+  <button id="blueprints-btn" title="Blueprints (Y)" aria-label="Toggle blueprints"
+          class="fixed top-[9rem] right-3 z-30 w-9 h-9 rounded-full bg-black/50 hover:bg-black/70 text-zinc-100 text-lg leading-none flex items-center justify-center transition-colors cursor-pointer">📋</button>
+
   <!-- Daily Theme toggle: below the coach button. Hidden in Time Attack mode. -->
   <button id="theme-btn" title="Daily Build Theme" aria-label="Daily Build Theme"
           class="fixed top-[10.5rem] right-3 z-30 w-9 h-9 rounded-full bg-black/50 hover:bg-black/70 text-zinc-100 text-lg leading-none flex items-center justify-center transition-colors cursor-pointer">🌟</button>
+
+  <!-- Coins toggle: sits below the friends button. -->
+  <button id="coins-btn" title="Coins" aria-label="Toggle coins"
+          class="fixed top-[9.5rem] right-3 z-30 w-9 h-9 rounded-full bg-black/50 hover:bg-black/70 text-zinc-100 text-lg leading-none flex items-center justify-center transition-colors cursor-pointer">💰</button>
 
   <!-- AI Hint button: placement suggestion. Shown only in Classic mode. -->
   <button id="hint-btn" title="Placement hint (X)" aria-label="Ask for placement hint"
@@ -1159,6 +1171,10 @@
   <button id="record-btn" title="Record session" aria-label="Record session"
           class="hidden fixed top-14 right-14 z-30 w-9 h-9 rounded-full bg-black/50 hover:bg-black/70 text-zinc-100 text-lg leading-none flex items-center justify-center transition-colors cursor-pointer">⏺</button>
 
+  <!-- Inbox toggle: sits below the accessibility button. -->
+  <button id="inbox-btn" title="Inbox" aria-label="Toggle inbox"
+          class="fixed top-[12.75rem] right-3 z-30 w-9 h-9 rounded-full bg-black/50 hover:bg-black/70 text-zinc-100 text-lg leading-none flex items-center justify-center transition-colors cursor-pointer relative">🔔<span id="inbox-badge" class="hidden absolute -top-1 -right-1 min-w-[14px] h-[14px] rounded-full bg-red-500 text-white text-[9px] font-bold flex items-center justify-center leading-none pointer-events-none select-none px-0.5"></span></button>
+
   <!-- Build/version stamp: always visible, dim, so the running build can be
        confirmed at a glance. Bump BUILD_VERSION (below) on every change.
        Shifted down to make room for the leaderboard, friends, coach, hint, skins, accessibility, and theme buttons. -->
@@ -1171,6 +1187,22 @@
       <button id="skins-close" aria-label="Close skins" class="text-zinc-400 hover:text-zinc-100 cursor-pointer leading-none">✕</button>
     </div>
     <div id="skins-content" class="text-zinc-400 text-center py-2 text-xs">Loading…</div>
+  </div>
+
+  <!-- Blueprint select HUD: shown in blueprint-select mode. -->
+  <div id="bp-select-hud" class="hidden pointer-events-none fixed top-3 left-1/2 -translate-x-1/2 z-30 bg-black/70 text-white text-xs font-semibold px-4 py-2 rounded-full whitespace-nowrap"></div>
+
+  <!-- Blueprint naming overlay: modal for naming a captured blueprint. -->
+  <div id="bp-naming-overlay" class="hidden fixed inset-0 z-[45] flex items-center justify-center bg-black/50">
+    <div class="bg-zinc-900 rounded-xl p-6 w-80 max-w-[90vw] shadow-2xl">
+      <h2 class="text-zinc-100 font-bold text-base mb-3">Save Blueprint</h2>
+      <input id="bp-name-input" type="text" maxlength="40" placeholder="Blueprint name…" autocomplete="off"
+             class="w-full bg-zinc-800 text-zinc-100 text-sm rounded px-3 py-2 border border-zinc-700 focus:border-violet-500 outline-none placeholder-zinc-500 mb-3">
+      <div class="flex gap-2 justify-end">
+        <button id="bp-cancel-btn" class="px-4 py-2 text-xs text-zinc-400 hover:text-zinc-200 cursor-pointer rounded transition-colors">Cancel</button>
+        <button id="bp-save-btn" class="px-4 py-2 text-xs bg-violet-600 hover:bg-violet-500 active:bg-violet-700 text-white font-semibold rounded cursor-pointer transition-colors">Save</button>
+      </div>
+    </div>
   </div>
 
   <!-- Mini-map: top-down 128×128 px overhead view of the 32×32 world.
@@ -1322,6 +1354,9 @@
   <!-- Login Streak HUD: compact pill above the daily challenge bar. Bottom set by JS. -->
   <div id="streak-hud" class="hidden pointer-events-none fixed right-3 z-20 rounded-lg bg-black/55 px-2 py-1.5 text-xs text-white/90 font-semibold whitespace-nowrap"></div>
 
+  <!-- Coin HUD: shows current coin balance while playing. Hidden until first coin earned. -->
+  <div id="coin-hud" class="hidden pointer-events-none fixed left-3 bottom-20 z-20 rounded-lg bg-black/55 px-2 py-1.5 text-xs text-white/90 font-semibold whitespace-nowrap"></div>
+
   <!-- Daily Challenge HUD: bottom position set by JS (touch devices are raised
        to clear the on-screen action cluster). Hidden until init() loads data. -->
   <div id="challenge-hud" class="hidden pointer-events-none fixed right-3 z-20 w-44 rounded-lg bg-black/55 px-2 py-1.5 text-xs text-white/90"></div>
@@ -1377,6 +1412,8 @@
       <li><span class="font-semibold">E</span> — reveal hidden message (when 📨 shows below crosshair)</li>
       <li><span class="font-semibold">Ctrl+Z</span> — undo last action (Classic)</li>
       <li><span class="font-semibold">Ctrl+Y</span> — redo (Classic)</li>
+      <li><span class="font-semibold">P</span> (playing) — blueprint select mode (Classic) / pause (other modes)</li>
+      <li><span class="font-semibold">Y</span> — blueprint library</li>
       <li><span class="font-semibold">Esc</span> — close panel / release / menu</li>
       <li><span class="font-semibold">Power-ups</span> — collect glowing cubes for Speed, Jump, or Rapid Place (hold F/Add)</li>
     </ul>
@@ -1486,6 +1523,44 @@
       <button id="friends-add-btn" class="shrink-0 px-3 py-1.5 bg-violet-600 hover:bg-violet-500 active:bg-violet-700 text-white text-xs font-semibold rounded cursor-pointer transition-colors" id="friends-add-btn-text">Add</button>
     </div>
     <div id="friends-add-status" class="mt-1 text-xs text-center min-h-[1.2em]"></div>
+  </div>
+
+  <!-- Coins panel: shows balance and send form. Hidden by default. -->
+  <div id="coins-panel" class="hidden fixed top-28 right-3 z-30 w-72 max-w-[90vw] rounded-xl bg-black/70 backdrop-blur p-4 text-sm text-zinc-200 shadow-xl">
+    <div class="flex items-center justify-between mb-3">
+      <h2 class="font-bold text-zinc-100">Coins</h2>
+      <button id="coins-close" aria-label="Close coins" class="text-zinc-400 hover:text-zinc-100 cursor-pointer leading-none">✕</button>
+    </div>
+    <div id="coins-balance" class="text-zinc-400 text-xs text-center py-1 mb-3">Loading…</div>
+    <div class="border-t border-zinc-700/60 pt-3 flex flex-col gap-2">
+      <input id="coins-recipient" type="text" placeholder="Recipient username…" maxlength="100" autocomplete="off"
+             class="w-full bg-zinc-800 text-zinc-100 text-xs rounded px-2 py-1.5 border border-zinc-700 focus:border-violet-500 outline-none placeholder-zinc-500">
+      <div class="flex gap-2">
+        <input id="coins-amount" type="number" placeholder="Amount" min="1" max="10000"
+               class="flex-1 min-w-0 bg-zinc-800 text-zinc-100 text-xs rounded px-2 py-1.5 border border-zinc-700 focus:border-violet-500 outline-none placeholder-zinc-500">
+        <button id="coins-send-btn" class="shrink-0 px-3 py-1.5 bg-violet-600 hover:bg-violet-500 active:bg-violet-700 text-white text-xs font-semibold rounded cursor-pointer transition-colors">Send</button>
+      </div>
+    </div>
+    <div id="coins-status" class="mt-1 text-xs text-center min-h-[1.2em]"></div>
+  </div>
+
+  <!-- Inbox panel: shows coin gift notifications. Hidden by default. -->
+  <div id="inbox-panel" class="hidden fixed top-28 right-3 z-30 w-72 max-w-[90vw] rounded-xl bg-black/70 backdrop-blur p-4 text-sm text-zinc-200 shadow-xl">
+    <div class="flex items-center justify-between mb-3">
+      <h2 class="font-bold text-zinc-100">Inbox</h2>
+      <button id="inbox-close" aria-label="Close inbox" class="text-zinc-400 hover:text-zinc-100 cursor-pointer leading-none">✕</button>
+    </div>
+    <div id="inbox-content" class="text-zinc-400 text-center py-2 text-xs">Loading…</div>
+  </div>
+
+  <!-- Blueprint library panel: lists saved blueprints. Hidden by default; toggled by 📋 or Y. -->
+  <div id="blueprints-panel" class="hidden fixed top-28 right-3 z-30 w-72 max-w-[90vw] rounded-xl bg-black/70 backdrop-blur p-4 text-sm text-zinc-200 shadow-xl">
+    <div class="flex items-center justify-between mb-3">
+      <h2 class="font-bold text-zinc-100">Blueprints</h2>
+      <button id="blueprints-close" aria-label="Close blueprints" class="text-zinc-400 hover:text-zinc-100 cursor-pointer leading-none">✕</button>
+    </div>
+    <p class="text-zinc-500 text-xs mb-3">Press <strong class="text-zinc-300">P</strong> in Classic mode to select a region, then save it. Click Stamp to place it.</p>
+    <div id="blueprints-list" class="space-y-2 max-h-96 overflow-y-auto pr-0.5 text-zinc-400 text-center text-xs py-2">Loading…</div>
   </div>
 
   <!-- Daily Build Theme panel: nominations list, voting, and nominate form.
@@ -1986,7 +2061,7 @@
 
     // Build identifier — bump this (to the deploying commit short SHA) on every
     // change so the top-right stamp confirms exactly which code is running.
-    const BUILD_VERSION = 'replay-sharing+cyberpunk-theme+speedrun-mode+power-ups+hold-queue+achievements-badges+chat+daily-challenge+leaderboard+online-presence+block-attribution+audio-sfx+next-piece-preview+spectator-mode+weekly-tournament+friends+xp-levels+collab-challenges+betting-system+blocks-placed-hud+ai-opponent+weather-system+day-night-cycle+minimap+ai-coach+ai-hints+nft-skins+player-stats+leaderboard-daily+new-badges+daily-theme-voting+natural-disasters+community-monuments+undo-redo-history+pastel-chrome+mobs+message-in-a-block+accessibility-panel+pixel-pets+versus-mode+battle-mode';
+    const BUILD_VERSION = 'replay-sharing+cyberpunk-theme+speedrun-mode+power-ups+hold-queue+achievements-badges+chat+daily-challenge+leaderboard+online-presence+block-attribution+audio-sfx+next-piece-preview+spectator-mode+weekly-tournament+friends+xp-levels+collab-challenges+coin-gifting+betting-system+blocks-placed-hud+ai-opponent+weather-system+weather-tod+day-night-cycle+minimap+ai-coach+ai-hints+nft-skins+player-stats+leaderboard-daily+new-badges+daily-theme-voting+natural-disasters+community-monuments+undo-redo-history+pastel-chrome+mobs+message-in-a-block+accessibility-panel+pixel-pets+versus-mode+blueprint+battle-mode';
 
     // Badge definitions — mirror of the server-side BADGES array, extended with
     // a `hint` field shown in the panel for unearned badges.
@@ -2897,6 +2972,12 @@
     let chatOpen = false;  // whether the chat drawer is visible
     let chatOpening = false; // true while waiting for pointer lock to release for chat
 
+    // ---- Coin / inbox state ----
+    let coinBalance = 0;
+    let inboxUnread = 0;
+    let inboxCursor = 0;
+    let inboxOpen = false;
+
     // ---- Daily Challenge state ----
     let challengeDate = null;        // ISO date string (YYYY-MM-DD) for current progress
     let challengeTarget = 0;         // today's placement goal
@@ -3134,6 +3215,28 @@
 
     // ---- Replay recording state ----
     let recordingSessionId = null; // UUID of active recording session, or null
+
+    // ---- Weather & time-of-day state ----
+    // weatherCurrent / weatherChangeAt are synced from the server every 30s.
+    // Time-of-day is derived purely from Date.now() so all clients stay in sync.
+    let weatherCurrent  = 'clear'; // 'clear' | 'cloudy' | 'rain' | 'snow' | 'storm'
+    let weatherChangeAt = 0;       // unix ms when current weather state started
+    let stormFlashNext  = 0;       // performance.now() ms of next lightning spike
+    let stormFlashEnd   = 0;       // performance.now() ms when lightning ends
+    let weatherHudTimer = null;    // auto-hide timeout handle
+    let rainOpacity     = 0;       // smoothed rain particle opacity (0-1)
+    let snowOpacity     = 0;       // smoothed snow particle opacity (0-1)
+
+    // TOD keyframes: full day = 20 real minutes; 0 = midnight, 0.5 = noon
+    const TOD_KF = [
+      { t: 0.00, sky: '#0a0e1a', amb: 0.08, sun: 0.0 },
+      { t: 0.22, sky: '#ff8c42', amb: 0.35, sun: 0.3 },
+      { t: 0.33, sky: '#7fc8f8', amb: 0.55, sun: 0.7 },
+      { t: 0.50, sky: '#8ec7ff', amb: 0.65, sun: 0.9 },
+      { t: 0.67, sky: '#7fc8f8', amb: 0.55, sun: 0.7 },
+      { t: 0.78, sky: '#e06030', amb: 0.30, sun: 0.2 },
+      { t: 0.88, sky: '#12182e', amb: 0.10, sun: 0.0 },
+    ];
 
     // ---- Speed Run state ----
     let srSession = null;       // { session_id, started_at, levels, current_level, level_progress }
@@ -3656,6 +3759,58 @@
     const powerupGroup = new THREE.Group();
     scene.add(powerupGroup);
 
+    // ---- Particle systems (rain & snow) ----
+    // Positions are in world-space, re-centered on the camera each frame.
+    const RAIN_COUNT = 800;
+    const rainPositions = new Float32Array(RAIN_COUNT * 3);
+    for (let i = 0; i < RAIN_COUNT; i++) {
+      rainPositions[i * 3]     = (Math.random() - 0.5) * 40;
+      rainPositions[i * 3 + 1] = Math.random() * 30;
+      rainPositions[i * 3 + 2] = (Math.random() - 0.5) * 40;
+    }
+    const rainGeom = new THREE.BufferGeometry();
+    rainGeom.setAttribute('position', new THREE.BufferAttribute(rainPositions, 3));
+
+    // Thin vertical streak texture for rain drops
+    const _rainCv = document.createElement('canvas');
+    _rainCv.width = 2; _rainCv.height = 10;
+    const _rainCtx = _rainCv.getContext('2d');
+    const _rainGrad = _rainCtx.createLinearGradient(0, 0, 0, 10);
+    _rainGrad.addColorStop(0,   'rgba(200,230,255,0)');
+    _rainGrad.addColorStop(0.3, 'rgba(200,230,255,0.9)');
+    _rainGrad.addColorStop(1,   'rgba(200,230,255,0.9)');
+    _rainCtx.fillStyle = _rainGrad;
+    _rainCtx.fillRect(0, 0, 2, 10);
+    const rainTex = new THREE.CanvasTexture(_rainCv);
+
+    const rainMat = new THREE.PointsMaterial({
+      map: rainTex, size: 0.35, color: 0xaaccee,
+      transparent: true, opacity: 0, depthWrite: false, sizeAttenuation: true,
+    });
+    const rainParticles = new THREE.Points(rainGeom, rainMat);
+    scene.add(rainParticles);
+
+    const SNOW_COUNT = 400;
+    const snowPositions = new Float32Array(SNOW_COUNT * 3);
+    for (let i = 0; i < SNOW_COUNT; i++) {
+      snowPositions[i * 3]     = (Math.random() - 0.5) * 40;
+      snowPositions[i * 3 + 1] = Math.random() * 30;
+      snowPositions[i * 3 + 2] = (Math.random() - 0.5) * 40;
+    }
+    const snowGeom = new THREE.BufferGeometry();
+    snowGeom.setAttribute('position', new THREE.BufferAttribute(snowPositions, 3));
+    const snowMat = new THREE.PointsMaterial({
+      color: 0xddeeff, size: 0.18,
+      transparent: true, opacity: 0, depthWrite: false, sizeAttenuation: true,
+    });
+    const snowParticles = new THREE.Points(snowGeom, snowMat);
+    scene.add(snowParticles);
+
+    // Scratch colors for the environment update
+    const _envSky = new THREE.Color();
+    const _envA   = new THREE.Color();
+    const _envB   = new THREE.Color();
+
     // ---- Community Monument beacons ----
     const monumentGroup = new THREE.Group();
     scene.add(monumentGroup);
@@ -3690,7 +3845,7 @@
     mobGroup.visible = false;
     scene.add(mobGroup);
 
-    // ---- Particle system ----
+    // ---- Particle system (block break/place effects) ----
     const PARTICLE_POOL_SIZE = 150;
     const particleGeom = new THREE.BoxGeometry(0.1, 0.1, 0.1);
     const particleGroup = new THREE.Group();
@@ -4532,8 +4687,153 @@
       if (html !== _lastHudHtml) { powerupHudEl.innerHTML = html; _lastHudHtml = html; }
     }
 
+    // ---- Weather & time-of-day system ----
+
+    // Compute current time-of-day (0=midnight, 0.5=noon) from UTC wall clock.
+    // Full cycle = 20 real minutes, so all clients stay in sync without a server call.
+    function computeTOD() {
+      return ((Date.now() / 1000) % 1200) / 1200;
+    }
+
+    // Interpolate TOD keyframes, returning { sky: THREE.Color, amb, sun }.
+    function sampleTOD(tod) {
+      const kf = TOD_KF;
+      let ai = kf.length - 1, bi = 0;
+      for (let i = 0; i < kf.length - 1; i++) {
+        if (tod >= kf[i].t && tod < kf[i + 1].t) { ai = i; bi = i + 1; break; }
+      }
+      const a = kf[ai], b = kf[bi];
+      const bT   = bi === 0 ? 1.0 : b.t; // wrap midnight
+      const span = bT - a.t;
+      const alpha = span > 0 ? Math.min(1, Math.max(0, (tod - a.t) / span)) : 0;
+      _envA.set(a.sky); _envB.set(b.sky);
+      return {
+        sky: _envA.clone().lerp(_envB, alpha),
+        amb: a.amb + (b.amb - a.amb) * alpha,
+        sun: a.sun + (b.sun - a.sun) * alpha,
+      };
+    }
+
+    const WEATHER_SKY_OVERLAY = {
+      cloudy: '#6b7a8d', rain: '#4a5a6d', snow: '#8090a0', storm: '#2a3040',
+    };
+
+    function updateEnvironment(now, dt) {
+      const tod   = computeTOD();
+      const base  = sampleTOD(tod);
+      const wName = weatherCurrent;
+
+      // Weather intensity: 0 for clear, otherwise ramp 0→1 over 15 s after changeAt.
+      const wInt = wName === 'clear' ? 0
+        : Math.min(1, (Date.now() - weatherChangeAt) / 15000);
+
+      // Sun arc: semicircle from east (dawn) to west (dusk) during daytime only.
+      const DAY_S = 0.22, DAY_E = 0.78;
+      if (tod >= DAY_S && tod <= DAY_E) {
+        const angle = ((tod - DAY_S) / (DAY_E - DAY_S)) * Math.PI;
+        sun.position.set(Math.cos(angle) * 60, Math.sin(angle) * 60, 20);
+      } else {
+        sun.position.set(0, -60, 20); // below horizon at night
+      }
+
+      // Sky color: TOD base blended with weather overlay.
+      _envSky.copy(base.sky);
+      const ovr = WEATHER_SKY_OVERLAY[wName];
+      if (ovr && wInt > 0) { _envA.set(ovr); _envSky.lerp(_envA, wInt * 0.65); }
+      scene.background = _envSky;
+      scene.fog.color.copy(_envSky);
+
+      // Fog distance: weather tightens visibility.
+      let tFogNear = 40, tFogFar = 90;
+      if (wName === 'storm')                          { tFogNear = 15; tFogFar = 40; }
+      else if (wName === 'rain')                      { tFogNear = 25; tFogFar = 60; }
+      else if (wName === 'cloudy' || wName === 'snow') { tFogNear = 32; tFogFar = 75; }
+      scene.fog.near = 40 + (tFogNear - 40) * wInt;
+      scene.fog.far  = 90 + (tFogFar  - 90) * wInt;
+
+      // Ambient light: dimmer at night and in bad weather.
+      const ambW = wName === 'storm' ? 0.4 : wName === 'rain' ? 0.6 : wName === 'cloudy' ? 0.75 : 1;
+      ambientLight.intensity = base.amb * (1 - wInt * (1 - ambW));
+
+      // Directional sun: off at night, dims in weather.
+      const sunW = wName === 'storm' ? 0.1 : wName === 'rain' ? 0.3 : wName === 'cloudy' ? 0.6 : 1;
+      sun.intensity = base.sun * (1 - wInt * (1 - sunW));
+
+      // Lightning during storm: spike ambient to 3.0 for 200 ms every 10–40 s.
+      if (wName === 'storm' && wInt > 0.5) {
+        if (stormFlashNext === 0) stormFlashNext = now + 10000 + Math.random() * 20000;
+        if (now >= stormFlashNext) {
+          stormFlashEnd  = now + 200;
+          stormFlashNext = now + 10000 + Math.random() * 30000;
+        }
+        if (now < stormFlashEnd) ambientLight.intensity = 3.0;
+      } else {
+        stormFlashNext = 0; stormFlashEnd = 0;
+      }
+
+      // Particle opacity: smooth lerp toward target (time constant ~10 s).
+      const isRain = wName === 'rain' || wName === 'storm';
+      const isSnow = wName === 'snow';
+      const tRain  = isRain ? wInt * (wName === 'storm' ? 0.9 : 0.65) : 0;
+      const tSnow  = isSnow ? wInt * 0.8 : 0;
+      const lerpK  = Math.min(1, dt * 0.1);
+      rainOpacity += (tRain - rainOpacity) * lerpK;
+      snowOpacity += (tSnow - snowOpacity) * lerpK;
+
+      // Rain particles: fall fast, wrap when below camera.
+      rainParticles.visible = rainOpacity > 0.01;
+      if (rainParticles.visible) {
+        rainMat.opacity = rainOpacity;
+        const rp   = rainGeom.attributes.position.array;
+        const cx = camera.position.x, cy = camera.position.y, cz = camera.position.z;
+        const fs = 18 * dt;
+        for (let i = 0; i < RAIN_COUNT; i++) {
+          rp[i * 3 + 1] -= fs;
+          if (rp[i * 3 + 1] < cy - 15) {
+            rp[i * 3]     = cx + (Math.random() - 0.5) * 40;
+            rp[i * 3 + 1] = cy + 15;
+            rp[i * 3 + 2] = cz + (Math.random() - 0.5) * 40;
+          }
+        }
+        rainGeom.attributes.position.needsUpdate = true;
+      }
+
+      // Snow particles: fall slowly with gentle horizontal drift.
+      snowParticles.visible = snowOpacity > 0.01;
+      if (snowParticles.visible) {
+        snowMat.opacity = snowOpacity;
+        const sp = snowGeom.attributes.position.array;
+        const cx = camera.position.x, cy = camera.position.y, cz = camera.position.z;
+        const fs = 1.5 * dt;
+        for (let i = 0; i < SNOW_COUNT; i++) {
+          sp[i * 3 + 1] -= fs;
+          sp[i * 3]     += Math.sin(now * 0.001 + i * 0.7) * 0.008;
+          if (sp[i * 3 + 1] < cy - 15) {
+            sp[i * 3]     = cx + (Math.random() - 0.5) * 40;
+            sp[i * 3 + 1] = cy + 15;
+            sp[i * 3 + 2] = cz + (Math.random() - 0.5) * 40;
+          }
+        }
+        snowGeom.attributes.position.needsUpdate = true;
+      }
+    }
+
     // ---- Weather HUD ----
-    const weatherHudEl = document.getElementById('weather-hud');
+    const weatherHudEl  = document.getElementById('weather-hud');
+    const WEATHER_ICONS = { clear: '☀️', cloudy: '☁️', rain: '🌧️', snow: '❄️', storm: '⛈️' };
+
+    function showWeatherHud(weather) {
+      if (!weatherHudEl) return;
+      const icon  = WEATHER_ICONS[weather] || '☀️';
+      const label = weather.charAt(0).toUpperCase() + weather.slice(1);
+      weatherHudEl.textContent = icon + ' ' + label;
+      weatherHudEl.style.opacity = '1';
+      if (weatherHudTimer) clearTimeout(weatherHudTimer);
+      weatherHudTimer = setTimeout(() => {
+        if (weatherHudEl) weatherHudEl.style.opacity = '0';
+      }, 6000);
+    }
+
     let _lastWeatherHudKey = '';
     const _WEATHER_ICONS  = { clear: '☀️', rain: '🌧', fog: '🌫️' };
     const _WEATHER_LABELS = { clear: 'Clear', rain: 'Rainy', fog: 'Foggy' };
@@ -4546,6 +4846,22 @@
       const label = isNight ? 'Night'         : (_WEATHER_LABELS[state] || 'Clear');
       weatherHudEl.innerHTML = icon + ' <span>' + label + '</span>';
     }
+    // ---- Weather poll (every 30 s; intentionally not auth-gated on the server) ----
+    async function pollWeather() {
+      if (document.hidden) return;
+      try {
+        const res = await fetch('/api/world-conditions');
+        if (!res.ok) return;
+        const data = await res.json();
+        const prev = weatherCurrent;
+        weatherCurrent  = data.weather  || 'clear';
+        weatherChangeAt = data.changeAt || 0;
+        if (gameMode !== 'timeattack' && data.weather !== prev) {
+          showWeatherHud(data.weather);
+        }
+      } catch (_) {}
+    }
+
     // ---- Mini-map rendering ----
     function renderMinimap() {
       const SCALE = 4; // px per world unit (128px / 32 units)
@@ -5057,6 +5373,10 @@
             recordingSessionId = null;
             updateRecordButton();
             showShareModal(window.location.origin + '/replay/' + sid);
+          }
+          if (data.coin_balance != null) {
+            coinBalance = data.coin_balance;
+            updateCoinHud();
           }
           if (data.collab) syncCollab(data.collab);
           if (typeof data.total_score === 'number') {
@@ -6597,6 +6917,18 @@
     }
 
     function initTimeAttack() {
+      // Reset scene to static noon so weather doesn't distract during the timed run.
+      scene.background = new THREE.Color('#8ec7ff');
+      scene.fog.color.set('#8ec7ff');
+      scene.fog.near = 40; scene.fog.far = 90;
+      ambientLight.intensity = 0.65;
+      sun.intensity = 0.9;
+      sun.position.set(30, 60, 20);
+      rainParticles.visible = false;
+      snowParticles.visible = false;
+      rainOpacity = 0; snowOpacity = 0;
+      if (weatherHudEl) weatherHudEl.style.opacity = '0';
+
       taBlocks.clear();
       taScore = 0;
       if (taTimerHandle) { clearInterval(taTimerHandle); taTimerHandle = null; }
@@ -7505,6 +7837,9 @@
       if (gameMode === 'learn' && playing) {
         endLearnMode();
       }
+      // Exit any active blueprint mode.
+      if (bpMode === 'select') exitBlueprintSelect();
+      else if (bpMode === 'stamp') exitBlueprintStamp();
       // Stop any lingering TA timer.
       if (taTimerHandle) { clearInterval(taTimerHandle); taTimerHandle = null; }
       // Stop classic poll.
@@ -8252,6 +8587,8 @@
         if (e.key === 'Escape') { e.preventDefault(); closeFriends(); }
         return;
       }
+      // While the blueprint name input is focused, let bpNameInputEl's own listener handle Enter/Esc.
+      if (document.activeElement === bpNameInputEl) return;
       // While the message compose textarea is focused, handle Escape/Enter only.
       const msgComposeInputEl = document.getElementById('msg-compose-input');
       if (msgComposeInputEl && document.activeElement === msgComposeInputEl) {
@@ -8265,25 +8602,37 @@
       // Enter opens chat while the player is active.
       if (e.code === 'Enter' && playing && !chatOpen) { e.preventDefault(); openChat(); return; }
 
-      if (e.ctrlKey && e.code === 'KeyZ' && playing && gameMode === 'classic') {
-        e.preventDefault();
-        undoLastMove();
-        return;
-      }
       if (codeMap[e.code]) { move[codeMap[e.code]] = true; if (e.code === 'Space') e.preventDefault(); }
       if (e.code.startsWith('Digit')) {
         const n = parseInt(e.code.slice(5), 10);
         if (n >= 1 && n <= 9 && PALETTE[n - 1]) selectType(PALETTE[n - 1].id);
       }
-      // Build via keyboard: F adds a block, G deletes one (mirrors the mouse
-      // bindings). Only act while actually playing so the keys don't fire from
-      // behind the menu. `!e.repeat` prevents OS key-repeat from stacking
-      // single-fire shots; the render loop handles continuous firing when the
-      // Rapid Place buff is active.
-      if (e.code === 'KeyF' && playing && !isReplayMode && !e.repeat && gameMode !== 'spectate') {
-        placeHeld = true;
-        placeBlock();
-        lastRapidPlace = performance.now();
+      // F: blueprint action when in bp mode, otherwise normal block placement.
+      if (e.code === 'KeyF' && playing) {
+        if (bpMode === 'stamp') {
+          doStamp();
+        } else if (bpMode === 'select') {
+          if (!target) { /* no aimed cell, skip */ }
+          else if (!bpCornerA) {
+            setBpCornerA(target);
+          } else {
+            const a = bpCornerA, b = target;
+            const minX = Math.min(a.x, b.x), maxX = Math.max(a.x, b.x);
+            const minY = Math.max(1, Math.min(a.y, b.y)), maxY = Math.max(a.y, b.y);
+            const minZ = Math.min(a.z, b.z), maxZ = Math.max(a.z, b.z);
+            if (maxX - minX + 1 > 16 || maxY - minY + 1 > 16 || maxZ - minZ + 1 > 16) {
+              showBpToast('Selection too large — max 16×16×16');
+            } else {
+              clearBpCornerAMarker();
+              updateBpSelectionBox({ x: minX, y: minY, z: minZ }, { x: maxX, y: maxY, z: maxZ });
+              showBpNamingOverlay({ x1: minX, y1: minY, z1: minZ, x2: maxX, y2: maxY, z2: maxZ });
+            }
+          }
+        } else if (gameMode !== 'spectate' && !isReplayMode && !e.repeat) {
+          placeHeld = true;
+          placeBlock();
+          lastRapidPlace = performance.now();
+        }
       }
       if (e.code === 'KeyG' && playing && !isReplayMode && gameMode !== 'spectate') breakBlock();
       // E: reveal the hidden message in the targeted block (Classic mode only)
@@ -8317,16 +8666,26 @@
       if (e.code === 'KeyM') { toggleSound(); }
       // X requests a placement hint (Classic mode only).
       if (e.code === 'KeyX' && playing && gameMode === 'classic') fetchPlacementHint();
-      // P toggles pause while playing (only in playable modes, not spectate).
-      if (e.code === 'KeyP' && playing && gameMode !== 'spectate') {
-        e.preventDefault();
-        togglePause();
+      // P: blueprint select in classic mode; pause in other playable modes.
+      if (e.code === 'KeyP') {
+        if (bpMode === 'select') exitBlueprintSelect();
+        else if (bpMode === 'stamp') exitBlueprintStamp();
+        else if (gameMode === 'classic' && playing) enterBlueprintSelect();
+        else if (playing && gameMode !== 'spectate') { e.preventDefault(); togglePause(); }
       }
+      // Y: toggle blueprint library panel.
+      if (e.code === 'KeyY') toggleBlueprintsPanel();
       // Escape: close overlays in priority order, then handle mode exit.
       // In native (locked) mode the browser handles Esc and fires
       // pointerlockchange, which restores the overlay there.
       if (e.code === 'Escape') {
-        if (stampModeActive) {
+        if (bpNamingVisible) {
+          hideBpNamingOverlay();
+        } else if (bpMode === 'stamp') {
+          exitBlueprintStamp();
+        } else if (bpMode === 'select') {
+          exitBlueprintSelect();
+        } else if (stampModeActive) {
           toggleStampMode();
         } else if (!leaderboardEl.classList.contains('hidden')) {
           closeLeaderboard();
@@ -8334,6 +8693,8 @@
           shareModalEl.classList.add('hidden');
         } else if (!friendsPanelEl.classList.contains('hidden')) {
           closeFriends();
+        } else if (!bpPanelEl.classList.contains('hidden')) {
+          bpPanelEl.classList.add('hidden'); bpLibraryOpen = false;
         } else if (petPanelOpen) {
           petPanelOpen = false;
           petPanelEl.classList.add('hidden');
@@ -8418,11 +8779,10 @@
     for (const el of touchControlsEl.querySelectorAll('[data-act]')) {
       const act = el.dataset.act;
       if (act === 'place') {
-        // Place needs placeHeld tracking for the Rapid Place buff, so it gets
-        // its own touchstart/touchend instead of the generic bindTap.
         el.addEventListener('touchstart', (e) => {
           e.preventDefault();
           if (!playing || gameMode === 'spectate') return;
+          if (bpMode === 'stamp') { doStamp(); return; }
           placeHeld = true;
           placeBlock();
           lastRapidPlace = performance.now();
@@ -8431,7 +8791,6 @@
         el.addEventListener('touchend', releasePlaceHeld);
         el.addEventListener('touchcancel', releasePlaceHeld);
       } else if (act === 'stamp') {
-        // Stamp needs drag tracking similar to drag mode
         el.addEventListener('touchstart', (e) => {
           e.preventDefault();
           if (!playing || gameMode !== 'classic') return;
@@ -10110,6 +10469,442 @@
       }
     });
 
+    // ---- Coins panel ----
+    const coinsPanelEl = document.getElementById('coins-panel');
+    const coinsBalanceEl = document.getElementById('coins-balance');
+    const coinsStatusEl = document.getElementById('coins-status');
+    const coinsRecipientEl = document.getElementById('coins-recipient');
+    const coinsAmountEl = document.getElementById('coins-amount');
+    const coinHudEl = document.getElementById('coin-hud');
+
+    function updateCoinHud() {
+      coinHudEl.textContent = '💰 ' + coinBalance;
+      coinHudEl.classList.remove('hidden');
+    }
+
+    async function fetchCoinBalance() {
+      try {
+        const res = await fetch('/api/coins', { headers });
+        if (!res.ok) return;
+        const data = await res.json();
+        coinBalance = data.balance;
+        updateCoinHud();
+        coinsBalanceEl.textContent = '💰 Balance: ' + coinBalance + ' coins';
+      } catch (_) {}
+    }
+
+    function closeCoins() { coinsPanelEl.classList.add('hidden'); }
+    function openCoins() {
+      coinsPanelEl.classList.remove('hidden');
+      inboxPanelEl.classList.add('hidden');
+      friendsPanelEl.classList.add('hidden');
+      coinsStatusEl.textContent = '';
+      fetchCoinBalance();
+    }
+
+    async function sendCoinsRequest() {
+      const username = coinsRecipientEl.value.trim();
+      const amount = parseInt(coinsAmountEl.value, 10);
+      coinsStatusEl.textContent = '';
+      coinsStatusEl.className = 'mt-1 text-xs text-center min-h-[1.2em]';
+
+      if (!username) {
+        coinsStatusEl.textContent = 'Enter a recipient username';
+        coinsStatusEl.className = 'mt-1 text-xs text-center min-h-[1.2em] text-red-400';
+        return;
+      }
+      if (!Number.isFinite(amount) || amount < 1) {
+        coinsStatusEl.textContent = 'Enter a valid amount';
+        coinsStatusEl.className = 'mt-1 text-xs text-center min-h-[1.2em] text-red-400';
+        return;
+      }
+
+      const sendBtn = document.getElementById('coins-send-btn');
+      sendBtn.disabled = true;
+      sendBtn.textContent = '…';
+      try {
+        const res = await fetch('/api/coins/send', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...headers },
+          body: JSON.stringify({ username, amount }),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          const msgMap = {
+            user_not_found: 'User not found',
+            insufficient_balance: 'Not enough coins',
+            invalid_amount: 'Enter a valid amount',
+            amount_too_large: 'Amount too large (max 10,000)',
+            self_send: "You can't send coins to yourself",
+          };
+          coinsStatusEl.textContent = msgMap[data.error] || data.error || 'Failed';
+          coinsStatusEl.className = 'mt-1 text-xs text-center min-h-[1.2em] text-red-400';
+        } else {
+          coinBalance = data.balance;
+          updateCoinHud();
+          coinsBalanceEl.textContent = '💰 Balance: ' + coinBalance + ' coins';
+          coinsRecipientEl.value = '';
+          coinsAmountEl.value = '';
+          coinsStatusEl.textContent = 'Sent! Your new balance: ' + coinBalance + ' coins';
+          coinsStatusEl.className = 'mt-1 text-xs text-center min-h-[1.2em] text-green-400';
+        }
+      } catch (_) {
+        coinsStatusEl.textContent = 'Network error';
+        coinsStatusEl.className = 'mt-1 text-xs text-center min-h-[1.2em] text-red-400';
+      } finally {
+        sendBtn.disabled = false;
+        sendBtn.textContent = 'Send';
+      }
+    }
+
+    document.getElementById('coins-btn').addEventListener('click', () => {
+      if (coinsPanelEl.classList.contains('hidden')) openCoins(); else closeCoins();
+    });
+    document.getElementById('coins-close').addEventListener('click', closeCoins);
+    document.getElementById('coins-send-btn').addEventListener('click', sendCoinsRequest);
+
+    // ---- Inbox panel ----
+    const inboxPanelEl = document.getElementById('inbox-panel');
+    const inboxContentEl = document.getElementById('inbox-content');
+    const inboxBadgeEl = document.getElementById('inbox-badge');
+
+    function updateInboxBadge() {
+      if (inboxUnread > 0) {
+        inboxBadgeEl.textContent = inboxUnread > 99 ? '99+' : String(inboxUnread);
+        inboxBadgeEl.classList.remove('hidden');
+      } else {
+        inboxBadgeEl.classList.add('hidden');
+      }
+    }
+
+    function renderInboxNotifications(notifications) {
+      if (!notifications.length) {
+        inboxContentEl.innerHTML = '<p class="text-zinc-500 text-xs py-1">No notifications yet.</p>';
+        return;
+      }
+      inboxContentEl.innerHTML = notifications.slice().reverse().map((n) => {
+        const p = n.payload || {};
+        const isUnread = !n.read;
+        const bg = isUnread ? 'bg-zinc-700/50' : '';
+        const from = escapeHtml(p.from_username || '?');
+        const amt = Number(p.amount) || 0;
+        const timeStr = relativeTime(n.created_at);
+        return '<div class="' + bg + ' rounded px-2 py-1.5 mb-1 leading-snug">' +
+          '<span class="font-semibold text-zinc-100">' + from + '</span>' +
+          '<span class="text-zinc-300"> sent you ' + amt + ' coin' + (amt === 1 ? '' : 's') + '</span>' +
+          '<div class="text-zinc-500 text-[10px] mt-0.5">' + timeStr + '</div>' +
+          '</div>';
+      }).join('');
+    }
+
+    async function openInbox() {
+      inboxOpen = true;
+      inboxPanelEl.classList.remove('hidden');
+      coinsPanelEl.classList.add('hidden');
+      friendsPanelEl.classList.add('hidden');
+      inboxContentEl.innerHTML = '<p class="text-zinc-400 text-xs py-1">Loading…</p>';
+
+      try {
+        const res = await fetch('/api/inbox?since=0', { headers });
+        if (!res.ok) { inboxContentEl.innerHTML = '<p class="text-zinc-500 text-xs">Failed to load.</p>'; return; }
+        const data = await res.json();
+        renderInboxNotifications(data.notifications);
+        if (data.cursor && data.cursor > inboxCursor) inboxCursor = data.cursor;
+      } catch (_) {
+        inboxContentEl.innerHTML = '<p class="text-zinc-500 text-xs">Failed to load.</p>';
+      }
+
+      // Mark all read
+      try {
+        await fetch('/api/inbox/read', { method: 'POST', headers });
+        inboxUnread = 0;
+        updateInboxBadge();
+      } catch (_) {}
+    }
+
+    function closeInbox() {
+      inboxOpen = false;
+      inboxPanelEl.classList.add('hidden');
+    }
+
+    document.getElementById('inbox-btn').addEventListener('click', () => {
+      if (inboxPanelEl.classList.contains('hidden')) openInbox(); else closeInbox();
+    });
+    document.getElementById('inbox-close').addEventListener('click', closeInbox);
+
+    // ---- Blueprint system ----
+    // bpMode: null | 'select' | 'stamp'
+    let bpMode = null;
+    let bpCornerA = null;    // {x,y,z} first corner of selection
+    let bpCornerB = null;    // {x,y,z} second corner (locked in after second F press)
+    let bpLiveCorner = null; // live aimed cell while in select mode (used for wireframe preview)
+    let bpGhostGroup = null; // THREE.Group containing InstancedMeshes for stamp preview
+    let bpSelectionBox = null;    // THREE.LineSegments for select-mode wireframe
+    let bpCornerAMarker = null;   // small cube marking cornerA
+    let bpActiveBlueprint = null; // blueprint data ({id,blocks,...}) loaded for stamping
+    let bpStampOutOfBounds = false;
+    let bpLibraryOpen = false;
+    let bpNamingVisible = false;
+    let bpPendingCapture = null;  // {x1,y1,z1,x2,y2,z2} waiting for name input
+
+    const bpHudEl = document.getElementById('bp-select-hud');
+    const bpNamingEl = document.getElementById('bp-naming-overlay');
+    const bpNameInputEl = document.getElementById('bp-name-input');
+    const bpSaveBtnEl = document.getElementById('bp-save-btn');
+    const bpCancelBtnEl = document.getElementById('bp-cancel-btn');
+    const bpPanelEl = document.getElementById('blueprints-panel');
+    const bpListEl = document.getElementById('blueprints-list');
+
+    function clearBpSelectionBox() {
+      if (bpSelectionBox) { scene.remove(bpSelectionBox); bpSelectionBox.geometry.dispose(); bpSelectionBox = null; }
+    }
+    function clearBpCornerAMarker() {
+      if (bpCornerAMarker) { scene.remove(bpCornerAMarker); bpCornerAMarker.geometry.dispose(); bpCornerAMarker = null; }
+    }
+    function clearBpGhost() {
+      if (bpGhostGroup) {
+        bpGhostGroup.children.forEach(m => { m.geometry.dispose(); });
+        scene.remove(bpGhostGroup);
+        bpGhostGroup = null;
+      }
+    }
+
+    function updateBpSelectionBox(a, b) {
+      clearBpSelectionBox();
+      if (!a || !b) return;
+      const x0 = Math.min(a.x, b.x), x1 = Math.max(a.x, b.x) + 1;
+      const y0 = Math.min(a.y, b.y), y1 = Math.max(a.y, b.y) + 1;
+      const z0 = Math.min(a.z, b.z), z1 = Math.max(a.z, b.z) + 1;
+      const geo = new THREE.BoxGeometry(x1 - x0, y1 - y0, z1 - z0);
+      const edges = new THREE.EdgesGeometry(geo);
+      bpSelectionBox = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({ color: 0x00e5ff }));
+      bpSelectionBox.position.set((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2);
+      scene.add(bpSelectionBox);
+      geo.dispose();
+    }
+
+    function buildBpGhost(blueprint) {
+      clearBpGhost();
+      bpGhostGroup = new THREE.Group();
+      const byType = new Map();
+      for (const b of blueprint.blocks) {
+        if (!byType.has(b.block_type)) byType.set(b.block_type, []);
+        byType.get(b.block_type).push(b);
+      }
+      const c = new THREE.BoxGeometry(1, 1, 1);
+      const dummy = new THREE.Object3D();
+      for (const [bt, blocks] of byType) {
+        const pal = PALETTE.find(p => p.id === bt);
+        const col = pal ? pal.color : '#ffffff';
+        const mat = new THREE.MeshLambertMaterial({ color: col, transparent: true, opacity: 0.4, depthWrite: false });
+        const mesh = new THREE.InstancedMesh(c, mat, blocks.length);
+        blocks.forEach((b, i) => {
+          dummy.position.set(b.rx + 0.5, b.ry + 0.5, b.rz + 0.5);
+          dummy.updateMatrix();
+          mesh.setMatrixAt(i, dummy.matrix);
+        });
+        mesh.instanceMatrix.needsUpdate = true;
+        bpGhostGroup.add(mesh);
+      }
+      scene.add(bpGhostGroup);
+    }
+
+    function enterBlueprintSelect() {
+      if (gameMode !== 'classic' || !playing) return;
+      bpMode = 'select';
+      bpCornerA = null;
+      bpCornerB = null;
+      bpLiveCorner = null;
+      clearBpSelectionBox();
+      clearBpCornerAMarker();
+      bpHudEl.textContent = 'Blueprint Select — aim at a block corner and press F to set Corner A';
+      bpHudEl.classList.remove('hidden');
+    }
+
+    function exitBlueprintSelect() {
+      bpMode = null;
+      bpCornerA = null;
+      bpCornerB = null;
+      bpLiveCorner = null;
+      clearBpSelectionBox();
+      clearBpCornerAMarker();
+      bpHudEl.classList.add('hidden');
+    }
+
+    function enterBlueprintStamp(blueprint) {
+      clearBpGhost();
+      bpMode = 'stamp';
+      bpActiveBlueprint = blueprint;
+      bpStampOutOfBounds = false;
+      buildBpGhost(blueprint);
+      bpHudEl.textContent = 'Blueprint Stamp — aim to position, F to stamp, Esc to cancel';
+      bpHudEl.classList.remove('hidden');
+    }
+
+    function exitBlueprintStamp() {
+      bpMode = null;
+      bpActiveBlueprint = null;
+      clearBpGhost();
+      bpHudEl.classList.add('hidden');
+    }
+
+    function setBpCornerA(cell) {
+      bpCornerA = { x: cell.x, y: cell.y, z: cell.z };
+      clearBpCornerAMarker();
+      const geo = new THREE.BoxGeometry(1.04, 1.04, 1.04);
+      const edges = new THREE.EdgesGeometry(geo);
+      bpCornerAMarker = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({ color: 0xffff00 }));
+      bpCornerAMarker.position.set(cell.x + 0.5, cell.y + 0.5, cell.z + 0.5);
+      scene.add(bpCornerAMarker);
+      geo.dispose();
+      bpHudEl.textContent = 'Blueprint Select — A set! Aim at Corner B and press F, or press P to cancel';
+    }
+
+    function showBpNamingOverlay(capture) {
+      bpPendingCapture = capture;
+      bpNamingVisible = true;
+      bpNameInputEl.value = '';
+      bpNamingEl.classList.remove('hidden');
+      setTimeout(() => bpNameInputEl.focus(), 50);
+    }
+
+    function hideBpNamingOverlay() {
+      bpNamingVisible = false;
+      bpNamingEl.classList.add('hidden');
+      bpPendingCapture = null;
+    }
+
+    async function saveBlueprint() {
+      const name = bpNameInputEl.value.trim();
+      if (!name) { bpNameInputEl.focus(); return; }
+      if (!bpPendingCapture) return;
+      bpSaveBtnEl.disabled = true;
+      bpSaveBtnEl.textContent = 'Saving…';
+      try {
+        const res = await fetch('/api/blueprints/capture', {
+          method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...bpPendingCapture, name }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Failed');
+        hideBpNamingOverlay();
+        exitBlueprintSelect();
+        showBpToast(`Blueprint "${escapeHtml(data.name)}" saved!`);
+        if (!bpPanelEl.classList.contains('hidden')) fetchAndRenderBlueprints();
+      } catch (err) {
+        showBpToast('Error: ' + err.message);
+      } finally {
+        bpSaveBtnEl.disabled = false;
+        bpSaveBtnEl.textContent = 'Save';
+      }
+    }
+
+    function showBpToast(msg) {
+      const el = document.createElement('div');
+      el.className = 'pointer-events-none px-3 py-2 bg-black/80 text-white text-xs rounded-lg shadow';
+      el.innerHTML = msg;
+      document.getElementById('badge-toasts').appendChild(el);
+      setTimeout(() => el.remove(), 3000);
+    }
+
+    function toggleBlueprintsPanel() {
+      if (bpPanelEl.classList.contains('hidden')) {
+        bpPanelEl.classList.remove('hidden');
+        bpLibraryOpen = true;
+        fetchAndRenderBlueprints();
+      } else {
+        bpPanelEl.classList.add('hidden');
+        bpLibraryOpen = false;
+      }
+    }
+
+    async function fetchAndRenderBlueprints() {
+      bpListEl.innerHTML = '<span class="text-zinc-500">Loading…</span>';
+      try {
+        const res = await fetch('/api/blueprints', { headers });
+        if (!res.ok) throw new Error('fetch failed');
+        const data = await res.json();
+        renderBlueprintsList(data.blueprints);
+      } catch (_) {
+        bpListEl.innerHTML = '<span class="text-zinc-500">Couldn\'t load blueprints.</span>';
+      }
+    }
+
+    function renderBlueprintsList(list) {
+      if (!list.length) {
+        bpListEl.innerHTML = '<span class="text-zinc-500">No blueprints yet. Use <strong class="text-zinc-300">P</strong> in Classic mode to capture one.</span>';
+        return;
+      }
+      bpListEl.innerHTML = list.map(bp =>
+        '<div class="flex items-center gap-2 py-1 border-b border-zinc-700/40 last:border-0">' +
+        '<div class="flex-1 min-w-0">' +
+        '<div class="text-zinc-200 text-xs font-medium truncate">' + escapeHtml(bp.name) + '</div>' +
+        '<div class="text-zinc-500 text-[10px]">' + bp.width + '×' + bp.height + '×' + bp.depth + ' · ' + bp.block_count + ' blocks</div>' +
+        '</div>' +
+        '<button class="bp-stamp-btn shrink-0 px-2 py-1 bg-violet-600 hover:bg-violet-500 active:bg-violet-700 text-white text-[10px] font-semibold rounded cursor-pointer transition-colors" data-id="' + bp.id + '">Stamp</button>' +
+        '<button class="bp-delete-btn shrink-0 text-zinc-500 hover:text-red-400 text-xs leading-none cursor-pointer transition-colors" data-id="' + bp.id + '" title="Delete">✕</button>' +
+        '</div>'
+      ).join('');
+      bpListEl.querySelectorAll('.bp-stamp-btn').forEach(btn => {
+        btn.addEventListener('click', () => startStampMode(Number(btn.dataset.id)));
+      });
+      bpListEl.querySelectorAll('.bp-delete-btn').forEach(btn => {
+        btn.addEventListener('click', () => deleteBlueprint(Number(btn.dataset.id)));
+      });
+    }
+
+    async function startStampMode(id) {
+      bpPanelEl.classList.add('hidden');
+      bpLibraryOpen = false;
+      try {
+        const res = await fetch('/api/blueprints/' + id, { headers });
+        if (!res.ok) throw new Error('Failed to load blueprint');
+        const bp = await res.json();
+        enterBlueprintStamp(bp);
+      } catch (err) {
+        showBpToast('Error: ' + err.message);
+      }
+    }
+
+    async function deleteBlueprint(id) {
+      try {
+        const res = await fetch('/api/blueprints/' + id, { method: 'DELETE', headers });
+        if (!res.ok) throw new Error('Delete failed');
+        fetchAndRenderBlueprints();
+      } catch (err) {
+        showBpToast('Error: ' + err.message);
+      }
+    }
+
+    async function doStamp() {
+      if (!bpActiveBlueprint || !target) return;
+      const ox = target.x, oy = target.y, oz = target.z;
+      try {
+        const res = await fetch('/api/blueprints/' + bpActiveBlueprint.id + '/stamp', {
+          method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ox, oy, oz }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Stamp failed');
+        exitBlueprintStamp();
+        // Apply optimistically to local world
+        for (const b of bpActiveBlueprint ? [] : []) { /* server-side; next poll will sync */ }
+        showBpToast('Stamped! +' + data.points_earned + ' pts, ' + data.blocks_placed + ' blocks');
+        for (const badge of (data.newly_earned_badges || [])) showBadgeToast(badge);
+      } catch (err) {
+        showBpToast('Error: ' + err.message);
+      }
+    }
+
+    document.getElementById('blueprints-btn').addEventListener('click', toggleBlueprintsPanel);
+    document.getElementById('blueprints-close').addEventListener('click', () => { bpPanelEl.classList.add('hidden'); bpLibraryOpen = false; });
+    bpSaveBtnEl.addEventListener('click', saveBlueprint);
+    bpCancelBtnEl.addEventListener('click', hideBpNamingOverlay);
+    bpNameInputEl.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); saveBlueprint(); }
+      if (e.key === 'Escape') { e.preventDefault(); hideBpNamingOverlay(); }
+    });
+
     // ---- Worlds panel UI ----
     const worldsBtnEl = document.getElementById('worlds-btn');
     const worldsPanelEl = document.getElementById('worlds-panel');
@@ -10761,6 +11556,17 @@
         }
       } catch (e) { /* transient */ }
 
+      // Inbox notifications
+      try {
+        const inboxRes = await fetch('/api/inbox?since=' + inboxCursor, { headers });
+        if (inboxRes.ok) {
+          const { notifications, cursor: nc, unread_count } = await inboxRes.json();
+          if (nc && nc > inboxCursor) inboxCursor = nc;
+          inboxUnread = unread_count;
+          updateInboxBadge();
+        }
+      } catch (e) { /* transient */ }
+
       // Collaborative challenge
       try {
         const collabRes = await fetch('/api/collab/current', { headers });
@@ -11093,6 +11899,8 @@
         }
       }
 
+      // Update sky, fog, lighting, and particles (skipped in Time Attack mode).
+      if (gameMode !== 'timeattack') updateEnvironment(now, dt);
       // Update speedrun timer display every frame.
       if (mode === 'speedrun' && srStartedAt !== null && playing) {
         srTimerEl.textContent = formatTime(Date.now() - srStartedAt);
@@ -11142,6 +11950,32 @@
       tickPet(now);
       updateTarget();
       if (!isReplayMode) updateAttribution();
+      // Blueprint: update ghost/selection visuals each frame.
+      if (bpMode === 'stamp' && bpGhostGroup && target) {
+        bpGhostGroup.position.set(target.x, target.y, target.z);
+        let outOfBounds = false;
+        if (bpActiveBlueprint) {
+          for (const b of bpActiveBlueprint.blocks) {
+            const wx = target.x + b.rx, wy = target.y + b.ry, wz = target.z + b.rz;
+            if (wx < 0 || wx >= DIMS.w || wz < 0 || wz >= DIMS.d || wy < 1 || wy >= DIMS.h - 1) {
+              outOfBounds = true; break;
+            }
+          }
+        }
+        if (outOfBounds !== bpStampOutOfBounds) {
+          bpStampOutOfBounds = outOfBounds;
+          bpGhostGroup.children.forEach(m => { m.material.color.set(outOfBounds ? 0xff3333 : m.material._origColor || 0xffffff); });
+        }
+      } else if (bpMode === 'stamp' && bpGhostGroup) {
+        bpGhostGroup.position.set(-999, -999, -999);
+      }
+      if (bpMode === 'select' && bpCornerA && target) {
+        if (!bpLiveCorner || bpLiveCorner.x !== target.x || bpLiveCorner.y !== target.y || bpLiveCorner.z !== target.z) {
+          bpLiveCorner = { x: target.x, y: target.y, z: target.z };
+          updateBpSelectionBox(bpCornerA, bpLiveCorner);
+        }
+      }
+
       // Animate Crystal block emissive glow: gentle 0.2→0.4 pulse (~7.9s period).
       if (crystalMaterial) crystalMaterial.emissiveIntensity = 0.2 + 0.2 * Math.sin(now * 0.0008);
       // Pulse hint highlight and expire it when the timer runs out.
@@ -11492,6 +12326,17 @@
       // Load coin balance so HUD shows before first heartbeat.
       fetchCoins().catch(() => {});
 
+      // Load inbox unread count for the badge.
+      try {
+        const inboxRes = await fetch('/api/inbox?since=0', { headers });
+        if (inboxRes.ok) {
+          const { notifications, cursor: nc, unread_count } = await inboxRes.json();
+          if (nc) inboxCursor = nc;
+          inboxUnread = unread_count;
+          updateInboxBadge();
+        }
+      } catch (_) {}
+
       // Load initial blocks-placed count from leaderboard self row.
       fetchLeaderboard().catch(() => {});
 
@@ -11595,6 +12440,9 @@
         setInterval(pollPowerUps, 1500);
         pollMobs();
         setInterval(pollMobs, 2000);
+        // Fetch initial weather state and poll every 30 s.
+        pollWeather();
+        setInterval(pollWeather, 30000);
         // Re-fetch challenge and mission every 30s to catch midnight UTC rollover
         // and progress made in other tabs.
         setInterval(async () => {

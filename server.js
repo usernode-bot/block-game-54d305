@@ -440,7 +440,7 @@ async function recomputeMonument(sx, sz) {
 // Paths that stay open without authentication. Add a path here (and add it
 // with `app.get`/`app.post` below) if you deliberately want it public.
 // Everything else requires a valid platform-issued JWT.
-const PUBLIC_API_PATHS = new Set(['/health']);
+const PUBLIC_API_PATHS = new Set(['/health', '/api/world-conditions']);
 // GET-only path prefixes that bypass auth — replay data is explicitly shared.
 const PUBLIC_API_PREFIXES = ['/api/replay/'];
 
@@ -843,6 +843,7 @@ app.post('/api/block', async (req, res) => {
     const dateStr = now.toISOString().slice(0, 10);
     // ---- Scoring (placements only; breaks earn 0) ----
     let earned = 0, combo_multiplier = 1, rainbow_multiplier = 1, combo_tier = 1;
+    let coin_balance = null;
     let newly_earned_badges = [];
     let placement_xp = null; // { total_score, level } — only set for placements
     let newly_unlocked_types = [];
@@ -927,16 +928,22 @@ app.post('/api/block', async (req, res) => {
         [weekStart(now), req.user.id, req.user.username, earned]
       );
 
-      // Award 1 coin per placement. First-ever placement inserts 51 (50 starter + 1).
-      await pool.query(
-        `INSERT INTO player_coins (user_id, username, balance, updated_at)
-         VALUES ($1, $2, 51, NOW())
-         ON CONFLICT (user_id) DO UPDATE SET
-           balance = player_coins.balance + 1,
-           username = EXCLUDED.username,
-           updated_at = NOW()`,
-        [req.user.id, req.user.username]
-      );
+      // Award 1 coin per placement. First-ever placement inserts 51 (50 starter + 1). Non-fatal.
+      try {
+        const coinRes = await pool.query(
+          `INSERT INTO player_coins (user_id, username, balance, updated_at)
+           VALUES ($1, $2, 51, NOW())
+           ON CONFLICT (user_id) DO UPDATE SET
+             balance = player_coins.balance + 1,
+             username = EXCLUDED.username,
+             updated_at = NOW()
+           RETURNING balance`,
+          [req.user.id, req.user.username]
+        );
+        coin_balance = Number(coinRes.rows[0].balance);
+      } catch (coinErr) {
+        console.error('coin upsert failed', coinErr);
+      }
 
       // Track which block types this player has ever placed.
       await pool.query(
@@ -1315,6 +1322,7 @@ app.post('/api/block', async (req, res) => {
       ...(activeSkinId ? { skin_id: activeSkinId } : {}),
       ...(session_auto_stopped ? { session_auto_stopped: true } : {}),
       ...(placement_xp || {}),
+      ...(coin_balance !== null ? { coin_balance } : {}),
     });
   } catch (err) {
     res.status(err.statusCode || 500).json({ error: err.message });
@@ -4100,6 +4108,83 @@ app.delete('/api/friends/:id', async (req, res) => {
   }
 });
 
+// ---- Blueprints: capture a named snapshot of a rectangular region ----
+app.post('/api/blueprints/capture', async (req, res) => {
+  try {
+    const x1r = Number(req.body.x1), y1r = Number(req.body.y1), z1r = Number(req.body.z1);
+    const x2r = Number(req.body.x2), y2r = Number(req.body.y2), z2r = Number(req.body.z2);
+    const name = (typeof req.body.name === 'string' ? req.body.name : '').trim();
+    if (!name || name.length > 40) return res.status(400).json({ error: 'Name must be 1–40 characters' });
+
+    const minX = Math.min(x1r, x2r), maxX = Math.max(x1r, x2r);
+    const minY = Math.max(1, Math.min(y1r, y2r)), maxY = Math.min(DIMS.h - 1, Math.max(y1r, y2r));
+    const minZ = Math.min(z1r, z2r), maxZ = Math.max(z1r, z2r);
+
+    const intIn = (v, lo, hi) => Number.isInteger(v) && v >= lo && v <= hi;
+    if (!intIn(minX, 0, DIMS.w - 1) || !intIn(maxX, 0, DIMS.w - 1))
+      return res.status(400).json({ error: 'x out of bounds' });
+    if (!intIn(minZ, 0, DIMS.d - 1) || !intIn(maxZ, 0, DIMS.d - 1))
+      return res.status(400).json({ error: 'z out of bounds' });
+    if (maxX - minX + 1 > 16 || maxY - minY + 1 > 16 || maxZ - minZ + 1 > 16)
+      return res.status(400).json({ error: 'Selection too large — max 16×16×16 cells' });
+
+    const countRes = await pool.query('SELECT COUNT(*)::int AS c FROM blueprints WHERE user_id = $1', [req.user.id]);
+    if (countRes.rows[0].c >= 20)
+      return res.status(400).json({ error: 'Blueprint limit reached (20) — delete one first' });
+
+    const { rows: blockRows } = await pool.query(
+      `SELECT x, y, z, block_type FROM blocks
+       WHERE x BETWEEN $1 AND $2 AND y BETWEEN $3 AND $4 AND z BETWEEN $5 AND $6 AND block_type <> 0`,
+      [minX, maxX, minY, maxY, minZ, maxZ]
+    );
+    if (!blockRows.length) return res.status(400).json({ error: 'No blocks in selected region' });
+
+    const width = maxX - minX + 1, height = maxY - minY + 1, depth = maxZ - minZ + 1;
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      const bpRes = await client.query(
+        `INSERT INTO blueprints (user_id, username, name, block_count, width, height, depth)
+         VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id, created_at`,
+        [req.user.id, req.user.username, name, blockRows.length, width, height, depth]
+      );
+      const bpId = bpRes.rows[0].id;
+      for (const b of blockRows) {
+        await client.query(
+          `INSERT INTO blueprint_blocks (blueprint_id, rx, ry, rz, block_type) VALUES ($1,$2,$3,$4,$5)`,
+          [bpId, b.x - minX, b.y - minY, b.z - minZ, b.block_type]
+        );
+      }
+      await client.query('COMMIT');
+      res.json({ id: Number(bpId), name, width, height, depth, block_count: blockRows.length, created_at: bpRes.rows[0].created_at });
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- Blueprints: list caller's saved blueprints ----
+app.get('/api/blueprints', async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT id, name, width, height, depth, block_count, created_at
+       FROM blueprints WHERE user_id = $1 ORDER BY created_at DESC`,
+      [req.user.id]
+    );
+    res.json({ blueprints: rows.map(r => ({
+      id: Number(r.id), name: r.name, width: r.width, height: r.height, depth: r.depth,
+      block_count: r.block_count, created_at: r.created_at,
+    })) });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ---- Tetris REST API ----
 app.post('/api/tetris/rooms', async (req, res) => {
   let tries = 0;
@@ -4149,6 +4234,234 @@ app.get('/api/coins', async (req, res) => {
       [req.user.id]
     );
     res.json({ balance: rows.length ? Number(rows[0].balance) : 0 });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- Coins: send coins to another user by username ----
+app.post('/api/coins/send', async (req, res) => {
+  const senderId = req.user.id;
+  const senderUsername = req.user.username;
+  const targetUsername = (typeof req.body.username === 'string' ? req.body.username : '').trim();
+  const amount = Number(req.body.amount);
+
+  if (!targetUsername) return res.status(400).json({ error: 'username required' });
+  if (!Number.isInteger(amount) || amount < 1) return res.status(400).json({ error: 'invalid_amount' });
+  if (amount > 10000) return res.status(400).json({ error: 'amount_too_large' });
+
+  try {
+    // Resolve recipient — same lookup used by friend requests.
+    const { rows: userRows } = await pool.query(
+      `SELECT user_id, username FROM (
+         SELECT user_id, username, 1 AS priority FROM user_presence
+         UNION
+         SELECT user_id, username, 2 AS priority FROM leaderboard
+       ) u
+       WHERE LOWER(username) = LOWER($1)
+       ORDER BY priority ASC
+       LIMIT 1`,
+      [targetUsername]
+    );
+    if (!userRows.length) return res.status(404).json({ error: 'user_not_found' });
+    const { user_id: recipientId, username: recipientUsername } = userRows[0];
+    if (recipientId === senderId) return res.status(400).json({ error: 'self_send' });
+
+    const client = await pool.connect();
+    let newBalance;
+    try {
+      await client.query('BEGIN');
+
+      // Lock sender's balance row.
+      const { rows: balRows } = await client.query(
+        `SELECT balance FROM player_coins WHERE user_id = $1 FOR UPDATE`,
+        [senderId]
+      );
+      const currentBalance = balRows.length ? Number(balRows[0].balance) : 0;
+      if (currentBalance < amount) {
+        await client.query('ROLLBACK');
+        return res.status(402).json({ error: 'insufficient_balance' });
+      }
+
+      // Deduct from sender.
+      const { rows: deductRows } = await client.query(
+        `UPDATE player_coins SET balance = balance - $1, updated_at = NOW()
+         WHERE user_id = $2 RETURNING balance`,
+        [amount, senderId]
+      );
+      newBalance = Number(deductRows[0].balance);
+
+      // Credit recipient.
+      await client.query(
+        `INSERT INTO player_coins (user_id, username, balance, updated_at)
+         VALUES ($1, $2, $3, NOW())
+         ON CONFLICT (user_id) DO UPDATE SET
+           balance    = player_coins.balance + EXCLUDED.balance,
+           username   = EXCLUDED.username,
+           updated_at = NOW()`,
+        [recipientId, recipientUsername, amount]
+      );
+
+      // Record transaction.
+      const { rows: txRows } = await client.query(
+        `INSERT INTO coin_transactions (from_user_id, from_username, to_user_id, to_username, amount)
+         VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+        [senderId, senderUsername, recipientId, recipientUsername, amount]
+      );
+      const txId = Number(txRows[0].id);
+
+      // Notify recipient.
+      await client.query(
+        `INSERT INTO inbox_notifications (recipient_user_id, type, payload)
+         VALUES ($1, 'coin_gift', $2)`,
+        [recipientId, JSON.stringify({ from_username: senderUsername, amount, transaction_id: txId })]
+      );
+
+      await client.query('COMMIT');
+    } catch (txErr) {
+      await client.query('ROLLBACK');
+      throw txErr;
+    } finally {
+      client.release();
+    }
+
+    res.json({ ok: true, balance: newBalance });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- Blueprints: fetch single blueprint with block data (for stamp preview) ----
+app.get('/api/blueprints/:id', async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const bpRes = await pool.query(
+      `SELECT id, user_id, name, width, height, depth, block_count FROM blueprints WHERE id = $1`, [id]
+    );
+    if (!bpRes.rows.length) return res.status(404).json({ error: 'Not found' });
+    if (bpRes.rows[0].user_id !== req.user.id) return res.status(403).json({ error: 'Forbidden' });
+    const { rows: blockRows } = await pool.query(
+      `SELECT rx, ry, rz, block_type FROM blueprint_blocks WHERE blueprint_id = $1`, [id]
+    );
+    const bp = bpRes.rows[0];
+    res.json({ id: Number(bp.id), name: bp.name, width: bp.width, height: bp.height, depth: bp.depth,
+      block_count: bp.block_count, blocks: blockRows.map(r => ({ rx: r.rx, ry: r.ry, rz: r.rz, block_type: r.block_type })) });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- Blueprints: delete ----
+app.delete('/api/blueprints/:id', async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const { rows } = await pool.query(
+      `DELETE FROM blueprints WHERE id = $1 AND user_id = $2 RETURNING id`, [id, req.user.id]
+    );
+    if (!rows.length) return res.status(404).json({ error: 'Not found or not yours' });
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- Blueprints: stamp onto the world ----
+app.post('/api/blueprints/:id/stamp', async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const ox = Number(req.body.ox), oy = Number(req.body.oy), oz = Number(req.body.oz);
+
+    const bpRes = await pool.query(`SELECT id, user_id FROM blueprints WHERE id = $1`, [id]);
+    if (!bpRes.rows.length) return res.status(404).json({ error: 'Not found' });
+    if (bpRes.rows[0].user_id !== req.user.id) return res.status(403).json({ error: 'Forbidden' });
+
+    const { rows: blockRows } = await pool.query(
+      `SELECT rx, ry, rz, block_type FROM blueprint_blocks WHERE blueprint_id = $1`, [id]
+    );
+
+    const intIn = (v, lo, hi) => Number.isInteger(v) && v >= lo && v <= hi;
+    for (const b of blockRows) {
+      const wx = ox + b.rx, wy = oy + b.ry, wz = oz + b.rz;
+      if (!intIn(wx, 0, DIMS.w - 1) || !intIn(wz, 0, DIMS.d - 1) || !intIn(wy, 1, DIMS.h - 2))
+        return res.status(400).json({ error: "Blueprint doesn't fit here — move it and try again" });
+    }
+
+    const client = await pool.connect();
+    let lbRow;
+    try {
+      await client.query('BEGIN');
+      let totalEarned = 0;
+      const uniqueTypes = [...new Set(blockRows.map(b => b.block_type))];
+      for (const b of blockRows) {
+        const wx = ox + b.rx, wy = oy + b.ry, wz = oz + b.rz;
+        await client.query(
+          `INSERT INTO blocks (x,y,z,block_type,seq,updated_by_user_id,updated_by_username,updated_at)
+           VALUES ($1,$2,$3,$4,nextval('block_seq'),$5,$6,NOW())
+           ON CONFLICT (x,y,z) DO UPDATE SET
+             block_type=EXCLUDED.block_type, seq=EXCLUDED.seq,
+             updated_by_user_id=EXCLUDED.updated_by_user_id,
+             updated_by_username=EXCLUDED.updated_by_username, updated_at=NOW()`,
+          [wx, wy, wz, b.block_type, req.user.id, req.user.username]
+        );
+        totalEarned += BLOCK_POINTS[b.block_type] || 1;
+      }
+      const n = blockRows.length;
+      const now = new Date();
+      const dateStr = now.toISOString().slice(0, 10);
+      const target = dailyTarget(now);
+      await client.query(
+        `INSERT INTO daily_challenge_progress (challenge_date,user_id,username,blocks_placed,completed_at,updated_at)
+         VALUES ($1,$2,$3,$4, CASE WHEN $4 >= $5 THEN NOW() ELSE NULL END, NOW())
+         ON CONFLICT (challenge_date,user_id) DO UPDATE SET
+           blocks_placed = daily_challenge_progress.blocks_placed + $4,
+           username = EXCLUDED.username,
+           completed_at = CASE
+             WHEN daily_challenge_progress.completed_at IS NOT NULL THEN daily_challenge_progress.completed_at
+             WHEN daily_challenge_progress.blocks_placed + $4 >= $5 THEN NOW()
+             ELSE NULL END,
+           updated_at = NOW()`,
+        [dateStr, req.user.id, req.user.username, n, target]
+      );
+      const lbRes = await client.query(
+        `INSERT INTO leaderboard (user_id,username,total_score,blocks_placed,best_combo,updated_at)
+         VALUES ($1,$2,$3,$4,1,NOW())
+         ON CONFLICT (user_id) DO UPDATE SET
+           total_score=leaderboard.total_score+EXCLUDED.total_score,
+           blocks_placed=leaderboard.blocks_placed+EXCLUDED.blocks_placed,
+           username=EXCLUDED.username, updated_at=NOW()
+         RETURNING total_score, blocks_placed, best_combo`,
+        [req.user.id, req.user.username, totalEarned, n]
+      );
+      lbRow = lbRes.rows[0];
+      for (const bt of uniqueTypes) {
+        await client.query(
+          `INSERT INTO player_type_usage (user_id,block_type) VALUES ($1,$2) ON CONFLICT DO NOTHING`,
+          [req.user.id, bt]
+        );
+      }
+      await client.query('COMMIT');
+
+      const lb = { total_score: Number(lbRow.total_score), blocks_placed: Number(lbRow.blocks_placed), best_combo: lbRow.best_combo };
+      const earnedRes = await pool.query(`SELECT badge_id FROM player_badges WHERE user_id = $1`, [req.user.id]);
+      const earnedIds = new Set(earnedRes.rows.map(r => r.badge_id));
+      const typeCountRes = await pool.query(`SELECT COUNT(*)::int AS type_count FROM player_type_usage WHERE user_id = $1`, [req.user.id]);
+      const typeCount = typeCountRes.rows[0].type_count;
+      const allNewBadges = [];
+      for (const bt of [null, ...uniqueTypes]) {
+        const fresh = checkBadges({ lb, justPlacedType: bt, typeCount }, earnedIds);
+        for (const badge of fresh) {
+          earnedIds.add(badge.id);
+          allNewBadges.push(badge);
+          await pool.query(`INSERT INTO player_badges (user_id,badge_id,earned_at) VALUES ($1,$2,NOW()) ON CONFLICT DO NOTHING`, [req.user.id, badge.id]);
+        }
+      }
+      res.json({ ok: true, blocks_placed: n, points_earned: totalEarned, newly_earned_badges: allNewBadges.map(b => ({ id: b.id, name: b.name, icon: b.icon, flavour: b.flavour })) });
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -4220,6 +4533,41 @@ app.post('/api/wager', async (req, res) => {
     } finally {
       client.release();
     }
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- Inbox: fetch notifications since a cursor (notification id) ----
+app.get('/api/inbox', async (req, res) => {
+  try {
+    const since = Number(req.query.since) || 0;
+    const uid = req.user.id;
+    const { rows } = await pool.query(
+      `SELECT id, type, payload, read, created_at
+       FROM inbox_notifications
+       WHERE recipient_user_id = $1 AND id > $2
+       ORDER BY id ASC
+       LIMIT 50`,
+      [uid, since]
+    );
+    const { rows: unreadRows } = await pool.query(
+      `SELECT COUNT(*)::int AS cnt FROM inbox_notifications
+       WHERE recipient_user_id = $1 AND read = false`,
+      [uid]
+    );
+    const cursor = rows.length ? Number(rows[rows.length - 1].id) : since;
+    res.json({
+      notifications: rows.map((r) => ({
+        id: Number(r.id),
+        type: r.type,
+        payload: r.payload,
+        read: r.read,
+        created_at: r.created_at,
+      })),
+      cursor,
+      unread_count: unreadRows[0].cnt,
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -4795,6 +5143,19 @@ app.get('/api/theme/today', async (req, res) => {
   }
 });
 
+// ---- Inbox: mark all notifications read ----
+app.post('/api/inbox/read', async (req, res) => {
+  try {
+    await pool.query(
+      `UPDATE inbox_notifications SET read = true WHERE recipient_user_id = $1 AND read = false`,
+      [req.user.id]
+    );
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Equip an NFT skin: verifies ownership then upserts into player_skins.
 app.post('/api/skins/equip', async (req, res) => {
   try {
@@ -5225,6 +5586,46 @@ function buildSeedCells() {
   set(11, 2, 22, 18);
   set( 9, 2, 22, 18);
   return cells;
+}
+
+async function seedBlueprints() {
+  await pool.query(`
+    INSERT INTO blueprints (id, user_id, username, name, block_count, width, height, depth)
+    VALUES
+      (1, ${SEED_USER_ID}, 'staging-bot', 'Staging demo Small Hut', 22, 4, 3, 4),
+      (2, ${SEED_USER_ID}, 'staging-bot', 'Staging demo Arch', 16, 5, 4, 1),
+      (3, ${SEED_USER_ID}, 'staging-bot', 'Staging demo Lamp Post', 5, 1, 5, 1)
+    ON CONFLICT DO NOTHING
+  `);
+  await pool.query(`SELECT setval('blueprints_id_seq', GREATEST((SELECT MAX(id) FROM blueprints), 3))`);
+  // Small hut seed blocks (4×3×4): floor, walls, doorway
+  const hutBlocks = [];
+  for (let rx = 0; rx < 4; rx++) for (let rz = 0; rz < 4; rz++) hutBlocks.push([1, rx, 0, rz, 2]); // floor type=2
+  for (let rz = 0; rz < 4; rz++) { hutBlocks.push([1,0,1,rz,3]); hutBlocks.push([1,3,1,rz,3]); } // side walls type=3
+  for (let rx = 0; rx < 4; rx++) hutBlocks.push([1,rx,1,0,3]); // back wall
+  hutBlocks.push([1,0,1,3,3]); hutBlocks.push([1,3,1,3,3]); hutBlocks.push([1,0,2,3,3]); hutBlocks.push([1,3,2,3,3]); // doorway frame
+  for (let rx = 0; rx < 4; rx++) hutBlocks.push([1,rx,2,0,3]); // back wall top
+  for (let rx = 0; rx < 4; rx++) for (let rz = 0; rz < 4; rz++) hutBlocks.push([1,rx,3,rz,1]); // roof type=1 ... wait
+  // Deduplicate by key
+  const hutSeen = new Set(); const hutUniq = hutBlocks.filter(r => { const k = `${r[1]},${r[2]},${r[3]}`; if (hutSeen.has(k)) return false; hutSeen.add(k); return true; });
+  if (hutUniq.length) {
+    const vals = hutUniq.map((r,i) => `($${i*5+1},$${i*5+2},$${i*5+3},$${i*5+4},$${i*5+5})`).join(',');
+    await pool.query(`INSERT INTO blueprint_blocks (blueprint_id,rx,ry,rz,block_type) VALUES ${vals} ON CONFLICT DO NOTHING`, hutUniq.flat());
+  }
+  // Arch seed (5×4×1)
+  const archBlocks = [];
+  for (let rx = 0; rx < 5; rx++) archBlocks.push([2,rx,0,0,4]); // base type=4
+  archBlocks.push([2,0,1,0,4]); archBlocks.push([2,4,1,0,4]);
+  archBlocks.push([2,0,2,0,4]); archBlocks.push([2,4,2,0,4]);
+  archBlocks.push([2,0,3,0,4]); archBlocks.push([2,2,3,0,4]); archBlocks.push([2,4,3,0,4]);
+  if (archBlocks.length) {
+    const vals = archBlocks.map((r,i) => `($${i*5+1},$${i*5+2},$${i*5+3},$${i*5+4},$${i*5+5})`).join(',');
+    await pool.query(`INSERT INTO blueprint_blocks (blueprint_id,rx,ry,rz,block_type) VALUES ${vals} ON CONFLICT DO NOTHING`, archBlocks.flat());
+  }
+  // Lamp post seed (1×5×1)
+  const lampBlocks = [[3,0,0,0,3],[3,0,1,0,3],[3,0,2,0,3],[3,0,3,0,3],[3,0,4,0,5]];
+  const lampVals = lampBlocks.map((r,i) => `($${i*5+1},$${i*5+2},$${i*5+3},$${i*5+4},$${i*5+5})`).join(',');
+  await pool.query(`INSERT INTO blueprint_blocks (blueprint_id,rx,ry,rz,block_type) VALUES ${lampVals} ON CONFLICT DO NOTHING`, lampBlocks.flat());
 }
 
 async function seedSkins() {
@@ -5956,6 +6357,64 @@ async function seedCollabChallenge() {
   }
 }
 
+// ---- Weather system ----
+
+const WEATHER_OPTIONS = [
+  { weather: 'clear',  weight: 35 },
+  { weather: 'cloudy', weight: 25 },
+  { weather: 'rain',   weight: 20 },
+  { weather: 'snow',   weight: 10 },
+  { weather: 'storm',  weight: 10 },
+];
+
+function pickNextWeather(current) {
+  const pool2 = WEATHER_OPTIONS.filter(o => o.weather !== current);
+  const total = pool2.reduce((s, o) => s + o.weight, 0);
+  let r = Math.random() * total;
+  for (const o of pool2) { r -= o.weight; if (r <= 0) return o.weather; }
+  return pool2[0].weather;
+}
+
+async function weatherSchedulerTick() {
+  try {
+    const { rows } = await pool.query(
+      'SELECT weather, next_change FROM world_conditions WHERE id = 1'
+    );
+    if (rows.length && Number(rows[0].next_change) <= Date.now()) {
+      const next = pickNextWeather(rows[0].weather);
+      const dur = (5 + Math.random() * 25) * 60 * 1000; // 5–30 minutes
+      const now = Date.now();
+      await pool.query(
+        'UPDATE world_conditions SET weather = $1, change_at = $2, next_change = $3 WHERE id = 1',
+        [next, now, now + dur]
+      );
+      console.log(`Weather → ${next} for ${Math.round(dur / 60000)}min`);
+    }
+  } catch (err) {
+    console.error('Weather scheduler error:', err.message);
+  }
+  setTimeout(weatherSchedulerTick, 60000); // re-check every minute
+}
+
+// ---- World conditions API ----
+
+app.get('/api/world-conditions', async (_req, res) => {
+  try {
+    const { rows } = await pool.query(
+      'SELECT weather, change_at, next_change FROM world_conditions WHERE id = 1'
+    );
+    if (!rows.length) return res.json({ weather: 'clear', changeAt: 0, nextChangeAt: 0 });
+    const r = rows[0];
+    res.json({
+      weather: r.weather,
+      changeAt: Number(r.change_at),
+      nextChangeAt: Number(r.next_change),
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 async function seedCoins() {
   const coinSeeds = [
     { user_id: -1, username: 'Staging demo Alice',   balance: 340, loginOffset: 1 },
@@ -6001,6 +6460,21 @@ async function seedCoins() {
   await pool.query(
     `SELECT setval('wager_history_id_seq', GREATEST((SELECT MAX(id) FROM wager_history), 4))`
   );
+
+  // Seed demo inbox notifications for the staging user (coin-gifting feature).
+  const demoNotifications = [
+    { from_username: 'Staging demo sender Alicia',    amount: 50,  read: false },
+    { from_username: 'Staging demo sender BuilderBot', amount: 20,  read: true  },
+    { from_username: 'Staging demo sender MineKing',   amount: 100, read: false },
+  ];
+  for (const n of demoNotifications) {
+    await pool.query(
+      `INSERT INTO inbox_notifications (recipient_user_id, type, payload, read)
+       VALUES ($1, 'coin_gift', $2, $3)
+       ON CONFLICT DO NOTHING`,
+      [SEED_USER_ID, JSON.stringify({ from_username: n.from_username, amount: n.amount, transaction_id: -1 }), n.read]
+    );
+  }
 }
 
 async function seedPromptVotes() {
@@ -6029,7 +6503,6 @@ async function seedPromptVotes() {
     );
   }
 }
-
 async function seedTheme() {
   const now = new Date();
   const todayStr = now.toISOString().slice(0, 10);
@@ -6862,6 +7335,31 @@ async function start() {
   await pool.query(`CREATE INDEX IF NOT EXISTS friendships_addressee_status_idx ON friendships (addressee_id, status)`);
   await pool.query(`CREATE INDEX IF NOT EXISTS friendships_requester_status_idx ON friendships (requester_id, status)`);
 
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS blueprints (
+      id BIGSERIAL PRIMARY KEY,
+      user_id INTEGER NOT NULL,
+      username VARCHAR(255) NOT NULL,
+      name VARCHAR(100) NOT NULL,
+      block_count INTEGER NOT NULL,
+      width SMALLINT NOT NULL,
+      height SMALLINT NOT NULL,
+      depth SMALLINT NOT NULL,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS blueprints_user_idx ON blueprints (user_id)`);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS blueprint_blocks (
+      blueprint_id BIGINT NOT NULL REFERENCES blueprints(id) ON DELETE CASCADE,
+      rx SMALLINT NOT NULL,
+      ry SMALLINT NOT NULL,
+      rz SMALLINT NOT NULL,
+      block_type SMALLINT NOT NULL,
+      PRIMARY KEY (blueprint_id, rx, ry, rz)
+    )
+  `);
+
   // Collaborative Building Challenges: one row per 2-hour UTC window.
   // Public — placement counts and usernames are not sensitive.
   await pool.query(`
@@ -6895,6 +7393,36 @@ async function start() {
   await pool.query(`ALTER TABLE player_coins ADD COLUMN IF NOT EXISTS balance BIGINT NOT NULL DEFAULT 0`);
   await pool.query(`ALTER TABLE player_coins ADD COLUMN IF NOT EXISTS last_coin_login_date DATE`);
 
+  // Coin transactions: append-only ledger of every peer-to-peer transfer.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS coin_transactions (
+      id             BIGSERIAL    PRIMARY KEY,
+      from_user_id   INTEGER      NOT NULL,
+      from_username  VARCHAR(255) NOT NULL,
+      to_user_id     INTEGER      NOT NULL,
+      to_username    VARCHAR(255) NOT NULL,
+      amount         INTEGER      NOT NULL,
+      created_at     TIMESTAMPTZ  DEFAULT NOW()
+    )
+  `);
+  await pool.query(`COMMENT ON TABLE coin_transactions IS 'staging:private'`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS coin_transactions_to_idx   ON coin_transactions (to_user_id, created_at)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS coin_transactions_from_idx ON coin_transactions (from_user_id, created_at)`);
+
+  // Inbox notifications: one row per notification event.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS inbox_notifications (
+      id                BIGSERIAL    PRIMARY KEY,
+      recipient_user_id INTEGER      NOT NULL,
+      type              VARCHAR(32)  NOT NULL DEFAULT 'coin_gift',
+      payload           JSONB        NOT NULL DEFAULT '{}',
+      read              BOOLEAN      NOT NULL DEFAULT false,
+      created_at        TIMESTAMPTZ  DEFAULT NOW()
+    )
+  `);
+  await pool.query(`COMMENT ON TABLE inbox_notifications IS 'staging:private'`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS inbox_notifications_recipient_idx ON inbox_notifications (recipient_user_id, read, id DESC)`);
+
   // Wager history: append-only log of every bet placed. Public.
   await pool.query(`
     CREATE TABLE IF NOT EXISTS wager_history (
@@ -6915,6 +7443,24 @@ async function start() {
   await pool.query(`
     CREATE INDEX IF NOT EXISTS wager_history_user_created_idx
     ON wager_history (user_id, created_at DESC)
+  `);
+
+  // Shared world conditions: single-row table tracking current weather state and
+  // when the next transition is scheduled. Owned by the server scheduler; clients
+  // read it via GET /api/world-conditions. Public — no sensitive data.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS world_conditions (
+      id          INTEGER  PRIMARY KEY DEFAULT 1,
+      weather     VARCHAR(20) NOT NULL DEFAULT 'clear',
+      change_at   BIGINT   NOT NULL DEFAULT 0,
+      next_change BIGINT   NOT NULL DEFAULT 0
+    )
+  `);
+  // Ensure the single row exists (idempotent).
+  await pool.query(`
+    INSERT INTO world_conditions (id, weather, change_at, next_change)
+    VALUES (1, 'clear', 0, 0)
+    ON CONFLICT (id) DO NOTHING
   `);
 
   // Daily build theme voting tables (all public — build activity is not sensitive).
@@ -7153,6 +7699,8 @@ async function start() {
     catch (err) { console.error('endless-scores seed failed', err); }
     try { await seedStreaks(); }
     catch (err) { console.error('streak seed failed', err); }
+    try { await seedBlueprints(); }
+    catch (err) { console.error('blueprint seed failed', err); }
     try { await seedCollabChallenge(); }
     catch (err) { console.error('collab challenge seed failed', err); }
     try { await seedSkins(); }
@@ -7163,6 +7711,23 @@ async function start() {
     catch (err) { console.error('prompt votes seed failed', err); }
     try { await seedBlockMessages(); }
     catch (err) { console.error('block messages seed failed', err); }
+    try {
+      // Two fake spectators so the eye-icon path is exercisable in staging.
+      await pool.query(
+        `INSERT INTO user_presence (user_id, username, last_seen, mode)
+         VALUES (-9001, 'Staging demo spectator — Alice', NOW(), 'spectate'),
+                (-9002, 'Staging demo spectator — Bob',   NOW(), 'spectate')
+         ON CONFLICT (user_id) DO UPDATE SET last_seen = NOW(), mode = EXCLUDED.mode`
+      );
+    } catch (err) { console.error('staging spectator seed failed', err); }
+    // Seed world_conditions to a clear day so testers see the scheduler kick in promptly.
+    try {
+      await pool.query(
+        `INSERT INTO world_conditions (id, weather, change_at, next_change)
+         VALUES (1, 'clear', 0, 0)
+         ON CONFLICT (id) DO NOTHING`
+      );
+    } catch (err) { console.error('staging world_conditions seed failed', err); }
     try { await seedTheme(); }
     catch (err) { console.error('theme seed failed', err); }
     try { await seedLoginRewards(); }
@@ -7195,6 +7760,8 @@ async function start() {
   }
 
   await ensurePowerUps();
+  // Start weather scheduler: first tick fires immediately, then every 60s.
+  weatherSchedulerTick().catch(err => console.error('weather scheduler failed to start', err));
   initMobs();
 
     // Cleanup stale rooms (waiting/active older than 1 hour) every 30 minutes
