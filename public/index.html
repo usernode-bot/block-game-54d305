@@ -1144,7 +1144,7 @@
           class="fixed top-[9rem] right-3 z-30 w-9 h-9 rounded-full bg-black/50 hover:bg-black/70 text-zinc-100 text-lg leading-none flex items-center justify-center transition-colors cursor-pointer">📋</button>
 
   <!-- Daily Theme toggle: below the coach button. Hidden in Time Attack mode. -->
-  <button id="theme-btn" title="Daily Build Theme" aria-label="Daily Build Theme"
+  <button id="daily-theme-btn" title="Daily Build Theme" aria-label="Daily Build Theme"
           class="fixed top-[10.5rem] right-3 z-30 w-9 h-9 rounded-full bg-black/50 hover:bg-black/70 text-zinc-100 text-lg leading-none flex items-center justify-center transition-colors cursor-pointer">🌟</button>
 
   <!-- Coins toggle: sits below the friends button. -->
@@ -2772,7 +2772,8 @@
     const saBottomPx = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--sai-bottom')) || 0;
     const challengeHudEl = document.getElementById('challenge-hud');
     const challengeBaseBottomPx = isTouch ? 240 : 16; // 15rem=240px, 1rem=16px
-    challengeHudEl.style.bottom = (challengeBaseBottomPx + saBottomPx) + 'px';
+    const challengeHudBottomPx = challengeBaseBottomPx + saBottomPx;
+    challengeHudEl.style.bottom = challengeHudBottomPx + 'px';
     const blocksPlacedHudEl = document.getElementById('blocks-placed-hud');
     blocksPlacedHudEl.style.bottom = isTouch ? '18rem' : '5.5rem';
     const chaosIndicatorEl = document.getElementById('chaos-indicator');
@@ -2791,7 +2792,6 @@
 
     // Coins HUD sits above the streak pill.
     const coinsHudEl = document.getElementById('coins-hud');
-    const STREAK_HUD_HEIGHT_PX = 28;
     coinsHudEl.style.bottom = (challengeHudBottomPx + CHALLENGE_HUD_HEIGHT_PX + STREAK_GAP_PX + STREAK_HUD_HEIGHT_PX + STREAK_GAP_PX) + 'px';
 
     function updateCoinsHud(balance) {
@@ -2811,7 +2811,6 @@
 
     // Collab challenge HUD sits above the streak HUD.
     const collabHudEl = document.getElementById('collab-challenge-hud');
-    const STREAK_HUD_HEIGHT_PX = 28; // approx rendered height of streak pill
     const streakHudBottomPx = challengeHudBottomPx + CHALLENGE_HUD_HEIGHT_PX + STREAK_GAP_PX;
     collabHudEl.style.bottom = (streakHudBottomPx + STREAK_HUD_HEIGHT_PX + STREAK_GAP_PX) + 'px';
 
@@ -3420,9 +3419,9 @@
     } catch (_) {}
 
     // ---- Three.js scaffold ----
-    let renderer, scene, camera;
+    let renderer, scene, camera, canvas;
     try {
-      const canvas = document.getElementById('scene');
+      canvas = document.getElementById('scene');
       if (!canvas) throw new Error('Canvas element (id="scene") not found');
       renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
       renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -3711,15 +3710,15 @@
 
     // ---- Particle systems (rain & snow) ----
     // Positions are in world-space, re-centered on the camera each frame.
-    const RAIN_COUNT = 800;
-    const rainPositions = new Float32Array(RAIN_COUNT * 3);
-    for (let i = 0; i < RAIN_COUNT; i++) {
-      rainPositions[i * 3]     = (Math.random() - 0.5) * 40;
-      rainPositions[i * 3 + 1] = Math.random() * 30;
-      rainPositions[i * 3 + 2] = (Math.random() - 0.5) * 40;
+    const RAIN_PT_COUNT = 800;
+    const rainPtPositions = new Float32Array(RAIN_PT_COUNT * 3);
+    for (let i = 0; i < RAIN_PT_COUNT; i++) {
+      rainPtPositions[i * 3]     = (Math.random() - 0.5) * 40;
+      rainPtPositions[i * 3 + 1] = Math.random() * 30;
+      rainPtPositions[i * 3 + 2] = (Math.random() - 0.5) * 40;
     }
     const rainGeom = new THREE.BufferGeometry();
-    rainGeom.setAttribute('position', new THREE.BufferAttribute(rainPositions, 3));
+    rainGeom.setAttribute('position', new THREE.BufferAttribute(rainPtPositions, 3));
 
     // Thin vertical streak texture for rain drops
     const _rainCv = document.createElement('canvas');
@@ -4231,7 +4230,7 @@
 
     // Stamp preview: wireframe box showing the rectangular region during a stamp drag
     const stampMaterial = new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.5 });
-    stampPreviewMesh = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(1, 1, 1)), stampMaterial);
+    const stampPreviewMesh = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(1, 1, 1)), stampMaterial);
     stampPreviewMesh.visible = false;
     scene.add(stampPreviewMesh);
 
@@ -4737,7 +4736,7 @@
         const rp   = rainGeom.attributes.position.array;
         const cx = camera.position.x, cy = camera.position.y, cz = camera.position.z;
         const fs = 18 * dt;
-        for (let i = 0; i < RAIN_COUNT; i++) {
+        for (let i = 0; i < RAIN_PT_COUNT; i++) {
           rp[i * 3 + 1] -= fs;
           if (rp[i * 3 + 1] < cy - 15) {
             rp[i * 3]     = cx + (Math.random() - 0.5) * 40;
@@ -6242,7 +6241,6 @@
     let stampStartCell = null;
     let stampEndCell = null;
     let stampDragInProgress = false;
-    let stampPreviewMesh = null;
     const move = { f: false, b: false, l: false, r: false, up: false, down: false };
     const SPEED = 9, SENS = 0.0022;
 
@@ -10011,7 +10009,7 @@
     // ---- Daily Build Theme panel ----
     const themePanelEl = document.getElementById('theme-panel');
     const themeContentEl = document.getElementById('theme-content');
-    const themeBtnEl = document.getElementById('theme-btn');
+    const dailyThemeBtnEl = document.getElementById('daily-theme-btn');
     let themeTimer = null;
     let themeData = null;
 
@@ -10218,7 +10216,7 @@
       }
     }
 
-    themeBtnEl.addEventListener('click', toggleThemePanel);
+    dailyThemeBtnEl.addEventListener('click', toggleThemePanel);
     document.getElementById('theme-close').addEventListener('click', closeThemePanel);
 
     document.getElementById('coach-dismiss').addEventListener('click', dismissCoachTip);
@@ -10810,7 +10808,7 @@
       document.querySelectorAll('.load-world-btn').forEach((btn) => {
         btn.addEventListener('click', (e) => {
           const id = Number(e.target.dataset.id);
-          loadWorld(id);
+          loadSavedWorld(id);
         });
       });
       document.querySelectorAll('.delete-world-btn').forEach((btn) => {
@@ -10827,7 +10825,7 @@
       });
     }
 
-    async function loadWorld(id) {
+    async function loadSavedWorld(id) {
       if (!token) return;
       try {
         const res = await fetch(`/api/worlds/${id}/blocks`, { headers: { 'x-usernode-token': token } });
