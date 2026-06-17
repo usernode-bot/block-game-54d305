@@ -36,6 +36,7 @@ const PALETTE = [
   { id: 15, name: 'Glowstone',     color: '#ffb040', emissive: '#ff8800', emissiveIntensity: 0.6 },
   { id: 16, name: 'Obsidian',      color: '#18082a', material: 'standard', metalness: 0.3, roughness: 0.1 },
   { id: 17, name: 'Rainbow Block', color: '#ff4488', powerup: true },
+  { id: 18, name: 'Crystal',       color: '#a78bfa', opacity: 0.65, emissive: '#7c3aed', emissiveIntensity: 0.3, material: 'standard', metalness: 0.1, roughness: 0.2, unlockAt: 50, unlockIcon: '💎' },
 ];
 const VALID_TYPES = new Set(PALETTE.map((p) => p.id)); // does NOT include 0
 
@@ -48,6 +49,7 @@ const BLOCK_POINTS = {
   15: 3,  // Glowstone
   16: 4,  // Obsidian
   17: 5,  // Rainbow Block
+  18: 3,  // Crystal Block
 };
 
 // Sentinel "user" id for staging seed rows so they never reference a real user.
@@ -65,6 +67,7 @@ const BADGES = [
   { id: 'glowmaster',      name: 'Glowmaster',      icon: '💡', flavour: 'Placed a Glowstone block!' },
   { id: 'shadow_sculptor', name: 'Shadow Sculptor', icon: '🌑', flavour: 'Placed an Obsidian block!' },
   { id: 'material_artist', name: 'Material Artist', icon: '🎨', flavour: 'Used 8+ different block types!' },
+  { id: 'crystal_placer',  name: 'Crystal Placer',  icon: '💎', flavour: 'Placed a Crystal Block!' },
   { id: 'streak_3',        name: 'Hot Start',       icon: '🔥', flavour: 'Logged in 3 days in a row!' },
   { id: 'streak_7',        name: 'Week Warrior',     icon: '🗓️', flavour: 'A full week of building!' },
   { id: 'streak_14',       name: 'Fortnight Pro',    icon: '🏆', flavour: 'Two weeks of daily play!' },
@@ -96,6 +99,7 @@ function checkBadges({ lb, justPlacedType, typeCount }, earnedIds) {
       case 'glowmaster':      earned = justPlacedType === 15; break;
       case 'shadow_sculptor': earned = justPlacedType === 16; break;
       case 'material_artist': earned = typeCount >= 8; break;
+      case 'crystal_placer':  earned = justPlacedType === 18; break;
     }
     if (earned) newBadges.push(badge);
   }
@@ -153,17 +157,21 @@ app.use((req, res, next) => {
 app.get('/health', (_req, res) => res.json({ status: 'ok' }));
 
 // ---- World bootstrap: dimensions, palette, current blocks, poll cursor ----
-app.get('/api/world', async (_req, res) => {
+app.get('/api/world', async (req, res) => {
   try {
     const { rows } = await pool.query(
       `SELECT x, y, z, block_type FROM blocks WHERE block_type <> 0`
     );
     const cur = await pool.query(`SELECT COALESCE(MAX(seq), 0) AS cursor FROM blocks`);
+    const lbRow = await pool.query(`SELECT blocks_placed FROM leaderboard WHERE user_id = $1`, [req.user.id]);
+    const userPlaced = lbRow.rows.length ? Number(lbRow.rows[0].blocks_placed) : 0;
+    const unlockedTypes = PALETTE.filter((p) => p.unlockAt && userPlaced >= p.unlockAt).map((p) => p.id);
     res.json({
       dims: DIMS,
       palette: PALETTE,
       blocks: rows.map((r) => ({ x: r.x, y: r.y, z: r.z, t: r.block_type })),
       cursor: Number(cur.rows[0].cursor),
+      unlockedTypes,
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -195,6 +203,18 @@ app.post('/api/block', async (req, res) => {
       return res.status(400).json({ error: 'unknown block_type' });
     }
 
+    // Unlock gate: reject placement of block types the user hasn't earned yet.
+    if (t !== 0) {
+      const pe = PALETTE.find((p) => p.id === t);
+      if (pe && pe.unlockAt) {
+        const lockRes = await pool.query(
+          `SELECT blocks_placed FROM leaderboard WHERE user_id = $1`, [req.user.id]
+        );
+        const placed = lockRes.rows.length ? Number(lockRes.rows[0].blocks_placed) : 0;
+        if (placed < pe.unlockAt) return res.status(400).json({ error: 'block_type not unlocked' });
+      }
+    }
+
     const { rows } = await pool.query(
       `INSERT INTO blocks (x, y, z, block_type, seq, updated_by_user_id, updated_by_username, updated_at)
        VALUES ($1, $2, $3, $4, nextval('block_seq'), $5, $6, NOW())
@@ -214,6 +234,7 @@ app.post('/api/block', async (req, res) => {
     // ---- Scoring (placements only; breaks earn 0) ----
     let earned = 0, combo_multiplier = 1, rainbow_multiplier = 1, combo_tier = 1;
     let newly_earned_badges = [];
+    let newly_unlocked_types = [];
     if (t !== 0) {
       const now = new Date();
       const dateStr = now.toISOString().slice(0, 10);
@@ -333,9 +354,17 @@ app.post('/api/block', async (req, res) => {
         );
       }
       newly_earned_badges = newBadges.map((b) => ({ id: b.id, name: b.name, icon: b.icon, flavour: b.flavour }));
+
+      // Detect first crossing of any block unlock threshold (blocks_placed increments by 1 per
+      // placement, so === only fires once — the exact turn the threshold is first reached).
+      for (const up of PALETTE.filter((p) => p.unlockAt)) {
+        if (lb.blocks_placed === up.unlockAt) {
+          newly_unlocked_types.push({ id: up.id, name: up.name, icon: up.unlockIcon || '✨', description: 'A translucent gem-like block, earned through dedication.' });
+        }
+      }
     }
 
-    res.json({ ok: true, seq, ...(challenge ? { challenge } : {}), earned, combo_multiplier, rainbow_multiplier, newly_earned_badges });
+    res.json({ ok: true, seq, ...(challenge ? { challenge } : {}), earned, combo_multiplier, rainbow_multiplier, newly_earned_badges, newly_unlocked_types });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -973,7 +1002,14 @@ function buildSeedCells() {
   set(21, 1, 10, 15); // Glowstone
   set(22, 1, 10, 16); // Obsidian
   set(23, 1, 10, 17); // Rainbow Block
+  set(24, 1, 10, 18); // Crystal Block (showcase row)
   set(20, 1, 11, 13); // Snow
+  // Crystal spire so staging reviewers can see the block's appearance.
+  set(10, 1, 22, 18);
+  set(10, 2, 22, 18);
+  set(10, 3, 22, 18);
+  set(11, 2, 22, 18);
+  set( 9, 2, 22, 18);
   return cells;
 }
 
@@ -1009,8 +1045,8 @@ async function seedStaging() {
   // Seed player_type_usage for staging users so the material_artist badge
   // and type-based badge logic are exercised with realistic data.
   const typeUsageSeed = [
-    // alice: 10 different types (qualifies for material_artist)
-    ...[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((bt) => ({ userId: -1, blockType: bt })),
+    // alice: 11 different types (qualifies for material_artist + crystal_placer)
+    ...[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 18].map((bt) => ({ userId: -1, blockType: bt })),
     // bob: 6 types including Rainbow Block
     ...[1, 2, 3, 4, 5, 17].map((bt) => ({ userId: -2, blockType: bt })),
     // carol: 3 types
@@ -1034,6 +1070,7 @@ async function seedStaging() {
     { userId: -1, badgeId: 'comboist' },
     { userId: -1, badgeId: 'golden_touch' },
     { userId: -1, badgeId: 'material_artist' },
+    { userId: -1, badgeId: 'crystal_placer' },
     { userId: -2, badgeId: 'first_block' },
     { userId: -2, badgeId: 'builder' },
     { userId: -2, badgeId: 'rainbow_placer' },

@@ -413,6 +413,7 @@
       { id: 'glowmaster',      name: 'Glowmaster',      icon: '💡', flavour: 'Placed a Glowstone block!',       hint: 'Place a Glowstone block' },
       { id: 'shadow_sculptor', name: 'Shadow Sculptor', icon: '🌑', flavour: 'Placed an Obsidian block!',       hint: 'Place an Obsidian block' },
       { id: 'material_artist', name: 'Material Artist', icon: '🎨', flavour: 'Used 8+ different block types!', hint: 'Use 8 or more different block types' },
+      { id: 'crystal_placer',  name: 'Crystal Placer',  icon: '💎', flavour: 'Placed a Crystal Block!',        hint: 'Place a Crystal Block (unlock by placing 50 blocks first)' },
       { id: 'streak_3',        name: 'Hot Start',       icon: '🔥', flavour: 'Logged in 3 days in a row!',     hint: 'Log in 3 days in a row' },
       { id: 'streak_7',        name: 'Week Warrior',    icon: '🗓️', flavour: 'A full week of building!',       hint: 'Log in 7 days in a row' },
       { id: 'streak_14',       name: 'Fortnight Pro',   icon: '🏆', flavour: 'Two weeks of daily play!',       hint: 'Log in 14 days in a row' },
@@ -627,6 +628,7 @@
     const blocks = new Map();        // "x,y,z" -> block_type (non-zero only) — classic world
     let cursor = 0;                  // last seq seen from the server
     let selectedType = 1;
+    let unlockedTypes = new Set(); // block type IDs earned by the current user
     const key = (x, y, z) => x + ',' + y + ',' + z;
 
     // ---- Power-up state ----
@@ -685,7 +687,13 @@
     const materials = new Map();
     function materialFor(p) {
       const opts = { color: new THREE.Color(p.color) };
-      if (p.opacity != null && p.opacity < 1) { opts.transparent = true; opts.opacity = p.opacity; }
+      if (p.opacity != null && p.opacity < 1) { opts.transparent = true; opts.opacity = p.opacity; opts.side = THREE.DoubleSide; }
+      if (p.emissive) { opts.emissive = new THREE.Color(p.emissive); opts.emissiveIntensity = p.emissiveIntensity ?? 1; }
+      if (p.material === 'standard' || p.metalness != null || p.emissive) {
+        if (p.metalness != null) opts.metalness = p.metalness;
+        if (p.roughness != null) opts.roughness = p.roughness;
+        return new THREE.MeshStandardMaterial(opts);
+      }
       return new THREE.MeshLambertMaterial(opts);
     }
 
@@ -749,8 +757,10 @@
     // In TA mode uses taBlocks; otherwise uses the shared blocks map.
     const blockGroup = new THREE.Group();
     scene.add(blockGroup);
+    let crystalMaterial = null; // tracked for emissive pulse animation in the render loop
     function rebuildBlockMeshes() {
       blockGroup.clear();
+      crystalMaterial = null;
       const source = gameMode === 'timeattack' ? taBlocks : blocks;
       const byType = new Map();
       for (const [k, t] of source) {
@@ -762,7 +772,9 @@
       for (const [t, cells] of byType) {
         const p = PALETTE.find((q) => q.id === t);
         if (!p) continue;
-        const mesh = new THREE.InstancedMesh(cube, materialFor(p), cells.length);
+        const mat = materialFor(p);
+        if (t === 18) crystalMaterial = mat;
+        const mesh = new THREE.InstancedMesh(cube, mat, cells.length);
         cells.forEach((c, i) => {
           dummy.position.set(c.x + 0.5, c.y + 0.5, c.z + 0.5);
           dummy.updateMatrix();
@@ -849,7 +861,7 @@
       const badge = toastQueue.shift();
       const container = document.getElementById('badge-toasts');
       const toast = document.createElement('div');
-      toast.className = 'flex items-center gap-3 bg-black/85 backdrop-blur rounded-xl px-4 py-2.5 text-sm text-zinc-100 shadow-xl';
+      toast.className = 'flex items-center gap-3 bg-black/85 backdrop-blur rounded-xl px-4 py-2.5 text-sm text-zinc-100 shadow-xl' + (badge._isUnlock ? ' ring-2 ring-violet-500/60' : '');
       toast.style.cssText = 'opacity:0;transition:opacity 0.3s;';
       const iconSpan = document.createElement('span');
       iconSpan.className = 'text-2xl leading-none flex-shrink-0';
@@ -877,6 +889,11 @@
 
     function showBadgeToast(badge) {
       toastQueue.push(badge);
+      if (!toastShowing) showNextToast();
+    }
+
+    function showUnlockToast(item) {
+      toastQueue.push({ icon: item.icon, name: item.name, flavour: item.description, _isUnlock: true });
       if (!toastShowing) showNextToast();
     }
 
@@ -1077,6 +1094,13 @@
               showBadgeToast(badge);
             }
             if (badgesOpen) renderBadgesPanel();
+          }
+          if (data.newly_unlocked_types && data.newly_unlocked_types.length) {
+            for (const ut of data.newly_unlocked_types) {
+              unlockedTypes.add(ut.id);
+              showUnlockToast(ut);
+            }
+            buildPalette(); // re-render palette so the newly unlocked swatch activates
           }
           if (data.challenge) syncChallenge(data.challenge);
         }
@@ -2092,6 +2116,8 @@
 
     // ---- Palette UI ----
     function selectType(id) {
+      const _p = PALETTE.find((q) => q.id === id);
+      if (_p && _p.unlockAt && !unlockedTypes.has(id)) return; // block not yet unlocked
       selectedType = id;
       for (const el of document.querySelectorAll('#palette [data-id]')) {
         el.classList.toggle('ring-2', Number(el.dataset.id) === id);
@@ -2110,19 +2136,30 @@
       const wrap = document.getElementById('palette');
       wrap.innerHTML = '';
       PALETTE.forEach((p, i) => {
+        const isLocked = !!(p.unlockAt && !unlockedTypes.has(p.id));
         const btn = document.createElement('button');
         btn.dataset.id = p.id;
-        btn.title = p.name + (i < 9 ? ' (' + (i + 1) + ')' : '');
+        btn.title = isLocked
+          ? p.name + ' (place ' + p.unlockAt + ' blocks to unlock)'
+          : p.name + (i < 9 ? ' (' + (i + 1) + ')' : '');
         btn.className = 'relative w-10 h-10 rounded-md ring-offset-1 ring-offset-black/0 transition';
         btn.style.background = p.color;
-        if (p.opacity != null && p.opacity < 1) btn.style.opacity = '0.7';
-        if (i < 9) {
-          const num = document.createElement('span');
-          num.textContent = i + 1;
-          num.className = 'absolute bottom-0 right-0.5 text-[10px] font-bold text-black/60';
-          btn.appendChild(num);
+        if (isLocked) {
+          btn.style.opacity = '0.35';
+          const lock = document.createElement('span');
+          lock.textContent = '🔒';
+          lock.className = 'absolute top-0 right-0 text-[9px] leading-none';
+          btn.appendChild(lock);
+        } else {
+          if (p.opacity != null && p.opacity < 1) btn.style.opacity = '0.7';
+          if (i < 9) {
+            const num = document.createElement('span');
+            num.textContent = i + 1;
+            num.className = 'absolute bottom-0 right-0.5 text-[10px] font-bold text-black/60';
+            btn.appendChild(num);
+          }
+          btn.addEventListener('click', () => selectType(p.id));
         }
-        btn.addEventListener('click', () => selectType(p.id));
         wrap.appendChild(btn);
       });
       selectType(selectedType);
@@ -2270,6 +2307,7 @@
       DIMS = data.dims;
       PALETTE = data.palette;
       cursor = data.cursor || 0;
+      unlockedTypes = new Set(data.unlockedTypes || []);
       selectedType = PALETTE[0] ? PALETTE[0].id : 1;
       blocks.clear();
       for (const b of data.blocks) blocks.set(key(b.x, b.y, b.z), b.t);
@@ -2515,6 +2553,8 @@
 
       updateTarget();
       updateAttribution();
+      // Animate Crystal block emissive glow: gentle 0.2→0.4 pulse (~7.9s period).
+      if (crystalMaterial) crystalMaterial.emissiveIntensity = 0.2 + 0.2 * Math.sin(now * 0.0008);
       renderBuffHud();
       renderer.render(scene, camera);
       requestAnimationFrame(loop);
