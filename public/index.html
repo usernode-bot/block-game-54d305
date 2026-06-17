@@ -407,7 +407,7 @@
 
     // Build identifier — bump this (to the deploying commit short SHA) on every
     // change so the top-right stamp confirms exactly which code is running.
-    const BUILD_VERSION = 'power-ups+hold-queue+achievements-badges+chat+daily-challenge+leaderboard+online-presence+block-attribution+audio-sfx+next-piece-preview+spectator-mode+weekly-tournament+friends+minimap';
+    const BUILD_VERSION = 'power-ups+hold-queue+achievements-badges+chat+daily-challenge+leaderboard+online-presence+block-attribution+audio-sfx+next-piece-preview+spectator-mode+weekly-tournament+friends+day-night-cycle+minimap';
 
     // Badge definitions — mirror of the server-side BADGES array, extended with
     // a `hint` field shown in the panel for unearned badges.
@@ -680,17 +680,207 @@
     const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color('#8ec7ff');
+    scene.background = null;
     scene.fog = new THREE.Fog('#8ec7ff', 40, 90);
 
     const camera = new THREE.PerspectiveCamera(70, 1, 0.1, 500);
     camera.up.set(0, 1, 0);
     camera.position.set(DIMS.w / 2, 3.5, DIMS.d / 2 + 8);
 
-    scene.add(new THREE.AmbientLight(0xffffff, 0.65));
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.65);
+    scene.add(ambientLight);
     const sun = new THREE.DirectionalLight(0xffffff, 0.9);
     sun.position.set(30, 60, 20);
     scene.add(sun);
+
+    // ---- Day/night cycle ----
+    const DAY_DURATION_MS = 600_000; // 10 minutes per full cycle
+
+    // Sky color keyframes: [midnight, dawn, noon, dusk]
+    const SKY_KEYS = [
+      { zenith: new THREE.Color('#050a1a'), horizon: new THREE.Color('#0a1230'), fog: new THREE.Color('#0a1230'), ambient: 0.30, sunInt: 0.0, sunColor: new THREE.Color('#b0c8ff') },
+      { zenith: new THREE.Color('#1a2a6c'), horizon: new THREE.Color('#ff7043'), fog: new THREE.Color('#d46b38'), ambient: 0.50, sunInt: 0.5, sunColor: new THREE.Color('#ffb070') },
+      { zenith: new THREE.Color('#5ab4f5'), horizon: new THREE.Color('#8ec7ff'), fog: new THREE.Color('#8ec7ff'), ambient: 0.65, sunInt: 0.9, sunColor: new THREE.Color('#fff8e0') },
+      { zenith: new THREE.Color('#1a2a6c'), horizon: new THREE.Color('#ff5722'), fog: new THREE.Color('#c04020'), ambient: 0.50, sunInt: 0.5, sunColor: new THREE.Color('#ff9040') },
+    ];
+
+    function skyColors(phase) {
+      // phase: 0=midnight, 0.25=dawn, 0.5=noon, 0.75=dusk
+      const p4 = phase * 4;
+      const i0 = Math.floor(p4) % 4;
+      const i1 = (i0 + 1) % 4;
+      const t  = p4 - Math.floor(p4);
+      const st = t * t * (3 - 2 * t); // smoothstep
+      const k0 = SKY_KEYS[i0], k1 = SKY_KEYS[i1];
+      return {
+        zenith:   new THREE.Color().lerpColors(k0.zenith,   k1.zenith,   st),
+        horizon:  new THREE.Color().lerpColors(k0.horizon,  k1.horizon,  st),
+        fog:      new THREE.Color().lerpColors(k0.fog,      k1.fog,      st),
+        ambient:  k0.ambient  + (k1.ambient  - k0.ambient)  * st,
+        sunInt:   k0.sunInt   + (k1.sunInt   - k0.sunInt)   * st,
+        sunColor: new THREE.Color().lerpColors(k0.sunColor, k1.sunColor, st),
+      };
+    }
+
+    // Sky dome — inverted sphere; inside face visible to camera
+    const skyDomeMat = new THREE.ShaderMaterial({
+      fog: false,
+      depthWrite: false,
+      side: THREE.BackSide,
+      uniforms: {
+        uZenith:  { value: new THREE.Color('#5ab4f5') },
+        uHorizon: { value: new THREE.Color('#8ec7ff') },
+      },
+      vertexShader: `
+        varying float vY;
+        void main() {
+          vY = normalize(position).y;
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }
+      `,
+      fragmentShader: `
+        uniform vec3 uZenith;
+        uniform vec3 uHorizon;
+        varying float vY;
+        void main() {
+          float t = clamp(vY, 0.0, 1.0);
+          t = t * t * (3.0 - 2.0 * t);
+          gl_FragColor = vec4(mix(uHorizon, uZenith, t), 1.0);
+        }
+      `,
+    });
+    const skyDome = new THREE.Mesh(new THREE.SphereGeometry(240, 32, 16), skyDomeMat);
+    skyDome.renderOrder = -2;
+    scene.add(skyDome);
+
+    // Sun visual mesh — named sunMesh to avoid collision with `sun` DirectionalLight
+    const sunMesh = new THREE.Mesh(
+      new THREE.SphereGeometry(3, 16, 16),
+      new THREE.MeshBasicMaterial({ color: '#fff5c0', fog: false, transparent: true })
+    );
+    sunMesh.renderOrder = -1;
+    scene.add(sunMesh);
+
+    // Moon visual mesh
+    const moonMesh = new THREE.Mesh(
+      new THREE.SphereGeometry(2, 16, 16),
+      new THREE.MeshBasicMaterial({ color: '#dde8ff', fog: false, transparent: true })
+    );
+    moonMesh.renderOrder = -1;
+    scene.add(moonMesh);
+
+    // Stars — ~300 points scattered across the upper hemisphere
+    const starsGeo = new THREE.BufferGeometry();
+    {
+      const verts = [];
+      for (let i = 0; i < 300; i++) {
+        const theta = Math.random() * Math.PI * 2;
+        const phi   = Math.random() * Math.PI * 0.5; // upper hemisphere only
+        const r     = 220;
+        verts.push(
+          r * Math.sin(phi) * Math.cos(theta),
+          r * Math.cos(phi),
+          r * Math.sin(phi) * Math.sin(theta)
+        );
+      }
+      starsGeo.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3));
+    }
+    const starsMat = new THREE.PointsMaterial({ color: '#ffffff', size: 1.2, sizeAttenuation: true, fog: false, transparent: true, opacity: 0 });
+    const starsPoints = new THREE.Points(starsGeo, starsMat);
+    starsPoints.renderOrder = -1;
+    scene.add(starsPoints);
+
+    // Castle silhouette — hand-crafted 2D shape, placed behind the play area
+    {
+      const castleShape = new THREE.Shape();
+      castleShape.moveTo(-30, 0);
+      castleShape.lineTo(-30, 8);
+      // left tower crenellations
+      castleShape.lineTo(-28, 8);  castleShape.lineTo(-28, 10); castleShape.lineTo(-25, 10); castleShape.lineTo(-25, 8);
+      castleShape.lineTo(-22, 8);  castleShape.lineTo(-22, 10); castleShape.lineTo(-19, 10); castleShape.lineTo(-19, 8);
+      // wall to central keep
+      castleShape.lineTo(-13, 8);
+      // central keep battlements
+      castleShape.lineTo(-13, 11); castleShape.lineTo(-10, 11); castleShape.lineTo(-10, 13); castleShape.lineTo(-7,  13);
+      castleShape.lineTo(-7,  11); castleShape.lineTo(-4,  11); castleShape.lineTo(-4,  13); castleShape.lineTo(0,   13);
+      castleShape.lineTo(0,   11); castleShape.lineTo(4,   11); castleShape.lineTo(4,   13); castleShape.lineTo(7,   13);
+      castleShape.lineTo(7,   11); castleShape.lineTo(10,  11); castleShape.lineTo(10,  13); castleShape.lineTo(13,  13);
+      castleShape.lineTo(13,  11);
+      // wall to right tower
+      castleShape.lineTo(19, 8);
+      // right tower crenellations
+      castleShape.lineTo(19, 10);  castleShape.lineTo(22, 10); castleShape.lineTo(22, 8);
+      castleShape.lineTo(25, 8);   castleShape.lineTo(25, 10); castleShape.lineTo(28, 10); castleShape.lineTo(28, 8);
+      castleShape.lineTo(30, 8);
+      castleShape.lineTo(30, 0);
+      castleShape.closePath();
+      // Gateway arch as a hole
+      const archHole = new THREE.Path();
+      archHole.moveTo(-3.5, 0);
+      archHole.lineTo(-3.5, 5);
+      archHole.absarc(0, 5, 3.5, Math.PI, 0, true); // CW: left → top → right
+      archHole.lineTo(3.5, 0);
+      archHole.closePath();
+      castleShape.holes.push(archHole);
+
+      const castleMat = new THREE.MeshBasicMaterial({ color: '#0a0a18', fog: false, side: THREE.DoubleSide });
+      const castleMesh = new THREE.Mesh(new THREE.ShapeGeometry(castleShape), castleMat);
+      castleMesh.position.set(DIMS.w / 2, -2, -50);
+      castleMesh.scale.set(1.2, 1.2, 1);
+      scene.add(castleMesh);
+      // Expose material so updateDayNightCycle can tint it
+      scene.userData.castleMat = castleMat;
+    }
+
+    function updateDayNightCycle(now) {
+      const dayPhase = (now % DAY_DURATION_MS) / DAY_DURATION_MS;
+      const sky = skyColors(dayPhase);
+
+      // Sky dome + canvas clear color
+      skyDomeMat.uniforms.uZenith.value.copy(sky.zenith);
+      skyDomeMat.uniforms.uHorizon.value.copy(sky.horizon);
+      renderer.setClearColor(sky.zenith, 1);
+
+      // Fog
+      scene.fog.color.copy(sky.fog);
+
+      // Lighting
+      ambientLight.intensity = sky.ambient;
+      sun.intensity = sky.sunInt;
+      sun.color.copy(sky.sunColor);
+
+      // Celestial arc: phase=0→midnight (sun below), phase=0.5→noon (sun above)
+      // sunAngle = -PI/2 at midnight → +PI/2 at noon → -PI/2 again at next midnight
+      const cx = DIMS.w / 2, cz = DIMS.d / 2, R = 80;
+      const sunAngle  = dayPhase * Math.PI * 2 - Math.PI / 2;
+      const moonAngle = sunAngle + Math.PI;
+      const sx = R * Math.cos(sunAngle), sy = R * Math.sin(sunAngle);
+      const mx = R * Math.cos(moonAngle), my = R * Math.sin(moonAngle);
+
+      sunMesh.position.set(cx + sx, sy, cz);
+      sun.position.set(cx + sx, sy, cz);
+      sunMesh.material.opacity = Math.max(0, Math.min(1, (sy + 5) / 10));
+      sunMesh.visible = sy > -5;
+
+      moonMesh.position.set(cx + mx, my, cz);
+      moonMesh.material.opacity = Math.max(0, Math.min(1, (my + 5) / 10));
+      moonMesh.visible = my > -5;
+
+      // Stars: fade in around dusk, fully visible at midnight, fade out at dawn
+      const distFromNoon = Math.abs(dayPhase - 0.5);
+      const nightness = Math.max(0, Math.min(1, (distFromNoon - 0.15) / 0.2));
+      starsMat.opacity = nightness;
+
+      // Castle: deep navy at night → medium slate at noon
+      const castleMat = scene.userData.castleMat;
+      if (castleMat) {
+        castleMat.color.setRGB(
+          0.039 + 0.188 * (1 - nightness),
+          0.039 + 0.251 * (1 - nightness),
+          0.094 + 0.259 * (1 - nightness)
+        );
+      }
+    }
 
     const cube = new THREE.BoxGeometry(1, 1, 1);
     const materials = new Map();
@@ -2685,6 +2875,8 @@
     function loop(now) {
       const dt = Math.min((now - prev) / 1000, 0.1);
       prev = now;
+
+      updateDayNightCycle(now);
 
       // Expire old buffs so the HUD and multipliers are always current.
       for (const [type, expiresAt] of activeBuff) {
