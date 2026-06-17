@@ -146,8 +146,11 @@
           <button id="play-ta-btn" class="w-full px-4 py-2 rounded-lg bg-amber-600 hover:bg-amber-500 font-semibold text-sm transition-colors">Play Time Attack</button>
         </div>
       </div>
-      <div id="status" class="mt-3 text-xs text-zinc-500 text-center"></div>
-      <div id="online-list" class="mt-3 text-sm text-zinc-400 text-center"></div>
+      <div class="mt-3 text-center">
+        <button id="sp-open-btn" class="text-sm text-violet-400 hover:text-violet-300 transition-colors cursor-pointer">✨ Season Pass →</button>
+      </div>
+      <div id="status" class="mt-2 text-xs text-zinc-500 text-center"></div>
+      <div id="online-list" class="mt-2 text-sm text-zinc-400 text-center"></div>
     </div>
   </div>
 
@@ -171,6 +174,7 @@
   <!-- Hold panel: displays the currently held block type (one-slot hold queue).
        Positioned at the bottom-left, aligned with the palette bar. -->
   <div id="hold-panel" class="pointer-events-none fixed bottom-4 left-4 z-20 flex flex-col items-center gap-1">
+    <div id="coin-hud" class="hidden text-[10px] font-bold text-yellow-300 tabular-nums">🪙 0</div>
     <span class="text-[10px] font-bold text-zinc-400 uppercase tracking-wide">Hold</span>
     <div id="hold-swatch" class="w-10 h-10 rounded-md border-2 border-dashed border-zinc-600 flex items-center justify-center">
       <span class="text-zinc-600 text-sm font-bold">–</span>
@@ -339,6 +343,17 @@
   </div>
 
 
+  <!-- Season Pass panel: accessible from the mode-select overlay. z-40 sits above overlay (z-30). -->
+  <div id="sp-panel" class="hidden fixed inset-0 z-40 flex items-center justify-center bg-black/75 backdrop-blur-sm">
+    <div class="max-w-sm w-full mx-4 bg-zinc-900/98 rounded-2xl p-6 shadow-2xl text-zinc-200">
+      <div class="flex items-center justify-between mb-4">
+        <h2 class="text-lg font-bold text-zinc-100">✨ Season Pass — Season 1</h2>
+        <button id="sp-close-btn" class="text-zinc-400 hover:text-zinc-100 cursor-pointer leading-none text-lg">✕</button>
+      </div>
+      <div id="sp-content"><!-- rendered by renderSeasonPassPanel() --></div>
+    </div>
+  </div>
+
   </div><!-- /#rotor -->
 
   <script type="module">
@@ -351,7 +366,7 @@
 
     // Build identifier — bump this (to the deploying commit short SHA) on every
     // change so the top-right stamp confirms exactly which code is running.
-    const BUILD_VERSION = 'hold-queue+achievements-badges+chat+daily-challenge+leaderboard+online-presence+block-attribution+audio-sfx+next-piece-preview';
+    const BUILD_VERSION = 'season-pass-s1+exclusive-blocks+coin-balance';
 
     // Badge definitions — mirror of the server-side BADGES array, extended with
     // a `hint` field shown in the panel for unearned badges.
@@ -366,6 +381,7 @@
       { id: 'glowmaster',      name: 'Glowmaster',      icon: '💡', flavour: 'Placed a Glowstone block!',       hint: 'Place a Glowstone block' },
       { id: 'shadow_sculptor', name: 'Shadow Sculptor', icon: '🌑', flavour: 'Placed an Obsidian block!',       hint: 'Place an Obsidian block' },
       { id: 'material_artist', name: 'Material Artist', icon: '🎨', flavour: 'Used 8+ different block types!', hint: 'Use 8 or more different block types' },
+      { id: 'season_pass_s1', name: 'Season Founder',  icon: '👑', flavour: 'Purchased the Season 1 Pass!',   hint: 'Purchase the Season 1 Pass' },
     ];
 
     // Touch capability: drives (a) the on-screen control overlay, (b) skipping
@@ -585,6 +601,13 @@
     let challengePlaced = 0;         // blocks placed today by this user
     let challengeCompleted = false;  // true once placed >= target
 
+    // ---- Season Pass state ----
+    const SEASON_PASS_COST = 250;
+    let spendableCoins = 0;
+    let seasonPassActive = false;
+    let seasonPassExpiresAt = null;
+    let seasonPassPanelOpen = false;
+
     // ---- Game mode state ----
     let gameMode = null;           // null | 'classic' | 'timeattack'
     const taBlocks = new Map();    // TA layout: client-only, never written to server
@@ -616,6 +639,12 @@
     function materialFor(p) {
       const opts = { color: new THREE.Color(p.color) };
       if (p.opacity != null && p.opacity < 1) { opts.transparent = true; opts.opacity = p.opacity; }
+      if (p.material === 'standard' || p.emissive) {
+        if (p.metalness != null) opts.metalness = p.metalness;
+        if (p.roughness != null) opts.roughness = p.roughness;
+        if (p.emissive) { opts.emissive = new THREE.Color(p.emissive); opts.emissiveIntensity = p.emissiveIntensity ?? 1; }
+        return new THREE.MeshStandardMaterial(opts);
+      }
       return new THREE.MeshLambertMaterial(opts);
     }
 
@@ -921,6 +950,10 @@
             if (badgesOpen) renderBadgesPanel();
           }
           if (data.challenge) syncChallenge(data.challenge);
+          if (data.spendable_coins != null) {
+            spendableCoins = data.spendable_coins;
+            updateCoinHud();
+          }
         }
       } catch (e) { /* poll loop will reconcile */ }
     }
@@ -1142,7 +1175,7 @@
       taTimeLeft = 60;
       if (taTimerHandle) { clearInterval(taTimerHandle); taTimerHandle = null; }
 
-      // Scatter ~150 blocks across the plot using vivid colors
+      // Scatter ~150 blocks across the plot using vivid colors (exclude exclusive block IDs 18-21)
       const taTypes = [9, 10, 11, 7, 6, 3]; // Red, Blue, Yellow, Brick, Sand, Stone
       let count = 0;
       let attempts = 0;
@@ -1194,6 +1227,8 @@
     // Handles per-mode initialization so it runs at the right moment regardless
     // of whether play was entered via pointer lock, drag fallback, or touch.
     function onPlayEntered() {
+      // Show coin counter when entering any play mode.
+      document.getElementById('coin-hud').classList.remove('hidden');
       if (pendingTaInit) {
         pendingTaInit = false;
         initTimeAttack();
@@ -1292,6 +1327,7 @@
       document.getElementById('ta-gameover').classList.add('hidden');
       document.getElementById('palette').classList.remove('hidden');
       hideComboHud();
+      document.getElementById('coin-hud').classList.add('hidden');
 
       overlayEl.style.display = 'flex';
       refreshControlCopy();
@@ -1362,6 +1398,12 @@
 
     document.getElementById('play-classic-btn').addEventListener('click', () => { audio.init(); startMode('classic'); });
     document.getElementById('play-ta-btn').addEventListener('click', () => { audio.init(); startMode('timeattack'); });
+    document.getElementById('sp-open-btn').addEventListener('click', openSeasonPassPanel);
+    document.getElementById('sp-close-btn').addEventListener('click', closeSeasonPassPanel);
+    // Close panel when clicking the backdrop.
+    document.getElementById('sp-panel').addEventListener('click', (e) => {
+      if (e.target === document.getElementById('sp-panel')) closeSeasonPassPanel();
+    });
 
     document.getElementById('ta-play-again').addEventListener('click', () => {
       document.getElementById('ta-gameover').classList.add('hidden');
@@ -1618,20 +1660,41 @@
     function buildPalette() {
       const wrap = document.getElementById('palette');
       wrap.innerHTML = '';
+      // If selectedType is an exclusive block and pass is no longer active, reset it.
+      const selPalEntry = PALETTE.find((q) => q.id === selectedType);
+      if (selPalEntry && selPalEntry.exclusive && !seasonPassActive) {
+        selectedType = (PALETTE.find((q) => !q.exclusive) || PALETTE[0]).id;
+      }
       PALETTE.forEach((p, i) => {
+        const isLocked = p.exclusive && !seasonPassActive;
         const btn = document.createElement('button');
         btn.dataset.id = p.id;
-        btn.title = p.name + (i < 9 ? ' (' + (i + 1) + ')' : '');
+        btn.title = isLocked
+          ? p.name + ' (Season Pass required)'
+          : p.name + (i < 9 ? ' (' + (i + 1) + ')' : '');
         btn.className = 'relative w-10 h-10 rounded-md ring-offset-1 ring-offset-black/0 transition';
         btn.style.background = p.color;
-        if (p.opacity != null && p.opacity < 1) btn.style.opacity = '0.7';
-        if (i < 9) {
-          const num = document.createElement('span');
-          num.textContent = i + 1;
-          num.className = 'absolute bottom-0 right-0.5 text-[10px] font-bold text-black/60';
-          btn.appendChild(num);
+        if (isLocked) {
+          btn.style.opacity = '0.45';
+          btn.style.cursor = 'not-allowed';
+          const lock = document.createElement('span');
+          lock.textContent = '🔒';
+          lock.className = 'absolute inset-0 flex items-center justify-center text-xs pointer-events-none';
+          btn.appendChild(lock);
+          btn.addEventListener('click', () => {
+            // Brief visual cue: the title tooltip shows on hover, so just open the panel.
+            openSeasonPassPanel();
+          });
+        } else {
+          if (p.opacity != null && p.opacity < 1) btn.style.opacity = '0.7';
+          if (i < 9) {
+            const num = document.createElement('span');
+            num.textContent = i + 1;
+            num.className = 'absolute bottom-0 right-0.5 text-[10px] font-bold text-black/60';
+            btn.appendChild(num);
+          }
+          btn.addEventListener('click', () => selectType(p.id));
         }
-        btn.addEventListener('click', () => selectType(p.id));
         wrap.appendChild(btn);
       });
       selectType(selectedType);
@@ -1666,6 +1729,133 @@
       heldType = prev;
       holdLocked = true;
       updateHoldPanel();
+    }
+
+    // ---- Season Pass ----
+    function updateCoinHud() {
+      const el = document.getElementById('coin-hud');
+      if (!el) return;
+      el.textContent = '🪙 ' + spendableCoins;
+      // Show during gameplay; hide on the menu overlay.
+      el.classList.toggle('hidden', !playing);
+    }
+
+    function syncSeasonPassBtn() {
+      const btn = document.getElementById('sp-open-btn');
+      if (!btn) return;
+      if (seasonPassActive && seasonPassExpiresAt) {
+        const days = Math.ceil((new Date(seasonPassExpiresAt) - Date.now()) / 86400000);
+        btn.textContent = '👑 Season Pass active · ' + days + ' day' + (days === 1 ? '' : 's') + ' remaining';
+        btn.className = 'text-sm text-emerald-400 hover:text-emerald-300 transition-colors cursor-pointer';
+      } else {
+        btn.textContent = '✨ Season Pass (' + SEASON_PASS_COST + ' coins) →';
+        btn.className = 'text-sm text-violet-400 hover:text-violet-300 transition-colors cursor-pointer';
+      }
+    }
+
+    function renderSeasonPassPanel() {
+      const el = document.getElementById('sp-content');
+      if (!el) return;
+      const exclusiveBlocks = PALETTE.filter((p) => p.exclusive);
+      const daysLeft = seasonPassActive && seasonPassExpiresAt
+        ? Math.ceil((new Date(seasonPassExpiresAt) - Date.now()) / 86400000)
+        : 0;
+      const canAfford = spendableCoins >= SEASON_PASS_COST;
+
+      let statusHtml = '';
+      if (seasonPassActive) {
+        statusHtml = '<div class="mb-4 px-3 py-2 rounded-lg bg-emerald-900/40 border border-emerald-700/50 text-emerald-300 text-sm font-semibold">' +
+          '✓ Active · ' + daysLeft + ' day' + (daysLeft === 1 ? '' : 's') + ' remaining</div>';
+      } else if (seasonPassExpiresAt && !seasonPassActive) {
+        statusHtml = '<div class="mb-4 px-3 py-2 rounded-lg bg-zinc-800/60 border border-zinc-600/40 text-zinc-400 text-sm">Pass expired — re-purchase for another 30 days.</div>';
+      }
+
+      const blockSwatches = exclusiveBlocks.map((p) =>
+        '<div class="flex items-center gap-2">' +
+        '<div class="w-6 h-6 rounded shrink-0" style="background:' + p.color + ';' +
+          (p.opacity ? 'opacity:' + p.opacity : '') + '"></div>' +
+        '<span class="text-xs text-zinc-300">' + p.name + '</span>' +
+        '</div>'
+      ).join('');
+
+      const purchaseBtnHtml = seasonPassActive
+        ? '<button id="sp-purchase-btn" class="w-full mt-4 px-4 py-2.5 rounded-lg bg-emerald-700/50 text-emerald-300 text-sm font-semibold cursor-not-allowed opacity-60">Already active</button>'
+        : (canAfford
+          ? '<button id="sp-purchase-btn" class="w-full mt-4 px-4 py-2.5 rounded-lg bg-violet-600 hover:bg-violet-500 active:bg-violet-700 text-white text-sm font-semibold transition-colors cursor-pointer">Purchase for 250 coins</button>'
+          : '<button id="sp-purchase-btn" class="w-full mt-4 px-4 py-2.5 rounded-lg bg-zinc-700 text-zinc-500 text-sm font-semibold cursor-not-allowed" disabled>Not enough coins (' + spendableCoins + ' / ' + SEASON_PASS_COST + ')</button>');
+
+      el.innerHTML =
+        statusHtml +
+        '<div class="mb-3 flex items-center justify-between text-sm">' +
+          '<span class="text-zinc-400">Your coins</span>' +
+          '<span class="font-bold text-yellow-300 tabular-nums">🪙 ' + spendableCoins + '</span>' +
+        '</div>' +
+        '<div class="mb-4 text-xs text-zinc-500">Coins accumulate as you earn score. Each block placed earns coins.</div>' +
+        '<div class="mb-3 text-sm font-semibold text-zinc-300">30-day pass includes:</div>' +
+        '<div class="mb-2 space-y-2">' + blockSwatches + '</div>' +
+        '<div class="flex items-center gap-2 mt-2">' +
+          '<span class="text-lg leading-none">👑</span>' +
+          '<span class="text-xs text-zinc-300">Season Founder badge (permanent)</span>' +
+        '</div>' +
+        '<div class="mt-3 text-xs text-zinc-600">Blocks you place keep their appearance after expiry.</div>' +
+        purchaseBtnHtml;
+
+      const purchaseBtn = document.getElementById('sp-purchase-btn');
+      if (purchaseBtn && !seasonPassActive && canAfford) {
+        purchaseBtn.addEventListener('click', purchaseSeasonPass);
+      }
+    }
+
+    function openSeasonPassPanel() {
+      seasonPassPanelOpen = true;
+      renderSeasonPassPanel();
+      document.getElementById('sp-panel').classList.remove('hidden');
+    }
+
+    function closeSeasonPassPanel() {
+      seasonPassPanelOpen = false;
+      document.getElementById('sp-panel').classList.add('hidden');
+    }
+
+    async function purchaseSeasonPass() {
+      const btn = document.getElementById('sp-purchase-btn');
+      if (btn) { btn.disabled = true; btn.textContent = 'Purchasing…'; }
+      try {
+        const res = await fetch('/api/season-pass/purchase', { method: 'POST', headers });
+        const data = await res.json();
+        if (!res.ok) {
+          if (btn) { btn.disabled = false; btn.textContent = 'Purchase for 250 coins'; }
+          return;
+        }
+        // Update local state immediately.
+        spendableCoins = data.spendable_remaining;
+        seasonPassActive = true;
+        seasonPassExpiresAt = data.expires_at;
+        updateCoinHud();
+        syncSeasonPassBtn();
+        buildPalette(); // unlock exclusive palette slots
+        if (data.badge) {
+          earnedBadges.set(data.badge.id, { earned_at: new Date().toISOString() });
+          showBadgeToast(data.badge);
+          if (badgesOpen) renderBadgesPanel();
+        }
+        renderSeasonPassPanel(); // refresh panel to show active state
+      } catch (_) {
+        if (btn) { btn.disabled = false; btn.textContent = 'Purchase for 250 coins'; }
+      }
+    }
+
+    async function loadSeasonPass() {
+      try {
+        const res = await fetch('/api/season-pass', { headers });
+        if (!res.ok) return;
+        const data = await res.json();
+        spendableCoins = data.spendable;
+        seasonPassActive = data.active;
+        seasonPassExpiresAt = data.expires_at;
+        updateCoinHud();
+        syncSeasonPassBtn();
+      } catch (_) {}
     }
 
     // ---- Chat ----
@@ -1779,6 +1969,11 @@
       DIMS = data.dims;
       PALETTE = data.palette;
       cursor = data.cursor || 0;
+      // Bootstrap coin balance and pass state from the world response (avoids a
+      // second round-trip; /api/season-pass is called afterwards only if needed).
+      if (data.spendable_coins != null) spendableCoins = data.spendable_coins;
+      if (data.season_pass_active != null) seasonPassActive = data.season_pass_active;
+      if (data.season_pass_expires_at != null) seasonPassExpiresAt = data.season_pass_expires_at;
       selectedType = PALETTE[0] ? PALETTE[0].id : 1;
       blocks.clear();
       for (const b of data.blocks) blocks.set(key(b.x, b.y, b.z), b.t);
@@ -1787,6 +1982,7 @@
       buildPalette();
       rebuildBlockMeshes();
       spawnCamera();
+      syncSeasonPassBtn();
       return true;
     }
 

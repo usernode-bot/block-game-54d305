@@ -36,8 +36,14 @@ const PALETTE = [
   { id: 15, name: 'Glowstone',     color: '#ffb040', emissive: '#ff8800', emissiveIntensity: 0.6 },
   { id: 16, name: 'Obsidian',      color: '#18082a', material: 'standard', metalness: 0.3, roughness: 0.1 },
   { id: 17, name: 'Rainbow Block', color: '#ff4488', powerup: true },
+  // Season 1 exclusive cosmetic blocks — only placeable with an active Season Pass.
+  { id: 18, name: 'Crystal',   color: '#a8e6f0', material: 'standard', metalness: 0.7, roughness: 0.05, opacity: 0.65, exclusive: true },
+  { id: 19, name: 'Neon',      color: '#39ff14', emissive: '#00cc00', emissiveIntensity: 0.5, exclusive: true },
+  { id: 20, name: 'Prism',     color: '#ff44bb', material: 'standard', metalness: 0.6, roughness: 0.15, exclusive: true },
+  { id: 21, name: 'Void Core', color: '#1a0033', material: 'standard', metalness: 0.4, roughness: 0.1, emissive: '#6600aa', emissiveIntensity: 0.4, exclusive: true },
 ];
 const VALID_TYPES = new Set(PALETTE.map((p) => p.id)); // does NOT include 0
+const EXCLUSIVE_TYPES = new Set(PALETTE.filter((p) => p.exclusive).map((p) => p.id));
 
 // Points awarded per block placed (type 0 = break = 0 points).
 const BLOCK_POINTS = {
@@ -48,6 +54,7 @@ const BLOCK_POINTS = {
   15: 3,  // Glowstone
   16: 4,  // Obsidian
   17: 5,  // Rainbow Block
+  18: 5, 19: 5, 20: 5, 21: 5, // Exclusive (Crystal, Neon, Prism, Void Core)
 };
 
 // Sentinel "user" id for staging seed rows so they never reference a real user.
@@ -65,6 +72,7 @@ const BADGES = [
   { id: 'glowmaster',      name: 'Glowmaster',      icon: '💡', flavour: 'Placed a Glowstone block!' },
   { id: 'shadow_sculptor', name: 'Shadow Sculptor', icon: '🌑', flavour: 'Placed an Obsidian block!' },
   { id: 'material_artist', name: 'Material Artist', icon: '🎨', flavour: 'Used 8+ different block types!' },
+  { id: 'season_pass_s1', name: 'Season Founder',  icon: '👑', flavour: 'Purchased the Season 1 Pass!' },
 ];
 
 // Returns badges from BADGES that are newly earned given updated leaderboard
@@ -131,17 +139,29 @@ app.use((req, res, next) => {
 app.get('/health', (_req, res) => res.json({ status: 'ok' }));
 
 // ---- World bootstrap: dimensions, palette, current blocks, poll cursor ----
-app.get('/api/world', async (_req, res) => {
+app.get('/api/world', async (req, res) => {
   try {
     const { rows } = await pool.query(
       `SELECT x, y, z, block_type FROM blocks WHERE block_type <> 0`
     );
     const cur = await pool.query(`SELECT COALESCE(MAX(seq), 0) AS cursor FROM blocks`);
+    // Include per-player coin balance and pass status for HUD bootstrap.
+    const coinRes = await pool.query(
+      `SELECT COALESCE(total_score - coins_spent, 0) AS spendable FROM leaderboard WHERE user_id = $1`,
+      [req.user.id]
+    );
+    const passRes = await pool.query(
+      `SELECT expires_at FROM season_passes WHERE user_id = $1 AND expires_at > NOW()`,
+      [req.user.id]
+    );
     res.json({
       dims: DIMS,
       palette: PALETTE,
       blocks: rows.map((r) => ({ x: r.x, y: r.y, z: r.z, t: r.block_type })),
       cursor: Number(cur.rows[0].cursor),
+      spendable_coins: coinRes.rows.length ? Number(coinRes.rows[0].spendable) : 0,
+      season_pass_active: passRes.rows.length > 0,
+      season_pass_expires_at: passRes.rows.length ? passRes.rows[0].expires_at : null,
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -171,6 +191,16 @@ app.post('/api/block', async (req, res) => {
     }
     if (t !== 0 && !VALID_TYPES.has(t)) {
       return res.status(400).json({ error: 'unknown block_type' });
+    }
+    // Exclusive block types require an active Season Pass.
+    if (t !== 0 && EXCLUSIVE_TYPES.has(t)) {
+      const passRes = await pool.query(
+        `SELECT expires_at FROM season_passes WHERE user_id = $1 AND expires_at > NOW()`,
+        [req.user.id]
+      );
+      if (!passRes.rows.length) {
+        return res.status(400).json({ error: 'season_pass_required' });
+      }
     }
 
     const { rows } = await pool.query(
@@ -260,13 +290,14 @@ app.post('/api/block', async (req, res) => {
            best_combo    = GREATEST(leaderboard.best_combo, EXCLUDED.best_combo),
            username      = EXCLUDED.username,
            updated_at    = NOW()
-         RETURNING total_score, blocks_placed, best_combo`,
+         RETURNING total_score, blocks_placed, best_combo, coins_spent`,
         [req.user.id, req.user.username, earned, combo_tier]
       );
       const lb = {
         total_score:   Number(lbRes.rows[0].total_score),
         blocks_placed: Number(lbRes.rows[0].blocks_placed),
         best_combo:    lbRes.rows[0].best_combo,
+        coins_spent:   Number(lbRes.rows[0].coins_spent),
       };
 
       // Track which block types this player has ever placed.
@@ -300,7 +331,18 @@ app.post('/api/block', async (req, res) => {
       newly_earned_badges = newBadges.map((b) => ({ id: b.id, name: b.name, icon: b.icon, flavour: b.flavour }));
     }
 
-    res.json({ ok: true, seq, ...(challenge ? { challenge } : {}), earned, combo_multiplier, rainbow_multiplier, newly_earned_badges });
+    // Compute spendable coins for the client's coin HUD. Only meaningful for
+    // placements (breaks earn nothing), but always included for simplicity.
+    let spendable_coins = null;
+    if (t !== 0) {
+      const coinRes = await pool.query(
+        `SELECT COALESCE(total_score - coins_spent, 0) AS spendable FROM leaderboard WHERE user_id = $1`,
+        [req.user.id]
+      );
+      if (coinRes.rows.length) spendable_coins = Number(coinRes.rows[0].spendable);
+    }
+
+    res.json({ ok: true, seq, ...(challenge ? { challenge } : {}), earned, combo_multiplier, rainbow_multiplier, newly_earned_badges, ...(spendable_coins !== null ? { spendable_coins } : {}) });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -433,6 +475,66 @@ app.get('/api/badges', async (req, res) => {
     );
     res.json({
       badges: rows.map((r) => ({ id: r.badge_id, earned_at: r.earned_at })),
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- Season Pass: current pass status + spendable coin balance ----
+app.get('/api/season-pass', async (req, res) => {
+  try {
+    const lbRes = await pool.query(
+      `SELECT COALESCE(total_score - coins_spent, 0) AS spendable, COALESCE(coins_spent, 0) AS coins_spent
+       FROM leaderboard WHERE user_id = $1`,
+      [req.user.id]
+    );
+    const spendable = lbRes.rows.length ? Number(lbRes.rows[0].spendable) : 0;
+    const coins_spent = lbRes.rows.length ? Number(lbRes.rows[0].coins_spent) : 0;
+    const passRes = await pool.query(
+      `SELECT expires_at FROM season_passes WHERE user_id = $1 ORDER BY expires_at DESC LIMIT 1`,
+      [req.user.id]
+    );
+    const pass = passRes.rows[0] || null;
+    const active = pass ? new Date(pass.expires_at) > new Date() : false;
+    res.json({ spendable, coins_spent, active, expires_at: pass ? pass.expires_at : null, cost: 250 });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- Season Pass: purchase or renew ----
+app.post('/api/season-pass/purchase', async (req, res) => {
+  try {
+    const lbRes = await pool.query(
+      `SELECT COALESCE(total_score - coins_spent, 0) AS spendable FROM leaderboard WHERE user_id = $1`,
+      [req.user.id]
+    );
+    const spendable = lbRes.rows.length ? Number(lbRes.rows[0].spendable) : 0;
+    if (spendable < 250) {
+      return res.status(400).json({ error: 'insufficient_coins', spendable });
+    }
+    await pool.query(
+      `UPDATE leaderboard SET coins_spent = coins_spent + 250 WHERE user_id = $1`,
+      [req.user.id]
+    );
+    const passRes = await pool.query(
+      `INSERT INTO season_passes (user_id, purchased_at, expires_at, season_id)
+       VALUES ($1, NOW(), NOW() + INTERVAL '30 days', 's1')
+       ON CONFLICT (user_id) DO UPDATE SET purchased_at = NOW(), expires_at = NOW() + INTERVAL '30 days'
+       RETURNING expires_at`,
+      [req.user.id]
+    );
+    await pool.query(
+      `INSERT INTO player_badges (user_id, badge_id, earned_at) VALUES ($1, 'season_pass_s1', NOW()) ON CONFLICT DO NOTHING`,
+      [req.user.id]
+    );
+    const badge = BADGES.find((b) => b.id === 'season_pass_s1');
+    res.json({
+      ok: true,
+      expires_at: passRes.rows[0].expires_at,
+      spendable_remaining: spendable - 250,
+      badge: badge ? { id: badge.id, name: badge.name, icon: badge.icon, flavour: badge.flavour } : null,
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -608,19 +710,20 @@ async function seedStaging() {
 
   // Seed leaderboard with obviously-fake entries (negative user IDs avoid
   // colliding with real platform user IDs, which are positive integers).
+  // alice has bought the pass (coins_spent=250); bob and others have not.
   const fakeScores = [
-    { id: -1, username: 'staging-demo-alice', total_score: 1450, blocks_placed: 320, best_combo: 3 },
-    { id: -2, username: 'staging-demo-bob',   total_score: 980,  blocks_placed: 210, best_combo: 3 },
-    { id: -3, username: 'staging-demo-carol', total_score: 720,  blocks_placed: 180, best_combo: 2 },
-    { id: -4, username: 'staging-demo-dave',  total_score: 440,  blocks_placed:  95, best_combo: 1 },
-    { id: -5, username: 'staging-demo-eve',   total_score: 115,  blocks_placed:  30, best_combo: 1 },
+    { id: -1, username: 'staging-demo-alice', total_score: 1450, blocks_placed: 320, best_combo: 3, coins_spent: 250 },
+    { id: -2, username: 'staging-demo-bob',   total_score: 980,  blocks_placed: 210, best_combo: 3, coins_spent: 0 },
+    { id: -3, username: 'staging-demo-carol', total_score: 720,  blocks_placed: 180, best_combo: 2, coins_spent: 0 },
+    { id: -4, username: 'staging-demo-dave',  total_score: 440,  blocks_placed:  95, best_combo: 1, coins_spent: 0 },
+    { id: -5, username: 'staging-demo-eve',   total_score: 115,  blocks_placed:  30, best_combo: 1, coins_spent: 0 },
   ];
   for (const s of fakeScores) {
     await pool.query(
-      `INSERT INTO leaderboard (user_id, username, total_score, blocks_placed, best_combo, updated_at)
-       VALUES ($1, $2, $3, $4, $5, NOW())
+      `INSERT INTO leaderboard (user_id, username, total_score, blocks_placed, best_combo, coins_spent, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, NOW())
        ON CONFLICT (user_id) DO NOTHING`,
-      [s.id, s.username, s.total_score, s.blocks_placed, s.best_combo]
+      [s.id, s.username, s.total_score, s.blocks_placed, s.best_combo, s.coins_spent]
     );
   }
 
@@ -652,6 +755,7 @@ async function seedStaging() {
     { userId: -1, badgeId: 'comboist' },
     { userId: -1, badgeId: 'golden_touch' },
     { userId: -1, badgeId: 'material_artist' },
+    { userId: -1, badgeId: 'season_pass_s1' }, // alice bought the Season 1 Pass
     { userId: -2, badgeId: 'first_block' },
     { userId: -2, badgeId: 'builder' },
     { userId: -2, badgeId: 'rainbow_placer' },
@@ -668,6 +772,15 @@ async function seedStaging() {
       [b.userId, b.badgeId]
     );
   }
+
+  // Seed season passes: alice has an active pass; bob has an expired one.
+  // carol/dave/eve have no pass, so the locked-palette state is exercised.
+  await pool.query(
+    `INSERT INTO season_passes (user_id, purchased_at, expires_at, season_id)
+     VALUES (-1, NOW() - INTERVAL '2 days', NOW() + INTERVAL '28 days', 's1'),
+            (-2, NOW() - INTERVAL '35 days', NOW() - INTERVAL '5 days', 's1')
+     ON CONFLICT (user_id) DO NOTHING`
+  );
 
   // Daily challenge progress seed: three personas at different completion states
   // so both in-progress and complete widget states can be verified.
@@ -763,6 +876,8 @@ async function start() {
       updated_at    TIMESTAMPTZ DEFAULT NOW()
     )
   `);
+  // Coins are tracked as spending against the total_score; balance = total_score - coins_spent.
+  await pool.query(`ALTER TABLE leaderboard ADD COLUMN IF NOT EXISTS coins_spent BIGINT NOT NULL DEFAULT 0`);
 
   // Tracks which block types each player has ever placed. The blocks table
   // records only the current placer of each cell, so overwrites erase
@@ -821,6 +936,17 @@ async function start() {
   await pool.query(`
     CREATE INDEX IF NOT EXISTS daily_challenge_progress_date_placed_idx
     ON daily_challenge_progress (challenge_date, blocks_placed DESC)
+  `);
+
+  // Season Pass purchases: one row per user, upserted on each purchase.
+  // expires_at > NOW() indicates an active pass.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS season_passes (
+      user_id      INTEGER PRIMARY KEY,
+      purchased_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      expires_at   TIMESTAMPTZ NOT NULL,
+      season_id    VARCHAR(16)  NOT NULL DEFAULT 's1'
+    )
   `);
 
   if (IS_STAGING) {
