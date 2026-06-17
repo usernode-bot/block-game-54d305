@@ -854,6 +854,7 @@
         </div>
       </div>
       <div id="tournament-teaser" class="hidden mt-3 rounded-xl bg-zinc-900/60 px-4 py-2.5 text-xs text-zinc-300"></div>
+      <div id="collab-teaser" class="hidden mt-2 rounded-xl bg-zinc-900/60 px-4 py-2.5 text-xs text-zinc-300"></div>
       <div id="prompt-teaser" class="hidden mt-2 rounded-xl bg-zinc-900/60 px-4 py-2.5 text-xs text-zinc-300"></div>
       <div id="status" class="mt-3 text-xs text-zinc-500 text-center"></div>
       <div class="mt-2 text-center">
@@ -1320,6 +1321,9 @@
 
   <!-- Badge toast container: toasts stack above the palette, bottom-centre. -->
   <div id="badge-toasts" class="pointer-events-none fixed left-1/2 -translate-x-1/2 z-40 flex flex-col-reverse items-center gap-2" style="bottom: 5.5rem"></div>
+
+  <!-- Collab Challenge HUD: stacked above streak/daily HUDs. Bottom set by JS. -->
+  <div id="collab-challenge-hud" class="hidden pointer-events-none fixed right-3 z-20 w-44 rounded-lg bg-black/55 px-2 py-1.5 text-xs text-white/90"></div>
 
   <!-- Coins HUD: coin balance pill above the streak pill. Bottom set by JS. -->
   <div id="coins-hud" class="hidden pointer-events-none fixed right-3 z-20 rounded-lg bg-black/55 px-2 py-1.5 text-xs text-amber-300 font-semibold whitespace-nowrap"></div>
@@ -1968,7 +1972,7 @@
 
     // Build identifier — bump this (to the deploying commit short SHA) on every
     // change so the top-right stamp confirms exactly which code is running.
-    const BUILD_VERSION = 'cyberpunk-theme+speedrun-mode+power-ups+hold-queue+achievements-badges+chat+daily-challenge+leaderboard+online-presence+block-attribution+audio-sfx+next-piece-preview+spectator-mode+weekly-tournament+friends+xp-levels+betting-system+blocks-placed-hud+ai-opponent+weather-system+day-night-cycle+minimap+ai-coach+ai-hints+nft-skins+player-stats+leaderboard-daily+new-badges+daily-theme-voting+natural-disasters+community-monuments+undo-redo-history+pastel-chrome+mobs+message-in-a-block+accessibility-panel+pixel-pets+versus-mode+blueprint+battle-mode';
+    const BUILD_VERSION = 'cyberpunk-theme+speedrun-mode+power-ups+hold-queue+achievements-badges+chat+daily-challenge+leaderboard+online-presence+block-attribution+audio-sfx+next-piece-preview+spectator-mode+weekly-tournament+friends+xp-levels+collab-challenges+betting-system+blocks-placed-hud+ai-opponent+weather-system+day-night-cycle+minimap+ai-coach+ai-hints+nft-skins+player-stats+leaderboard-daily+new-badges+daily-theme-voting+natural-disasters+community-monuments+undo-redo-history+pastel-chrome+mobs+message-in-a-block+accessibility-panel+pixel-pets+versus-mode+blueprint+battle-mode';
 
     // Badge definitions — mirror of the server-side BADGES array, extended with
     // a `hint` field shown in the panel for unearned badges.
@@ -2762,6 +2766,12 @@
       } catch (_) {}
     }
 
+    // Collab challenge HUD sits above the streak HUD.
+    const collabHudEl = document.getElementById('collab-challenge-hud');
+    const STREAK_HUD_HEIGHT_PX = 28; // approx rendered height of streak pill
+    const streakHudBottomPx = challengeHudBottomPx + CHALLENGE_HUD_HEIGHT_PX + STREAK_GAP_PX;
+    collabHudEl.style.bottom = (streakHudBottomPx + STREAK_HUD_HEIGHT_PX + STREAK_GAP_PX) + 'px';
+
     // Apply touch-device layout overrides once at startup.
     if (isTouch) {
       document.body.classList.add('touch-device');
@@ -3026,6 +3036,15 @@
     let playerHp           = PLAYER_MAX_HP;
     let lastDamagedAt      = 0;   // ms; 2-second inter-hit immunity
     let deathInvincibleUntil = 0; // ms; 5-second post-respawn invincibility
+
+    // ---- Collaborative Challenge state ----
+    let collabWindowId = null;
+    let collabTarget = 0;
+    let collabTotal = 0;
+    let collabMyPlaced = 0;
+    let collabCompleted = false;
+    let collabEndsAt = null;
+    let collabTopContributors = [];
 
     // ---- XP / Level state ----
     let playerLevel = 1;
@@ -4746,6 +4765,73 @@
       if (gameMode !== 'spectate') challengeHudEl.classList.remove('hidden');
     }
 
+    // ---- Collab Challenge rendering ----
+    function renderCollabChallenge() {
+      if (!collabWindowId) return;
+      const pct = collabTarget > 0 ? Math.min(100, Math.round((collabTotal / collabTarget) * 100)) : 0;
+      const barColor = collabCompleted ? '#22c55e' : '#7c3aed';
+      const msLeft = collabEndsAt ? new Date(collabEndsAt).getTime() - Date.now() : 0;
+      const timeStr = msLeft > 0 ? formatCountdown(msLeft) + ' left' : 'ending soon';
+      collabHudEl.innerHTML =
+        '<div style="font-weight:600;color:rgba(255,255,255,0.45);margin-bottom:2px;line-height:1.2">Community Challenge</div>' +
+        '<div style="margin-bottom:3px;line-height:1.2">Place ' + collabTarget + ' together</div>' +
+        (collabCompleted
+          ? '<div style="font-weight:600;color:#4ade80">✓ Complete!</div>'
+          : '<div style="font-variant-numeric:tabular-nums">' + collabTotal + ' / ' + collabTarget + '</div>'
+        ) +
+        '<div style="margin-top:5px;height:3px;border-radius:9999px;background:rgba(255,255,255,0.18);overflow:hidden">' +
+          '<div style="width:' + pct + '%;height:100%;border-radius:9999px;background:' + barColor + ';transition:width 0.3s"></div>' +
+        '</div>' +
+        (collabTopContributors.length
+          ? '<div style="margin-top:5px;color:rgba(255,255,255,0.45);font-size:10px;line-height:1.5">' +
+            collabTopContributors.map((c) => escapeHtml(c.username) + ' — ' + c.blocks_placed).join('<br>') +
+            '</div>'
+          : '') +
+        (collabCompleted ? '' : '<div style="color:rgba(255,255,255,0.3);font-size:10px;margin-top:3px">' + timeStr + '</div>');
+    }
+
+    function showCollabCompleteToast() {
+      const container = document.getElementById('badge-toasts');
+      const toast = document.createElement('div');
+      toast.className = 'flex items-center gap-3 bg-emerald-900/90 backdrop-blur rounded-xl px-4 py-2.5 text-sm text-emerald-100 shadow-xl';
+      toast.style.cssText = 'opacity:0;transition:opacity 0.3s;';
+      const iconSpan = document.createElement('span');
+      iconSpan.className = 'text-2xl leading-none flex-shrink-0';
+      iconSpan.textContent = '🎉';
+      const textDiv = document.createElement('div');
+      const nameDiv = document.createElement('div');
+      nameDiv.className = 'font-semibold';
+      nameDiv.textContent = 'Community goal reached!';
+      const subDiv = document.createElement('div');
+      subDiv.className = 'text-emerald-300 text-xs mt-0.5';
+      subDiv.textContent = collabTotal + ' blocks placed together';
+      textDiv.appendChild(nameDiv);
+      textDiv.appendChild(subDiv);
+      toast.appendChild(iconSpan);
+      toast.appendChild(textDiv);
+      container.appendChild(toast);
+      requestAnimationFrame(() => { toast.style.opacity = '1'; });
+      setTimeout(() => {
+        toast.style.opacity = '0';
+        setTimeout(() => toast.remove(), 300);
+      }, 5000);
+    }
+
+    function syncCollab(data) {
+      if (!data) return;
+      const wasCompleted = collabCompleted;
+      collabWindowId = data.window_id;
+      collabTarget = data.target;
+      collabTotal = data.total_placed;
+      collabMyPlaced = data.my_placed || 0;
+      collabCompleted = !!data.completed_at;
+      collabEndsAt = data.ends_at;
+      collabTopContributors = data.top_contributors || [];
+      renderCollabChallenge();
+      collabHudEl.classList.remove('hidden');
+      if (!wasCompleted && collabCompleted) showCollabCompleteToast();
+    }
+
     function syncMission(data) {
       if (!data) return;
       missionDate = data.date;
@@ -4874,6 +4960,7 @@
             }
           }
           if (data.challenge) syncChallenge(data.challenge);
+          if (data.collab) syncCollab(data.collab);
           if (typeof data.total_score === 'number') {
             const newLevel = data.level || getLevel(data.total_score);
             if (newLevel > playerLevel) {
@@ -8939,6 +9026,28 @@
       } catch (_) { /* non-fatal */ }
     }
 
+    async function loadCollabTeaser() {
+      const teaserEl = document.getElementById('collab-teaser');
+      if (!teaserEl) return;
+      try {
+        const res = await fetch('/api/collab/current', { headers });
+        if (!res.ok) return;
+        const data = await res.json();
+        syncCollab(data);
+        const msLeft = data.ends_at ? new Date(data.ends_at).getTime() - Date.now() : 0;
+        const timeStr = msLeft > 0 ? formatCountdown(msLeft) + ' left' : '';
+        if (data.completed_at) {
+          teaserEl.innerHTML = '<span class="font-semibold text-emerald-400">🎉 Community Challenge — Complete!</span>';
+        } else {
+          teaserEl.innerHTML =
+            '<span class="font-semibold text-zinc-200">🤝 Community Challenge</span>' +
+            ' · ' + data.total_placed + ' / ' + data.target +
+            (timeStr ? ' — ' + timeStr : '');
+        }
+        teaserEl.classList.remove('hidden');
+      } catch (_) { /* non-fatal */ }
+    }
+
     function relTimeShort(ts) {
       if (!ts) return '';
       const diff = Math.floor((Date.now() - new Date(ts).getTime()) / 1000);
@@ -9057,6 +9166,7 @@
         ).join('') +
         '</tbody></table>';
     }
+
 
     async function fetchLeaderboard() {
       clearTimeout(leaderboardTimer);
@@ -10841,6 +10951,12 @@
           if (cc && cc > chatCursor) chatCursor = cc;
         }
       } catch (e) { /* transient */ }
+
+      // Collaborative challenge
+      try {
+        const collabRes = await fetch('/api/collab/current', { headers });
+        if (collabRes.ok) syncCollab(await collabRes.json());
+      } catch (e) { /* transient */ }
     }
 
     // ---- Speed Run UI event handlers ----
@@ -11486,6 +11602,7 @@
       } catch (_) {}
 
       loadTournamentTeaser();
+      loadCollabTeaser();
       loadPromptTeaser();
 
       // Load login streak so the HUD shows immediately without waiting for heartbeat.
@@ -11529,6 +11646,13 @@
         try {
           const mr = await fetch('/api/mission/today', { headers });
           if (mr.ok) syncMission(await mr.json());
+        } catch (_) {}
+      }, 30000);
+      // Re-fetch collab challenge every 30s for overlay and non-playing updates.
+      setInterval(async () => {
+        try {
+          const cr = await fetch('/api/collab/current', { headers });
+          if (cr.ok) syncCollab(await cr.json());
         } catch (_) {}
       }, 30000);
 
