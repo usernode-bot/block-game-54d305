@@ -199,6 +199,7 @@
       background-color: rgba(0,0,0,0.9) !important;
     }
     html.a11y-hc #palette { border: 1px solid rgba(255,255,255,0.45); }
+    html.a11y-hc #hold-swatch { border-color: rgba(255,255,255,0.45) !important; }
     /* Lift the dim zinc text utilities used across panels/HUD toward white. */
     html.a11y-hc .text-zinc-300,
     html.a11y-hc .text-zinc-400,
@@ -239,6 +240,21 @@
       transition: transform 0.15s;
     }
     .a11y-toggle[aria-checked="true"]::after { transform: translateX(20px); }
+
+    /* Chaos Mode: pulsing rainbow outline on the palette */
+    @keyframes chaos-rainbow {
+      0%   { box-shadow: 0 0 0 2px hsl(0,100%,60%); }
+      16%  { box-shadow: 0 0 0 2px hsl(60,100%,60%); }
+      33%  { box-shadow: 0 0 0 2px hsl(120,100%,60%); }
+      50%  { box-shadow: 0 0 0 2px hsl(180,100%,60%); }
+      66%  { box-shadow: 0 0 0 2px hsl(240,100%,70%); }
+      83%  { box-shadow: 0 0 0 2px hsl(300,100%,65%); }
+      100% { box-shadow: 0 0 0 2px hsl(360,100%,60%); }
+    }
+    #palette.chaos-active {
+      animation: chaos-rainbow 1.6s linear infinite;
+      border-radius: 0.5rem;
+    }
 
     /* Undo/redo buttons: disabled state */
     #undo-btn:disabled, #redo-btn:disabled,
@@ -363,6 +379,74 @@
         max-height: auto;
         overflow-y: auto;
         padding: 1rem !important;
+      }
+    }
+
+    /* Landscape mode: split gameplay control buttons to corners for two-thumb control.
+       When in landscape orientation, move Undo/Delete to bottom-left, keep Add/Hold at bottom-right. */
+    @media (orientation: landscape) {
+      /* In landscape mode on touch, split the action buttons between left and right corners. */
+
+      /* Position Undo and Delete buttons absolutely at bottom-left. */
+      #touch-controls.landscape-mode #tc-actions > div:nth-child(2) > button:nth-child(1),
+      #touch-controls.landscape-mode #tc-actions > div:nth-child(2) > button:nth-child(2) {
+        position: fixed;
+        bottom: calc(1rem + env(safe-area-inset-bottom));
+        z-index: 20;
+      }
+
+      /* Undo button at bottom-left. */
+      #touch-controls.landscape-mode #tc-actions > div:nth-child(2) > button:nth-child(1) {
+        left: calc(1rem + env(safe-area-inset-left));
+        right: auto;
+      }
+
+      /* Delete button to the right of Undo. Approximately 4rem for button + gap. */
+      #touch-controls.landscape-mode #tc-actions > div:nth-child(2) > button:nth-child(2) {
+        left: calc(4.25rem + env(safe-area-inset-left));
+        right: auto;
+      }
+
+      /* Keep row 2 container visible but only Add will show on the right. */
+      #touch-controls.landscape-mode #tc-actions > div:nth-child(2) {
+        position: relative;
+      }
+
+      /* Main actions container: keep at bottom-right. */
+      #touch-controls.landscape-mode #tc-actions {
+        right: calc(1rem + env(safe-area-inset-right));
+        bottom: calc(1rem + env(safe-area-inset-bottom));
+        flex-direction: column;
+        align-items: flex-end;
+        gap: 0.25rem;
+      }
+
+      /* Row 1 (Hold/Down/Up): show Hold, hide Down and Up. */
+      #touch-controls.landscape-mode #tc-actions > div:nth-child(1) {
+        display: flex;
+        gap: 0.25rem;
+      }
+
+      #touch-controls.landscape-mode #tc-actions > div:nth-child(1) > button:nth-child(2),
+      #touch-controls.landscape-mode #tc-actions > div:nth-child(1) > button:nth-child(3) {
+        display: none;
+      }
+
+      /* Row 2: show in place at right, but Undo/Delete are now positioned at left. */
+      #touch-controls.landscape-mode #tc-actions > div:nth-child(2) {
+        display: flex;
+        gap: 0.25rem;
+      }
+
+      /* Row 3 (Stamp): show on the right. */
+      #touch-controls.landscape-mode #tc-actions > div:nth-child(3) {
+        display: flex;
+        gap: 0.25rem;
+      }
+
+      /* Reduce palette bottom offset to avoid overlap with landscape controls. */
+      #palette.touch-playing {
+        bottom: 8.5rem;
       }
     }
 
@@ -510,8 +594,8 @@
       position: absolute;
       font-weight: 800;
       font-size: 1.4rem;
-      color: #ffb700;
-      text-shadow: 0 1px 3px rgba(0,0,0,0.7), 0 0 8px rgba(255,183,0,0.5);
+      color: #f5d27a;
+      text-shadow: 0 1px 3px rgba(0,0,0,0.7), 0 0 8px rgba(245,210,122,0.5);
       white-space: nowrap;
       will-change: transform, opacity;
     }
@@ -695,7 +779,7 @@
 
   <!-- Hold panel: displays the currently held block type (one-slot hold queue).
        Positioned at the bottom-left, aligned with the palette bar. -->
-  <div id="hold-panel" class="pointer-events-none fixed bottom-4 left-4 z-20 flex flex-col items-center gap-1">
+  <div id="hold-panel" class="pointer-events-none fixed bottom-4 left-4 z-20 flex items-center gap-1.5">
     <span class="text-[10px] font-bold text-zinc-400 uppercase tracking-wide">Hold</span>
     <div id="hold-swatch" class="w-10 h-10 rounded-md border-2 border-dashed border-zinc-600 flex items-center justify-center">
       <span class="text-zinc-600 text-sm font-bold">–</span>
@@ -893,6 +977,17 @@
           <span id="settings-language-knob" class="absolute top-0.5 left-0.5 w-6 h-6 rounded-full bg-white shadow transition-transform" style="transform: translateX(0px)"></span>
         </button>
       </div>
+      <!-- Chaos Mode toggle -->
+      <div class="flex items-center justify-between gap-3">
+        <div>
+          <div class="font-semibold text-zinc-100" id="settings-chaos-label">Chaos Mode</div>
+          <div class="text-xs text-zinc-400" id="settings-chaos-desc">Placed blocks get a random type.</div>
+        </div>
+        <button id="settings-chaos-toggle" role="switch" aria-checked="false"
+                class="relative w-12 h-7 rounded-full bg-zinc-600 transition-colors cursor-pointer flex-shrink-0">
+          <span id="settings-chaos-knob" class="absolute top-0.5 left-0.5 w-6 h-6 rounded-full bg-white shadow transition-transform" style="transform: translateX(0px)"></span>
+        </button>
+      </div>
       <!-- Time Attack difficulty -->
       <div>
         <div class="font-semibold text-zinc-100 mb-1" id="settings-ta-label">Time Attack difficulty</div>
@@ -959,6 +1054,9 @@
   <!-- Daily Challenge HUD: bottom position set by JS (touch devices are raised
        to clear the on-screen action cluster). Hidden until init() loads data. -->
   <div id="challenge-hud" class="hidden pointer-events-none fixed right-3 z-20 w-36 rounded-lg bg-black/55 px-2 py-1.5 text-xs text-white/90"></div>
+
+  <!-- Chaos Mode indicator pill: shown when chaos mode is active. -->
+  <div id="chaos-indicator" class="hidden pointer-events-none fixed left-3 z-20 rounded-lg bg-amber-500/80 px-2 py-1 text-xs font-bold text-white whitespace-nowrap">🎲 CHAOS</div>
 
   <!-- Blocks Placed HUD: personal lifetime stat, bottom-left corner.
        Bottom position set by JS (raised on touch to clear movement pad). -->
@@ -1805,6 +1903,8 @@
         settings_sound_desc: 'Music & sound effects',
         settings_language_label: 'Language',
         settings_language_desc: 'Indonesian / English',
+        settings_chaos_label: 'Chaos Mode',
+        settings_chaos_desc: 'Placed blocks get a random type.',
         settings_ta_label: 'Time Attack difficulty',
         settings_ta_desc: 'Also auto-adjusts based on your recent runs.',
 
@@ -1897,6 +1997,8 @@
         settings_sound_desc: 'Musik & efek suara',
         settings_language_label: 'Bahasa',
         settings_language_desc: 'Indonesia / English',
+        settings_chaos_label: 'Mode Kacau',
+        settings_chaos_desc: 'Blok yang ditempatkan mendapat tipe acak.',
         settings_ta_label: 'Kesulitan Serangan Waktu',
         settings_ta_desc: 'Juga secara otomatis menyesuaikan berdasarkan lari terbaru Anda.',
 
@@ -2013,6 +2115,8 @@
       document.getElementById('settings-sound-desc').textContent = t('settings_sound_desc');
       document.getElementById('settings-language-label').textContent = t('settings_language_label');
       document.getElementById('settings-language-desc').textContent = t('settings_language_desc');
+      document.getElementById('settings-chaos-label').textContent = t('settings_chaos_label');
+      document.getElementById('settings-chaos-desc').textContent = t('settings_chaos_desc');
       document.getElementById('settings-ta-label').textContent = t('settings_ta_label');
       document.getElementById('settings-ta-desc').textContent = t('settings_ta_desc');
 
@@ -2074,6 +2178,8 @@
     challengeHudEl.style.bottom = (challengeBaseBottomPx + saBottomPx) + 'px';
     const blocksPlacedHudEl = document.getElementById('blocks-placed-hud');
     blocksPlacedHudEl.style.bottom = isTouch ? '18rem' : '5.5rem';
+    const chaosIndicatorEl = document.getElementById('chaos-indicator');
+    chaosIndicatorEl.style.bottom = isTouch ? 'calc(18rem + 2.5rem)' : 'calc(5.5rem + 2.5rem)';
 
     // Streak HUD pill sits above the challenge HUD.
     const streakHudEl = document.getElementById('streak-hud');
@@ -2135,7 +2241,14 @@
     let shakeEndTime = 0;            // ms timestamp when camera shake ends
     let shakeMag = 0;                // shake amplitude (world units)
     let shakeFreq = 0;               // shake frequency (rad/ms)
+
+    // ---- Fog of War state (Classic mode only) ----
+    const revealedCells = new Set(); // "x,z" strings of permanently revealed columns
+    const pendingReveal = new Set(); // newly revealed since last server sync
+    let fogDirty = false;            // true when revealedCells changed and fogMesh needs rebuild
     let selectedType = 1;
+    let chaosMode = false;
+    try { const _cm = localStorage.getItem('blockgame-chaos-mode'); if (_cm !== null) chaosMode = JSON.parse(_cm); } catch (_) {}
     let unlockedTypes = new Set(); // block type IDs earned by the current user
     const key = (x, y, z) => x + ',' + y + ',' + z;
 
@@ -2195,8 +2308,7 @@
     let sessionTa60Best = 0;
     let sessionEndlessBest = 0;
 
-    // ---- Undo stack (Classic mode only) ----
-    const undoStack = [];  // entries: { x, y, z, prevType, newType }, newest last, max 5
+    // ---- Undo stack (Classic mode only, continued) ----
     let undoInProgress = false;
 
     // ---- Smart Difficulty (Time Attack) ----
@@ -2406,15 +2518,24 @@
     sun.position.set(30, 60, 20);
     scene.add(sun);
 
+    // ---- Fog of War: instanced dark slabs over unrevealed (x,z) columns ----
+    const fogGeom = new THREE.BoxGeometry(1, 0.05, 1);
+    const fogMat = new THREE.MeshBasicMaterial({ color: 0x050510, transparent: true, opacity: 0.75, depthWrite: false });
+    const fogMesh = new THREE.InstancedMesh(fogGeom, fogMat, 1024);
+    fogMesh.visible = false;
+    fogMesh.renderOrder = 1;
+    scene.add(fogMesh);
+    const _fogDummy = new THREE.Object3D();
+
     // ---- Day/night cycle ----
     const DAY_DURATION_MS = 600_000; // 10 minutes per full cycle
 
     // Sky color keyframes: [midnight, dawn, noon, dusk]
     const SKY_KEYS = [
       { zenith: new THREE.Color('#05101f'), horizon: new THREE.Color('#0a1230'), fog: new THREE.Color('#0a1230'), ambient: 0.30, sunInt: 0.0, sunColor: new THREE.Color('#b0c8ff') },
-      { zenith: new THREE.Color('#1a2a6c'), horizon: new THREE.Color('#ff5722'), fog: new THREE.Color('#d85f1f'), ambient: 0.50, sunInt: 0.5, sunColor: new THREE.Color('#ffb070') },
-      { zenith: new THREE.Color('#4ab8ff'), horizon: new THREE.Color('#7dd9ff'), fog: new THREE.Color('#7dd9ff'), ambient: 0.65, sunInt: 0.9, sunColor: new THREE.Color('#fffaeb') },
-      { zenith: new THREE.Color('#1a2a6c'), horizon: new THREE.Color('#ff4500'), fog: new THREE.Color('#b83a0a'), ambient: 0.50, sunInt: 0.5, sunColor: new THREE.Color('#ff9040') },
+      { zenith: new THREE.Color('#1a2a6c'), horizon: new THREE.Color('#f5a978'), fog: new THREE.Color('#e8a878'), ambient: 0.50, sunInt: 0.5, sunColor: new THREE.Color('#ffd0a8') },
+      { zenith: new THREE.Color('#82c4e8'), horizon: new THREE.Color('#a8e0f0'), fog: new THREE.Color('#a8e0f0'), ambient: 0.65, sunInt: 0.9, sunColor: new THREE.Color('#fffaeb') },
+      { zenith: new THREE.Color('#1a2a6c'), horizon: new THREE.Color('#f59068'), fog: new THREE.Color('#e89870'), ambient: 0.50, sunInt: 0.5, sunColor: new THREE.Color('#f5c090') },
     ];
 
     function skyColors(phase) {
@@ -2612,9 +2733,9 @@
     // ---- Power-up geometry, materials, and scene group ----
     const powerupGeom = new THREE.BoxGeometry(0.5, 0.5, 0.5);
     const POWERUP_DEFS = {
-      speed_boost: { color: '#FFC700', label: 'Speed Boost' },
-      super_jump:  { color: '#00E5FF', label: 'Super Jump'  },
-      rapid_place: { color: '#FF8C00', label: 'Rapid Place' },
+      speed_boost: { color: '#FFE085', label: 'Speed Boost' },
+      super_jump:  { color: '#9AE8D9', label: 'Super Jump'  },
+      rapid_place: { color: '#F5C080', label: 'Rapid Place' },
     };
     const powerupMats = {};
     for (const [type, def] of Object.entries(POWERUP_DEFS)) {
@@ -2632,8 +2753,8 @@
     let lastMonumentHash = '';
     const monumentShaftGeom = new THREE.CylinderGeometry(0.08, 0.08, 17, 8);
     const monumentOrbGeom = new THREE.SphereGeometry(0.35, 8, 8);
-    const monumentShaftMat = new THREE.MeshBasicMaterial({ color: '#f5c842', transparent: true, opacity: 0.45, fog: false });
-    const monumentOrbMat = new THREE.MeshBasicMaterial({ color: '#f5c842', fog: false });
+    const monumentShaftMat = new THREE.MeshBasicMaterial({ color: '#f5da85', transparent: true, opacity: 0.45, fog: false });
+    const monumentOrbMat = new THREE.MeshBasicMaterial({ color: '#f5da85', fog: false });
 
     function rebuildMonumentMeshes(monuments) {
       monumentGroup.clear();
@@ -2746,7 +2867,7 @@
       for (let _k = 0; _k < 3; _k++) {
         const slot = _acquireParticle();
         if (!slot) break;
-        slot.mesh.material.color.set(0x8b6f47);
+        slot.mesh.material.color.set(0xb09070);
         slot.mesh.material.opacity = 0.7;
         slot.startOpacity = 0.7;
         slot.vx = (Math.random() - 0.5) * 0.6;
@@ -2760,6 +2881,40 @@
         slot.mesh.position.set(px + (Math.random() - 0.5) * 0.4, py, pz + (Math.random() - 0.5) * 0.4);
         slot.mesh.visible = true;
         slot.active = true;
+      }
+    }
+
+    function emitLineClearExplosion(yLevel, lineCount) {
+      if (reducedMotion) return;
+      const lineClearColors = [
+        0xff7f00, 0x00ffff, 0x00ff00, 0xff1493, 0xffff00, 0xee82ee, 0xff4444
+      ];
+      for (let _line = 0; _line < lineCount; _line++) {
+        const cy = yLevel + _line + 0.5;
+        for (let _k = 0; _k < 26; _k++) {
+          const slot = _acquireParticle();
+          if (!slot) break;
+          const angle = Math.random() * Math.PI * 2;
+          const speed = 3 + Math.random() * 2;
+          const verticalVel = (Math.random() - 0.5) * 1;
+          const colorIdx = Math.floor(Math.random() * lineClearColors.length);
+          slot.mesh.material.color.setHex(lineClearColors[colorIdx]);
+          slot.mesh.material.opacity = 1;
+          slot.startOpacity = 1;
+          slot.vx = Math.cos(angle) * speed;
+          slot.vy = verticalVel;
+          slot.vz = Math.sin(angle) * speed;
+          slot.gravity = 2;
+          slot.age = 0;
+          slot.maxAge = 0.7;
+          const scale = 0.4 + Math.random() * 0.3;
+          slot.mesh.scale.setScalar(scale);
+          const randX = Math.random() * DIMS.w;
+          const randZ = Math.random() * DIMS.d;
+          slot.mesh.position.set(randX + 0.5, cy, randZ + 0.5);
+          slot.mesh.visible = true;
+          slot.active = true;
+        }
       }
     }
 
@@ -2864,10 +3019,12 @@
     // In TA mode uses taBlocks; otherwise uses the shared blocks map.
     const blockGroup = new THREE.Group();
     scene.add(blockGroup);
-    let crystalMaterial = null; // tracked for emissive pulse animation in the render loop
+    let crystalMaterial = null;  // tracked for emissive pulse animation in the render loop
+    let wildcardMaterial = null; // tracked for Gold Star sparkle animation in the render loop
     function rebuildBlockMeshes() {
       blockGroup.clear();
       crystalMaterial = null;
+      wildcardMaterial = null;
       let source = blocks;
       if (gameMode === 'timeattack') source = taBlocks;
       else if (gameMode === 'time-attack-60') source = ta60Blocks;
@@ -2897,6 +3054,7 @@
         if (!p) continue;
         const mat = materialFor(p);
         if (t === 18) crystalMaterial = mat;
+        if (t === 27) wildcardMaterial = mat;
         const mesh = new THREE.InstancedMesh(cube, mat, cells.length);
         cells.forEach((c, i) => {
           dummy.position.set(c.x + 0.5, c.y + 0.5, c.z + 0.5);
@@ -3232,7 +3390,7 @@
     function showDisasterFlash(type) {
       const el = document.getElementById('disaster-flash');
       if (!el) return;
-      const colors = { earthquake: 'rgba(255,200,20,0.4)', eruption: 'rgba(255,70,0,0.45)', meteor: 'rgba(255,240,200,0.5)' };
+      const colors = { earthquake: 'rgba(245,210,120,0.35)', eruption: 'rgba(235,140,100,0.40)', meteor: 'rgba(245,235,210,0.45)' };
       el.style.background = colors[type] || 'rgba(255,255,255,0.4)';
       el.classList.remove('hidden');
       el.style.opacity = '1';
@@ -3391,6 +3549,18 @@
       minimapCtx.beginPath();
       minimapCtx.arc(mx, mz, 3.5, 0, Math.PI * 2);
       minimapCtx.fill();
+
+      // Fog of War overlay: darken unrevealed cells (Classic mode only).
+      if (gameMode === 'classic') {
+        minimapCtx.fillStyle = 'rgba(10,10,20,0.82)';
+        for (let x = 0; x < DIMS.w; x++) {
+          for (let z = 0; z < DIMS.d; z++) {
+            if (!revealedCells.has(x + ',' + z)) {
+              minimapCtx.fillRect(x * SCALE, z * SCALE, SCALE, SCALE);
+            }
+          }
+        }
+      }
     }
 
     // ---- Power-up world sync ----
@@ -3581,6 +3751,9 @@
             if (data.lines_cleared > 0) {
               showLineClearToast(data.line_clear_points);
               audio.playLineClear();
+              const clearedRows = data.lines_cleared || 0;
+              const yLevel = data.lines_cleared_at ? data.lines_cleared_at[0] : 12;
+              emitLineClearExplosion(yLevel, clearedRows);
             }
           }
           if (data.seq && data.seq > cursor) cursor = data.seq;
@@ -3967,10 +4140,11 @@
       if (!target || paused) return;
       const { x, y, z } = target.place;
       if (!inBounds(x, y, z)) return;
+      const actualType = resolveBlockType();
       if (gameMode === 'timeattack') {
         const k = key(x, y, z);
-        if (taBlocks.get(k) === selectedType) return;
-        taBlocks.set(k, selectedType);
+        if (taBlocks.get(k) === actualType) return;
+        taBlocks.set(k, actualType);
         emitBlockPlace(x + 0.5, y + 0.5, z + 0.5);
         rebuildBlockMeshes();
         return;
@@ -3981,8 +4155,8 @@
       }
       if (gameMode === 'endless') {
         const k = key(x, y, z);
-        if (endlessBlocks.get(k) === selectedType) return;
-        endlessBlocks.set(k, selectedType);
+        if (endlessBlocks.get(k) === actualType) return;
+        endlessBlocks.set(k, actualType);
         endlessBlocksPlaced++;
         endlessMovesStarted++;
         endlessMovesRemaining--;
@@ -4024,12 +4198,12 @@
         updateHoldPanel();
         return;
       }
-      if (blocks.get(key(x, y, z)) === selectedType) return;
+      if (blocks.get(key(x, y, z)) === actualType) return;
       const prevType = blocks.get(key(x, y, z)) ?? 0;
       audio.playPlace();
       emitBlockPlace(x + 0.5, y + 0.5, z + 0.5);
-      sendEdit(x, y, z, selectedType, prevType);
-      pushHistory(x, y, z, prevType, selectedType);
+      sendEdit(x, y, z, actualType, prevType);
+      pushHistory(x, y, z, prevType, actualType);
       // Unlock hold after each successful placement (Tetris lock rule)
       holdLocked = false;
       updateHoldPanel();
@@ -4063,10 +4237,11 @@
       if (cellsToPlace.length === 0) return;
       for (const cell of cellsToPlace) {
         const k = key(cell.x, cell.y, cell.z);
-        if (blocks.get(k) !== selectedType) {
+        const stampType = resolveBlockType();
+        if (blocks.get(k) !== stampType) {
           const prevType = blocks.get(k) ?? 0;
           const isNewBlock = prevType === 0;
-          blocks.set(k, selectedType);
+          blocks.set(k, stampType);
           emitBlockPlace(cell.x + 0.5, cell.y + 0.5, cell.z + 0.5);
           if (isNewBlock && gameMode === 'classic' && challengeDate && !challengeCompleted) {
             challengePlaced++;
@@ -4268,7 +4443,7 @@
       zombie:  _makeMobLabelTexture('Zombie'),
       phantom: _makeMobLabelTexture('Phantom'),
     };
-    const MOB_COLORS     = { slime: '#6fcf3a', zombie: '#4a7c59', phantom: '#7c3aed' };
+    const MOB_COLORS     = { slime: '#9ada6a', zombie: '#7aaa8a', phantom: '#a88de8' };
     const MOB_PART_TYPES = { slime: 5, zombie: 3, phantom: 10 }; // palette ids for hit particles
 
     function _createMobGroup(mob) {
@@ -4283,12 +4458,12 @@
       mobMeshes.set(bMesh, mob.id);
 
       const hpBg = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.07, 0.07),
-        new THREE.MeshBasicMaterial({ color: '#444444' }));
+        new THREE.MeshBasicMaterial({ color: '#c8bedd' }));
       hpBg.position.y = 1.1;
       g.add(hpBg);
 
       const hpFill = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.07, 0.07),
-        new THREE.MeshBasicMaterial({ color: '#22c55e' }));
+        new THREE.MeshBasicMaterial({ color: '#72d490' }));
       hpFill.position.y = 1.1;
       g.add(hpFill);
 
@@ -4314,7 +4489,7 @@
       const frac = Math.max(0, Math.min(1, hp / maxHp));
       fill.scale.x = Math.max(0.001, frac);
       fill.position.x = (frac - 1) * 0.4;
-      fill.material.color.set(frac > 0.5 ? '#22c55e' : frac > 0.25 ? '#f59e0b' : '#ef4444');
+      fill.material.color.set(frac > 0.5 ? '#72d490' : frac > 0.25 ? '#f5c56a' : '#f09090');
     }
 
     // ---- Player HP helpers ----
@@ -4330,10 +4505,10 @@
       if (!damageVignetteEl) return;
       damageVignetteEl.style.transition = 'none';
       damageVignetteEl.style.background = strong
-        ? 'rgba(239,68,68,0.7)' : 'rgba(239,68,68,0.38)';
+        ? 'rgba(210,110,110,0.7)' : 'rgba(210,110,110,0.38)';
       requestAnimationFrame(() => {
         damageVignetteEl.style.transition = strong ? 'background 1s' : 'background 0.45s';
-        damageVignetteEl.style.background = 'rgba(239,68,68,0)';
+        damageVignetteEl.style.background = 'rgba(210,110,110,0)';
       });
     }
 
@@ -4545,6 +4720,30 @@
     // Mute button + Settings sound toggle share one stored preference. This
     // helper repaints both UIs from the audio engine's current muted state.
     const muteBtnEl = document.getElementById('mute-btn');
+    const CHAOS_MODES = new Set(['classic', 'endless', 'timeattack']);
+
+    function resolveBlockType() {
+      if (!chaosMode || !CHAOS_MODES.has(gameMode)) return selectedType;
+      const available = PALETTE.filter((p) => unlockedTypes.has(p.id));
+      if (available.length === 0) return selectedType;
+      return available[Math.floor(Math.random() * available.length)].id;
+    }
+
+    function syncChaosUi() {
+      const toggle = document.getElementById('settings-chaos-toggle');
+      const knob = document.getElementById('settings-chaos-knob');
+      if (toggle && knob) {
+        toggle.setAttribute('aria-checked', String(chaosMode));
+        toggle.classList.toggle('bg-amber-500', chaosMode);
+        toggle.classList.toggle('bg-zinc-600', !chaosMode);
+        knob.style.transform = chaosMode ? 'translateX(20px)' : 'translateX(0px)';
+      }
+      const indicator = document.getElementById('chaos-indicator');
+      if (indicator) indicator.classList.toggle('hidden', !chaosMode);
+      const paletteEl = document.getElementById('palette');
+      if (paletteEl) paletteEl.classList.toggle('chaos-active', chaosMode);
+    }
+
     function syncSoundUi() {
       const m = audio.isMuted();
       muteBtnEl.textContent = m ? '🔇' : '🔊';
@@ -4568,6 +4767,7 @@
     document.getElementById('settings-btn').addEventListener('click', () => {
       if (settingsPanelEl.classList.contains('hidden')) {
         syncSoundUi();
+        syncChaosUi();
         updateTaTierPicker();
         settingsPanelEl.classList.remove('hidden');
       } else {
@@ -4576,6 +4776,12 @@
     });
     document.getElementById('settings-close').addEventListener('click', closeSettings);
     document.getElementById('settings-sound-toggle').addEventListener('click', toggleSound);
+    document.getElementById('settings-chaos-toggle').addEventListener('click', () => {
+      chaosMode = !chaosMode;
+      lsSet('blockgame-chaos-mode', chaosMode);
+      syncChaosUi();
+    });
+    syncChaosUi();
     document.getElementById('settings-music-volume').addEventListener('input', (e) => {
       audio.setReggaeVolume(e.target.value / 100);
     });
@@ -5348,6 +5554,8 @@
         hpHudEl.classList.remove('hidden');
         updateHpHud();
         mobGroup.visible = true;
+        fogMesh.visible = true;
+        loadFogRevealed();
         if (!lsGet('blockgame-tutorial-seen', false)) {
           setTimeout(showTutorial, 600);
         } else {
@@ -5502,6 +5710,7 @@
       playerHp = PLAYER_MAX_HP;
       deathInvincibleUntil = 0;
       mobGroup.visible = false;
+      fogMesh.visible = false;
       hideMinimap();
       // Dismiss any active coach tip and restore coach button.
       coachBubbleEl.classList.add('hidden');
@@ -6455,9 +6664,9 @@
 
       // Mode info
       const modeInfo = {
-        ta: { emoji: '⚡', label: 'Time Attack', color: '#fbbf24' },
-        'ta-60': { emoji: '⏱️', label: 'Time Attack (60s)', color: '#06b6d4' },
-        endless: { emoji: '♾️', label: 'Endless Mode', color: '#f43f5e' }
+        ta: { emoji: '⚡', label: 'Time Attack', color: '#f5d27a' },
+        'ta-60': { emoji: '⏱️', label: 'Time Attack (60s)', color: '#9AE8D9' },
+        endless: { emoji: '♾️', label: 'Endless Mode', color: '#f0a8c5' }
       }[mode];
 
       const username = myUsername || 'Anonymous Player';
@@ -8151,6 +8360,52 @@
       } catch (_) { /* transient */ }
     }
 
+    // ---- Fog of War: load revealed cells on Classic mode entry ----
+    async function loadFogRevealed() {
+      if (!token) return;
+      revealedCells.clear();
+      pendingReveal.clear();
+      try {
+        const res = await fetch('/api/fog/revealed', { headers });
+        if (res.ok) {
+          const { cells } = await res.json();
+          for (const [x, z] of cells) revealedCells.add(x + ',' + z);
+        }
+      } catch (_) { /* transient — will reveal from scratch */ }
+      // Pre-reveal spawn area (radius 5) so new players aren't completely blind.
+      const spawnX = Math.floor(camera.position.x);
+      const spawnZ = Math.floor(camera.position.z);
+      const SR = 5, SR2 = SR * SR;
+      for (let dx = -SR; dx <= SR; dx++) {
+        for (let dz = -SR; dz <= SR; dz++) {
+          if (dx * dx + dz * dz > SR2) continue;
+          const nx = Math.max(0, Math.min(31, spawnX + dx));
+          const nz = Math.max(0, Math.min(31, spawnZ + dz));
+          const ck = nx + ',' + nz;
+          if (!revealedCells.has(ck)) { revealedCells.add(ck); pendingReveal.add(ck); }
+        }
+      }
+      fogDirty = true;
+    }
+
+    // ---- Fog of War: flush pending reveals to the server ----
+    async function flushFogReveal() {
+      if (!token || pendingReveal.size === 0 || gameMode !== 'classic') return;
+      const cells = Array.from(pendingReveal).map((k) => k.split(',').map(Number));
+      pendingReveal.clear();
+      try {
+        await fetch('/api/fog/reveal', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...headers },
+          body: JSON.stringify({ cells }),
+        });
+      } catch (_) { /* transient; cells re-revealed next visit */ }
+    }
+
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'hidden') flushFogReveal();
+    });
+
     const onlineListEl = document.getElementById('online-list');
     async function pollPresence() {
       if (!token) return;
@@ -8287,6 +8542,12 @@
       const portrait = !!(window.matchMedia && window.matchMedia('(orientation: portrait)').matches);
       forceRotated = isTouch && portrait;
       rotorEl.classList.toggle('rotated', forceRotated);
+      // In landscape mode on touch devices, enable landscape-specific button layout.
+      const touchControlsEl = document.getElementById('touch-controls');
+      const isLandscape = !portrait && isTouch;
+      if (touchControlsEl) {
+        touchControlsEl.classList.toggle('landscape-mode', isLandscape);
+      }
       resize();
     }
     function resize() {
@@ -8379,6 +8640,44 @@
         }
       }
 
+      // Fog of War: reveal cells near the player each frame (Classic mode only).
+      if (playing && gameMode === 'classic') {
+        const cx = Math.floor(camera.position.x);
+        const cz = Math.floor(camera.position.z);
+        const R = 3, R2 = R * R;
+        for (let dx = -R; dx <= R; dx++) {
+          for (let dz = -R; dz <= R; dz++) {
+            if (dx * dx + dz * dz > R2) continue;
+            const nx = cx + dx, nz = cz + dz;
+            if (nx < 0 || nx > 31 || nz < 0 || nz > 31) continue;
+            const ck = nx + ',' + nz;
+            if (!revealedCells.has(ck)) {
+              revealedCells.add(ck);
+              pendingReveal.add(ck);
+              fogDirty = true;
+            }
+          }
+        }
+      }
+
+      // Rebuild fog InstancedMesh when the revealed set changed.
+      if (fogDirty) {
+        fogDirty = false;
+        let count = 0;
+        for (let x = 0; x < DIMS.w; x++) {
+          for (let z = 0; z < DIMS.d; z++) {
+            if (!revealedCells.has(x + ',' + z)) {
+              _fogDummy.position.set(x + 0.5, 0.55, z + 0.5);
+              _fogDummy.updateMatrix();
+              fogMesh.setMatrixAt(count, _fogDummy.matrix);
+              count++;
+            }
+          }
+        }
+        fogMesh.count = count;
+        fogMesh.instanceMatrix.needsUpdate = true;
+      }
+
       // Animate power-up meshes every frame (even when the overlay is showing).
       for (const [, pu] of powerupMap) {
         if (pu.mesh) {
@@ -8435,6 +8734,8 @@
       updateAttribution();
       // Animate Crystal block emissive glow: gentle 0.2→0.4 pulse (~7.9s period).
       if (crystalMaterial) crystalMaterial.emissiveIntensity = 0.2 + 0.2 * Math.sin(now * 0.0008);
+      // Animate Gold Star sparkle: sharp 0.25→0.7 pulse (~2.1s period).
+      if (wildcardMaterial) wildcardMaterial.emissiveIntensity = 0.25 + 0.45 * Math.abs(Math.sin(now * 0.003));
       renderBuffHud();
 
       // Camera shake for disaster events: decaying sine displacement
@@ -8674,6 +8975,7 @@
       // Poll is started per-mode in onPlayEntered(), not here.
       heartbeat();
       setInterval(heartbeat, 30000);
+      setInterval(flushFogReveal, 15000);
       pollPresence();
       setInterval(pollPresence, 15000);
       pollPowerUps();
@@ -8752,7 +9054,7 @@
     (function () {
       var c = canvases[0];
       var ctx = ctxs[0];
-      var COLORS = ['#3dd847','#b8643e','#a8aeb8','#d4944f','#2ac142','#fce67f','#f04a38'];
+      var COLORS = ['#7ed98a','#c9917a','#c2c6cf','#ddb680','#6ec67a','#fdf0a8','#e88c82'];
       var BLOCK = 14;
       var grid = null;
       var frame = 0;
@@ -8818,7 +9120,7 @@
     (function () {
       var c = canvases[1];
       var ctx = ctxs[1];
-      var TA_COLORS = ['#d12121','#1e5fc0','#d4a817','#b8643e','#c4a872','#a8aeb8'];
+      var TA_COLORS = ['#f09090','#80a8f0','#ffe580','#c9917a','#ddb680','#c2c6cf'];
       var blocks = [];
       var score = 0;
       var frame = 0;
@@ -8914,7 +9216,7 @@
     (function () {
       var c = canvases[2];
       var ctx = ctxs[2];
-      var TA60_COLORS = ['#0891b2','#06b6d4','#22d3ee','#1e5f74','#0c4a6e'];
+      var TA60_COLORS = ['#80a8f0','#9AE8D9','#b3e8f5','#80a8c8','#a8c8e0'];
       var blocks = [];
       var score = 0;
       var frame = 0;
@@ -8987,7 +9289,7 @@
           }
         }
 
-        ctx2.fillStyle = '#06b6d4';
+        ctx2.fillStyle = '#9AE8D9';
         ctx2.font = 'bold 12px monospace';
         ctx2.textAlign = 'right';
         ctx2.fillText('+' + score, w - 6, 16);
@@ -9007,7 +9309,7 @@
     (function () {
       var c = canvases[3];
       var ctx = ctxs[3];
-      var ENDLESS_COLORS = ['#d4b860','#b89a5f','#a8764d','#9a6b48','#b8825f'];
+      var ENDLESS_COLORS = ['#f5d27a','#ddb680','#c9917a','#c2c6cf','#fdf0a8'];
       var blocks = [];
       var frame = 0;
       var BSIZE = 14;
@@ -9134,8 +9436,8 @@
     (function () {
       var c = canvases[5];
       var ctx = ctxs[5];
-      var FAR_COLORS  = ['#2ac142','#3dd847','#b8643e','#a8aeb8','#3dd847','#2ac142','#b8643e'];
-      var NEAR_COLORS = ['#3dd847','#b8643e','#3dd847','#a8aeb8','#3dd847','#b8643e','#3dd847'];
+      var FAR_COLORS  = ['#6ec67a','#7ed98a','#c9917a','#c2c6cf','#7ed98a','#6ec67a','#c9917a'];
+      var NEAR_COLORS = ['#7ed98a','#c9917a','#7ed98a','#c2c6cf','#7ed98a','#c9917a','#7ed98a'];
       var BW = 18; // block width in the parallax strips
       var farOff = 0, nearOff = 0;
 
@@ -9160,7 +9462,7 @@
           var ci = ((i + Math.floor(farOff / BW)) % FAR_COLORS.length + FAR_COLORS.length) % FAR_COLORS.length;
           drawBlock(ctx2, x, farY, BW - 1, FAR_COLORS[ci]);
           // dirt row below
-          drawBlock(ctx2, x, farY + BW - 1, BW - 1, '#8a5a32');
+          drawBlock(ctx2, x, farY + BW - 1, BW - 1, '#b09070');
         }
 
         // near terrain strip (bottom)
@@ -9171,9 +9473,9 @@
           var nx = (j * BW - (nearOff % BW));
           var nci = ((j + Math.floor(nearOff / BW)) % NEAR_COLORS.length + NEAR_COLORS.length) % NEAR_COLORS.length;
           drawBlock(ctx2, nx, nearY, BW - 1, NEAR_COLORS[nci]);
-          drawBlock(ctx2, nx, nearY + BW - 1, BW - 1, '#8a5a32');
+          drawBlock(ctx2, nx, nearY + BW - 1, BW - 1, '#b09070');
           // fill remaining height
-          ctx2.fillStyle = '#6b3a1f';
+          ctx2.fillStyle = '#a07860';
           ctx2.fillRect(nx, nearY + BW * 2 - 2, BW - 1, h - (nearY + BW * 2 - 2));
         }
 
@@ -9199,7 +9501,7 @@
   (function () {
     var bgCanvas = document.getElementById('bg-canvas');
     var ctx = bgCanvas.getContext('2d');
-    var COLORS = ['#3dd847','#a8aeb8','#d4b860','#b8643e','#1e5fc0','#ffb800'];
+    var COLORS = ['#7ed98a','#c2c6cf','#f5d27a','#c9917a','#80a8f0','#ffd099'];
     var particles = [];
 
     function rand(min, max) { return min + Math.random() * (max - min); }
