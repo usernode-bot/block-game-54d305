@@ -92,6 +92,37 @@ const BLOCK_POINTS = {
   28: 5,  // Gold Star
 };
 
+// XP / levelling — XP equals total_score. Index i corresponds to level i+1.
+const XP_THRESHOLDS = [
+  0, 100, 300, 600, 1000, 1600, 2400, 3500, 5000, 7000,
+  9500, 12500, 16500, 21500, 28000, 36000, 46000, 58000, 73000, 90000,
+];
+
+function getLevel(totalScore) {
+  for (let i = XP_THRESHOLDS.length - 1; i >= 0; i--) {
+    if (totalScore >= XP_THRESHOLDS[i]) {
+      if (i < XP_THRESHOLDS.length - 1) return i + 1;
+      let thresh = XP_THRESHOLDS[i], level = i + 1;
+      while (totalScore >= Math.round(thresh * 1.25)) { thresh = Math.round(thresh * 1.25); level++; }
+      return level;
+    }
+  }
+  return 1;
+}
+
+function getXPInfo(totalScore) {
+  const level = getLevel(totalScore);
+  function threshFor(lvl) {
+    if (lvl <= XP_THRESHOLDS.length) return XP_THRESHOLDS[lvl - 1];
+    let t = XP_THRESHOLDS[XP_THRESHOLDS.length - 1];
+    for (let i = XP_THRESHOLDS.length; i < lvl; i++) t = Math.round(t * 1.25);
+    return t;
+  }
+  const cur = threshFor(level), next = threshFor(level + 1);
+  return { level, xp_in_level: totalScore - cur, xp_to_next: next - cur };
+}
+
+// Sentinel "user" id for staging seed rows so they never reference a real user.
 const SEED_USER_ID = 0;
 
 // AI opponent constants.
@@ -791,6 +822,7 @@ app.post('/api/block', async (req, res) => {
     // ---- Scoring (placements only; breaks earn 0) ----
     let earned = 0, combo_multiplier = 1, rainbow_multiplier = 1, combo_tier = 1;
     let newly_earned_badges = [];
+    let placement_xp = null; // { total_score, level } — only set for placements
     let newly_unlocked_types = [];
     let newly_unlocked_pets = [];
     if (t !== 0) {
@@ -914,6 +946,7 @@ app.post('/api/block', async (req, res) => {
         );
       }
       newly_earned_badges = newBadges.map((b) => ({ id: b.id, name: b.name, icon: b.icon, flavour: b.flavour }));
+      placement_xp = { total_score: lb.total_score, level: getLevel(lb.total_score) };
 
       // Check daily_regular badge: fires when the challenge is completed and the
       // player hasn't earned it yet. Queries total completions only at that moment.
@@ -1162,7 +1195,7 @@ app.post('/api/block', async (req, res) => {
     const monument = await recomputeMonument(sectorCoord(x), sectorCoord(z));
     if (monument && monument.is_new) newly_crowned_monuments = [{ id: monument.id, name: monument.name, sector_x: monument.sector_x, sector_z: monument.sector_z }];
 
-    res.json({ ok: true, seq, ...(challenge ? { challenge } : {}), earned, combo_multiplier, rainbow_multiplier, newly_earned_badges, newly_unlocked_types, newly_unlocked_pets, lines_cleared, line_clear_points, bomb_explosions, newly_crowned_monuments, ...(mission_data ? { mission: mission_data } : {}), ...(activeSkinId ? { skin_id: activeSkinId } : {}) });
+    res.json({ ok: true, seq, ...(challenge ? { challenge } : {}), earned, combo_multiplier, rainbow_multiplier, newly_earned_badges, newly_unlocked_types, newly_unlocked_pets, lines_cleared, line_clear_points, bomb_explosions, newly_crowned_monuments, ...(mission_data ? { mission: mission_data } : {}), ...(activeSkinId ? { skin_id: activeSkinId } : {}), ...(placement_xp || {}) });
   } catch (err) {
     res.status(err.statusCode || 500).json({ error: err.message });
   }
@@ -1743,6 +1776,7 @@ app.get('/api/leaderboard', async (req, res) => {
       blocks_placed: Number(r.blocks_placed),
       best_combo: r.best_combo,
       count: Number(r.blocks_placed),
+      level: getLevel(Number(r.total_score)),
     });
     res.json({
       entries: topRes.rows.map(toRow),
@@ -2528,6 +2562,20 @@ app.get('/api/badges', async (req, res) => {
     res.json({
       badges: rows.map((r) => ({ id: r.badge_id, earned_at: r.earned_at })),
     });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- Player profile: level + XP info for the current user (initial page load). ----
+app.get('/api/me', async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT total_score FROM leaderboard WHERE user_id = $1`,
+      [req.user.id]
+    );
+    const totalScore = rows.length ? Number(rows[0].total_score) : 0;
+    res.json({ total_score: totalScore, ...getXPInfo(totalScore) });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -4973,11 +5021,16 @@ async function seedStaging() {
   }
 
   const fakeScores = [
-    { id: -1, username: 'Staging demo Alice', total_score: 5200, blocks_placed: 520, best_combo: 4, ta: 42 },
-    { id: -2, username: 'Staging demo Bob',   total_score: 980,  blocks_placed: 210, best_combo: 3, ta: 31 },
-    { id: -3, username: 'Staging demo Carol', total_score: 720,  blocks_placed: 180, best_combo: 2, ta: 15 },
-    { id: -4, username: 'Staging demo Dave',  total_score: 440,  blocks_placed:  95, best_combo: 1, ta: 0  },
-    { id: -5, username: 'Staging demo Eve',   total_score: 115,  blocks_placed:  30, best_combo: 1, ta: 0  },
+    { id: -1, username: 'Staging demo Alice',   total_score: 5200,  blocks_placed:  520, best_combo: 4, ta: 42 },
+    { id: -2, username: 'Staging demo Bob',     total_score:  980,  blocks_placed:  210, best_combo: 3, ta: 31 },
+    { id: -3, username: 'Staging demo Carol',   total_score:  720,  blocks_placed:  180, best_combo: 2, ta: 15 },
+    { id: -4, username: 'Staging demo Dave',    total_score:  440,  blocks_placed:   95, best_combo: 1, ta: 0  },
+    { id: -5, username: 'Staging demo Eve',     total_score:  115,  blocks_placed:   30, best_combo: 1, ta: 0  },
+    // Extra entries spanning levels 8–17 so the Level column and XP HUD can be
+    // verified across a wide range without placing thousands of blocks.
+    { id: -6, username: 'Staging demo Veteran', total_score:  4200, blocks_placed:  900, best_combo: 3, ta: 0  },
+    { id: -7, username: 'Staging demo Master',  total_score: 10500, blocks_placed: 2000, best_combo: 3, ta: 0  },
+    { id: -8, username: 'Staging demo Legend',  total_score: 38000, blocks_placed: 6000, best_combo: 3, ta: 0  },
   ];
   for (const s of fakeScores) {
     await pool.query(

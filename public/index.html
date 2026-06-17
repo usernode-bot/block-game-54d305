@@ -1217,6 +1217,18 @@
     <div id="blocks-placed-count" class="text-lg font-mono font-bold leading-tight tabular-nums">0</div>
   </div>
 
+  <!-- XP / Level HUD: always visible below the build stamp at top-right.
+       Shows current level badge, XP progress bar, and XP numbers. -->
+  <div id="xp-hud" class="pointer-events-none fixed right-3 z-20 w-36 rounded-lg bg-black/55 px-2 py-1.5 text-xs text-white/90" style="top:8rem">
+    <div class="flex items-center justify-between mb-1">
+      <span id="xp-level-label" class="font-bold text-white" style="font-size:13px">Lv. 1</span>
+    </div>
+    <div style="height:3px;border-radius:9999px;background:rgba(255,255,255,0.18);overflow:hidden;margin-bottom:3px">
+      <div id="xp-bar-fill" style="width:0%;height:100%;border-radius:9999px;background:#7c3aed;transition:width 0.3s"></div>
+    </div>
+    <span id="xp-numbers" style="color:rgba(255,255,255,0.55);font-size:10px">0 / 100 XP</span>
+  </div>
+
   <!-- Player HP HUD: shown in Classic mode only. -->
   <div id="hp-hud" class="hidden pointer-events-none fixed bottom-24 left-4 z-20 rounded-lg bg-black/55 px-2 py-1.5 text-xs text-white/90 font-semibold whitespace-nowrap">&#10084; <span id="hp-value">10</span></div>
 
@@ -1817,7 +1829,7 @@
 
     // Build identifier — bump this (to the deploying commit short SHA) on every
     // change so the top-right stamp confirms exactly which code is running.
-    const BUILD_VERSION = 'speedrun-mode+power-ups+hold-queue+achievements-badges+chat+daily-challenge+leaderboard+online-presence+block-attribution+audio-sfx+next-piece-preview+spectator-mode+weekly-tournament+friends+betting-system+blocks-placed-hud+ai-opponent+weather-system+day-night-cycle+minimap+ai-coach+ai-hints+nft-skins+player-stats+leaderboard-daily+new-badges+daily-theme-voting+natural-disasters+community-monuments+undo-redo-history+pastel-chrome+mobs+message-in-a-block+accessibility-panel+pixel-pets+versus-mode+battle-mode';
+    const BUILD_VERSION = 'speedrun-mode+power-ups+hold-queue+achievements-badges+chat+daily-challenge+leaderboard+online-presence+block-attribution+audio-sfx+next-piece-preview+spectator-mode+weekly-tournament+friends+xp-levels+betting-system+blocks-placed-hud+ai-opponent+weather-system+day-night-cycle+minimap+ai-coach+ai-hints+nft-skins+player-stats+leaderboard-daily+new-badges+daily-theme-voting+natural-disasters+community-monuments+undo-redo-history+pastel-chrome+mobs+message-in-a-block+accessibility-panel+pixel-pets+versus-mode+battle-mode';
 
     // Badge definitions — mirror of the server-side BADGES array, extended with
     // a `hint` field shown in the panel for unearned badges.
@@ -1859,6 +1871,34 @@
       { id: 'hard',   label: 'Hard',   target: 80,  multiplier: 3.0 },
       { id: 'expert', label: 'Expert', target: 110, multiplier: 5.0 },
     ];
+
+    // XP thresholds — mirror of server-side XP_THRESHOLDS. Index i = level i+1.
+    const XP_THRESHOLDS = [
+      0, 100, 300, 600, 1000, 1600, 2400, 3500, 5000, 7000,
+      9500, 12500, 16500, 21500, 28000, 36000, 46000, 58000, 73000, 90000,
+    ];
+    function getLevel(totalScore) {
+      for (let i = XP_THRESHOLDS.length - 1; i >= 0; i--) {
+        if (totalScore >= XP_THRESHOLDS[i]) {
+          if (i < XP_THRESHOLDS.length - 1) return i + 1;
+          let thresh = XP_THRESHOLDS[i], level = i + 1;
+          while (totalScore >= Math.round(thresh * 1.25)) { thresh = Math.round(thresh * 1.25); level++; }
+          return level;
+        }
+      }
+      return 1;
+    }
+    function getXPInfo(totalScore) {
+      const level = getLevel(totalScore);
+      function threshFor(lvl) {
+        if (lvl <= XP_THRESHOLDS.length) return XP_THRESHOLDS[lvl - 1];
+        let t = XP_THRESHOLDS[XP_THRESHOLDS.length - 1];
+        for (let i = XP_THRESHOLDS.length; i < lvl; i++) t = Math.round(t * 1.25);
+        return t;
+      }
+      const cur = threshFor(level), next = threshFor(level + 1);
+      return { level, xpInLevel: totalScore - cur, xpToNext: next - cur };
+    }
 
     // Touch capability: drives (a) the on-screen control overlay, (b) skipping
     // mouse-lock in favour of direct touch play, and (c) portrait force-rotation.
@@ -2806,6 +2846,10 @@
     let playerHp           = PLAYER_MAX_HP;
     let lastDamagedAt      = 0;   // ms; 2-second inter-hit immunity
     let deathInvincibleUntil = 0; // ms; 5-second post-respawn invincibility
+
+    // ---- XP / Level state ----
+    let playerLevel = 1;
+    let playerTotalXP = 0;
 
     // ---- Blocks placed (lifetime) ----
     let myBlocksPlaced = 0;
@@ -4472,6 +4516,17 @@
         '</div>';
     }
 
+    function renderXPHud() {
+      const { level, xpInLevel, xpToNext } = getXPInfo(playerTotalXP);
+      const labelEl = document.getElementById('xp-level-label');
+      const barEl = document.getElementById('xp-bar-fill');
+      const numEl = document.getElementById('xp-numbers');
+      if (!labelEl) return;
+      labelEl.textContent = 'Lv. ' + level;
+      barEl.style.width = Math.min(100, Math.round((xpInLevel / xpToNext) * 100)) + '%';
+      numEl.textContent = xpInLevel.toLocaleString() + ' / ' + xpToNext.toLocaleString() + ' XP';
+    }
+
     function renderChallenge() {
       if (!challengeDate && !missionDate) return;
       let html = '';
@@ -4633,6 +4688,17 @@
             }
           }
           if (data.challenge) syncChallenge(data.challenge);
+          if (typeof data.total_score === 'number') {
+            const newLevel = data.level || getLevel(data.total_score);
+            if (newLevel > playerLevel) {
+              for (let lv = playerLevel + 1; lv <= newLevel; lv++) {
+                showBadgeToast({ icon: '⭐', name: 'Level Up!', flavour: 'You\'re now Level ' + lv });
+              }
+            }
+            playerLevel = newLevel;
+            playerTotalXP = data.total_score;
+            renderXPHud();
+          }
           if (data.mission) {
             syncMission({
               date: missionDate,
@@ -8800,11 +8866,13 @@
               '<thead><tr class="text-zinc-500 uppercase border-b border-zinc-700">' +
               '<th class="text-left pb-1 w-6">#</th>' +
               '<th class="text-left pb-1 pl-2">Player</th>' +
+              '<th class="text-right pb-1 pr-1">Lv.</th>' +
               '<th class="text-right pb-1">Score</th></tr></thead><tbody>' +
               entries.map(e =>
                 '<tr class="border-b border-zinc-800/60 last:border-0">' +
                 '<td class="py-1 text-zinc-500">' + e.rank + '</td>' +
                 '<td class="py-1 pl-2 max-w-[180px] truncate"><button class="text-violet-400 hover:text-violet-300 hover:underline cursor-pointer" data-profile-btn>' + escapeHtml(e.username) + '</button></td>' +
+                '<td class="py-1 pr-1 text-right text-violet-400">' + (e.level || 1) + '</td>' +
                 '<td class="py-1 text-right font-mono text-zinc-100">' + e.total_score.toLocaleString() + '</td></tr>'
               ).join('') +
               '</tbody></table>';
@@ -10795,6 +10863,18 @@
           }
         }
       } catch (_) { /* non-critical; panel will populate on first badge earned */ }
+
+      // Load player XP / level so the HUD is correct before any block placement.
+      try {
+        const meRes = await fetch('/api/me', { headers });
+        if (meRes.ok) {
+          const me = await meRes.json();
+          playerLevel = me.level;
+          playerTotalXP = me.total_score;
+          renderXPHud();
+        }
+      } catch (_) {}
+
       await loadChat();
 
       // Load friends once so the badge is correct and the online list
