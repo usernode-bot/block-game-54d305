@@ -665,8 +665,8 @@
     const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color('#8ec7ff');
-    scene.fog = new THREE.Fog('#8ec7ff', 40, 90);
+    scene.background = new THREE.Color('#1a2a40');
+    scene.fog = new THREE.Fog('#1a2a40', 40, 90);
 
     const camera = new THREE.PerspectiveCamera(70, 1, 0.1, 500);
     camera.up.set(0, 1, 0);
@@ -682,6 +682,12 @@
     function materialFor(p) {
       const opts = { color: new THREE.Color(p.color) };
       if (p.opacity != null && p.opacity < 1) { opts.transparent = true; opts.opacity = p.opacity; }
+      if (p.emissive) { opts.emissive = new THREE.Color(p.emissive); opts.emissiveIntensity = p.emissiveIntensity ?? 1; }
+      if (p.material === 'standard') {
+        if (p.metalness != null) opts.metalness = p.metalness;
+        if (p.roughness != null) opts.roughness = p.roughness;
+        return new THREE.MeshStandardMaterial(opts);
+      }
       return new THREE.MeshLambertMaterial(opts);
     }
 
@@ -1998,7 +2004,7 @@
         if (i < 9) {
           const num = document.createElement('span');
           num.textContent = i + 1;
-          num.className = 'absolute bottom-0 right-0.5 text-[10px] font-bold text-black/60';
+          num.className = 'absolute bottom-0 right-0.5 text-[10px] font-bold text-white/60';
           btn.appendChild(num);
         }
         btn.addEventListener('click', () => selectType(p.id));
