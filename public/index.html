@@ -858,9 +858,12 @@
       <div id="ta-best-banner" class="hidden mb-3 rounded-xl bg-gradient-to-r from-amber-500 to-yellow-400 text-zinc-900 font-bold py-2 px-3 text-sm shadow">🎉 New personal best!</div>
       <p id="ta-final-score" class="text-zinc-300 text-lg mb-2">You cleared 0 blocks</p>
       <p id="ta-feedback-msg" class="text-zinc-500 text-sm mb-6"></p>
-      <div class="flex flex-col sm:flex-row gap-2 sm:gap-3 justify-center">
-        <button id="ta-play-again" class="w-full sm:w-auto px-6 py-3 rounded-lg bg-amber-600 hover:bg-amber-500 font-semibold transition hover:scale-105 active:scale-95">Play Again</button>
-        <button id="ta-back-menu" class="w-full sm:w-auto px-6 py-3 rounded-lg bg-zinc-700 hover:bg-zinc-600 font-semibold transition hover:scale-105 active:scale-95">Back to Menu</button>
+      <div class="flex flex-col gap-2 justify-center">
+        <div class="flex flex-col sm:flex-row gap-2 sm:gap-3 justify-center">
+          <button id="ta-play-again" class="w-full sm:w-auto px-6 py-3 rounded-lg bg-amber-600 hover:bg-amber-500 font-semibold transition hover:scale-105 active:scale-95">Play Again</button>
+          <button id="ta-back-menu" class="w-full sm:w-auto px-6 py-3 rounded-lg bg-zinc-700 hover:bg-zinc-600 font-semibold transition hover:scale-105 active:scale-95">Back to Menu</button>
+        </div>
+        <button id="ta-share-score" class="w-full px-6 py-3 rounded-lg bg-purple-600 hover:bg-purple-500 font-semibold transition hover:scale-105 active:scale-95">Share Score 📸</button>
       </div>
     </div>
   </div>
@@ -872,9 +875,12 @@
       <div id="ta-60-best-banner" class="hidden mb-3 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-400 text-zinc-900 font-bold py-2 px-3 text-sm shadow">🎉 New personal best!</div>
       <p id="ta-60-final-score" class="text-zinc-300 text-lg mb-2">You cleared 0 blocks</p>
       <p id="ta-60-feedback-msg" class="text-zinc-500 text-sm mb-6"></p>
-      <div class="flex flex-col sm:flex-row gap-2 sm:gap-3 justify-center">
-        <button id="ta-60-play-again" class="w-full sm:w-auto px-6 py-3 rounded-lg bg-cyan-600 hover:bg-cyan-500 font-semibold transition hover:scale-105 active:scale-95">Play Again</button>
-        <button id="ta-60-back-menu" class="w-full sm:w-auto px-6 py-3 rounded-lg bg-zinc-700 hover:bg-zinc-600 font-semibold transition hover:scale-105 active:scale-95">Back to Menu</button>
+      <div class="flex flex-col gap-2 justify-center">
+        <div class="flex flex-col sm:flex-row gap-2 sm:gap-3 justify-center">
+          <button id="ta-60-play-again" class="w-full sm:w-auto px-6 py-3 rounded-lg bg-cyan-600 hover:bg-cyan-500 font-semibold transition hover:scale-105 active:scale-95">Play Again</button>
+          <button id="ta-60-back-menu" class="w-full sm:w-auto px-6 py-3 rounded-lg bg-zinc-700 hover:bg-zinc-600 font-semibold transition hover:scale-105 active:scale-95">Back to Menu</button>
+        </div>
+        <button id="ta-60-share-score" class="w-full px-6 py-3 rounded-lg bg-purple-600 hover:bg-purple-500 font-semibold transition hover:scale-105 active:scale-95">Share Score 📸</button>
       </div>
     </div>
   </div>
@@ -886,9 +892,12 @@
       <div id="endless-best-banner" class="hidden mb-3 rounded-xl bg-gradient-to-r from-rose-500 to-pink-400 text-zinc-900 font-bold py-2 px-3 text-sm shadow">🎉 New personal best!</div>
       <p id="endless-final-placed" class="text-zinc-300 text-lg mb-2">You placed 0 blocks</p>
       <p id="endless-moves-survived" class="text-zinc-500 text-sm mb-6">Survived 0 move decisions</p>
-      <div class="flex flex-col sm:flex-row gap-2 sm:gap-3 justify-center">
-        <button id="endless-play-again" class="w-full sm:w-auto px-6 py-3 rounded-lg bg-rose-600 hover:bg-rose-500 font-semibold transition hover:scale-105 active:scale-95">Play Again</button>
-        <button id="endless-back-menu" class="w-full sm:w-auto px-6 py-3 rounded-lg bg-zinc-700 hover:bg-zinc-600 font-semibold transition hover:scale-105 active:scale-95">Back to Menu</button>
+      <div class="flex flex-col gap-2 justify-center">
+        <div class="flex flex-col sm:flex-row gap-2 sm:gap-3 justify-center">
+          <button id="endless-play-again" class="w-full sm:w-auto px-6 py-3 rounded-lg bg-rose-600 hover:bg-rose-500 font-semibold transition hover:scale-105 active:scale-95">Play Again</button>
+          <button id="endless-back-menu" class="w-full sm:w-auto px-6 py-3 rounded-lg bg-zinc-700 hover:bg-zinc-600 font-semibold transition hover:scale-105 active:scale-95">Back to Menu</button>
+        </div>
+        <button id="endless-share-score" class="w-full px-6 py-3 rounded-lg bg-purple-600 hover:bg-purple-500 font-semibold transition hover:scale-105 active:scale-95">Share Score 📸</button>
       </div>
     </div>
   </div>
@@ -4229,6 +4238,116 @@
     function escapeHtml(s) {
       return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
     }
+
+    // ---- Share Score: image generation and download ----
+    let taLeaderboardData = null;
+    let ta60LeaderboardData = null;
+    let endlessLeaderboardData = null;
+
+    async function generateScoreImage(mode, primaryStat, secondaryStat, callback) {
+      const canvas = document.createElement('canvas');
+      canvas.width = 600;
+      canvas.height = 800;
+      const ctx = canvas.getContext('2d');
+
+      // Draw gradient background
+      const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
+      gradient.addColorStop(0, '#1f2937');
+      gradient.addColorStop(1, '#111827');
+      ctx.fillStyle = gradient;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      // Mode info
+      const modeInfo = {
+        ta: { emoji: '⚡', label: 'Time Attack', color: '#fbbf24' },
+        'ta-60': { emoji: '⏱️', label: 'Time Attack (60s)', color: '#06b6d4' },
+        endless: { emoji: '♾️', label: 'Endless Mode', color: '#f43f5e' }
+      }[mode];
+
+      const username = myUsername || 'Anonymous Player';
+
+      // Header: mode emoji + label
+      ctx.font = 'bold 32px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+      ctx.fillStyle = modeInfo.color;
+      ctx.textAlign = 'center';
+      ctx.fillText(modeInfo.emoji, canvas.width / 2, 80);
+
+      ctx.font = 'bold 28px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+      ctx.fillStyle = '#f3f4f6';
+      ctx.fillText(modeInfo.label, canvas.width / 2, 130);
+
+      // Score section
+      ctx.font = 'bold 48px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+      ctx.fillStyle = modeInfo.color;
+      if (mode === 'ta') {
+        ctx.fillText(primaryStat + ' Blocks', canvas.width / 2, 220);
+      } else if (mode === 'ta-60') {
+        ctx.fillText(primaryStat + ' Blocks', canvas.width / 2, 220);
+      } else {
+        ctx.fillText(primaryStat + ' Placed', canvas.width / 2, 220);
+      }
+
+      // Secondary stat for endless
+      if (mode === 'endless' && secondaryStat !== null) {
+        ctx.font = 'bold 24px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+        ctx.fillStyle = '#d1d5db';
+        ctx.fillText(secondaryStat + ' Moves Survived', canvas.width / 2, 270);
+      }
+
+      // Username and rank section
+      ctx.font = 'bold 24px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+      ctx.fillStyle = '#9ca3af';
+      const usernameY = mode === 'endless' && secondaryStat !== null ? 350 : 300;
+      ctx.fillText(username, canvas.width / 2, usernameY);
+
+      // Rank if available
+      if (callback) {
+        try {
+          const leaderboardRes = await fetch(callback.endpoint, { headers });
+          if (leaderboardRes.ok) {
+            const leaderboardData = await leaderboardRes.json();
+            if (leaderboardData.self && leaderboardData.self.rank) {
+              ctx.font = 'bold 32px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+              ctx.fillStyle = modeInfo.color;
+              ctx.fillText('#' + leaderboardData.self.rank + ' on leaderboard', canvas.width / 2, usernameY + 70);
+            }
+          }
+        } catch (_) {
+          // Rank unavailable, continue without it
+        }
+      }
+
+      // Footer branding
+      ctx.font = 'bold 18px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+      ctx.fillStyle = '#6b7280';
+      ctx.fillText('block-game', canvas.width / 2, canvas.height - 60);
+      ctx.font = '14px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+      ctx.fillStyle = '#4b5563';
+      ctx.fillText('Share your score 🎮', canvas.width / 2, canvas.height - 20);
+
+      // Download the image
+      canvas.toBlob((blob) => {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'block-game-score-' + Date.now() + '.png';
+        a.click();
+        URL.revokeObjectURL(url);
+      }, 'image/png');
+    }
+
+    // Share Score button handlers
+    document.getElementById('ta-share-score').addEventListener('click', () => {
+      generateScoreImage('ta', taBlocks, null, { endpoint: '/api/ta-leaderboard' });
+    });
+
+    document.getElementById('ta-60-share-score').addEventListener('click', () => {
+      generateScoreImage('ta-60', ta60Score, null, { endpoint: '/api/ta-60-leaderboard' });
+    });
+
+    document.getElementById('endless-share-score').addEventListener('click', () => {
+      generateScoreImage('endless', endlessBlocksPlaced, endlessMovesStarted, { endpoint: '/api/endless-leaderboard' });
+    });
 
     // ---- Player profile panel ----
     const profilePanelEl = document.getElementById('profile-panel');
