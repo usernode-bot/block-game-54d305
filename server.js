@@ -66,6 +66,21 @@ const BLOCK_POINTS = {
 // Sentinel "user" id for staging seed rows so they never reference a real user.
 const SEED_USER_ID = 0;
 
+// ---- NFT skin helpers ----
+const nftCache = new Map(); // user_id -> { ts: number, nfts: Array }
+const NFT_CACHE_TTL = 5 * 60 * 1000;
+
+function makeSvgDataUri(topColor, bottomColor) {
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64"><rect width="64" height="32" fill="${topColor}"/><rect y="32" width="64" height="32" fill="${bottomColor}"/></svg>`;
+  return 'data:image/svg+xml;base64,' + Buffer.from(svg).toString('base64');
+}
+
+const STAGING_DEMO_NFTS = [
+  { skin_id: 'staging-nft-1', nft_name: 'Staging Demo Skin: Fire', image_url: makeSvgDataUri('#ff6600', '#cc2200') },
+  { skin_id: 'staging-nft-2', nft_name: 'Staging Demo Skin: Ice',  image_url: makeSvgDataUri('#aaddff', '#0088cc') },
+  { skin_id: 'staging-nft-3', nft_name: 'Staging Demo Skin: Void', image_url: makeSvgDataUri('#330055', '#110033') },
+];
+
 // Badge definitions (authoritative; mirrored to the client for panel rendering).
 const BADGES = [
   { id: 'first_block',     name: 'First Block',    icon: '🏗️', flavour: 'Placed your first block!' },
@@ -171,18 +186,25 @@ app.get('/health', (_req, res) => res.json({ status: 'ok' }));
 app.get('/api/world', async (req, res) => {
   try {
     const { rows } = await pool.query(
-      `SELECT x, y, z, block_type FROM blocks WHERE block_type <> 0`
+      `SELECT x, y, z, block_type, skin_id FROM blocks WHERE block_type <> 0`
     );
     const cur = await pool.query(`SELECT COALESCE(MAX(seq), 0) AS cursor FROM blocks`);
     const lbRow = await pool.query(`SELECT blocks_placed FROM leaderboard WHERE user_id = $1`, [req.user.id]);
     const userPlaced = lbRow.rows.length ? Number(lbRow.rows[0].blocks_placed) : 0;
     const unlockedTypes = PALETTE.filter((p) => p.unlockAt && userPlaced >= p.unlockAt).map((p) => p.id);
+    const skinRow = await pool.query(
+      `SELECT skin_id, image_url, nft_name FROM player_skins WHERE user_id = $1`, [req.user.id]
+    );
+    const activeSkin = skinRow.rows.length
+      ? { skin_id: skinRow.rows[0].skin_id, image_url: skinRow.rows[0].image_url, nft_name: skinRow.rows[0].nft_name }
+      : null;
     res.json({
       dims: DIMS,
       palette: PALETTE,
-      blocks: rows.map((r) => ({ x: r.x, y: r.y, z: r.z, t: r.block_type })),
+      blocks: rows.map((r) => ({ x: r.x, y: r.y, z: r.z, t: r.block_type, ...(r.skin_id ? { s: r.skin_id } : {}) })),
       cursor: Number(cur.rows[0].cursor),
       unlockedTypes,
+      activeSkin,
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -226,17 +248,25 @@ app.post('/api/block', async (req, res) => {
       }
     }
 
+    // Read active skin for this player (only relevant for placements; breaks set skin to NULL).
+    let activeSkinId = null;
+    if (t !== 0) {
+      const skinRes = await pool.query(`SELECT skin_id FROM player_skins WHERE user_id = $1`, [req.user.id]);
+      activeSkinId = skinRes.rows.length ? skinRes.rows[0].skin_id : null;
+    }
+
     const { rows } = await pool.query(
-      `INSERT INTO blocks (x, y, z, block_type, seq, updated_by_user_id, updated_by_username, updated_at)
-       VALUES ($1, $2, $3, $4, nextval('block_seq'), $5, $6, NOW())
+      `INSERT INTO blocks (x, y, z, block_type, skin_id, seq, updated_by_user_id, updated_by_username, updated_at)
+       VALUES ($1, $2, $3, $4, $7, nextval('block_seq'), $5, $6, NOW())
        ON CONFLICT (x, y, z) DO UPDATE SET
          block_type = EXCLUDED.block_type,
+         skin_id = EXCLUDED.skin_id,
          seq = EXCLUDED.seq,
          updated_by_user_id = EXCLUDED.updated_by_user_id,
          updated_by_username = EXCLUDED.updated_by_username,
          updated_at = NOW()
        RETURNING seq`,
-      [x, y, z, t, req.user.id, req.user.username]
+      [x, y, z, t, req.user.id, req.user.username, activeSkinId]
     );
     const seq = Number(rows[0].seq);
 
@@ -375,7 +405,7 @@ app.post('/api/block', async (req, res) => {
       }
     }
 
-    res.json({ ok: true, seq, ...(challenge ? { challenge } : {}), earned, combo_multiplier, rainbow_multiplier, newly_earned_badges, newly_unlocked_types });
+    res.json({ ok: true, seq, ...(challenge ? { challenge } : {}), earned, combo_multiplier, rainbow_multiplier, newly_earned_badges, newly_unlocked_types, ...(activeSkinId ? { skin_id: activeSkinId } : {}) });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -387,12 +417,12 @@ app.get('/api/world/changes', async (req, res) => {
   try {
     const since = Number(req.query.since) || 0;
     const { rows } = await pool.query(
-      `SELECT x, y, z, block_type, seq FROM blocks WHERE seq > $1 ORDER BY seq`,
+      `SELECT x, y, z, block_type, skin_id, seq FROM blocks WHERE seq > $1 ORDER BY seq`,
       [since]
     );
     const cursor = rows.length ? Number(rows[rows.length - 1].seq) : since;
     res.json({
-      changes: rows.map((r) => ({ x: r.x, y: r.y, z: r.z, t: r.block_type })),
+      changes: rows.map((r) => ({ x: r.x, y: r.y, z: r.z, t: r.block_type, ...(r.skin_id ? { s: r.skin_id } : {}) })),
       cursor,
     });
   } catch (err) {
@@ -992,6 +1022,142 @@ app.post('/api/coach/tip', async (req, res) => {
   }
 });
 
+// ---- NFT Block Skins ----
+
+// Returns NFTs owned by the requesting user. In staging, returns hardcoded
+// demo NFTs regardless of wallet state. In production, queries NODE_RPC_URL.
+app.get('/api/skins/my-nfts', async (req, res) => {
+  try {
+    if (IS_STAGING) {
+      return res.json({ wallet_linked: true, nfts: STAGING_DEMO_NFTS });
+    }
+
+    const pubkey = req.user.usernode_pubkey;
+    if (!pubkey) return res.json({ wallet_linked: false, nfts: [] });
+
+    // Check in-process cache (5-minute TTL).
+    const cached = nftCache.get(req.user.id);
+    if (cached && Date.now() - cached.ts < NFT_CACHE_TTL) {
+      return res.json({ wallet_linked: true, nfts: cached.nfts });
+    }
+
+    // Best-effort RPC call to Usernode node for NFT ownership.
+    let nfts = [];
+    if (process.env.NODE_RPC_URL) {
+      try {
+        const rpcRes = await fetch(process.env.NODE_RPC_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'eth_getNFTs', params: [pubkey] }),
+        });
+        if (rpcRes.ok) {
+          const rpcData = await rpcRes.json();
+          const raw = rpcData?.result ?? [];
+          nfts = Array.isArray(raw) ? raw.map((item) => ({
+            skin_id: `${item.contract}:${item.tokenId}`,
+            nft_name: item.name || `NFT #${item.tokenId}`,
+            image_url: item.imageUrl || item.image || '',
+          })).filter((n) => n.image_url) : [];
+        }
+      } catch (_) { /* RPC unavailable — return empty list */ }
+    }
+
+    nftCache.set(req.user.id, { ts: Date.now(), nfts });
+    res.json({ wallet_linked: true, nfts });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Equip an NFT skin: verifies ownership then upserts into player_skins.
+app.post('/api/skins/equip', async (req, res) => {
+  try {
+    const { skin_id, image_url, nft_name } = req.body || {};
+    if (!skin_id || typeof skin_id !== 'string' || skin_id.length > 64) {
+      return res.status(400).json({ error: 'invalid skin_id' });
+    }
+    if (!image_url || typeof image_url !== 'string') {
+      return res.status(400).json({ error: 'invalid image_url' });
+    }
+
+    // Verify ownership (skip in staging where all demo skins are always accessible).
+    if (!IS_STAGING) {
+      const pubkey = req.user.usernode_pubkey;
+      if (!pubkey) return res.status(403).json({ error: 'no wallet linked' });
+
+      // Re-fetch NFT list (use cache if fresh).
+      let nfts = [];
+      const cached = nftCache.get(req.user.id);
+      if (cached && Date.now() - cached.ts < NFT_CACHE_TTL) {
+        nfts = cached.nfts;
+      } else if (process.env.NODE_RPC_URL) {
+        try {
+          const rpcRes = await fetch(process.env.NODE_RPC_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'eth_getNFTs', params: [pubkey] }),
+          });
+          if (rpcRes.ok) {
+            const rpcData = await rpcRes.json();
+            const raw = rpcData?.result ?? [];
+            nfts = Array.isArray(raw) ? raw.map((item) => ({
+              skin_id: `${item.contract}:${item.tokenId}`,
+              nft_name: item.name || `NFT #${item.tokenId}`,
+              image_url: item.imageUrl || item.image || '',
+            })).filter((n) => n.image_url) : [];
+            nftCache.set(req.user.id, { ts: Date.now(), nfts });
+          }
+        } catch (_) { /* RPC unavailable */ }
+      }
+      const owned = nfts.some((n) => n.skin_id === skin_id);
+      if (!owned) return res.status(403).json({ error: 'NFT not owned' });
+    }
+
+    await pool.query(
+      `INSERT INTO player_skins (user_id, skin_id, image_url, nft_name, updated_at)
+       VALUES ($1, $2, $3, $4, NOW())
+       ON CONFLICT (user_id) DO UPDATE SET skin_id = EXCLUDED.skin_id, image_url = EXCLUDED.image_url, nft_name = EXCLUDED.nft_name, updated_at = NOW()`,
+      [req.user.id, skin_id, image_url, nft_name || skin_id]
+    );
+    // Invalidate NFT cache so next my-nfts fetch is fresh.
+    nftCache.delete(req.user.id);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Unequip the active skin.
+app.post('/api/skins/unequip', async (req, res) => {
+  try {
+    await pool.query(`DELETE FROM player_skins WHERE user_id = $1`, [req.user.id]);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Look up metadata for a skin by its skin_id (used by other clients to
+// resolve textures they encounter in the block change feed).
+app.get('/api/skins/:skin_id', async (req, res) => {
+  try {
+    const skinId = req.params.skin_id;
+    // In staging, also serve the demo skin metadata without a DB lookup.
+    if (IS_STAGING) {
+      const demo = STAGING_DEMO_NFTS.find((n) => n.skin_id === skinId);
+      if (demo) return res.json({ image_url: demo.image_url, nft_name: demo.nft_name });
+    }
+    const { rows } = await pool.query(
+      `SELECT image_url, nft_name FROM player_skins WHERE skin_id = $1 LIMIT 1`,
+      [skinId]
+    );
+    if (!rows.length) return res.status(404).json({ error: 'skin not found' });
+    res.json({ image_url: rows[0].image_url, nft_name: rows[0].nft_name });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.use(express.static(path.join(__dirname, 'public'), {
   setHeaders(res, filePath) {
     // The entire game is inline in index.html, so a cached shell hides a
@@ -1087,6 +1253,32 @@ function buildSeedCells() {
   set(11, 2, 22, 18);
   set( 9, 2, 22, 18);
   return cells;
+}
+
+async function seedSkins() {
+  // Give the staging demo user (SEED_USER_ID=0) the Fire skin so the feature
+  // is immediately visible when a reviewer opens the game in staging.
+  const demo = STAGING_DEMO_NFTS[0];
+  await pool.query(
+    `INSERT INTO player_skins (user_id, skin_id, image_url, nft_name, updated_at)
+     VALUES ($1, $2, $3, $4, NOW())
+     ON CONFLICT (user_id) DO NOTHING`,
+    [SEED_USER_ID, demo.skin_id, demo.image_url, demo.nft_name]
+  );
+  // Seed a small patch of skinned blocks so the Fire texture is visible on
+  // world load without the reviewer needing to place any blocks first.
+  const skinCells = [
+    { x: 14, y: 2, z: 14 }, { x: 15, y: 2, z: 14 }, { x: 16, y: 2, z: 14 },
+    { x: 14, y: 2, z: 15 }, { x: 15, y: 2, z: 15 }, { x: 16, y: 2, z: 15 },
+  ];
+  for (const c of skinCells) {
+    await pool.query(
+      `INSERT INTO blocks (x, y, z, block_type, skin_id, seq, updated_by_user_id, updated_by_username, updated_at)
+       VALUES ($1, $2, $3, 1, $4, nextval('block_seq'), $5, 'Staging demo', NOW())
+       ON CONFLICT (x, y, z) DO NOTHING`,
+      [c.x, c.y, c.z, demo.skin_id, SEED_USER_ID]
+    );
+  }
 }
 
 async function seedStaging() {
@@ -1346,6 +1538,17 @@ async function start() {
   await pool.query(`CREATE SEQUENCE IF NOT EXISTS block_seq`);
   await pool.query(`CREATE INDEX IF NOT EXISTS blocks_seq_idx ON blocks (seq)`);
   await pool.query(`CREATE INDEX IF NOT EXISTS blocks_user_time_idx ON blocks (updated_by_user_id, updated_at)`);
+  await pool.query(`ALTER TABLE blocks ADD COLUMN IF NOT EXISTS skin_id VARCHAR(64)`);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS player_skins (
+      user_id    INTEGER PRIMARY KEY,
+      skin_id    VARCHAR(64) NOT NULL,
+      image_url  TEXT NOT NULL,
+      nft_name   VARCHAR(255) NOT NULL DEFAULT '',
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS leaderboard (
@@ -1495,6 +1698,8 @@ async function start() {
     catch (err) { console.error('tournament seed failed', err); }
     try { await seedStreaks(); }
     catch (err) { console.error('streak seed failed', err); }
+    try { await seedSkins(); }
+    catch (err) { console.error('skins seed failed', err); }
     // Staging spectators are now surfaced via the STAGING_DEMO_USERS constant
     // appended in GET /api/presence/online, so no DB seed is needed here.
   }
