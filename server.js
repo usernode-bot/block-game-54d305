@@ -887,6 +887,246 @@ app.delete('/api/friends/:id', async (req, res) => {
   }
 });
 
+// ---- Duels: send a challenge ----
+app.post('/api/duels', async (req, res) => {
+  const uid = req.user.id;
+  const uname = req.user.username;
+  const targetUsername = (typeof req.body.targetUsername === 'string' ? req.body.targetUsername : '').trim();
+  if (!targetUsername) return res.status(400).json({ error: 'targetUsername required' });
+  if (targetUsername.toLowerCase() === uname.toLowerCase()) {
+    return res.status(400).json({ error: 'Cannot challenge yourself' });
+  }
+  try {
+    const { rows: targetRows } = await pool.query(
+      `SELECT user_id, username FROM (
+         SELECT user_id, username, 1 AS priority FROM user_presence
+         UNION
+         SELECT user_id, username, 2 AS priority FROM leaderboard
+       ) u
+       WHERE LOWER(username) = LOWER($1)
+       ORDER BY priority ASC LIMIT 1`,
+      [targetUsername]
+    );
+    if (!targetRows.length) return res.status(404).json({ error: 'User not found' });
+    const { user_id: tid, username: tusername } = targetRows[0];
+
+    const { rows: existing } = await pool.query(
+      `SELECT id FROM duels
+       WHERE status IN ('pending','active')
+         AND (challenger_id = $1 OR challenged_id = $1 OR challenger_id = $2 OR challenged_id = $2)`,
+      [uid, tid]
+    );
+    if (existing.length) return res.status(409).json({ error: 'A duel is already in progress' });
+
+    const { rows: inserted } = await pool.query(
+      `INSERT INTO duels (challenger_id, challenger_username, challenged_id, challenged_username)
+       VALUES ($1, $2, $3, $4) RETURNING id, created_at`,
+      [uid, uname, tid, tusername]
+    );
+    const { id, created_at } = inserted[0];
+    const expiresAt = new Date(new Date(created_at).getTime() + 30000);
+    res.json({ id: Number(id), expiresAt });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- Duels: accept an incoming challenge ----
+app.post('/api/duels/:id/accept', async (req, res) => {
+  const rowId = Number(req.params.id);
+  const uid = req.user.id;
+  const uname = req.user.username;
+
+  // Staging shortcircuit for injected fake challenges (negative IDs)
+  if (IS_STAGING && rowId < 0) {
+    try {
+      const { rows: ins } = await pool.query(
+        `INSERT INTO duels (challenger_id, challenger_username, challenged_id, challenged_username,
+          status, started_at, ends_at)
+         VALUES (-3, 'Staging demo Carol', $1, $2, 'active', NOW(), NOW() + INTERVAL '90 seconds')
+         RETURNING started_at, ends_at`,
+        [uid, uname]
+      );
+      if (ins.length) return res.json({ ok: true, started_at: ins[0].started_at, ends_at: ins[0].ends_at });
+    } catch (_) {}
+    return res.json({ ok: true, started_at: new Date(), ends_at: new Date(Date.now() + 90000) });
+  }
+
+  try {
+    const { rows: checkRows } = await pool.query(
+      `SELECT id, created_at, status FROM duels WHERE id = $1 AND challenged_id = $2`,
+      [rowId, uid]
+    );
+    if (!checkRows.length) return res.status(404).json({ error: 'Challenge not found' });
+    const d = checkRows[0];
+    if (d.status !== 'pending') return res.status(400).json({ error: 'Challenge is not pending' });
+    if (new Date() > new Date(new Date(d.created_at).getTime() + 30000)) {
+      await pool.query(`UPDATE duels SET status = 'expired', updated_at = NOW() WHERE id = $1`, [rowId]);
+      return res.status(400).json({ error: 'Challenge has expired' });
+    }
+
+    const { rows: updated } = await pool.query(
+      `UPDATE duels
+       SET status = 'active', started_at = NOW(), ends_at = NOW() + INTERVAL '90 seconds', updated_at = NOW()
+       WHERE id = $1 AND challenged_id = $2 AND status = 'pending'
+       RETURNING started_at, ends_at`,
+      [rowId, uid]
+    );
+    if (!updated.length) return res.status(404).json({ error: 'Challenge not found or already handled' });
+    res.json({ ok: true, started_at: updated[0].started_at, ends_at: updated[0].ends_at });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- Duels: decline an incoming challenge ----
+app.post('/api/duels/:id/decline', async (req, res) => {
+  const rowId = Number(req.params.id);
+  if (IS_STAGING && rowId < 0) return res.json({ ok: true });
+  try {
+    const { rows } = await pool.query(
+      `UPDATE duels SET status = 'declined', updated_at = NOW()
+       WHERE id = $1 AND challenged_id = $2 AND status = 'pending'
+       RETURNING id`,
+      [rowId, req.user.id]
+    );
+    if (!rows.length) return res.status(404).json({ error: 'Challenge not found' });
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- Duels: get the caller's active/pending duel (with live block counts) ----
+app.get('/api/duels/active', async (req, res) => {
+  const uid = req.user.id;
+  try {
+    const { rows } = await pool.query(
+      `SELECT * FROM duels
+       WHERE (challenger_id = $1 OR challenged_id = $1)
+         AND status IN ('pending','active','finished','declined')
+       ORDER BY created_at DESC LIMIT 1`,
+      [uid]
+    );
+    if (!rows.length) return res.json({ duel: null });
+    let duel = rows[0];
+
+    // Treat expired pending challenges as gone
+    if (duel.status === 'pending') {
+      if (new Date() > new Date(new Date(duel.created_at).getTime() + 30000)) {
+        await pool.query(`UPDATE duels SET status = 'expired', updated_at = NOW() WHERE id = $1`, [duel.id]);
+        return res.json({ duel: null });
+      }
+    }
+
+    // Finalize an active duel whose time has expired (idempotent)
+    if (duel.status === 'active' && new Date() > new Date(duel.ends_at)) {
+      const cRes = await pool.query(
+        `SELECT COUNT(*) FROM blocks
+         WHERE updated_by_user_id = $1 AND block_type <> 0
+           AND updated_at >= $2 AND updated_at <= $3`,
+        [duel.challenger_id, duel.started_at, duel.ends_at]
+      );
+      const dRes = await pool.query(
+        `SELECT COUNT(*) FROM blocks
+         WHERE updated_by_user_id = $1 AND block_type <> 0
+           AND updated_at >= $2 AND updated_at <= $3`,
+        [duel.challenged_id, duel.started_at, duel.ends_at]
+      );
+      const cBlocks = Number(cRes.rows[0].count);
+      const dBlocks = Number(dRes.rows[0].count);
+      let winnerId = null;
+      if (cBlocks > dBlocks) winnerId = duel.challenger_id;
+      else if (dBlocks > cBlocks) winnerId = duel.challenged_id;
+
+      const { rows: upd } = await pool.query(
+        `UPDATE duels
+         SET status = 'finished', challenger_blocks = $1, challenged_blocks = $2,
+             winner_id = $3, updated_at = NOW()
+         WHERE id = $4 AND status = 'active'
+         RETURNING *`,
+        [cBlocks, dBlocks, winnerId, duel.id]
+      );
+      if (upd.length) duel = upd[0];
+    }
+
+    // For a still-active duel compute live block counts
+    if (duel.status === 'active') {
+      const cRes = await pool.query(
+        `SELECT COUNT(*) FROM blocks
+         WHERE updated_by_user_id = $1 AND block_type <> 0 AND updated_at >= $2`,
+        [duel.challenger_id, duel.started_at]
+      );
+      const dRes = await pool.query(
+        `SELECT COUNT(*) FROM blocks
+         WHERE updated_by_user_id = $1 AND block_type <> 0 AND updated_at >= $2`,
+        [duel.challenged_id, duel.started_at]
+      );
+      duel = {
+        ...duel,
+        challenger_blocks: Number(cRes.rows[0].count),
+        challenged_blocks: Number(dRes.rows[0].count),
+      };
+    }
+
+    res.json({ duel: {
+      id: Number(duel.id),
+      challenger_id: Number(duel.challenger_id),
+      challenger_username: duel.challenger_username,
+      challenged_id: Number(duel.challenged_id),
+      challenged_username: duel.challenged_username,
+      status: duel.status,
+      started_at: duel.started_at,
+      ends_at: duel.ends_at,
+      challenger_blocks: Number(duel.challenger_blocks || 0),
+      challenged_blocks: Number(duel.challenged_blocks || 0),
+      winner_id: duel.winner_id != null ? Number(duel.winner_id) : null,
+      created_at: duel.created_at,
+    }});
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- Duels: get incoming pending challenges for the caller ----
+app.get('/api/duels/pending', async (req, res) => {
+  const uid = req.user.id;
+  try {
+    const { rows } = await pool.query(
+      `SELECT id, challenger_id, challenger_username, created_at FROM duels
+       WHERE challenged_id = $1
+         AND status = 'pending'
+         AND created_at > NOW() - INTERVAL '30 seconds'
+       ORDER BY created_at DESC LIMIT 1`,
+      [uid]
+    );
+    if (rows.length) {
+      const d = rows[0];
+      const expiresAt = new Date(new Date(d.created_at).getTime() + 30000);
+      return res.json({ duel: {
+        id: Number(d.id),
+        challenger_id: Number(d.challenger_id),
+        challenger_username: d.challenger_username,
+        created_at: d.created_at,
+        expires_at: expiresAt,
+      }});
+    }
+    // Staging: inject a fake pending challenge so reviewers can test the banner
+    if (IS_STAGING) {
+      return res.json({ duel: {
+        id: -101,
+        challenger_id: -3,
+        challenger_username: 'Staging demo Carol',
+        created_at: new Date(Date.now() - 5000),
+        expires_at: new Date(Date.now() + 25000),
+      }});
+    }
+    res.json({ duel: null });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.use(express.static(path.join(__dirname, 'public'), {
   setHeaders(res, filePath) {
     // The entire game is inline in index.html, so a cached shell hides a
@@ -1216,6 +1456,24 @@ async function seedStreaks() {
   }
 }
 
+async function seedDuels() {
+  // One finished duel for historical context (Alice beat Bob).
+  const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000);
+  const threeHalfMinAgo = new Date(Date.now() - 3.5 * 60 * 1000);
+  await pool.query(
+    `INSERT INTO duels
+       (id, challenger_id, challenger_username, challenged_id, challenged_username,
+        status, started_at, ends_at, challenger_blocks, challenged_blocks, winner_id,
+        created_at, updated_at)
+     VALUES (-1, -1, 'Staging demo Alice', -2, 'Staging demo Bob',
+       'finished', $1, $2, 42, 31, -1, $1, $2)
+     ON CONFLICT (id) DO NOTHING`,
+    [fiveMinAgo, threeHalfMinAgo]
+  );
+  // Ensure the sequence stays above 0 so real inserts don't collide with the seed row.
+  await pool.query(`SELECT setval('duels_id_seq', GREATEST((SELECT COALESCE(MAX(id),0) FROM duels WHERE id > 0), 0), true)`);
+}
+
 async function start() {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS blocks (
@@ -1370,6 +1628,28 @@ async function start() {
   await pool.query(`CREATE INDEX IF NOT EXISTS friendships_addressee_status_idx ON friendships (addressee_id, status)`);
   await pool.query(`CREATE INDEX IF NOT EXISTS friendships_requester_status_idx ON friendships (requester_id, status)`);
 
+  // Duel challenge history. Marked staging:private — pairs real user IDs.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS duels (
+      id                  BIGSERIAL    PRIMARY KEY,
+      challenger_id       INTEGER      NOT NULL,
+      challenger_username VARCHAR(255) NOT NULL,
+      challenged_id       INTEGER      NOT NULL,
+      challenged_username VARCHAR(255) NOT NULL,
+      status              VARCHAR(20)  NOT NULL DEFAULT 'pending',
+      started_at          TIMESTAMPTZ,
+      ends_at             TIMESTAMPTZ,
+      challenger_blocks   INTEGER      NOT NULL DEFAULT 0,
+      challenged_blocks   INTEGER      NOT NULL DEFAULT 0,
+      winner_id           INTEGER,
+      created_at          TIMESTAMPTZ  DEFAULT NOW(),
+      updated_at          TIMESTAMPTZ  DEFAULT NOW()
+    )
+  `);
+  await pool.query(`COMMENT ON TABLE duels IS 'staging:private'`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS duels_challenger_status_idx ON duels (challenger_id, status)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS duels_challenged_status_idx ON duels (challenged_id, status)`);
+
 
   if (IS_STAGING) {
     try { await seedStaging(); }
@@ -1382,6 +1662,8 @@ async function start() {
     catch (err) { console.error('tournament seed failed', err); }
     try { await seedStreaks(); }
     catch (err) { console.error('streak seed failed', err); }
+    try { await seedDuels(); }
+    catch (err) { console.error('staging duels seed failed', err); }
     try {
       // Two fake spectators so the eye-icon path is exercisable in staging.
       await pool.query(
