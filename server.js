@@ -45,24 +45,24 @@ const DIMS = { w: 32, d: 32, h: 24 }; // x in [0,w-1], z in [0,d-1], y in [0,h-1
 // `material` 'standard' uses MeshStandardMaterial (PBR); default is Lambert.
 // `emissive` / `emissiveIntensity` add a glow. `powerup` marks animated blocks.
 const PALETTE = [
-  { id: 1,  name: 'Grass',         color: '#3dd847' },
-  { id: 2,  name: 'Dirt',          color: '#b8643e' },
-  { id: 3,  name: 'Stone',         color: '#a8aeb8' },
-  { id: 4,  name: 'Wood',          color: '#d4944f' },
-  { id: 5,  name: 'Leaves',        color: '#2ac142' },
-  { id: 6,  name: 'Sand',          color: '#fce67f' },
-  { id: 7,  name: 'Brick',         color: '#f04a38' },
-  { id: 8,  name: 'Glass',         color: '#6fe3ff', opacity: 0.45 },
-  { id: 9,  name: 'Red',           color: '#ff2626' },
-  { id: 10, name: 'Blue',          color: '#2563ff' },
-  { id: 11, name: 'Yellow',        color: '#ffd600' },
-  { id: 12, name: 'White',         color: '#f4f4f8' },
-  { id: 13, name: 'Snow',          color: '#d0e8ff' },
-  { id: 14, name: 'Gold Block',    color: '#ffb800', material: 'standard', metalness: 0.85, roughness: 0.2 },
-  { id: 15, name: 'Glowstone',     color: '#ffb43d', emissive: '#ff6a00', emissiveIntensity: 0.6 },
-  { id: 16, name: 'Obsidian',      color: '#2d1555', material: 'standard', metalness: 0.3, roughness: 0.1 },
-  { id: 17, name: 'Rainbow Block', color: '#ff1493', powerup: true },
-  { id: 18, name: 'Crystal',       color: '#b39dff', opacity: 0.65, emissive: '#7a4dff', emissiveIntensity: 0.3, material: 'standard', metalness: 0.1, roughness: 0.2, unlockAt: 50, unlockIcon: '💎' },
+  { id: 1,  name: 'Grass',         color: '#7ed98a' },
+  { id: 2,  name: 'Dirt',          color: '#c9917a' },
+  { id: 3,  name: 'Stone',         color: '#c2c6cf' },
+  { id: 4,  name: 'Wood',          color: '#ddb680' },
+  { id: 5,  name: 'Leaves',        color: '#6ec67a' },
+  { id: 6,  name: 'Sand',          color: '#fdf0a8' },
+  { id: 7,  name: 'Brick',         color: '#e88c82' },
+  { id: 8,  name: 'Glass',         color: '#b3e8f5', opacity: 0.45 },
+  { id: 9,  name: 'Red',           color: '#f09090' },
+  { id: 10, name: 'Blue',          color: '#80a8f0' },
+  { id: 11, name: 'Yellow',        color: '#ffe580' },
+  { id: 12, name: 'White',         color: '#f8f6ff' },
+  { id: 13, name: 'Snow',          color: '#e4eeff' },
+  { id: 14, name: 'Gold Block',    color: '#f5d27a', material: 'standard', metalness: 0.85, roughness: 0.2 },
+  { id: 15, name: 'Glowstone',     color: '#ffd099', emissive: '#f0a870', emissiveIntensity: 0.6 },
+  { id: 16, name: 'Obsidian',      color: '#6b5588', material: 'standard', metalness: 0.3, roughness: 0.1 },
+  { id: 17, name: 'Rainbow Block', color: '#f0a8c5', powerup: true },
+  { id: 18, name: 'Crystal',       color: '#d4c8ff', opacity: 0.65, emissive: '#b0a0ff', emissiveIntensity: 0.3, material: 'standard', metalness: 0.1, roughness: 0.2, unlockAt: 50, unlockIcon: '💎' },
   { id: 19, name: 'Ice',           color: '#aadeef', opacity: 0.55 },
   { id: 20, name: 'Lava',          color: '#e8540f', emissive: '#ff2200', emissiveIntensity: 0.8 },
   { id: 21, name: 'Lime',          color: '#78de3e' },
@@ -71,6 +71,7 @@ const PALETTE = [
   { id: 24, name: 'Cyan',          color: '#29b8b8' },
   { id: 25, name: 'Iron Block',    color: '#d4d4dc', material: 'standard', metalness: 0.9, roughness: 0.3 },
   { id: 26, name: 'Terracotta',    color: '#c5694a' },
+  { id: 27, name: 'Gold Star',     color: '#ffd700', wildcard: true, material: 'standard', metalness: 0.85, roughness: 0.12, emissive: '#ffa500', emissiveIntensity: 0.4, unlockIcon: '⭐' },
 ];
 const VALID_TYPES = new Set(PALETTE.map((p) => p.id)); // does NOT include 0
 
@@ -89,6 +90,7 @@ const BLOCK_POINTS = {
   21: 2, 22: 2, 23: 2, 24: 2, // Lime, Orange, Purple, Cyan
   25: 4,  // Iron Block
   26: 1,  // Terracotta
+  27: 5,  // Gold Star
 };
 
 // Sentinel "user" id for staging seed rows so they never reference a real user.
@@ -196,6 +198,14 @@ const STREAK_BADGE_MILESTONES = [
   { days: 3, id: 'streak_3' },
   { days: 7, id: 'streak_7' },
 ];
+
+// Wager tier definitions (authoritative; mirrored to the client).
+const WAGER_TIERS = {
+  easy:   { target: 20,  multiplier: 1.5 },
+  medium: { target: 50,  multiplier: 2.0 },
+  hard:   { target: 80,  multiplier: 3.0 },
+  expert: { target: 110, multiplier: 5.0 },
+};
 
 // Pet companion definitions. Unlocked automatically when blocks_placed reaches
 // the threshold — no separate ownership table, same pattern as Crystal block.
@@ -625,6 +635,17 @@ app.post('/api/block', async (req, res) => {
         [weekStart(now), req.user.id, req.user.username, earned]
       );
 
+      // Award 1 coin per placement. First-ever placement inserts 51 (50 starter + 1).
+      await pool.query(
+        `INSERT INTO player_coins (user_id, username, balance, updated_at)
+         VALUES ($1, $2, 51, NOW())
+         ON CONFLICT (user_id) DO UPDATE SET
+           balance = player_coins.balance + 1,
+           username = EXCLUDED.username,
+           updated_at = NOW()`,
+        [req.user.id, req.user.username]
+      );
+
       // Track which block types this player has ever placed.
       await pool.query(
         `INSERT INTO player_type_usage (user_id, block_type) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
@@ -927,52 +948,30 @@ app.post('/api/presence/ping', async (req, res) => {
       }
     }
 
-    // Daily login reward: check if already claimed today
-    let dailyReward = { claimed: false };
-    const today = new Date().toISOString().slice(0, 10);
-    const rewardCheckRes = await pool.query(
-      `SELECT coins_earned FROM login_rewards WHERE user_id = $1 AND reward_date = $2`,
-      [req.user.id, today]
+    // Daily coin login bonus: +10 per UTC day; +60 for brand-new players (50 starter + 10).
+    const coinLoginRes = await pool.query(
+      `INSERT INTO player_coins (user_id, username, balance, last_coin_login_date, updated_at)
+       VALUES ($1, $2, 60, CURRENT_DATE, NOW())
+       ON CONFLICT (user_id) DO UPDATE SET
+         balance = CASE
+           WHEN player_coins.last_coin_login_date IS NULL
+             OR player_coins.last_coin_login_date < CURRENT_DATE
+           THEN player_coins.balance + 10
+           ELSE player_coins.balance
+         END,
+         last_coin_login_date = CURRENT_DATE,
+         username = EXCLUDED.username,
+         updated_at = NOW()
+       RETURNING balance`,
+      [req.user.id, req.user.username]
     );
-
-    if (rewardCheckRes.rows.length === 0) {
-      // Calculate reward based on streak: base 10 coins, multiplier 1.0 + (streak * 0.1), capped at 3.0
-      const multiplier = Math.min(3.0, 1.0 + (current_streak * 0.1));
-      const coinsEarned = Math.round(10 * multiplier);
-
-      // Insert reward claim
-      await pool.query(
-        `INSERT INTO login_rewards (user_id, reward_date, coins_earned)
-         VALUES ($1, $2, $3)
-         ON CONFLICT DO NOTHING`,
-        [req.user.id, today, coinsEarned]
-      );
-
-      // Upsert player coins balance
-      await pool.query(
-        `INSERT INTO player_coins (user_id, coins_balance, updated_at)
-         VALUES ($1, $2, NOW())
-         ON CONFLICT (user_id) DO UPDATE SET
-           coins_balance = player_coins.coins_balance + EXCLUDED.coins_balance,
-           updated_at = NOW()`,
-        [req.user.id, coinsEarned]
-      );
-
-      dailyReward = {
-        claimed: true,
-        coins_earned: coinsEarned,
-        current_streak: current_streak,
-        multiplier: parseFloat(multiplier.toFixed(1)),
-      };
-    } else {
-      dailyReward = { claimed: true };
-    }
+    const coins_balance = Number(coinLoginRes.rows[0].balance);
 
     res.json({
       ok: true,
       streak: { current: current_streak, longest: longest_streak },
       newly_earned_badges: newlyEarnedBadges,
-      daily_reward: dailyReward,
+      coins_balance,
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -1025,10 +1024,10 @@ app.post('/api/pet/equip', async (req, res) => {
 app.get('/api/player/coins', async (req, res) => {
   try {
     const { rows } = await pool.query(
-      `SELECT coins_balance FROM player_coins WHERE user_id = $1`,
+      `SELECT balance FROM player_coins WHERE user_id = $1`,
       [req.user.id]
     );
-    const coins = rows.length ? Number(rows[0].coins_balance) : 0;
+    const coins = rows.length ? Number(rows[0].balance) : 0;
     res.json({ coins });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -1255,6 +1254,42 @@ app.get('/api/presence/online', async (req, res) => {
     const users = rows.map((r) => ({ username: r.username, mode: r.mode || 'classic', active_pet: r.active_pet || null }));
     if (IS_STAGING) users.push(...STAGING_DEMO_USERS);
     res.json({ users });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- Fog of War: get all revealed (x,z) cells for the current user ----
+app.get('/api/fog/revealed', async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT x, z FROM player_fog_revealed WHERE user_id = $1`,
+      [req.user.id]
+    );
+    res.json({ cells: rows.map((r) => [r.x, r.z]) });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- Fog of War: batch-reveal newly visited (x,z) cells ----
+app.post('/api/fog/reveal', async (req, res) => {
+  try {
+    const cells = req.body && Array.isArray(req.body.cells) ? req.body.cells : [];
+    if (cells.length > 1024) return res.status(400).json({ error: 'too many cells' });
+    const valid = cells.filter(
+      (c) => Array.isArray(c) && Number.isInteger(c[0]) && Number.isInteger(c[1])
+            && c[0] >= 0 && c[0] <= 31 && c[1] >= 0 && c[1] <= 31
+    );
+    if (valid.length === 0) return res.json({ ok: true });
+    const values = valid.map((_, i) => `($1, $${i * 2 + 2}, $${i * 2 + 3})`).join(', ');
+    const params = [req.user.id, ...valid.flat()];
+    await pool.query(
+      `INSERT INTO player_fog_revealed (user_id, x, z) VALUES ${values}
+       ON CONFLICT (user_id, x, z) DO NOTHING`,
+      params
+    );
+    res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -2447,10 +2482,10 @@ app.post('/api/challenge/complete', async (req, res) => {
 
     // Award coins
     await pool.query(
-      `INSERT INTO player_coins (user_id, coins_balance)
+      `INSERT INTO player_coins (user_id, balance)
        VALUES ($1, $2)
        ON CONFLICT (user_id) DO UPDATE SET
-         coins_balance = player_coins.coins_balance + $2,
+         balance = player_coins.balance + $2,
          updated_at = NOW()`,
       [req.user.id, coinsEarned]
     );
@@ -2735,6 +2770,172 @@ app.delete('/api/friends/:id', async (req, res) => {
     );
     if (!rows.length) return res.status(404).json({ error: 'Friendship not found' });
     res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- Coins: current player's balance ----
+app.get('/api/coins', async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT balance FROM player_coins WHERE user_id = $1`,
+      [req.user.id]
+    );
+    res.json({ balance: rows.length ? Number(rows[0].balance) : 0 });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- Wager: place a bet before a Time Attack round ----
+app.post('/api/wager', async (req, res) => {
+  try {
+    const bet_amount = Number(req.body.bet_amount);
+    const tier = req.body.tier;
+
+    if (!WAGER_TIERS[tier]) return res.status(400).json({ error: 'invalid tier' });
+    if (!Number.isInteger(bet_amount) || bet_amount < 5 || bet_amount > 100) {
+      return res.status(400).json({ error: 'bet_amount must be between 5 and 100' });
+    }
+
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+
+      // One pending wager at a time.
+      const pendingCheck = await client.query(
+        `SELECT id FROM wager_history WHERE user_id = $1 AND outcome = 'pending'`,
+        [req.user.id]
+      );
+      if (pendingCheck.rows.length) {
+        await client.query('ROLLBACK');
+        return res.status(409).json({ error: 'pending wager already exists' });
+      }
+
+      // Ensure a coin row exists (0-balance placeholder) before deducting.
+      await client.query(
+        `INSERT INTO player_coins (user_id, username, balance, updated_at)
+         VALUES ($1, $2, 0, NOW())
+         ON CONFLICT (user_id) DO NOTHING`,
+        [req.user.id, req.user.username]
+      );
+
+      // Atomic deduct — WHERE balance >= bet guards against overspending.
+      const deductRes = await client.query(
+        `UPDATE player_coins SET
+           balance    = balance - $1,
+           username   = $2,
+           updated_at = NOW()
+         WHERE user_id = $3 AND balance >= $1
+         RETURNING balance`,
+        [bet_amount, req.user.username, req.user.id]
+      );
+      if (!deductRes.rows.length) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ error: 'insufficient coins' });
+      }
+      const newBalance = Number(deductRes.rows[0].balance);
+
+      const td = WAGER_TIERS[tier];
+      const { rows } = await client.query(
+        `INSERT INTO wager_history
+           (user_id, username, bet_amount, tier, target_blocks, payout_multiplier)
+         VALUES ($1, $2, $3, $4, $5, $6)
+         RETURNING id`,
+        [req.user.id, req.user.username, bet_amount, tier, td.target, td.multiplier]
+      );
+
+      await client.query('COMMIT');
+      res.json({ wager_id: Number(rows[0].id), balance: newBalance });
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- Time Attack result: resolve a pending wager ----
+app.post('/api/timeattack/result', async (req, res) => {
+  try {
+    const wager_id    = Number(req.body.wager_id);
+    const final_blocks = Number(req.body.final_blocks);
+
+    if (!Number.isInteger(wager_id) || wager_id <= 0) {
+      return res.status(400).json({ error: 'invalid wager_id' });
+    }
+    // Cap at 150 — the TA layout scatters exactly 150 blocks.
+    if (!Number.isInteger(final_blocks) || final_blocks < 0 || final_blocks > 150) {
+      return res.status(400).json({ error: 'invalid final_blocks' });
+    }
+
+    const wagerRes = await pool.query(
+      `SELECT id, user_id, bet_amount, tier, target_blocks, payout_multiplier, outcome, payout
+       FROM wager_history WHERE id = $1`,
+      [wager_id]
+    );
+    if (!wagerRes.rows.length) return res.status(404).json({ error: 'wager not found' });
+
+    const wager = wagerRes.rows[0];
+    if (Number(wager.user_id) !== req.user.id) {
+      return res.status(403).json({ error: 'not your wager' });
+    }
+
+    // Already resolved — return existing outcome (idempotent retry).
+    if (wager.outcome !== 'pending') {
+      const balRes = await pool.query(
+        `SELECT balance FROM player_coins WHERE user_id = $1`, [req.user.id]
+      );
+      return res.json({
+        outcome: wager.outcome,
+        payout:  Number(wager.payout),
+        balance: balRes.rows.length ? Number(balRes.rows[0].balance) : 0,
+      });
+    }
+
+    const won    = final_blocks >= Number(wager.target_blocks);
+    const payout = won ? Math.round(Number(wager.bet_amount) * Number(wager.payout_multiplier)) : 0;
+    const outcome = won ? 'won' : 'lost';
+
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+
+      await client.query(
+        `UPDATE wager_history SET
+           outcome = $1, payout = $2, final_blocks = $3, resolved_at = NOW()
+         WHERE id = $4`,
+        [outcome, payout, final_blocks, wager_id]
+      );
+
+      let newBalance;
+      if (won) {
+        const balRes = await client.query(
+          `UPDATE player_coins SET balance = balance + $1, updated_at = NOW()
+           WHERE user_id = $2
+           RETURNING balance`,
+          [payout, req.user.id]
+        );
+        newBalance = Number(balRes.rows[0].balance);
+      } else {
+        const balRes = await client.query(
+          `SELECT balance FROM player_coins WHERE user_id = $1`, [req.user.id]
+        );
+        newBalance = balRes.rows.length ? Number(balRes.rows[0].balance) : 0;
+      }
+
+      await client.query('COMMIT');
+      res.json({ outcome, payout, balance: newBalance });
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -3683,6 +3884,53 @@ async function seedStreaks() {
   }
 }
 
+async function seedCoins() {
+  const coinSeeds = [
+    { user_id: -1, username: 'Staging demo Alice',   balance: 340, loginOffset: 1 },
+    { user_id: -2, username: 'Staging demo Bob',     balance:  80, loginOffset: 0 },
+    { user_id: -3, username: 'Staging demo Charlie', balance:   5, loginOffset: null },
+    { user_id: -4, username: 'Staging demo Dana',    balance: 200, loginOffset: 0 },
+    { user_id: -5, username: 'Staging demo Eli',     balance:  50, loginOffset: null },
+    { user_id: -6, username: 'Staging demo Faye',    balance:   0, loginOffset: null },
+  ];
+  for (const s of coinSeeds) {
+    const loginDate = s.loginOffset !== null
+      ? `CURRENT_DATE - ${s.loginOffset}`
+      : 'NULL';
+    await pool.query(
+      `INSERT INTO player_coins (user_id, username, balance, last_coin_login_date, updated_at)
+       VALUES ($1, $2, $3, ${loginDate}, NOW())
+       ON CONFLICT (user_id) DO NOTHING`,
+      [s.user_id, s.username, s.balance]
+    );
+  }
+
+  // Wager history seed — explicit IDs for idempotency
+  const wagerSeeds = [
+    { id: 1, user_id: -1, username: 'Staging demo Alice', bet: 100, tier: 'expert', target: 110, mult: 5.0, final: 117, outcome: 'won',     payout: 500 },
+    { id: 2, user_id: -2, username: 'Staging demo Bob',   bet:  50, tier: 'hard',   target:  80, mult: 3.0, final:  62, outcome: 'lost',    payout:   0 },
+    { id: 3, user_id: -4, username: 'Staging demo Dana',  bet:  25, tier: 'medium', target:  50, mult: 2.0, final:  55, outcome: 'won',     payout:  50 },
+    { id: 4, user_id: -4, username: 'Staging demo Dana',  bet:  40, tier: 'easy',   target:  20, mult: 1.5, final: null, outcome: 'pending', payout: null },
+  ];
+  for (const w of wagerSeeds) {
+    const resolvedAt = w.outcome !== 'pending' ? `NOW() - INTERVAL '2 days'` : 'NULL';
+    await pool.query(
+      `INSERT INTO wager_history
+         (id, user_id, username, bet_amount, tier, target_blocks, payout_multiplier,
+          final_blocks, outcome, payout, created_at, resolved_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
+               NOW() - INTERVAL '2 days', ${resolvedAt})
+       ON CONFLICT (id) DO NOTHING`,
+      [w.id, w.user_id, w.username, w.bet, w.tier, w.target, w.mult,
+       w.final, w.outcome, w.payout]
+    );
+  }
+  // Advance sequence past seed IDs
+  await pool.query(
+    `SELECT setval('wager_history_id_seq', GREATEST((SELECT MAX(id) FROM wager_history), 4))`
+  );
+}
+
 async function seedPromptVotes() {
   const now = new Date();
   const todayStr = now.toISOString().slice(0, 10);
@@ -3797,10 +4045,10 @@ async function seedTheme() {
 
 async function seedLoginRewards() {
   const rows = [
-    { user_id: -1, coins_earned: 30, coins_balance: 150 },
-    { user_id: -2, coins_earned: 50, coins_balance: 250 },
-    { user_id: -3, coins_earned: 65, coins_balance: 325 },
-    { user_id: -4, coins_earned: 15, coins_balance: 75 },
+    { user_id: -1, coins_earned: 30, balance: 150 },
+    { user_id: -2, coins_earned: 50, balance: 250 },
+    { user_id: -3, coins_earned: 65, balance: 325 },
+    { user_id: -4, coins_earned: 15, balance: 75 },
   ];
   const today = new Date().toISOString().slice(0, 10);
   for (const r of rows) {
@@ -3811,9 +4059,9 @@ async function seedLoginRewards() {
       [r.user_id, today, r.coins_earned]
     );
     await pool.query(
-      `INSERT INTO player_coins (user_id, coins_balance) VALUES ($1, $2)
-       ON CONFLICT (user_id) DO UPDATE SET coins_balance = EXCLUDED.coins_balance`,
-      [r.user_id, r.coins_balance]
+      `INSERT INTO player_coins (user_id, balance) VALUES ($1, $2)
+       ON CONFLICT (user_id) DO UPDATE SET balance = EXCLUDED.balance`,
+      [r.user_id, r.balance]
     );
   }
 }
@@ -3869,6 +4117,7 @@ function generatePuzzleBlocks(levelNumber) {
 
   const blockCount = 20 + levelNumber * 8; // Increases with level
   const blockTypes = [1, 2, 3, 4, 5, 6, 7, 9, 10, 11]; // Color variety, exclude glass/special
+  if (levelNumber >= 3) blockTypes.push(27); // Gold Star wildcard appears from level 3
 
   for (let i = 0; i < blockCount; i++) {
     const x = Math.floor(nextRandom() * 32);
@@ -3893,6 +4142,8 @@ async function seedPuzzleLevels() {
 
   for (const { level, target } of levelSeeds) {
     const blocks = generatePuzzleBlocks(level);
+    // Guarantee at least one Gold Star wildcard is visible in the level-3 staging seed.
+    if (level === 3) blocks.push({ x: 5, y: 4, z: 5, t: 27 });
     await pool.query(
       `INSERT INTO puzzle_level_definitions (level_number, block_snapshot, target_blocks_to_clear)
        VALUES ($1, $2, $3)
@@ -4335,9 +4586,11 @@ async function start() {
   // Player coin balance: stores cumulative coins for each player.
   await pool.query(`
     CREATE TABLE IF NOT EXISTS player_coins (
-      user_id        INTEGER PRIMARY KEY,
-      coins_balance  BIGINT NOT NULL DEFAULT 0,
-      updated_at     TIMESTAMPTZ DEFAULT NOW()
+      user_id              INTEGER PRIMARY KEY,
+      username             VARCHAR(255) NOT NULL DEFAULT '',
+      balance              BIGINT NOT NULL DEFAULT 0,
+      last_coin_login_date DATE,
+      updated_at           TIMESTAMPTZ DEFAULT NOW()
     )
   `);
 
@@ -4375,6 +4628,33 @@ async function start() {
   await pool.query(`COMMENT ON TABLE friendships IS 'staging:private'`);
   await pool.query(`CREATE INDEX IF NOT EXISTS friendships_addressee_status_idx ON friendships (addressee_id, status)`);
   await pool.query(`CREATE INDEX IF NOT EXISTS friendships_requester_status_idx ON friendships (requester_id, status)`);
+
+  // Ensure all expected player_coins columns exist for deployments that had an older schema.
+  await pool.query(`ALTER TABLE player_coins ADD COLUMN IF NOT EXISTS username VARCHAR(255) NOT NULL DEFAULT ''`);
+  await pool.query(`ALTER TABLE player_coins ADD COLUMN IF NOT EXISTS balance BIGINT NOT NULL DEFAULT 0`);
+  await pool.query(`ALTER TABLE player_coins ADD COLUMN IF NOT EXISTS last_coin_login_date DATE`);
+
+  // Wager history: append-only log of every bet placed. Public.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS wager_history (
+      id                BIGSERIAL PRIMARY KEY,
+      user_id           INTEGER      NOT NULL,
+      username          VARCHAR(255) NOT NULL,
+      bet_amount        INTEGER      NOT NULL,
+      tier              VARCHAR(20)  NOT NULL,
+      target_blocks     INTEGER      NOT NULL,
+      payout_multiplier NUMERIC(4,2) NOT NULL,
+      final_blocks      INTEGER,
+      outcome           VARCHAR(10)  NOT NULL DEFAULT 'pending',
+      payout            INTEGER,
+      created_at        TIMESTAMPTZ  DEFAULT NOW(),
+      resolved_at       TIMESTAMPTZ
+    )
+  `);
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS wager_history_user_created_idx
+    ON wager_history (user_id, created_at DESC)
+  `);
 
   // Daily build theme voting tables (all public — build activity is not sensitive).
   await pool.query(`
@@ -4517,6 +4797,20 @@ async function start() {
     CREATE INDEX IF NOT EXISTS user_worlds_owner_idx ON user_worlds (owner_id, updated_at DESC)
   `);
 
+  // Fog of War: per-player revealed (x, z) columns in the shared Classic world.
+  // Public table — revealed cell coordinates are no more sensitive than leaderboard positions.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS player_fog_revealed (
+      user_id     INTEGER  NOT NULL,
+      x           SMALLINT NOT NULL,
+      z           SMALLINT NOT NULL,
+      revealed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (user_id, x, z)
+    )
+  `);
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS fog_revealed_user_idx ON player_fog_revealed (user_id)
+  `);
 
   // Prime the schedule on first boot; subsequent boots leave the existing row intact.
   const disasterInitDelay = IS_STAGING ? '10 seconds' : '60 seconds';
@@ -4544,6 +4838,8 @@ async function start() {
     catch (err) { console.error('endless-scores seed failed', err); }
     try { await seedStreaks(); }
     catch (err) { console.error('streak seed failed', err); }
+    try { await seedCoins(); }
+    catch (err) { console.error('coins seed failed', err); }
     try { await seedPromptVotes(); }
     catch (err) { console.error('prompt votes seed failed', err); }
     try { await seedBlockMessages(); }
@@ -4562,6 +4858,19 @@ async function start() {
     catch (err) { console.error('daily-energy seed failed', err); }
     // Staging spectators are now surfaced via the STAGING_DEMO_USERS constant
     // appended in GET /api/presence/online, so no DB seed is needed here.
+
+    // Fog of War: pre-reveal the 5×5 centre patch (overlapping the staging hut)
+    // for the sentinel seed user so the minimap shows a meaningful partial reveal.
+    try {
+      await pool.query(`
+        INSERT INTO player_fog_revealed (user_id, x, z)
+        SELECT $1, x, z
+          FROM generate_series(14, 18) AS x,
+               generate_series(14, 18) AS z
+        ON CONFLICT (user_id, x, z) DO NOTHING`,
+        [SEED_USER_ID]
+      );
+    } catch (err) { console.error('fog seed failed', err); }
   }
 
   await ensurePowerUps();
