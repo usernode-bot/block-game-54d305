@@ -36,6 +36,14 @@ const PALETTE = [
   { id: 15, name: 'Glowstone',     color: '#ffb040', emissive: '#ff8800', emissiveIntensity: 0.6 },
   { id: 16, name: 'Obsidian',      color: '#18082a', material: 'standard', metalness: 0.3, roughness: 0.1 },
   { id: 17, name: 'Rainbow Block', color: '#ff4488', powerup: true },
+  { id: 18, name: 'Ice',          color: '#aadeef', opacity: 0.55 },
+  { id: 19, name: 'Lava',         color: '#e8540f', emissive: '#ff2200', emissiveIntensity: 0.8 },
+  { id: 20, name: 'Lime',         color: '#78de3e' },
+  { id: 21, name: 'Orange',       color: '#f08030' },
+  { id: 22, name: 'Purple',       color: '#8a2fc8' },
+  { id: 23, name: 'Cyan',         color: '#29b8b8' },
+  { id: 24, name: 'Iron Block',   color: '#d4d4dc', material: 'standard', metalness: 0.9, roughness: 0.3 },
+  { id: 25, name: 'Terracotta',   color: '#c5694a' },
 ];
 const VALID_TYPES = new Set(PALETTE.map((p) => p.id)); // does NOT include 0
 
@@ -48,6 +56,11 @@ const BLOCK_POINTS = {
   15: 3,  // Glowstone
   16: 4,  // Obsidian
   17: 5,  // Rainbow Block
+  18: 2,  // Ice
+  19: 3,  // Lava
+  20: 2, 21: 2, 22: 2, 23: 2, // Lime, Orange, Purple, Cyan
+  24: 4,  // Iron Block
+  25: 1,  // Terracotta
 };
 
 // Sentinel "user" id for staging seed rows so they never reference a real user.

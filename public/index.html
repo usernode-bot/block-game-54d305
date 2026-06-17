@@ -182,7 +182,7 @@
   </div>
 
   <!-- Block palette -->
-  <div id="palette" class="fixed bottom-4 left-1/2 -translate-x-1/2 z-20 flex gap-1.5 p-1.5 rounded-xl bg-black/50 backdrop-blur"></div>
+  <div id="palette" class="fixed bottom-4 left-1/2 -translate-x-1/2 z-20 flex gap-1.5 p-1.5 rounded-xl bg-black/50 backdrop-blur max-w-[calc(100vw-2rem)] overflow-x-auto"></div>
 
   <!-- Badges toggle: sits to the left of the mute button. -->
   <button id="badges-btn" title="Badges" aria-label="Toggle badges"
@@ -677,6 +677,12 @@
     function materialFor(p) {
       const opts = { color: new THREE.Color(p.color) };
       if (p.opacity != null && p.opacity < 1) { opts.transparent = true; opts.opacity = p.opacity; }
+      if (p.emissive) { opts.emissive = new THREE.Color(p.emissive); opts.emissiveIntensity = p.emissiveIntensity ?? 1; }
+      if (p.material === 'standard') {
+        if (p.metalness != null) opts.metalness = p.metalness;
+        if (p.roughness != null) opts.roughness = p.roughness;
+        return new THREE.MeshStandardMaterial(opts);
+      }
       return new THREE.MeshLambertMaterial(opts);
     }
 
