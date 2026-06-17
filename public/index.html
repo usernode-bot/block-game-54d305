@@ -306,6 +306,28 @@
     </ul>
   </div>
 
+  <!-- Tutorial overlay: shown once to first-time Classic players.
+       Spotlight + tooltip card walk through 5 core mechanics.
+       Dismissed state stored in localStorage under blockgame-tutorial-seen. -->
+  <div id="tutorial-overlay" class="hidden fixed inset-0 z-[60]" role="dialog" aria-modal="true" aria-label="Game tutorial">
+    <!-- Full-screen backdrop (used when there is no spotlight target) -->
+    <div id="tutorial-backdrop" class="absolute inset-0 bg-black/55 pointer-events-auto" style="transition: opacity 0.2s;"></div>
+    <!-- Spotlight cutout: box-shadow dims everything outside this element -->
+    <div id="tutorial-spotlight" class="absolute rounded-2xl pointer-events-none" style="box-shadow: 0 0 0 9999px rgba(0,0,0,0.62); transition: left 0.25s ease, top 0.25s ease, width 0.25s ease, height 0.25s ease; opacity: 0;"></div>
+    <!-- Tooltip card -->
+    <div id="tutorial-card" class="fixed pointer-events-auto bg-black/85 backdrop-blur-sm rounded-2xl px-5 py-4 shadow-2xl" style="width: 300px; z-index: 61; transition: left 0.25s ease, top 0.25s ease;">
+      <span id="tutorial-counter" class="block text-[11px] font-semibold text-zinc-400 uppercase tracking-widest mb-2"></span>
+      <p id="tutorial-copy" class="text-sm leading-relaxed text-zinc-100 mb-4"></p>
+      <div class="flex items-center justify-between gap-2">
+        <button id="tutorial-skip" class="text-xs text-zinc-500 hover:text-zinc-300 cursor-pointer transition-colors shrink-0">Skip tutorial</button>
+        <div class="flex gap-2 shrink-0">
+          <button id="tutorial-back" class="hidden px-3 py-1.5 rounded-lg bg-zinc-700 hover:bg-zinc-600 text-xs font-semibold text-zinc-200 transition-colors cursor-pointer">Back</button>
+          <button id="tutorial-next" class="px-4 py-1.5 rounded-lg bg-violet-600 hover:bg-violet-500 text-xs font-semibold text-white transition-colors cursor-pointer">Next →</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- Leaderboard overlay: top 10 builders. Hidden by default; toggled by
        pressing `l` or clicking the trophy button. -->
   <div id="leaderboard" class="hidden fixed top-28 right-3 z-30 w-72 max-w-[90vw] rounded-xl bg-black/70 backdrop-blur p-4 text-sm text-zinc-200 shadow-xl">
@@ -1994,7 +2016,11 @@
       } else if (gameMode === 'classic') {
         if (!pollHandle) pollHandle = setInterval(poll, 1500);
         coachBtnEl.classList.remove('hidden');
-        setTimeout(() => fetchCoachTip('mode_start'), 3000);
+        if (!lsGet('blockgame-tutorial-seen', false)) {
+          setTimeout(showTutorial, 600);
+        } else {
+          setTimeout(() => fetchCoachTip('mode_start'), 3000);
+        }
       } else if (gameMode === 'spectate') {
         if (!pollHandle) pollHandle = setInterval(poll, 1500);
         document.getElementById('palette').classList.add('hidden');
@@ -3337,6 +3363,127 @@
 
     // Fade the controls hint after a few seconds.
     setTimeout(() => { hintEl.style.opacity = '0'; hintFallbackEl.style.opacity = '0'; }, 6000);
+
+    // ---- First-time tutorial overlay ----
+    // Steps walk new Classic-mode players through 5 core mechanics.
+    // Dismissal is stored in localStorage so it never re-appears.
+    const TUTORIAL_STEPS = [
+      {
+        target: '#crosshair',
+        copy: 'Click anywhere on the screen to lock your mouse and look around. Drag the mouse to turn. Press Esc any time to release.',
+        mobileCopy: 'Drag anywhere on the screen to look around.',
+        padding: 56,
+        cardPos: 'below-center',
+      },
+      {
+        target: null,
+        copy: 'Fly with WASD. Space floats you up; Shift drops you down.',
+        mobileCopy: 'Use the on-screen D-pad to move. Tap Up or Down on the right side to fly.',
+        padding: 0,
+        cardPos: 'center',
+      },
+      {
+        target: '#crosshair',
+        copy: 'Left-click (or press F) to place a block exactly where the crosshair points. Right-click (or press G) to remove one.',
+        mobileCopy: 'Tap Add to place a block where the crosshair points. Tap Delete to remove one.',
+        padding: 56,
+        cardPos: 'below-center',
+      },
+      {
+        target: '#palette',
+        copy: 'Choose a block type from the palette — click a swatch or press keys 1–9. New types unlock as you build more!',
+        padding: 10,
+        cardPos: 'above',
+      },
+      {
+        target: null,
+        copy: 'Place 3+ blocks within 10 seconds to trigger a combo multiplier — reach 2×, 3×, or 5×! Watch the top-left corner for your badge. Also grab glowing orbs around the world for speed and placement boosts.',
+        padding: 0,
+        cardPos: 'center',
+      },
+    ];
+
+    function showTutorial() {
+      const tutorialEl = document.getElementById('tutorial-overlay');
+      const spotlightEl = document.getElementById('tutorial-spotlight');
+      const cardEl = document.getElementById('tutorial-card');
+      const copyEl = document.getElementById('tutorial-copy');
+      const counterEl = document.getElementById('tutorial-counter');
+      const backBtn = document.getElementById('tutorial-back');
+      const nextBtn = document.getElementById('tutorial-next');
+      const skipBtn = document.getElementById('tutorial-skip');
+      const backdropEl = document.getElementById('tutorial-backdrop');
+
+      const isMobile = window.matchMedia('(pointer: coarse)').matches;
+      let step = 0;
+
+      tutorialEl.classList.remove('hidden');
+
+      function placeCard(rect, cardPos) {
+        const margin = 12;
+        const vw = window.innerWidth;
+        const vh = window.innerHeight;
+        const cardW = Math.min(300, vw - margin * 2);
+        cardEl.style.width = cardW + 'px';
+
+        if (!rect || cardPos === 'center') {
+          cardEl.style.left = Math.round((vw - cardW) / 2) + 'px';
+          cardEl.style.top = Math.round(vh / 2 - 90) + 'px';
+          return;
+        }
+        if (cardPos === 'above') {
+          const cardH = cardEl.offsetHeight || 170;
+          cardEl.style.left = Math.max(margin, Math.min(vw - cardW - margin, rect.left)) + 'px';
+          cardEl.style.top = Math.max(margin, rect.top - cardH - 16) + 'px';
+          return;
+        }
+        // below-center default
+        const x = Math.round((rect.left + rect.right) / 2 - cardW / 2);
+        cardEl.style.left = Math.max(margin, Math.min(vw - cardW - margin, x)) + 'px';
+        cardEl.style.top = Math.min(vh - 200, rect.bottom + 20) + 'px';
+      }
+
+      function renderStep(i) {
+        const s = TUTORIAL_STEPS[i];
+        counterEl.textContent = 'Step ' + (i + 1) + ' of ' + TUTORIAL_STEPS.length;
+        copyEl.textContent = (isMobile && s.mobileCopy) ? s.mobileCopy : s.copy;
+        backBtn.classList.toggle('hidden', i === 0);
+        nextBtn.textContent = (i === TUTORIAL_STEPS.length - 1) ? 'Got it!' : 'Next →';
+
+        const targetEl = s.target ? document.querySelector(s.target) : null;
+        const r = targetEl ? targetEl.getBoundingClientRect() : null;
+        const hasSpot = r && r.width > 0 && r.height > 0;
+
+        if (hasSpot) {
+          const p = s.padding || 16;
+          backdropEl.style.opacity = '0';
+          spotlightEl.style.opacity = '1';
+          spotlightEl.style.left = (r.left - p) + 'px';
+          spotlightEl.style.top = (r.top - p) + 'px';
+          spotlightEl.style.width = (r.width + p * 2) + 'px';
+          spotlightEl.style.height = (r.height + p * 2) + 'px';
+          placeCard({ left: r.left - p, right: r.right + p, top: r.top - p, bottom: r.bottom + p }, s.cardPos);
+        } else {
+          backdropEl.style.opacity = '1';
+          spotlightEl.style.opacity = '0';
+          placeCard(null, 'center');
+        }
+      }
+
+      function closeTutorial() {
+        lsSet('blockgame-tutorial-seen', true);
+        tutorialEl.classList.add('hidden');
+        setTimeout(() => fetchCoachTip('mode_start'), 1500);
+      }
+
+      renderStep(0);
+      nextBtn.addEventListener('click', () => {
+        if (step < TUTORIAL_STEPS.length - 1) { step++; renderStep(step); }
+        else closeTutorial();
+      });
+      backBtn.addEventListener('click', () => { if (step > 0) { step--; renderStep(step); } });
+      skipBtn.addEventListener('click', closeTutorial);
+    }
 
     (async function init() {
       updateOrientation();
