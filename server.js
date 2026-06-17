@@ -8,6 +8,7 @@ const port = process.env.PORT || 3000;
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 const JWT_SECRET = process.env.JWT_SECRET;
 const IS_STAGING = process.env.USERNODE_ENV === 'staging';
+const LLM_ENABLED = !!process.env.USERNODE_LLM_PROXY_TOKEN;
 
 // Hardcoded demo presence entries for staging so the online list is always
 // populated regardless of whether the seeded user_presence rows are still
@@ -923,6 +924,71 @@ app.delete('/api/friends/:id', async (req, res) => {
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- AI Coach ----
+const CANNED_TIPS = {
+  mode_start:         'Place 3 or more blocks within 10 seconds to activate a combo multiplier and earn bonus points.',
+  time_attack_start:  'In Time Attack, ignore scattered singles — aim for the dense clusters to break multiple blocks fast.',
+  badge_earned:       'Great — keep building to unlock more block types and climb the leaderboard.',
+  combo_tier_up:      "You've got a hot streak going! Keep placing blocks quickly to push the multiplier even higher.",
+  daily_complete:     'Daily challenge done! Come back tomorrow — the target changes every day.',
+  block_milestone:    'Try collecting a floating power-up orb to get a speed boost or rapid-place buff.',
+  player_asked:       'Grab a Rainbow Block from the palette (type 9) and place it — it doubles your points for the next 30 seconds.',
+};
+
+app.post('/api/coach/tip', async (req, res) => {
+  const { trigger, mode, blocks_placed, score, unlocked_types_count, combo_tier, active_buffs, challenge_progress, badge_name } = req.body || {};
+
+  if (!LLM_ENABLED) {
+    const tip = CANNED_TIPS[trigger] || CANNED_TIPS['player_asked'];
+    return res.json({ tip });
+  }
+
+  const lines = [
+    `Trigger reason: ${trigger}`,
+    `Game mode: ${mode}`,
+    `Blocks placed this session: ${blocks_placed}`,
+    `Score this session: ${score}`,
+    `Block types unlocked: ${unlocked_types_count} of 18`,
+    `Current combo tier: ${combo_tier} (1=none, 2=×2, 3=×3, 4=×5)`,
+    `Active power-up buffs: ${(active_buffs || []).join(', ') || 'none'}`,
+    challenge_progress ? `Daily challenge: ${challenge_progress.placed}/${challenge_progress.target} blocks (${challenge_progress.completed ? 'completed' : 'in progress'})` : null,
+    badge_name ? `Badge just earned: "${badge_name}"` : null,
+  ].filter(Boolean).join('\n');
+
+  try {
+    const resp = await fetch(`${process.env.USERNODE_LLM_PROXY_URL}/v1/messages`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'anthropic-version': '2023-06-01',
+        'x-usernode-app-token': process.env.USERNODE_LLM_PROXY_TOKEN,
+        'x-usernode-user-token': req.headers['x-usernode-token'],
+      },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 120,
+        system: "You are an encouraging AI coach for a 3D block-building game called block-game. Players fly around a 32×32×24 world, place and break blocks, earn combo multipliers by placing quickly, unlock new block types, collect power-ups, and compete on leaderboards. Give exactly one tip (1-2 sentences, friendly and actionable, no markdown, no line breaks). Tailor it to the player's current situation.",
+        messages: [{ role: 'user', content: lines }],
+      }),
+    });
+
+    if (resp.status === 403) {
+      const body = await resp.json().catch(() => ({}));
+      if (body.code === 'grant_required') return res.status(403).json({ error: 'grant_required' });
+    }
+    if (resp.status === 429) return res.status(429).json({ error: 'unavailable' });
+    if (!resp.ok) return res.status(500).json({ error: 'unavailable' });
+
+    const llmData = await resp.json();
+    const tip = llmData?.content?.[0]?.text?.trim() || '';
+    if (!tip) return res.status(500).json({ error: 'unavailable' });
+    return res.json({ tip });
+  } catch (err) {
+    console.error('coach tip error', err.message);
+    return res.status(500).json({ error: 'unavailable' });
   }
 });
 
