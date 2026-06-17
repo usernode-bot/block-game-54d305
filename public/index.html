@@ -35,16 +35,12 @@
     function post(level, args, meta) {
       try {
         var payload = {
-          sentinel: S,
-          level: level,
+          sentinel: S, level: level,
           args: Array.prototype.slice.call(args).map(function (a) { return serialize(a); }),
-          ts: Date.now(),
-          url: location.href,
+          ts: Date.now(), url: location.href,
         };
         if (meta) for (var k in meta) payload[k] = meta[k];
-        if (window.parent && window.parent !== window) {
-          window.parent.postMessage(payload, '*');
-        }
+        if (window.parent && window.parent !== window) window.parent.postMessage(payload, '*');
       } catch (_) {}
     }
     ['log','info','warn','error','debug'].forEach(function (level) {
@@ -74,13 +70,6 @@
   <style>
     html, body { margin: 0; height: 100%; overflow: hidden; overscroll-behavior: none; }
     #scene { position: fixed; inset: 0; display: block; }
-
-    /* Rotor: wraps the canvas + all HUD so portrait phones can be force-rotated
-       to landscape as a single unit. Normally a transparent full-viewport box.
-       When `.rotated`, it is sized to the SWAPPED viewport (width = 100vh,
-       height = 100vw) and spun 90° clockwise so the wide edge sits along the
-       bottom. Its transform makes it the containing block for the fixed-position
-       canvas/HUD inside, so they all rotate together. */
     #rotor { position: fixed; inset: 0; }
     #rotor.rotated {
       inset: auto;
@@ -108,6 +97,13 @@
       50% { opacity: 0.4; }
     }
     .recording-pulse { animation: record-pulse 1.2s ease-in-out infinite; }
+    @keyframes sr-banner-fade {
+      0%   { opacity: 0; transform: translateY(-12px); }
+      15%  { opacity: 1; transform: translateY(0); }
+      75%  { opacity: 1; transform: translateY(0); }
+      100% { opacity: 0; transform: translateY(-8px); }
+    }
+    .sr-banner-anim { animation: sr-banner-fade 1.1s ease forwards; }
 
     @keyframes combo-pulse {
       0%, 100% { transform: scale(1); }
@@ -240,7 +236,7 @@
       position: relative; width: 44px; height: 24px; border-radius: 9999px;
       background: #3f3f46; transition: background 0.15s; flex: none; cursor: pointer;
     }
-    .a11y-toggle[aria-checked="true"] { background: #7c3aed; }
+    .a11y-toggle[aria-checked="true"] { background: #4e5180; }
     .a11y-toggle::after {
       content: ''; position: absolute; top: 2px; left: 2px;
       width: 20px; height: 20px; border-radius: 9999px; background: #fff;
@@ -493,9 +489,9 @@
       /* Subtle light border on dark */
       --dark-border: rgba(255, 255, 255, 0.12);
       /* Single indigo accent: base / hover / active / ink-on-accent */
-      --acc:   #6366f1;
-      --acc-h: #818cf8;
-      --acc-a: #4f46e5;
+      --acc:   #4e5180;
+      --acc-h: #6668a8;
+      --acc-a: #3c3f6a;
       --ink-acc: #ffffff;
     }
 
@@ -578,7 +574,7 @@
     /* Drop shadow so panels read with depth against the bright 3D world */
     #controls, #leaderboard, #friends-panel, #badges-panel, #settings-panel,
     #coach-bubble > div, #ta-gameover > div {
-      box-shadow: 0 12px 34px rgba(0, 0, 0, 0.55) !important;
+      box-shadow: 0 4px 14px rgba(0, 0, 0, 0.38) !important;
     }
 
     /* ---- Time Attack game-over card pop-in ---- */
@@ -642,8 +638,7 @@
     </div>
   </div>
 
-  <!-- Block attribution label: appears below the crosshair when aiming at a
-       player-placed block. Hidden by default; shown/hidden by JS. -->
+  <!-- Block attribution label -->
   <div id="attribution" class="hidden pointer-events-none fixed left-1/2 z-10 text-xs text-white/90 bg-black/55 rounded px-2 py-1 font-medium whitespace-nowrap" style="top: calc(50% + 20px); transform: translateX(-50%);"></div>
 
   <!-- Power-up buff HUD: shows active buffs with countdown timers.
@@ -664,7 +659,7 @@
           <div class="text-4xl mb-2">🧱</div>
           <h2 class="font-semibold text-lg sm:text-base lg:text-lg text-zinc-100 mb-2 mode-title">Classic Mode</h2>
           <p class="text-zinc-400 text-sm sm:text-sm lg:text-sm mb-5 mode-desc">Build and explore with other players in a shared 3D world. Place and break any block you like — no timer, no pressure.</p>
-          <button id="play-classic-btn" class="w-full px-4 py-3 rounded-lg bg-violet-600 hover:bg-violet-500 font-semibold text-sm sm:text-sm lg:text-base transition hover:scale-[1.02] active:scale-[0.98] mode-btn">Play Classic</button>
+          <button id="play-classic-btn" class="w-full px-4 py-3 rounded-lg bg-zinc-700 hover:bg-zinc-600 font-semibold text-sm sm:text-sm lg:text-base transition-colors mode-btn">Play Classic</button>
         </div>
         <div class="bg-zinc-900/80 rounded-xl p-5 sm:p-6 lg:p-7 transition hover:bg-zinc-800/80" data-mode="ta">
           <canvas id="preview-ta" class="w-full rounded-lg mb-4" height="140"></canvas>
@@ -672,54 +667,59 @@
           <h2 class="font-semibold text-lg sm:text-base lg:text-lg text-zinc-100 mb-2 mode-title">Time Attack</h2>
           <p class="text-zinc-400 text-sm sm:text-sm lg:text-sm mb-4 mode-desc">Race the clock solo. Break as many blocks as you can — fresh arena every run, high score tracked.</p>
           <div class="flex items-center justify-center gap-2 mb-4">
-            <button id="ta-tier-down" class="w-12 h-12 sm:w-10 sm:h-10 rounded bg-zinc-700 hover:bg-zinc-600 text-zinc-200 font-bold text-base leading-none transition hover:scale-110 active:scale-95">←</button>
+            <button id="ta-tier-down" class="w-12 h-12 sm:w-10 sm:h-10 rounded bg-zinc-700 hover:bg-zinc-600 text-zinc-200 font-bold text-base leading-none transition-colors">←</button>
             <span id="ta-tier-label" class="text-base sm:text-sm font-semibold text-amber-400 w-20 text-center">Easy</span>
-            <button id="ta-tier-up" class="w-12 h-12 sm:w-10 sm:h-10 rounded bg-zinc-700 hover:bg-zinc-600 text-zinc-200 font-bold text-base leading-none transition hover:scale-110 active:scale-95">→</button>
+            <button id="ta-tier-up" class="w-12 h-12 sm:w-10 sm:h-10 rounded bg-zinc-700 hover:bg-zinc-600 text-zinc-200 font-bold text-base leading-none transition-colors">→</button>
           </div>
-          <button id="play-ta-btn" class="w-full px-4 py-3 rounded-lg bg-amber-600 hover:bg-amber-500 font-semibold text-sm sm:text-sm lg:text-base transition hover:scale-[1.02] active:scale-[0.98] mode-btn">Play Time Attack</button>
+          <button id="play-ta-btn" class="w-full px-4 py-3 rounded-lg bg-zinc-700 hover:bg-zinc-600 font-semibold text-sm sm:text-sm lg:text-base transition-colors mode-btn">Play Time Attack</button>
         </div>
         <div class="bg-zinc-900/80 rounded-xl p-5 sm:p-6 lg:p-7 transition hover:bg-zinc-800/80" data-mode="ta-60">
           <canvas id="preview-ta-60" class="w-full rounded-lg mb-4" height="140"></canvas>
           <h2 class="font-semibold text-lg sm:text-base lg:text-lg text-zinc-100 mb-2 mode-title">Time Attack (60s)</h2>
           <p class="text-zinc-400 text-sm sm:text-sm lg:text-sm mb-5 mode-desc">Clear as many blocks as you can in 60 seconds. Blocks stack—no clearing allowed. Single-player only.</p>
-          <button id="play-ta-60-btn" class="w-full px-4 py-3 rounded-lg bg-cyan-600 hover:bg-cyan-500 font-semibold text-sm sm:text-sm lg:text-base transition hover:scale-[1.02] active:scale-[0.98] mode-btn">Play Time Attack (60s)</button>
+          <button id="play-ta-60-btn" class="w-full px-4 py-3 rounded-lg bg-zinc-700 hover:bg-zinc-600 font-semibold text-sm sm:text-sm lg:text-base transition-colors mode-btn">Play Time Attack (60s)</button>
         </div>
         <div class="bg-zinc-900/80 rounded-xl p-5 sm:p-6 lg:p-7 transition hover:bg-zinc-800/80" data-mode="daily-challenge">
           <canvas id="preview-daily-challenge" class="w-full rounded-lg mb-4" height="140"></canvas>
           <h2 class="font-semibold text-lg sm:text-base lg:text-lg text-zinc-100 mb-2 mode-title">Daily Challenge</h2>
           <p class="text-zinc-400 text-sm sm:text-sm lg:text-sm mb-5 mode-desc">Same objective for all players. Resets every 24 hours. Compete on the leaderboard.</p>
-          <button id="play-daily-challenge-btn" class="w-full px-4 py-3 rounded-lg bg-fuchsia-600 hover:bg-fuchsia-500 font-semibold text-sm sm:text-sm lg:text-base transition hover:scale-[1.02] active:scale-[0.98] mode-btn">Play Daily Challenge</button>
+          <button id="play-daily-challenge-btn" class="w-full px-4 py-3 rounded-lg bg-zinc-700 hover:bg-zinc-600 font-semibold text-sm sm:text-sm lg:text-base transition-colors mode-btn">Play Daily Challenge</button>
         </div>
         <div class="bg-zinc-900/80 rounded-xl p-5 sm:p-6 lg:p-7 transition hover:bg-zinc-800/80" data-mode="endless">
           <canvas id="preview-endless" class="w-full rounded-lg mb-4" height="140"></canvas>
           <h2 class="font-semibold text-lg sm:text-base lg:text-lg text-zinc-100 mb-2 mode-title">Endless Mode</h2>
           <p class="text-zinc-400 text-sm sm:text-sm lg:text-sm mb-5 mode-desc">Build forever on an endless grid. No timer, no score multiplier—just how long until you run out of valid moves?</p>
-          <button id="play-endless-btn" class="w-full px-4 py-3 rounded-lg bg-rose-600 hover:bg-rose-500 font-semibold text-sm sm:text-sm lg:text-base transition hover:scale-[1.02] active:scale-[0.98] mode-btn">Play Endless</button>
+          <button id="play-endless-btn" class="w-full px-4 py-3 rounded-lg bg-zinc-700 hover:bg-zinc-600 font-semibold text-sm sm:text-sm lg:text-base transition-colors mode-btn">Play Endless</button>
         </div>
         <div class="bg-zinc-900/80 rounded-xl p-5 sm:p-6 lg:p-7 transition hover:bg-zinc-800/80" data-mode="puzzle">
           <canvas id="preview-puzzle" class="w-full rounded-lg mb-4" height="140"></canvas>
           <h2 class="font-semibold text-lg sm:text-base lg:text-lg text-zinc-100 mb-2 mode-title">🧩 Puzzle Mode</h2>
           <p class="text-zinc-400 text-sm sm:text-sm lg:text-sm mb-5 mode-desc">Clear a fixed set of blocks level by level. Solve increasingly difficult puzzles.</p>
-          <button id="play-puzzle-btn" class="w-full px-4 py-3 rounded-lg bg-indigo-600 hover:bg-indigo-500 font-semibold text-sm sm:text-sm lg:text-base transition hover:scale-[1.02] active:scale-[0.98] mode-btn">Play Puzzle</button>
+          <button id="play-puzzle-btn" class="w-full px-4 py-3 rounded-lg bg-zinc-700 hover:bg-zinc-600 font-semibold text-sm sm:text-sm lg:text-base transition-colors mode-btn">Play Puzzle</button>
         </div>
         <div class="bg-zinc-900/80 rounded-xl p-5 sm:p-6 lg:p-7 transition hover:bg-zinc-800/80" data-mode="tutorial">
           <canvas id="preview-tutorial" class="w-full rounded-lg mb-4" height="140"></canvas>
           <h2 class="font-semibold text-lg sm:text-base lg:text-lg text-zinc-100 mb-2 mode-title">Tutorial</h2>
           <p class="text-zinc-400 text-sm sm:text-sm lg:text-sm mb-5 mode-desc">Learn the basics step-by-step: place blocks, break them, earn points, and clear lines.</p>
-          <button id="play-tutorial-btn" class="w-full px-4 py-3 rounded-lg bg-green-600 hover:bg-green-500 font-semibold text-sm sm:text-sm lg:text-base transition hover:scale-[1.02] active:scale-[0.98] mode-btn">📚 Start Tutorial</button>
+          <button id="play-tutorial-btn" class="w-full px-4 py-3 rounded-lg bg-zinc-700 hover:bg-zinc-600 font-semibold text-sm sm:text-sm lg:text-base transition-colors mode-btn">📚 Start Tutorial</button>
         </div>
         <div class="bg-zinc-900/80 rounded-xl p-5 sm:p-6 lg:p-7 transition hover:bg-zinc-800/80" data-mode="learn">
           <canvas id="preview-learn" class="w-full rounded-lg mb-4" height="140"></canvas>
           <h2 class="font-semibold text-lg sm:text-base lg:text-lg text-zinc-100 mb-2 mode-title">Learn Mode</h2>
           <p class="text-zinc-400 text-sm sm:text-sm lg:text-sm mb-5 mode-desc">Perfect for getting started. Learn the basics at your own pace with helpful hints.</p>
-          <button id="play-learn-btn" class="w-full px-4 py-3 rounded-lg bg-green-600 hover:bg-green-500 font-semibold text-sm sm:text-sm lg:text-base transition hover:scale-[1.02] active:scale-[0.98] mode-btn">Play Learn</button>
+          <button id="play-learn-btn" class="w-full px-4 py-3 rounded-lg bg-zinc-700 hover:bg-zinc-600 font-semibold text-sm sm:text-sm lg:text-base transition-colors mode-btn">Play Learn</button>
         </div>
         <div class="bg-zinc-900/80 rounded-xl p-5 sm:p-6 lg:p-7 transition hover:bg-zinc-800/80" data-mode="spectate">
           <canvas id="preview-spectate" class="w-full rounded-lg mb-4" height="140"></canvas>
           <div class="text-4xl mb-2">👁️</div>
           <h2 class="font-semibold text-lg sm:text-base lg:text-lg text-zinc-100 mb-2 mode-title">Watch</h2>
           <p class="text-zinc-400 text-sm sm:text-sm lg:text-sm mb-5 mode-desc">Fly through the world as a spectator. See what others are building, chat freely, and join any time.</p>
-          <button id="play-spectate-btn" class="w-full px-4 py-3 rounded-lg bg-teal-600 hover:bg-teal-500 font-semibold text-sm sm:text-sm lg:text-base transition hover:scale-[1.02] active:scale-[0.98] mode-btn">Watch World</button>
+          <button id="play-spectate-btn" class="w-full px-4 py-3 rounded-lg bg-zinc-700 hover:bg-zinc-600 font-semibold text-sm sm:text-sm lg:text-base transition-colors mode-btn">Watch World</button>
+        </div>
+        <div class="flex-1 bg-zinc-900/80 rounded-xl p-5">
+          <h2 class="font-semibold text-zinc-100 mb-1">Speed Run</h2>
+          <p class="text-zinc-400 text-xs mb-4">Fill all five building zones as fast as you can. Timer never stops.</p>
+          <button id="speedrun-btn" class="w-full px-4 py-2 rounded-lg bg-amber-600 hover:bg-amber-500 font-semibold text-sm transition-colors">⚡ Speed Run</button>
         </div>
         <div class="bg-zinc-900/80 rounded-xl p-5 sm:p-6 lg:p-7 transition hover:bg-zinc-800/80" data-mode="versus">
           <canvas id="preview-versus" class="w-full rounded-lg mb-4" height="140"></canvas>
@@ -764,6 +764,93 @@
     </div>
   </div>
 
+  <!-- Speed Run lobby -->
+  <div id="speedrun-lobby" class="hidden fixed inset-0 z-30 flex items-center justify-center bg-black/70 backdrop-blur-sm">
+    <div class="max-w-sm w-full mx-4 p-7 text-center bg-zinc-900/80 rounded-2xl shadow-2xl">
+      <h2 class="text-2xl font-bold mb-1">⚡ Speed Run</h2>
+      <p class="text-zinc-400 text-sm mb-4">Fill all five building zones as fast as you can.<br>Timer never stops.</p>
+
+      <!-- Resume notice (shown when an active run exists) -->
+      <div id="sr-resume-notice" class="hidden mb-3 px-3 py-2 bg-amber-900/40 border border-amber-700/40 rounded-lg text-sm text-amber-300"></div>
+
+      <!-- Personal best -->
+      <div id="sr-personal-best" class="mb-3 text-sm text-zinc-400"></div>
+
+      <!-- Leaderboard -->
+      <div class="mb-5 max-h-44 overflow-y-auto rounded-lg bg-black/30">
+        <table class="w-full text-sm">
+          <thead>
+            <tr class="text-zinc-500 text-xs border-b border-zinc-700/50">
+              <th class="text-left px-3 py-1.5">Rank</th>
+              <th class="text-left px-1 py-1.5">Player</th>
+              <th class="text-right px-3 py-1.5">Time</th>
+            </tr>
+          </thead>
+          <tbody id="sr-leaderboard-body">
+            <tr><td colspan="3" class="text-center text-zinc-600 py-3 text-xs">Loading…</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="flex gap-2 justify-center flex-wrap">
+        <button id="sr-back-btn" class="px-4 py-2 rounded-lg bg-zinc-700 hover:bg-zinc-600 font-semibold text-sm">Back</button>
+        <button id="sr-abandon-active-btn" class="hidden px-4 py-2 rounded-lg bg-red-800 hover:bg-red-700 font-semibold text-sm">Abandon Run</button>
+        <button id="sr-resume-btn" class="hidden px-5 py-2 rounded-lg bg-green-700 hover:bg-green-600 font-semibold text-sm">Resume Run</button>
+        <button id="sr-start-btn" class="px-5 py-2 rounded-lg bg-amber-600 hover:bg-amber-500 font-semibold text-sm">Start Run</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Speed Run HUD (shown while running) -->
+  <div id="sr-hud" class="hidden pointer-events-none fixed top-3 left-3 z-20 bg-black/60 rounded-xl px-4 py-3 text-white min-w-[160px]">
+    <div id="sr-timer" class="text-2xl font-mono font-bold tabular-nums tracking-tight">00:00.000</div>
+    <div id="sr-level-name" class="text-xs text-zinc-400 mt-0.5">Level 1 / 5 — Platform</div>
+    <div id="sr-progress" class="text-sm text-zinc-300 mt-1">0 / 16 blocks</div>
+  </div>
+
+  <!-- Level complete banner -->
+  <div id="sr-level-banner" class="hidden pointer-events-none fixed inset-x-0 top-28 z-40 flex justify-center">
+    <div id="sr-level-banner-text" class="bg-green-600/95 text-white font-bold text-xl px-8 py-3 rounded-2xl shadow-xl"></div>
+  </div>
+
+  <!-- Run complete overlay -->
+  <div id="sr-run-complete" class="hidden fixed inset-0 z-40 flex items-center justify-center bg-black/80 backdrop-blur-sm">
+    <div class="max-w-sm w-full mx-4 p-7 text-center bg-zinc-900/90 rounded-2xl shadow-2xl">
+      <h2 class="text-2xl font-bold mb-1">Run Complete!</h2>
+      <div id="sr-final-time" class="text-4xl font-mono font-bold text-amber-400 my-3 tabular-nums"></div>
+      <div id="sr-pb-badge" class="hidden mb-2 text-yellow-400 font-bold text-lg">🏆 New Personal Best!</div>
+      <div id="sr-run-rank" class="text-zinc-400 text-sm mb-4"></div>
+      <div class="mb-5 max-h-44 overflow-y-auto rounded-lg bg-black/30">
+        <table class="w-full text-sm">
+          <thead>
+            <tr class="text-zinc-500 text-xs border-b border-zinc-700/50">
+              <th class="text-left px-3 py-1.5">Rank</th>
+              <th class="text-left px-1 py-1.5">Player</th>
+              <th class="text-right px-3 py-1.5">Time</th>
+            </tr>
+          </thead>
+          <tbody id="sr-result-leaderboard-body"></tbody>
+        </table>
+      </div>
+      <div class="flex gap-3 justify-center">
+        <button id="sr-main-menu-btn" class="px-4 py-2 rounded-lg bg-zinc-700 hover:bg-zinc-600 font-semibold">Main Menu</button>
+        <button id="sr-run-again-btn" class="px-5 py-2 rounded-lg bg-amber-600 hover:bg-amber-500 font-semibold">Run Again</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Abandon confirmation -->
+  <div id="sr-abandon-confirm" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/70">
+    <div class="bg-zinc-900 rounded-2xl p-8 text-center max-w-xs mx-4 shadow-2xl">
+      <p class="font-bold text-lg mb-1">Abandon this run?</p>
+      <p class="text-zinc-400 text-sm mb-6">Your time will not be saved.</p>
+      <div class="flex gap-3 justify-center">
+        <button id="sr-abandon-cancel-btn" class="px-4 py-2 rounded-lg bg-zinc-700 hover:bg-zinc-600 font-semibold">Continue Run</button>
+        <button id="sr-abandon-confirm-btn" class="px-4 py-2 rounded-lg bg-red-700 hover:bg-red-600 font-semibold">Abandon</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Energy display: shown in top-left while playing -->
   <div id="energy-display" class="hidden fixed top-3 left-3 z-20 bg-black/50 backdrop-blur rounded-lg px-4 py-2 text-sm text-zinc-200">
     <div class="font-semibold text-violet-300 mb-1">🎫 Tickets</div>
@@ -780,7 +867,7 @@
       <div id="energy-countdown-modal" class="text-xs text-zinc-500 mb-4"></div>
 
       <div class="space-y-2 mb-4">
-        <button id="burn-points-btn" class="w-full px-4 py-3 rounded-lg bg-amber-600 hover:bg-amber-500 font-semibold text-sm transition hover:scale-[1.02] active:scale-[0.98] text-white">
+        <button id="burn-points-btn" class="w-full px-4 py-3 rounded-lg bg-zinc-700 hover:bg-zinc-600 font-semibold text-sm transition-colors text-white">
           🔥 Burn <span id="points-cost">100</span> Points for 1 Play
         </button>
         <div id="points-availability" class="text-xs text-zinc-500">Points available: <span id="points-available">0</span></div>
@@ -807,7 +894,7 @@
   <!-- Look-mode control: always-visible, clickable, shows the active look
        scheme and lets the player (re)try mouse-lock. NOT pointer-events-none
        and NOT faded, so it stays interactive after the keys hint fades. -->
-  <button id="lookmode" class="hidden fixed top-12 left-1/2 -translate-x-1/2 z-20 text-xs text-zinc-200 bg-black/50 hover:bg-black/70 rounded-lg px-3 py-1.5 transition hover:scale-105 active:scale-95 cursor-pointer"></button>
+  <button id="lookmode" class="hidden fixed top-12 left-1/2 -translate-x-1/2 z-20 text-xs text-zinc-200 bg-black/50 hover:bg-black/70 rounded-lg px-3 py-1.5 transition-colors cursor-pointer"></button>
 
   <!-- Hold panel: displays the currently held block type (one-slot hold queue).
        Positioned at the bottom-left, aligned with the palette bar. -->
@@ -821,11 +908,11 @@
   <!-- Undo/Redo/History HUD: shown in Classic mode only -->
   <div id="undo-redo-hud" class="hidden fixed z-20 flex items-center gap-1" style="bottom: 1rem; left: 4.5rem">
     <button id="undo-btn" title="Undo (Ctrl+Z)"
-            class="w-9 h-9 rounded-lg bg-black/50 hover:bg-black/70 text-zinc-100 text-base leading-none flex items-center justify-center transition hover:scale-110 active:scale-95 cursor-pointer">↩</button>
+            class="w-9 h-9 rounded-lg bg-black/50 hover:bg-black/70 text-zinc-100 text-base leading-none flex items-center justify-center transition-colors cursor-pointer">↩</button>
     <button id="redo-btn" title="Redo (Ctrl+Y)"
-            class="w-9 h-9 rounded-lg bg-black/50 hover:bg-black/70 text-zinc-100 text-base leading-none flex items-center justify-center transition hover:scale-110 active:scale-95 cursor-pointer">↪</button>
+            class="w-9 h-9 rounded-lg bg-black/50 hover:bg-black/70 text-zinc-100 text-base leading-none flex items-center justify-center transition-colors cursor-pointer">↪</button>
     <button id="history-btn" title="Build History"
-            class="w-9 h-9 rounded-lg bg-black/50 hover:bg-black/70 text-zinc-100 text-base leading-none flex items-center justify-center transition hover:scale-110 active:scale-95 cursor-pointer">🕐</button>
+            class="w-9 h-9 rounded-lg bg-black/50 hover:bg-black/70 text-zinc-100 text-base leading-none flex items-center justify-center transition-colors cursor-pointer">🕐</button>
   </div>
 
   <!-- History panel: recent block placements/breaks -->
@@ -834,9 +921,9 @@
       <span class="font-bold text-xs text-zinc-100 uppercase tracking-wide">Recent Actions</span>
       <div class="flex items-center gap-1.5">
         <button id="history-undo-btn" title="Undo"
-                class="w-7 h-7 rounded bg-zinc-700 hover:bg-zinc-600 text-zinc-100 text-sm flex items-center justify-center cursor-pointer transition hover:scale-110 active:scale-95">↩</button>
+                class="w-7 h-7 rounded bg-zinc-700 hover:bg-zinc-600 text-zinc-100 text-sm flex items-center justify-center cursor-pointer transition-colors">↩</button>
         <button id="history-redo-btn" title="Redo"
-                class="w-7 h-7 rounded bg-zinc-700 hover:bg-zinc-600 text-zinc-100 text-sm flex items-center justify-center cursor-pointer transition hover:scale-110 active:scale-95">↪</button>
+                class="w-7 h-7 rounded bg-zinc-700 hover:bg-zinc-600 text-zinc-100 text-sm flex items-center justify-center cursor-pointer transition-colors">↪</button>
         <button id="history-close" aria-label="Close history"
                 class="text-zinc-400 hover:text-zinc-100 cursor-pointer leading-none transition-colors ml-1">✕</button>
       </div>
@@ -850,7 +937,7 @@
 
   <!-- Badges toggle: sits to the left of the mute button. -->
   <button id="badges-btn" title="Badges" aria-label="Toggle badges"
-          class="fixed top-3 z-30 w-12 h-12 sm:w-9 sm:h-9 rounded-full bg-black/50 hover:bg-black/70 text-zinc-100 text-lg leading-none flex items-center justify-center transition hover:scale-110 active:scale-95 cursor-pointer">🏆</button>
+          class="fixed top-3 z-30 w-12 h-12 sm:w-9 sm:h-9 rounded-full bg-black/50 hover:bg-black/70 text-zinc-100 text-lg leading-none flex items-center justify-center transition-colors cursor-pointer">🏆</button>
 
   <!-- Pet companion toggle: sits to the left of the badges button. -->
   <button id="pet-btn" title="Pet Companions" aria-label="Toggle pet companions"
@@ -858,15 +945,15 @@
 
   <!-- Audio mute toggle: sits to the left of the help button. -->
   <button id="mute-btn" title="Mute/unmute audio (M)" aria-label="Toggle audio"
-          class="fixed top-3 right-14 z-30 w-12 h-12 sm:w-9 sm:h-9 rounded-full bg-black/50 hover:bg-black/70 text-zinc-100 text-lg leading-none flex items-center justify-center transition hover:scale-110 active:scale-95 cursor-pointer">🔊</button>
+          class="fixed top-3 right-14 z-30 w-12 h-12 sm:w-9 sm:h-9 rounded-full bg-black/50 hover:bg-black/70 text-zinc-100 text-lg leading-none flex items-center justify-center transition-colors cursor-pointer">🔊</button>
 
   <!-- Settings toggle: sits to the left of the badges/turntable cluster. -->
   <button id="settings-btn" title="Settings" aria-label="Open settings"
-          class="fixed top-3 z-30 w-12 h-12 sm:w-9 sm:h-9 rounded-full bg-black/50 hover:bg-black/70 text-zinc-100 text-lg leading-none flex items-center justify-center transition hover:scale-110 active:scale-95 cursor-pointer" style="right: 8.75rem">⚙️</button>
+          class="fixed top-3 z-30 w-12 h-12 sm:w-9 sm:h-9 rounded-full bg-black/50 hover:bg-black/70 text-zinc-100 text-lg leading-none flex items-center justify-center transition-colors cursor-pointer" style="right: 8.75rem">⚙️</button>
 
   <!-- Turntable toggle: sits to the left of the mute button. -->
   <button id="turntable-btn" title="Toggle turntable camera" aria-label="Toggle turntable camera"
-          class="fixed top-3 right-24 z-30 w-12 h-12 sm:w-9 sm:h-9 rounded-full bg-black/50 hover:bg-black/70 text-zinc-100 text-lg leading-none flex items-center justify-center transition hover:scale-110 active:scale-95 cursor-pointer">
+          class="fixed top-3 right-24 z-30 w-12 h-12 sm:w-9 sm:h-9 rounded-full bg-black/50 hover:bg-black/70 text-zinc-100 text-lg leading-none flex items-center justify-center transition-colors cursor-pointer">
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-5 h-5">
       <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>
       <path d="M3 3v5h5"/>
@@ -875,10 +962,10 @@
 
   <!-- Hamburger menu button: visible on phones (<640px), toggles menu panel -->
   <button id="menu-btn" title="Menu" aria-label="Toggle menu"
-          class="hidden fixed top-3 right-3 z-30 w-12 h-12 rounded-full bg-black/50 hover:bg-black/70 text-zinc-100 text-lg font-bold leading-none flex items-center justify-center transition hover:scale-110 active:scale-95 cursor-pointer">☰</button>
+          class="hidden fixed top-3 right-3 z-30 w-12 h-12 rounded-full bg-black/50 hover:bg-black/70 text-zinc-100 text-lg font-bold leading-none flex items-center justify-center transition-colors cursor-pointer">☰</button>
 
   <!-- Menu panel: dropdown for phones (<640px), hidden by default -->
-  <div id="menu-panel" class="hidden fixed top-14 right-3 z-30 w-56 rounded-xl bg-black/70 backdrop-blur shadow-xl overflow-y-auto max-h-[calc(100vh-100px)]">
+  <div id="menu-panel" class="hidden fixed top-14 right-3 z-30 w-56 rounded-lg bg-black/70 backdrop-blur overflow-y-auto max-h-[calc(100vh-100px)]">
     <div class="px-3 py-2 border-b border-zinc-700/60 sticky top-0 bg-black/70">
       <h3 class="font-semibold text-zinc-100 text-sm" id="menu-panel-title">Menu</h3>
     </div>
@@ -898,31 +985,35 @@
 
   <!-- Help/controls toggle: circular "(?)" button fixed in the top-right corner. -->
   <button id="help-btn" title="Controls (h)" aria-label="Toggle controls"
-          class="fixed top-3 right-3 z-30 w-12 h-12 sm:w-9 sm:h-9 rounded-full bg-black/50 hover:bg-black/70 text-zinc-100 text-lg font-bold leading-none flex items-center justify-center transition hover:scale-110 active:scale-95 cursor-pointer">?</button>
+          class="fixed top-3 right-3 z-30 w-12 h-12 sm:w-9 sm:h-9 rounded-full bg-black/50 hover:bg-black/70 text-zinc-100 text-lg font-bold leading-none flex items-center justify-center transition-colors cursor-pointer">?</button>
 
   <!-- Leaderboard toggle: sits below the help button. -->
   <button id="leaderboard-btn" title="Leaderboard (l)" aria-label="Toggle leaderboard"
-          class="fixed top-14 right-3 z-30 w-12 h-12 sm:w-9 sm:h-9 rounded-full bg-black/50 hover:bg-black/70 text-zinc-100 text-lg leading-none flex items-center justify-center transition hover:scale-110 active:scale-95 cursor-pointer">🏆</button>
+          class="fixed top-14 right-3 z-30 w-12 h-12 sm:w-9 sm:h-9 rounded-full bg-black/50 hover:bg-black/70 text-zinc-100 text-lg leading-none flex items-center justify-center transition-colors cursor-pointer">🏆</button>
 
   <!-- Friends toggle: sits below the leaderboard button. -->
   <button id="friends-btn" title="Friends" aria-label="Toggle friends"
-          class="fixed top-[6.25rem] right-3 z-30 w-12 h-12 sm:w-9 sm:h-9 rounded-full bg-black/50 hover:bg-black/70 text-zinc-100 text-lg leading-none flex items-center justify-center transition hover:scale-110 active:scale-95 cursor-pointer relative">👥<span id="friends-badge" class="hidden absolute -top-1 -right-1 w-3 h-3 rounded-full bg-red-500 pointer-events-none"></span></button>
+          class="fixed top-[6.25rem] right-3 z-30 w-12 h-12 sm:w-9 sm:h-9 rounded-full bg-black/50 hover:bg-black/70 text-zinc-100 text-lg leading-none flex items-center justify-center transition-colors cursor-pointer relative">👥<span id="friends-badge" class="hidden absolute -top-1 -right-1 w-3 h-3 rounded-full bg-red-500 pointer-events-none"></span></button>
 
   <!-- AI Coach toggle: below the friends button. Hidden in spectate mode. -->
   <button id="coach-btn" title="Ask AI Coach" aria-label="Ask AI Coach"
-          class="fixed top-[8.5rem] right-3 z-30 w-12 h-12 sm:w-9 sm:h-9 rounded-full bg-black/50 hover:bg-black/70 text-zinc-100 text-lg leading-none flex items-center justify-center transition hover:scale-110 active:scale-95 cursor-pointer">💡</button>
+          class="fixed top-[8.5rem] right-3 z-30 w-12 h-12 sm:w-9 sm:h-9 rounded-full bg-black/50 hover:bg-black/70 text-zinc-100 text-lg leading-none flex items-center justify-center transition-colors cursor-pointer">💡</button>
 
   <!-- Worlds toggle: below the coach button. -->
   <button id="worlds-btn" title="Worlds" aria-label="Toggle worlds"
-          class="fixed top-[10.75rem] right-3 z-30 w-12 h-12 sm:w-9 sm:h-9 rounded-full bg-black/50 hover:bg-black/70 text-zinc-100 text-lg leading-none flex items-center justify-center transition hover:scale-110 active:scale-95 cursor-pointer">🌍</button>
+          class="fixed top-[10.75rem] right-3 z-30 w-12 h-12 sm:w-9 sm:h-9 rounded-full bg-black/50 hover:bg-black/70 text-zinc-100 text-lg leading-none flex items-center justify-center transition-colors cursor-pointer">🌍</button>
 
   <!-- Daily Theme toggle: below the coach button. Hidden in Time Attack mode. -->
   <button id="theme-btn" title="Daily Build Theme" aria-label="Daily Build Theme"
           class="fixed top-[10.5rem] right-3 z-30 w-9 h-9 rounded-full bg-black/50 hover:bg-black/70 text-zinc-100 text-lg leading-none flex items-center justify-center transition-colors cursor-pointer">🌟</button>
 
-  <!-- Accessibility toggle: below the coach button. Opens the a11y panel. -->
+  <!-- NFT Skins toggle: below the coach button. -->
+  <button id="skins-btn" title="NFT Block Skins" aria-label="Toggle NFT skins"
+          class="fixed top-[11rem] right-3 z-30 w-9 h-9 rounded-full bg-black/50 hover:bg-black/70 text-zinc-100 text-lg leading-none flex items-center justify-center transition-colors cursor-pointer">🎨</button>
+
+  <!-- Accessibility toggle: below the skins button. Opens the a11y panel. -->
   <button id="accessibility-btn" title="Accessibility" aria-label="Accessibility settings"
-          class="fixed top-[10.5rem] right-3 z-30 w-9 h-9 rounded-full bg-black/50 hover:bg-black/70 text-zinc-100 text-lg leading-none flex items-center justify-center transition hover:scale-110 active:scale-95 cursor-pointer">♿</button>
+          class="fixed top-[11.5rem] right-3 z-30 w-9 h-9 rounded-full bg-black/50 hover:bg-black/70 text-zinc-100 text-lg leading-none flex items-center justify-center transition hover:scale-110 active:scale-95 cursor-pointer">♿</button>
 
   <!-- Record button: shown only in Classic mode. Hidden until startMode('classic'). -->
   <button id="record-btn" title="Record session" aria-label="Record session"
@@ -930,8 +1021,17 @@
 
   <!-- Build/version stamp: always visible, dim, so the running build can be
        confirmed at a glance. Bump BUILD_VERSION (below) on every change.
-       Shifted down to make room for the leaderboard, friends, coach, accessibility, and theme buttons above. -->
-  <div id="build-stamp" class="pointer-events-none fixed top-[12.75rem] right-3 z-20 text-[11px] text-zinc-300/70 bg-black/40 rounded px-2 py-1 font-mono"></div>
+       Shifted down to make room for the leaderboard, friends, coach, skins, accessibility, and theme buttons. -->
+  <div id="build-stamp" class="pointer-events-none fixed top-[13rem] right-3 z-20 text-[11px] text-zinc-300/70 bg-black/40 rounded px-2 py-1 font-mono"></div>
+
+  <!-- NFT Skins panel: shows owned NFTs for equipping as block textures. -->
+  <div id="skins-panel" class="hidden fixed top-16 right-3 z-30 w-72 max-w-[90vw] rounded-xl bg-black/70 backdrop-blur p-4 text-sm text-zinc-200 shadow-xl">
+    <div class="flex items-center justify-between mb-3">
+      <h2 class="font-bold text-zinc-100">NFT Block Skins</h2>
+      <button id="skins-close" aria-label="Close skins" class="text-zinc-400 hover:text-zinc-100 cursor-pointer leading-none">✕</button>
+    </div>
+    <div id="skins-content" class="text-zinc-400 text-center py-2 text-xs">Loading…</div>
+  </div>
 
   <!-- Mini-map: top-down 128×128 px overhead view of the 32×32 world.
        Hidden until a play mode is chosen; shown/hidden via JS. -->
@@ -1020,9 +1120,9 @@
       <div>
         <div class="font-semibold text-zinc-100 mb-1" id="settings-ta-label">Time Attack difficulty</div>
         <div class="flex items-center justify-between gap-2">
-          <button id="settings-diff-down" class="w-9 h-9 rounded bg-zinc-700 hover:bg-zinc-600 text-zinc-200 font-bold text-sm leading-none transition hover:scale-110 active:scale-95">←</button>
+          <button id="settings-diff-down" class="w-9 h-9 rounded bg-zinc-700 hover:bg-zinc-600 text-zinc-200 font-bold text-sm leading-none transition-colors">←</button>
           <span id="settings-diff-label" class="text-sm font-semibold text-amber-400 flex-1 text-center">Easy</span>
-          <button id="settings-diff-up" class="w-9 h-9 rounded bg-zinc-700 hover:bg-zinc-600 text-zinc-200 font-bold text-sm leading-none transition hover:scale-110 active:scale-95">→</button>
+          <button id="settings-diff-up" class="w-9 h-9 rounded bg-zinc-700 hover:bg-zinc-600 text-zinc-200 font-bold text-sm leading-none transition-colors">→</button>
         </div>
         <div class="text-xs text-zinc-400 mt-1" id="settings-ta-desc">Also auto-adjusts based on your recent runs.</div>
       </div>
@@ -1036,7 +1136,7 @@
       <button id="worlds-close" aria-label="Close worlds" class="text-zinc-400 hover:text-zinc-100 cursor-pointer leading-none transition-colors">✕</button>
     </div>
     <div class="mb-3">
-      <button id="save-world-btn" class="w-full px-3 py-2 rounded bg-violet-600 hover:bg-violet-500 active:bg-violet-700 text-white text-sm font-semibold transition">Save Current World</button>
+      <button id="save-world-btn" class="w-full px-3 py-2 rounded bg-violet-600 hover:bg-violet-500 active:bg-violet-700 text-white text-sm font-semibold transition-colors">Save Current World</button>
     </div>
     <div id="worlds-list" class="space-y-2 sm:space-y-1.5 max-h-[calc(100vh-300px)] sm:max-h-96 overflow-y-auto pr-0.5"></div>
   </div>
@@ -1081,7 +1181,7 @@
 
   <!-- Daily Challenge HUD: bottom position set by JS (touch devices are raised
        to clear the on-screen action cluster). Hidden until init() loads data. -->
-  <div id="challenge-hud" class="hidden pointer-events-none fixed right-3 z-20 w-36 rounded-lg bg-black/55 px-2 py-1.5 text-xs text-white/90"></div>
+  <div id="challenge-hud" class="hidden pointer-events-none fixed right-3 z-20 w-44 rounded-lg bg-black/55 px-2 py-1.5 text-xs text-white/90"></div>
 
   <!-- Chaos Mode indicator pill: shown when chaos mode is active. -->
   <div id="chaos-indicator" class="hidden pointer-events-none fixed left-3 z-20 rounded-lg bg-amber-500/80 px-2 py-1 text-xs font-bold text-white whitespace-nowrap">🎲 CHAOS</div>
@@ -1228,7 +1328,7 @@
     <div class="mt-3 pt-3 border-t border-zinc-700/60 flex gap-2">
       <input id="friends-input" type="text" placeholder="Add by username…" maxlength="100" autocomplete="off"
              class="flex-1 min-w-0 bg-zinc-800 text-zinc-100 text-xs sm:text-xs rounded px-2 py-1.5 border border-zinc-700 focus:border-violet-500 outline-none placeholder-zinc-500" id="friends-input-placeholder">
-      <button id="friends-add-btn" class="shrink-0 px-3 py-1.5 bg-violet-600 hover:bg-violet-500 active:bg-violet-700 text-white text-xs font-semibold rounded cursor-pointer transition hover:scale-105 active:scale-95" id="friends-add-btn-text">Add</button>
+      <button id="friends-add-btn" class="shrink-0 px-3 py-1.5 bg-violet-600 hover:bg-violet-500 active:bg-violet-700 text-white text-xs font-semibold rounded cursor-pointer transition-colors" id="friends-add-btn-text">Add</button>
     </div>
     <div id="friends-add-status" class="mt-1 text-xs text-center min-h-[1.2em]"></div>
   </div>
@@ -1259,30 +1359,30 @@
        once on press. Hidden until JS reveals it on a touch device. -->
   <div id="touch-controls" class="hidden absolute inset-0 z-20 pointer-events-none select-none">
     <!-- Menu / pause (Esc equivalent), top-left -->
-    <button id="tc-menu" data-act="menu" class="touch-ctrl pointer-events-auto absolute top-3 left-3 px-3 h-9 rounded-lg bg-black/45 active:bg-black/70 active:scale-95 text-zinc-100 text-sm font-semibold flex items-center justify-center">☰ Menu</button>
+    <button id="tc-menu" data-act="menu" class="touch-ctrl pointer-events-auto absolute top-3 left-3 px-3 h-9 rounded-lg bg-black/45 active:bg-black/70 text-zinc-100 text-sm font-semibold flex items-center justify-center">☰ Menu</button>
 
     <!-- Move pad (forward/back/left/right), bottom-left -->
     <div id="tc-movepad" class="absolute left-4 bottom-4 grid grid-cols-3 grid-rows-3 gap-1 sm:gap-1.5 opacity-90">
-      <button data-mv="f" class="touch-ctrl pointer-events-auto col-start-2 row-start-1 w-12 h-12 sm:w-14 sm:h-14 rounded-xl bg-black/40 active:bg-black/70 active:scale-95 text-xl sm:text-2xl text-zinc-100 flex items-center justify-center">▲</button>
-      <button data-mv="l" class="touch-ctrl pointer-events-auto col-start-1 row-start-2 w-12 h-12 sm:w-14 sm:h-14 rounded-xl bg-black/40 active:bg-black/70 active:scale-95 text-xl sm:text-2xl text-zinc-100 flex items-center justify-center">◀</button>
-      <button data-mv="r" class="touch-ctrl pointer-events-auto col-start-3 row-start-2 w-12 h-12 sm:w-14 sm:h-14 rounded-xl bg-black/40 active:bg-black/70 active:scale-95 text-xl sm:text-2xl text-zinc-100 flex items-center justify-center">▶</button>
-      <button data-mv="b" class="touch-ctrl pointer-events-auto col-start-2 row-start-3 w-12 h-12 sm:w-14 sm:h-14 rounded-xl bg-black/40 active:bg-black/70 active:scale-95 text-xl sm:text-2xl text-zinc-100 flex items-center justify-center">▼</button>
+      <button data-mv="f" class="touch-ctrl pointer-events-auto col-start-2 row-start-1 w-12 h-12 sm:w-14 sm:h-14 rounded-xl bg-black/40 active:bg-black/70 text-xl sm:text-2xl text-zinc-100 flex items-center justify-center">▲</button>
+      <button data-mv="l" class="touch-ctrl pointer-events-auto col-start-1 row-start-2 w-12 h-12 sm:w-14 sm:h-14 rounded-xl bg-black/40 active:bg-black/70 text-xl sm:text-2xl text-zinc-100 flex items-center justify-center">◀</button>
+      <button data-mv="r" class="touch-ctrl pointer-events-auto col-start-3 row-start-2 w-12 h-12 sm:w-14 sm:h-14 rounded-xl bg-black/40 active:bg-black/70 text-xl sm:text-2xl text-zinc-100 flex items-center justify-center">▶</button>
+      <button data-mv="b" class="touch-ctrl pointer-events-auto col-start-2 row-start-3 w-12 h-12 sm:w-14 sm:h-14 rounded-xl bg-black/40 active:bg-black/70 text-xl sm:text-2xl text-zinc-100 flex items-center justify-center">▼</button>
     </div>
 
     <!-- Fly + build cluster, bottom-right -->
     <div id="tc-actions" class="absolute right-4 bottom-4 flex flex-col items-end gap-1 sm:gap-2">
       <div class="flex gap-1 sm:gap-2">
-        <button data-act="hold" class="touch-ctrl pointer-events-auto w-12 h-12 sm:w-14 sm:h-14 rounded-xl bg-violet-700/55 active:bg-violet-500/80 active:scale-95 text-xs font-bold text-white flex items-center justify-center">Hold</button>
-        <button data-mv="down" class="touch-ctrl pointer-events-auto w-12 h-12 sm:w-14 sm:h-14 rounded-xl bg-black/40 active:bg-black/70 active:scale-95 text-xs sm:text-sm font-semibold text-zinc-100 flex items-center justify-center">Down</button>
-        <button data-mv="up" class="touch-ctrl pointer-events-auto w-12 h-12 sm:w-14 sm:h-14 rounded-xl bg-black/40 active:bg-black/70 active:scale-95 text-xs sm:text-sm font-semibold text-zinc-100 flex items-center justify-center">Up</button>
+        <button data-act="hold" class="touch-ctrl pointer-events-auto w-12 h-12 sm:w-14 sm:h-14 rounded-xl bg-zinc-700/60 active:bg-zinc-600/80 text-xs font-bold text-white flex items-center justify-center">Hold</button>
+        <button data-mv="down" class="touch-ctrl pointer-events-auto w-12 h-12 sm:w-14 sm:h-14 rounded-xl bg-black/40 active:bg-black/70 text-xs sm:text-sm font-semibold text-zinc-100 flex items-center justify-center">Down</button>
+        <button data-mv="up" class="touch-ctrl pointer-events-auto w-12 h-12 sm:w-14 sm:h-14 rounded-xl bg-black/40 active:bg-black/70 text-xs sm:text-sm font-semibold text-zinc-100 flex items-center justify-center">Up</button>
       </div>
       <div class="flex gap-1 sm:gap-2">
-        <button data-act="undo" id="undo-touch-btn" class="touch-ctrl pointer-events-auto w-14 h-14 sm:w-16 sm:h-16 rounded-2xl bg-amber-600/55 active:bg-amber-400/80 active:scale-95 text-xs sm:text-sm font-bold text-white flex items-center justify-center">↩ Undo</button>
-        <button data-act="break" class="touch-ctrl pointer-events-auto w-14 h-14 sm:w-16 sm:h-16 rounded-2xl bg-rose-600/55 active:bg-rose-500/80 active:scale-95 text-xs sm:text-sm font-bold text-white flex items-center justify-center">Delete</button>
-        <button data-act="place" class="touch-ctrl pointer-events-auto w-14 h-14 sm:w-16 sm:h-16 rounded-2xl bg-emerald-600/55 active:bg-emerald-500/80 active:scale-95 text-xs sm:text-sm font-bold text-white flex items-center justify-center">Add</button>
+        <button data-act="undo" id="undo-touch-btn" class="touch-ctrl pointer-events-auto w-14 h-14 sm:w-16 sm:h-16 rounded-2xl bg-zinc-700/60 active:bg-zinc-600/80 text-xs sm:text-sm font-bold text-white flex items-center justify-center">↩ Undo</button>
+        <button data-act="break" class="touch-ctrl pointer-events-auto w-14 h-14 sm:w-16 sm:h-16 rounded-2xl bg-zinc-700/60 active:bg-zinc-600/80 text-xs sm:text-sm font-bold text-white flex items-center justify-center">Delete</button>
+        <button data-act="place" class="touch-ctrl pointer-events-auto w-14 h-14 sm:w-16 sm:h-16 rounded-2xl bg-zinc-700/60 active:bg-zinc-600/80 text-xs sm:text-sm font-bold text-white flex items-center justify-center">Add</button>
       </div>
       <div class="flex gap-1 sm:gap-2">
-        <button data-act="stamp" class="touch-ctrl pointer-events-auto w-14 h-14 sm:w-16 sm:h-16 rounded-2xl bg-cyan-600/55 active:bg-cyan-500/80 active:scale-95 text-xs sm:text-sm font-bold text-white flex items-center justify-center">📦 Stamp</button>
+        <button data-act="stamp" class="touch-ctrl pointer-events-auto w-14 h-14 sm:w-16 sm:h-16 rounded-2xl bg-zinc-700/60 active:bg-zinc-600/80 text-xs sm:text-sm font-bold text-white flex items-center justify-center">📦 Stamp</button>
       </div>
     </div>
   </div>
@@ -1299,14 +1399,14 @@
       <input id="chat-input" type="text" maxlength="200" autocomplete="off"
              placeholder="Message…"
              class="flex-1 min-w-0 bg-zinc-800 text-zinc-100 text-base sm:text-sm rounded-lg px-3 py-2 border border-zinc-700 focus:border-violet-500 outline-none placeholder-zinc-500">
-      <button id="chat-send" class="shrink-0 px-3 py-2 bg-violet-600 hover:bg-violet-500 active:bg-violet-700 text-white text-base sm:text-sm font-semibold rounded-lg cursor-pointer transition hover:scale-105 active:scale-95">Send</button>
+      <button id="chat-send" class="shrink-0 px-3 py-2 bg-violet-600 hover:bg-violet-500 active:bg-violet-700 text-white text-base sm:text-sm font-semibold rounded-lg cursor-pointer transition-colors">Send</button>
     </div>
   </div>
 
   <!-- Chat toggle button: fixed in the lower-right, above touch controls.
        Shows an unread badge when new messages arrive while closed. -->
   <button id="chat-toggle" title="Chat (Enter)"
-          class="fixed bottom-40 right-3 z-[22] w-9 h-9 rounded-full bg-black/50 hover:bg-black/70 text-xl flex items-center justify-center transition hover:scale-110 active:scale-95 cursor-pointer">
+          class="fixed bottom-40 right-3 z-[22] w-9 h-9 rounded-full bg-black/50 hover:bg-black/70 text-xl flex items-center justify-center transition-colors cursor-pointer">
     💬<span id="chat-badge" class="hidden absolute -top-1 -right-1 min-w-[18px] h-[18px] rounded-full bg-violet-500 text-white text-[10px] font-bold flex items-center justify-center leading-none pointer-events-none select-none">0</span>
   </button>
 
@@ -1350,7 +1450,7 @@
   </div>
 
   <!-- Desktop undo button: shown in Classic mode while playing; greyed when stack is empty. -->
-  <button id="undo-btn" class="hidden pointer-events-auto fixed top-3 left-16 z-20 px-3 h-9 rounded-lg bg-black/50 hover:bg-black/70 active:scale-95 text-zinc-100 text-sm sm:text-sm font-semibold flex items-center justify-center gap-1.5 transition">↩ Undo</button>
+  <button id="undo-btn" class="hidden pointer-events-auto fixed top-3 left-16 z-20 px-3 h-9 rounded-lg bg-black/50 hover:bg-black/70 text-zinc-100 text-sm sm:text-sm font-semibold flex items-center justify-center gap-1.5 transition-colors">↩ Undo</button>
 
   <!-- Floating "+1" score pops (Time Attack). Positioned per-pop by JS. -->
   <div id="score-pops" class="pointer-events-none fixed inset-0 z-20 overflow-hidden"></div>
@@ -1363,7 +1463,7 @@
 
   <!-- Pause button: shown during active gameplay -->
   <button id="pause-btn" title="Pause (P)" aria-label="Pause game"
-          class="hidden pointer-events-auto fixed top-3 z-30 w-12 h-12 sm:w-9 sm:h-9 rounded-full bg-black/50 hover:bg-black/70 text-zinc-100 text-lg leading-none flex items-center justify-center transition hover:scale-110 active:scale-95 cursor-pointer" style="right: 11.25rem">⏸</button>
+          class="hidden pointer-events-auto fixed top-3 z-30 w-12 h-12 sm:w-9 sm:h-9 rounded-full bg-black/50 hover:bg-black/70 text-zinc-100 text-lg leading-none flex items-center justify-center transition-colors cursor-pointer" style="right: 11.25rem">⏸</button>
 
   <!-- Pause overlay: shown when game is paused -->
   <div id="pause-overlay" class="hidden fixed inset-0 z-40 flex items-center justify-center bg-black/60 backdrop-blur-sm">
@@ -1374,9 +1474,9 @@
         <div id="pause-score" class="hidden"></div>
       </div>
       <div class="flex flex-col gap-2 justify-center">
-        <button id="pause-resume" class="w-full px-6 py-3 rounded-lg bg-violet-600 hover:bg-violet-500 font-semibold transition hover:scale-105 active:scale-95">Resume</button>
-        <button id="pause-settings" class="w-full px-6 py-3 rounded-lg bg-zinc-700 hover:bg-zinc-600 font-semibold transition hover:scale-105 active:scale-95">Settings</button>
-        <button id="pause-quit" class="w-full px-6 py-3 rounded-lg bg-zinc-700 hover:bg-zinc-600 font-semibold transition hover:scale-105 active:scale-95">Quit to Menu</button>
+        <button id="pause-resume" class="w-full px-6 py-3 rounded-lg bg-violet-600 hover:bg-violet-500 font-semibold transition-colors">Resume</button>
+        <button id="pause-settings" class="w-full px-6 py-3 rounded-lg bg-zinc-700 hover:bg-zinc-600 font-semibold transition-colors">Settings</button>
+        <button id="pause-quit" class="w-full px-6 py-3 rounded-lg bg-zinc-700 hover:bg-zinc-600 font-semibold transition-colors">Quit to Menu</button>
       </div>
     </div>
   </div>
@@ -1391,11 +1491,11 @@
       <div id="ta-wager-result" class="hidden mb-4 pt-3 border-t border-zinc-700/60 text-sm"></div>
       <div class="flex flex-col gap-2 justify-center">
         <div class="flex flex-col sm:flex-row gap-2 sm:gap-3 justify-center">
-          <button id="ta-share-btn" class="w-full sm:w-auto px-6 py-3 rounded-lg bg-amber-600 hover:bg-amber-500 font-semibold transition hover:scale-105 active:scale-95">Share Score</button>
-          <button id="ta-play-again" class="w-full sm:w-auto px-6 py-3 rounded-lg bg-amber-600 hover:bg-amber-500 font-semibold transition hover:scale-105 active:scale-95">Play Again</button>
-          <button id="ta-back-menu" class="w-full sm:w-auto px-6 py-3 rounded-lg bg-zinc-700 hover:bg-zinc-600 font-semibold transition hover:scale-105 active:scale-95">Back to Menu</button>
+          <button id="ta-share-btn" class="w-full sm:w-auto px-6 py-3 rounded-lg bg-amber-600 hover:bg-amber-500 font-semibold transition-colors">Share Score</button>
+          <button id="ta-play-again" class="w-full sm:w-auto px-6 py-3 rounded-lg bg-amber-600 hover:bg-amber-500 font-semibold transition-colors">Play Again</button>
+          <button id="ta-back-menu" class="w-full sm:w-auto px-6 py-3 rounded-lg bg-zinc-700 hover:bg-zinc-600 font-semibold transition-colors">Back to Menu</button>
         </div>
-        <button id="ta-share-score" class="w-full px-6 py-3 rounded-lg bg-purple-600 hover:bg-purple-500 font-semibold transition hover:scale-105 active:scale-95">Share Score 📸</button>
+        <button id="ta-share-score" class="w-full px-6 py-3 rounded-lg bg-purple-600 hover:bg-purple-500 font-semibold transition-colors">Share Score 📸</button>
       </div>
     </div>
   </div>
@@ -1409,11 +1509,11 @@
       <p id="ta-60-feedback-msg" class="text-zinc-500 text-sm mb-6"></p>
       <div class="flex flex-col gap-2 justify-center">
         <div class="flex flex-col sm:flex-row gap-2 sm:gap-3 justify-center">
-          <button id="ta-60-share-btn" class="w-full sm:w-auto px-6 py-3 rounded-lg bg-cyan-600 hover:bg-cyan-500 font-semibold transition hover:scale-105 active:scale-95">Share Score</button>
-          <button id="ta-60-play-again" class="w-full sm:w-auto px-6 py-3 rounded-lg bg-cyan-600 hover:bg-cyan-500 font-semibold transition hover:scale-105 active:scale-95">Play Again</button>
-          <button id="ta-60-back-menu" class="w-full sm:w-auto px-6 py-3 rounded-lg bg-zinc-700 hover:bg-zinc-600 font-semibold transition hover:scale-105 active:scale-95">Back to Menu</button>
+          <button id="ta-60-share-btn" class="w-full sm:w-auto px-6 py-3 rounded-lg bg-cyan-600 hover:bg-cyan-500 font-semibold transition-colors">Share Score</button>
+          <button id="ta-60-play-again" class="w-full sm:w-auto px-6 py-3 rounded-lg bg-cyan-600 hover:bg-cyan-500 font-semibold transition-colors">Play Again</button>
+          <button id="ta-60-back-menu" class="w-full sm:w-auto px-6 py-3 rounded-lg bg-zinc-700 hover:bg-zinc-600 font-semibold transition-colors">Back to Menu</button>
         </div>
-        <button id="ta-60-share-score" class="w-full px-6 py-3 rounded-lg bg-purple-600 hover:bg-purple-500 font-semibold transition hover:scale-105 active:scale-95">Share Score 📸</button>
+        <button id="ta-60-share-score" class="w-full px-6 py-3 rounded-lg bg-purple-600 hover:bg-purple-500 font-semibold transition-colors">Share Score 📸</button>
       </div>
     </div>
   </div>
@@ -1427,11 +1527,11 @@
       <p id="endless-moves-survived" class="text-zinc-500 text-sm mb-6">Survived 0 move decisions</p>
       <div class="flex flex-col gap-2 justify-center">
         <div class="flex flex-col sm:flex-row gap-2 sm:gap-3 justify-center">
-          <button id="endless-share-btn" class="w-full sm:w-auto px-6 py-3 rounded-lg bg-rose-600 hover:bg-rose-500 font-semibold transition hover:scale-105 active:scale-95">Share Score</button>
-          <button id="endless-play-again" class="w-full sm:w-auto px-6 py-3 rounded-lg bg-rose-600 hover:bg-rose-500 font-semibold transition hover:scale-105 active:scale-95">Play Again</button>
-          <button id="endless-back-menu" class="w-full sm:w-auto px-6 py-3 rounded-lg bg-zinc-700 hover:bg-zinc-600 font-semibold transition hover:scale-105 active:scale-95">Back to Menu</button>
+          <button id="endless-share-btn" class="w-full sm:w-auto px-6 py-3 rounded-lg bg-rose-600 hover:bg-rose-500 font-semibold transition-colors">Share Score</button>
+          <button id="endless-play-again" class="w-full sm:w-auto px-6 py-3 rounded-lg bg-rose-600 hover:bg-rose-500 font-semibold transition-colors">Play Again</button>
+          <button id="endless-back-menu" class="w-full sm:w-auto px-6 py-3 rounded-lg bg-zinc-700 hover:bg-zinc-600 font-semibold transition-colors">Back to Menu</button>
         </div>
-        <button id="endless-share-score" class="w-full px-6 py-3 rounded-lg bg-purple-600 hover:bg-purple-500 font-semibold transition hover:scale-105 active:scale-95">Share Score 📸</button>
+        <button id="endless-share-score" class="w-full px-6 py-3 rounded-lg bg-purple-600 hover:bg-purple-500 font-semibold transition-colors">Share Score 📸</button>
       </div>
     </div>
   </div>
@@ -1444,8 +1544,8 @@
       <p id="daily-final-score" class="text-zinc-300 text-lg mb-2">You placed 0/100 blocks</p>
       <p id="daily-feedback-msg" class="text-zinc-500 text-sm mb-6"></p>
       <div class="flex flex-col sm:flex-row gap-2 sm:gap-3 justify-center">
-        <button id="daily-share-btn" class="w-full sm:w-auto px-6 py-3 rounded-lg bg-fuchsia-600 hover:bg-fuchsia-500 font-semibold transition hover:scale-105 active:scale-95">Share Score</button>
-        <button id="daily-back-menu" class="w-full sm:w-auto px-6 py-3 rounded-lg bg-zinc-700 hover:bg-zinc-600 font-semibold transition hover:scale-105 active:scale-95">Back to Menu</button>
+        <button id="daily-share-btn" class="w-full sm:w-auto px-6 py-3 rounded-lg bg-fuchsia-600 hover:bg-fuchsia-500 font-semibold transition-colors">Share Score</button>
+        <button id="daily-back-menu" class="w-full sm:w-auto px-6 py-3 rounded-lg bg-zinc-700 hover:bg-zinc-600 font-semibold transition-colors">Back to Menu</button>
       </div>
     </div>
   </div>
@@ -1612,7 +1712,7 @@
 
     // Build identifier — bump this (to the deploying commit short SHA) on every
     // change so the top-right stamp confirms exactly which code is running.
-    const BUILD_VERSION = 'replay-sharing+power-ups+hold-queue+achievements-badges+chat+daily-challenge+leaderboard+online-presence+block-attribution+audio-sfx+next-piece-preview+spectator-mode+weekly-tournament+friends+betting-system+blocks-placed-hud+day-night-cycle+minimap+ai-coach+player-stats+leaderboard-daily+new-badges+daily-theme-voting+natural-disasters+community-monuments+undo-redo-history+pastel-chrome+mobs+message-in-a-block+accessibility-panel+pixel-pets+versus-mode';
+    const BUILD_VERSION = 'replay-sharing+speedrun-mode+power-ups+hold-queue+achievements-badges+chat+daily-challenge+leaderboard+online-presence+block-attribution+audio-sfx+next-piece-preview+spectator-mode+weekly-tournament+friends+betting-system+blocks-placed-hud+day-night-cycle+minimap+ai-coach+nft-skins+player-stats+leaderboard-daily+new-badges+daily-theme-voting+natural-disasters+community-monuments+undo-redo-history+pastel-chrome+mobs+message-in-a-block+accessibility-panel+pixel-pets+versus-mode';
 
     // Badge definitions — mirror of the server-side BADGES array, extended with
     // a `hint` field shown in the panel for unearned badges.
@@ -1637,6 +1737,10 @@
       { id: 'legendary_builder',name: 'Legendary Builder',icon: '🌟', flavour: 'Placed 500 blocks!',           hint: 'Place 500 blocks total' },
       { id: 'daily_regular',    name: 'Daily Regular',    icon: '📅', flavour: 'Completed 5 daily challenges!',hint: 'Complete 5 daily challenges' },
       { id: 'speed_demon',      name: 'Speed Demon',      icon: '⚡', flavour: 'Cleared 30+ blocks in Time Attack!', hint: 'Clear 30+ blocks in a single Time Attack run' },
+      { id: 'mission_complete',  name: 'Mission Complete', icon: '🎯', flavour: 'Completed your first daily mission!', hint: 'Complete your first daily mission' },
+      { id: 'mission_streak_3',  name: 'Mission Regular',  icon: '📋', flavour: 'Completed missions 3 days in a row!', hint: 'Complete daily missions 3 days in a row' },
+      { id: 'mission_streak_7',  name: 'Mission Pro',      icon: '📊', flavour: 'Completed missions 7 days in a row!', hint: 'Complete daily missions 7 days in a row' },
+      { id: 'mission_streak_30', name: 'Mission Master',   icon: '🏅', flavour: 'Completed missions 30 days in a row!', hint: 'Complete daily missions 30 days in a row' },
       { id: 'theme_winner',     name: 'Theme Champion',   icon: '🥇', flavour: 'First place in the daily build theme vote!', hint: 'Win the daily build theme vote' },
       { id: 'daily_devotee',    name: 'Daily Devotee',    icon: '🌟', flavour: 'Completed the daily challenge 7 days in a row!', hint: 'Complete the daily challenge 7 days in a row' },
       { id: 'daily_champion',   name: 'Daily Champion',   icon: '👑', flavour: 'Won the Daily Challenge!',     hint: 'Rank #1 on the daily challenge leaderboard' },
@@ -1657,26 +1761,18 @@
       || ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
 
     // ---- Audio system ----
-    // All audio generated with Web Audio API — no external files.
-    // AudioContext is created lazily on first user gesture (browser autoplay policy).
     const audio = (() => {
       let ctx = null;
       let masterGain = null;
       let muted = localStorage.getItem('blockgame-muted') === 'true';
 
-      // Music: 72 BPM, 8-beat looping phrase (C – Am – F – G)
       const BEAT_SEC = 60 / 72;
       const PHRASE_BEATS = 8;
       const PHRASE_SEC = PHRASE_BEATS * BEAT_SEC;
 
-      // Bass notes: [beatInPhrase, rootFreqHz, durationBeats]
       const BASS = [
-        [0, 65.4, 1.9],   // C2
-        [2, 55.0, 1.9],   // A1
-        [4, 87.3, 1.9],   // F2
-        [6, 98.0, 1.9],   // G2
+        [0, 65.4, 1.9], [2, 55.0, 1.9], [4, 87.3, 1.9], [6, 98.0, 1.9],
       ];
-      // Melody arpeggios: eighth-note runs over each chord
       const MELODY = [
         [0.0, 261.6, 0.7], [0.5, 329.6, 0.7], [1.0, 392.0, 0.7], [1.5, 329.6, 0.7],
         [2.0, 220.0, 0.7], [2.5, 261.6, 0.7], [3.0, 329.6, 0.7], [3.5, 261.6, 0.7],
@@ -1692,51 +1788,37 @@
         const g = ctx.createGain();
         osc.type = type;
         osc.frequency.value = freq;
-        // Start at near-zero so exponential ramps work; linear attack, exp decay.
         g.gain.setValueAtTime(0.0001, startT);
         g.gain.linearRampToValueAtTime(gainPeak, startT + 0.015);
         g.gain.exponentialRampToValueAtTime(0.0001, startT + durSec);
         if (useLpf) {
           const lpf = ctx.createBiquadFilter();
-          lpf.type = 'lowpass';
-          lpf.frequency.value = 250;
-          lpf.Q.value = 0.7;
-          osc.connect(lpf);
-          lpf.connect(g);
+          lpf.type = 'lowpass'; lpf.frequency.value = 250; lpf.Q.value = 0.7;
+          osc.connect(lpf); lpf.connect(g);
           osc.addEventListener('ended', () => { osc.disconnect(); lpf.disconnect(); g.disconnect(); });
         } else {
           osc.connect(g);
           osc.addEventListener('ended', () => { osc.disconnect(); g.disconnect(); });
         }
         g.connect(masterGain);
-        osc.start(startT);
-        osc.stop(startT + durSec + 0.05);
+        osc.start(startT); osc.stop(startT + durSec + 0.05);
       }
 
       function schedulePhrase(t0) {
-        for (const [beat, freq, dur] of BASS) {
-          scheduleNote(freq, 'sawtooth', 0.06, t0 + beat * BEAT_SEC, dur * BEAT_SEC, true);
-        }
-        for (const [beat, freq, dur] of MELODY) {
-          scheduleNote(freq, 'triangle', 0.035, t0 + beat * BEAT_SEC, dur * BEAT_SEC, false);
-        }
+        for (const [beat, freq, dur] of BASS) scheduleNote(freq, 'sawtooth', 0.06, t0 + beat * BEAT_SEC, dur * BEAT_SEC, true);
+        for (const [beat, freq, dur] of MELODY) scheduleNote(freq, 'triangle', 0.035, t0 + beat * BEAT_SEC, dur * BEAT_SEC, false);
       }
 
       function musicTick() {
         if (!ctx) return;
-        // Keep two full phrases buffered ahead at all times.
         const until = ctx.currentTime + PHRASE_SEC * 2;
-        while (nextPhraseTime < until) {
-          schedulePhrase(nextPhraseTime);
-          nextPhraseTime += PHRASE_SEC;
-        }
+        while (nextPhraseTime < until) { schedulePhrase(nextPhraseTime); nextPhraseTime += PHRASE_SEC; }
       }
 
       function startMusic() {
         if (musicTimerId !== null) return;
         nextPhraseTime = ctx.currentTime + 0.1;
         musicTick();
-        // Re-run every ~3s (well within one phrase duration) to pre-schedule ahead.
         musicTimerId = setInterval(musicTick, 3000);
       }
 
@@ -1750,19 +1832,12 @@
       function playPlace() {
         if (!ctx) return;
         const t = ctx.currentTime;
-        const osc = ctx.createOscillator();
-        const g = ctx.createGain();
-        osc.type = 'sine';
-        osc.frequency.setValueAtTime(180, t);
-        osc.frequency.linearRampToValueAtTime(140, t + 0.1);
-        g.gain.setValueAtTime(0, t);
-        g.gain.linearRampToValueAtTime(0.4, t + 0.005);
-        g.gain.exponentialRampToValueAtTime(0.0001, t + 0.15);
-        osc.connect(g);
-        g.connect(masterGain);
+        const osc = ctx.createOscillator(); const g = ctx.createGain();
+        osc.type = 'sine'; osc.frequency.setValueAtTime(180, t); osc.frequency.linearRampToValueAtTime(140, t + 0.1);
+        g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(0.4, t + 0.005); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.15);
+        osc.connect(g); g.connect(masterGain);
         osc.addEventListener('ended', () => { osc.disconnect(); g.disconnect(); });
-        osc.start(t);
-        osc.stop(t + 0.16);
+        osc.start(t); osc.stop(t + 0.16);
       }
 
       function playBreak() {
@@ -1772,41 +1847,25 @@
         const buf = ctx.createBuffer(1, bufSize, ctx.sampleRate);
         const data = buf.getChannelData(0);
         for (let i = 0; i < bufSize; i++) data[i] = Math.random() * 2 - 1;
-        const src = ctx.createBufferSource();
-        src.buffer = buf;
-        const filter = ctx.createBiquadFilter();
-        filter.type = 'bandpass';
-        filter.frequency.value = 400;
-        filter.Q.value = 2;
-        const g = ctx.createGain();
-        g.gain.setValueAtTime(0.35, t);
-        g.gain.exponentialRampToValueAtTime(0.0001, t + 0.08);
-        src.connect(filter);
-        filter.connect(g);
-        g.connect(masterGain);
+        const src = ctx.createBufferSource(); src.buffer = buf;
+        const filter = ctx.createBiquadFilter(); filter.type = 'bandpass'; filter.frequency.value = 400; filter.Q.value = 2;
+        const g = ctx.createGain(); g.gain.setValueAtTime(0.35, t); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.08);
+        src.connect(filter); filter.connect(g); g.connect(masterGain);
         src.addEventListener('ended', () => { src.disconnect(); filter.disconnect(); g.disconnect(); });
-        src.start(t);
-        src.stop(t + 0.09);
+        src.start(t); src.stop(t + 0.09);
       }
 
       function playJoin() {
         if (!ctx) return;
         const t = ctx.currentTime;
-        // Arpeggiated C major chord
         [[261.6, 0], [329.6, 0.12], [392.0, 0.24]].forEach(([freq, delay]) => {
-          const osc = ctx.createOscillator();
-          const g = ctx.createGain();
-          osc.type = 'triangle';
-          osc.frequency.value = freq;
+          const osc = ctx.createOscillator(); const g = ctx.createGain();
+          osc.type = 'triangle'; osc.frequency.value = freq;
           const ts = t + delay;
-          g.gain.setValueAtTime(0, ts);
-          g.gain.linearRampToValueAtTime(0.2, ts + 0.4);
-          g.gain.exponentialRampToValueAtTime(0.0001, ts + 1.2);
-          osc.connect(g);
-          g.connect(masterGain);
+          g.gain.setValueAtTime(0, ts); g.gain.linearRampToValueAtTime(0.2, ts + 0.4); g.gain.exponentialRampToValueAtTime(0.0001, ts + 1.2);
+          osc.connect(g); g.connect(masterGain);
           osc.addEventListener('ended', () => { osc.disconnect(); g.disconnect(); });
-          osc.start(ts);
-          osc.stop(ts + 1.3);
+          osc.start(ts); osc.stop(ts + 1.3);
         });
       }
 
@@ -2349,7 +2408,7 @@
 
     // Streak HUD pill sits above the challenge HUD.
     const streakHudEl = document.getElementById('streak-hud');
-    const CHALLENGE_HUD_HEIGHT_PX = 54; // approx rendered height (px) of challenge pill
+    const CHALLENGE_HUD_HEIGHT_PX = 102; // approx rendered height (px) of challenge+mission pill
     const STREAK_GAP_PX = 6;
     streakHudEl.style.bottom = (challengeBaseBottomPx + saBottomPx + CHALLENGE_HUD_HEIGHT_PX + STREAK_GAP_PX) + 'px';
 
@@ -2401,6 +2460,7 @@
     let DIMS = { w: 32, d: 32, h: 24 };
     let PALETTE = [];
     const blocks = new Map();        // "x,y,z" -> block_type (non-zero only) — classic world
+    const blockSkins = new Map();    // "x,y,z" -> skin_id (only for skinned blocks)
     let cursor = 0;                  // last seq seen from the server
     let eventsCursor = 0;            // last disaster id seen
     let shakeEndTime = 0;            // ms timestamp when camera shake ends
@@ -2416,6 +2476,18 @@
     try { const _cm = localStorage.getItem('blockgame-chaos-mode'); if (_cm !== null) chaosMode = JSON.parse(_cm); } catch (_) {}
     let unlockedTypes = new Set(); // block type IDs earned by the current user
     const key = (x, y, z) => x + ',' + y + ',' + z;
+
+    // ---- Game mode ----
+    // 'menu' = overlay visible, not playing
+    // 'normal' = playing the shared collaborative world
+    // 'speedrun' = playing a private speedrun session
+    let mode = 'menu';
+
+    // ---- NFT skin state ----
+    let myActiveSkinId = null;     // skin_id the local player has equipped, or null
+    const skinTextures = new Map(); // skin_id -> THREE.Texture | 'loading' | 'error'
+    const SKIN_TEXTURE_CAP = 20;   // max loaded textures before LRU eviction
+    const skinTextureOrder = [];   // LRU order: oldest-used first
 
     // ---- Message in a Block state ----
     let pendingMessage = null;        // string queued for next placement, or null
@@ -2457,6 +2529,15 @@
     let challengeCompleted = false;  // true once placed >= target
     let dailyChallengeStreak = 0;    // current consecutive completion streak
     let dailyChallengeReward = 0;    // coins earned today from challenge completion
+
+    // ---- Daily Mission state ----
+    let missionDate = null;          // ISO date string for current mission
+    let missionType = null;          // 'place_type' | 'reach_height' | 'break_blocks'
+    let missionLabel = '';           // human-readable description
+    let missionTarget = 0;           // numeric goal
+    let missionBlockType = null;     // block type ID (place_type missions only)
+    let missionProgress = 0;         // current progress count
+    let missionCompleted = false;    // true once progress >= target
 
     // ---- AI Coach state ----
     let lastTipAt = 0;               // ms timestamp of last tip shown
@@ -2658,6 +2739,216 @@
 
     // ---- Replay recording state ----
     let recordingSessionId = null; // UUID of active recording session, or null
+
+    // ---- Speed Run state ----
+    let srSession = null;       // { session_id, started_at, levels, current_level, level_progress }
+    let srStartedAt = null;     // Date.now() when the run started (for display timer)
+    let srFilledInZone = new Set();  // "x,y,z" keys of filled cells in current level's zone
+    let srZoneMesh = null;      // THREE.LineSegments wireframe for target zone
+    let srLevelProgress = null; // { level, placed, required }
+
+    // Speed Run DOM refs
+    const srLobbyEl       = document.getElementById('speedrun-lobby');
+    const srHudEl         = document.getElementById('sr-hud');
+    const srTimerEl       = document.getElementById('sr-timer');
+    const srLevelNameEl   = document.getElementById('sr-level-name');
+    const srProgressEl    = document.getElementById('sr-progress');
+    const srLevelBannerEl = document.getElementById('sr-level-banner');
+    const srBannerTextEl  = document.getElementById('sr-level-banner-text');
+    const srRunCompleteEl = document.getElementById('sr-run-complete');
+    const srFinalTimeEl   = document.getElementById('sr-final-time');
+    const srPbBadgeEl     = document.getElementById('sr-pb-badge');
+    const srRunRankEl     = document.getElementById('sr-run-rank');
+    const srResultLbEl    = document.getElementById('sr-result-leaderboard-body');
+    const srAbandonConfEl = document.getElementById('sr-abandon-confirm');
+    const srPersonalBestEl  = document.getElementById('sr-personal-best');
+    const srResumeNoticeEl  = document.getElementById('sr-resume-notice');
+    const srLeaderboardBodyEl = document.getElementById('sr-leaderboard-body');
+
+    function formatTime(ms) {
+      const t = Math.max(0, Math.floor(ms));
+      const m = Math.floor(t / 60000);
+      const s = Math.floor((t % 60000) / 1000);
+      const ms3 = t % 1000;
+      return String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0') + '.' + String(ms3).padStart(3, '0');
+    }
+
+    function renderLeaderboardRows(tbody, rows, selfUsername) {
+      if (!rows.length) {
+        tbody.innerHTML = '<tr><td colspan="3" class="text-center text-zinc-600 py-3 text-xs">No runs yet</td></tr>';
+        return;
+      }
+      tbody.innerHTML = rows.map((r) => {
+        const highlight = r.username === selfUsername ? 'bg-amber-900/30 text-amber-200' : 'text-zinc-300';
+        return `<tr class="${highlight}">
+          <td class="px-3 py-1.5 text-zinc-500">#${r.rank}</td>
+          <td class="px-1 py-1.5 font-medium">${r.username}</td>
+          <td class="px-3 py-1.5 text-right font-mono text-xs">${formatTime(r.best_ms)}</td>
+        </tr>`;
+      }).join('');
+    }
+
+    // Build the wireframe overlay for all unfilled cells in the current level's zone.
+    function buildWireframeZone(levelDef, filledCells) {
+      if (srZoneMesh) { scene.remove(srZoneMesh); srZoneMesh = null; }
+      if (!levelDef) return;
+
+      const { zone } = levelDef;
+      const positions = [];
+      // 12 edges of a unit cube expressed as 24 vertices (12 pairs)
+      const edges = [
+        [0,0,0,1,0,0],[1,0,0,1,0,1],[1,0,1,0,0,1],[0,0,1,0,0,0],
+        [0,1,0,1,1,0],[1,1,0,1,1,1],[1,1,1,0,1,1],[0,1,1,0,1,0],
+        [0,0,0,0,1,0],[1,0,0,1,1,0],[1,0,1,1,1,1],[0,0,1,0,1,1],
+      ];
+
+      for (let x = zone.x[0]; x <= zone.x[1]; x++) {
+        for (let y = zone.y[0]; y <= zone.y[1]; y++) {
+          for (let z = zone.z[0]; z <= zone.z[1]; z++) {
+            if (filledCells.has(key(x, y, z))) continue;
+            for (const [ax,ay,az,bx,by,bz] of edges) {
+              positions.push(x+ax, y+ay, z+az, x+bx, y+by, z+bz);
+            }
+          }
+        }
+      }
+
+      if (!positions.length) return;
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+      srZoneMesh = new THREE.LineSegments(
+        geo,
+        new THREE.LineBasicMaterial({ color: 0x00cfff, transparent: true, opacity: 0.45 })
+      );
+      scene.add(srZoneMesh);
+    }
+
+    function updateSpeedrunHUD() {
+      if (!srSession || !srLevelProgress) return;
+      const lv = srSession.levels[srLevelProgress.level - 1];
+      srLevelNameEl.textContent = 'Level ' + srLevelProgress.level + ' / 5 — ' + lv.name;
+      srProgressEl.textContent = srLevelProgress.placed + ' / ' + srLevelProgress.required + ' blocks';
+    }
+
+    function showLevelComplete(levelName) {
+      srBannerTextEl.textContent = levelName + ' complete!';
+      srLevelBannerEl.classList.remove('hidden');
+      srBannerTextEl.classList.remove('sr-banner-anim');
+      void srBannerTextEl.offsetWidth; // force reflow to restart animation
+      srBannerTextEl.classList.add('sr-banner-anim');
+      setTimeout(() => srLevelBannerEl.classList.add('hidden'), 1150);
+    }
+
+    async function showRunComplete(elapsed_ms, is_personal_best) {
+      srHudEl.classList.add('hidden');
+      srRunCompleteEl.classList.remove('hidden');
+      srFinalTimeEl.textContent = formatTime(elapsed_ms);
+      srPbBadgeEl.classList.toggle('hidden', !is_personal_best);
+
+      // Fetch final leaderboard
+      try {
+        const res = await fetch('/api/speedrun/leaderboard', { headers });
+        if (res.ok) {
+          const data = await res.json();
+          const selfRank = data.self ? data.self.rank : null;
+          srRunRankEl.textContent = selfRank ? 'Your rank: #' + selfRank : '';
+          renderLeaderboardRows(srResultLbEl, data.top, data.self ? data.self.username : null);
+        }
+      } catch (_) {}
+    }
+
+    // Show / hide the abandon confirmation overlay.
+    function showAbandonConfirm() {
+      srAbandonConfEl.classList.remove('hidden');
+    }
+    function hideAbandonConfirm() {
+      srAbandonConfEl.classList.add('hidden');
+    }
+
+    // Enter the speedrun lobby screen (from main menu or after run completion).
+    async function openSpeedrunLobby(activeSession) {
+      overlayEl.style.display = 'none';
+      srRunCompleteEl.classList.add('hidden');
+      srLobbyEl.classList.remove('hidden');
+
+      // Handle active run resume notice
+      if (activeSession) {
+        const elapsed = Date.now() - new Date(activeSession.started_at).getTime();
+        const mins = Math.floor(elapsed / 60000);
+        const secs = Math.floor((elapsed % 60000) / 1000);
+        const elapsed_str = (mins > 0 ? mins + 'm ' : '') + secs + 's';
+        srResumeNoticeEl.textContent = 'You have an active run in progress (started ' + elapsed_str + ' ago). Resume or abandon?';
+        srResumeNoticeEl.classList.remove('hidden');
+        document.getElementById('sr-resume-btn').classList.remove('hidden');
+        document.getElementById('sr-abandon-active-btn').classList.remove('hidden');
+        document.getElementById('sr-start-btn').classList.add('hidden');
+      } else {
+        srResumeNoticeEl.classList.add('hidden');
+        document.getElementById('sr-resume-btn').classList.add('hidden');
+        document.getElementById('sr-abandon-active-btn').classList.add('hidden');
+        document.getElementById('sr-start-btn').classList.remove('hidden');
+      }
+
+      // Load personal best and leaderboard
+      try {
+        const res = await fetch('/api/speedrun/leaderboard', { headers });
+        if (res.ok) {
+          const data = await res.json();
+          srPersonalBestEl.textContent = data.self
+            ? 'Your best: ' + formatTime(data.self.best_ms)
+            : 'No completed run yet';
+          renderLeaderboardRows(srLeaderboardBodyEl, data.top, data.self ? data.self.username : null);
+        }
+      } catch (_) {
+        srLeaderboardBodyEl.innerHTML = '<tr><td colspan="3" class="text-center text-zinc-600 py-3 text-xs">Could not load</td></tr>';
+      }
+    }
+
+    // Enter the speedrun play mode with the given session.
+    async function enterSpeedrunPlay(session, filledCells) {
+      srSession = session;
+      srStartedAt = new Date(session.started_at).getTime();
+      srLevelProgress = session.level_progress;
+      srFilledInZone = new Set((filledCells || []).map((c) => key(c.x, c.y, c.z)));
+
+      // Restore visuals for already-placed cells (for resume)
+      blocks.clear();
+      if (filledCells && filledCells.length) {
+        for (const c of filledCells) blocks.set(key(c.x, c.y, c.z), c.block_type || 3);
+      }
+      rebuildBlockMeshes();
+      spawnCamera();
+
+      const levelDef = session.levels[session.current_level - 1];
+      buildWireframeZone(levelDef, srFilledInZone);
+
+      mode = 'speedrun';
+      srLobbyEl.classList.add('hidden');
+      srHudEl.classList.remove('hidden');
+      updateSpeedrunHUD();
+
+      audio.init();
+      tryPointerLock();
+    }
+
+    // Exit speedrun mode, restore shared world.
+    async function exitSpeedrun() {
+      mode = 'menu';
+      srSession = null;
+      srStartedAt = null;
+      srFilledInZone = new Set();
+      srLevelProgress = null;
+      if (srZoneMesh) { scene.remove(srZoneMesh); srZoneMesh = null; }
+      srHudEl.classList.add('hidden');
+      srRunCompleteEl.classList.add('hidden');
+      srLevelBannerEl.classList.add('hidden');
+
+      // Reload the shared world blocks
+      try { await loadWorld(); } catch (_) {}
+
+      overlayEl.style.display = 'flex';
+      refreshControlCopy();
+    }
 
     // ---- Versus Mode state ----
     const versusBlocks = new Map();      // client-only board, same pattern as ta60Blocks
@@ -3106,6 +3397,33 @@
       }
     }
 
+    function emitBombExplosion(cx, cy, cz) {
+      if (reducedMotion) return;
+      const bombColors = [0x3d3a52, 0xe8500a, 0xff7700, 0x2a2840, 0xffd080, 0xff4400];
+      for (let _k = 0; _k < 30; _k++) {
+        const slot = _acquireParticle();
+        if (!slot) break;
+        const speed = 4 + Math.random() * 4;
+        const theta = Math.random() * Math.PI * 2;
+        const phi = Math.acos(2 * Math.random() - 1);
+        const colorIdx = Math.floor(Math.random() * bombColors.length);
+        slot.mesh.material.color.setHex(bombColors[colorIdx]);
+        slot.mesh.material.opacity = 1;
+        slot.startOpacity = 1;
+        slot.vx = Math.sin(phi) * Math.cos(theta) * speed;
+        slot.vy = Math.sin(phi) * Math.sin(theta) * speed + 2;
+        slot.vz = Math.cos(phi) * speed;
+        slot.gravity = 5;
+        slot.age = 0;
+        slot.maxAge = 0.7 + Math.random() * 0.2;
+        const scale = 0.5 + Math.random() * 0.7;
+        slot.mesh.scale.setScalar(scale);
+        slot.mesh.position.set(cx + (Math.random() - 0.5) * 0.5, cy + (Math.random() - 0.5) * 0.5, cz + (Math.random() - 0.5) * 0.5);
+        slot.mesh.visible = true;
+        slot.active = true;
+      }
+    }
+
     function tickParticles(dt) {
       for (let _j = 0; _j < PARTICLE_POOL_SIZE; _j++) {
         const slot = particlePool[_j];
@@ -3220,13 +3538,25 @@
       else if (gameMode === 'learn') source = learnBlocks;
       else if (gameMode === 'tutorial') source = tutorialBlocks;
       else if (gameMode === 'versus') source = versusBlocks;
-      const byType = new Map();
+      const byType = new Map(); // typeInt -> [{x,y,z}]
+      const bySkin = new Map(); // skin_id -> {cells: [{x,y,z}], blockType: int}
+
+
       for (const [k, t] of source) {
-        if (!byType.has(t)) byType.set(t, []);
         const [x, y, z] = k.split(',').map(Number);
-        byType.get(t).push({ x, y, z });
+        const skinId = blockSkins.get(k) || null;
+        if (skinId) {
+          if (!bySkin.has(skinId)) bySkin.set(skinId, { cells: [], blockType: t });
+          bySkin.get(skinId).cells.push({ x, y, z });
+        } else {
+          if (!byType.has(t)) byType.set(t, []);
+          byType.get(t).push({ x, y, z });
+        }
       }
+
       const dummy = new THREE.Object3D();
+
+      // Unskinned blocks — same as before.
       for (const [t, cells] of byType) {
         const p = PALETTE.find((q) => q.id === t);
         if (!p) continue;
@@ -3242,6 +3572,93 @@
         mesh.instanceMatrix.needsUpdate = true;
         mesh.userData.cells = cells;
         blockGroup.add(mesh);
+      }
+
+      // Skinned blocks — one InstancedMesh per skin_id.
+      for (const [skinId, { cells, blockType }] of bySkin) {
+        const tex = skinTextures.get(skinId);
+        if (tex === undefined) {
+          // Trigger async load; fall back to default type material this frame.
+          loadSkinTexture(skinId);
+          const p = PALETTE.find((q) => q.id === blockType);
+          if (p) {
+            const mat = materialFor(p);
+            const mesh = new THREE.InstancedMesh(cube, mat, cells.length);
+            cells.forEach((c, i) => { dummy.position.set(c.x + 0.5, c.y + 0.5, c.z + 0.5); dummy.updateMatrix(); mesh.setMatrixAt(i, dummy.matrix); });
+            mesh.instanceMatrix.needsUpdate = true;
+            mesh.userData.cells = cells;
+            blockGroup.add(mesh);
+          }
+        } else if (tex === 'loading') {
+          // Texture is in flight — use default material as placeholder.
+          const p = PALETTE.find((q) => q.id === blockType);
+          if (p) {
+            const mat = materialFor(p);
+            const mesh = new THREE.InstancedMesh(cube, mat, cells.length);
+            cells.forEach((c, i) => { dummy.position.set(c.x + 0.5, c.y + 0.5, c.z + 0.5); dummy.updateMatrix(); mesh.setMatrixAt(i, dummy.matrix); });
+            mesh.instanceMatrix.needsUpdate = true;
+            mesh.userData.cells = cells;
+            blockGroup.add(mesh);
+          }
+        } else if (tex === 'error') {
+          // Load failed — permanently use default type material.
+          const p = PALETTE.find((q) => q.id === blockType);
+          if (p) {
+            const mat = materialFor(p);
+            const mesh = new THREE.InstancedMesh(cube, mat, cells.length);
+            cells.forEach((c, i) => { dummy.position.set(c.x + 0.5, c.y + 0.5, c.z + 0.5); dummy.updateMatrix(); mesh.setMatrixAt(i, dummy.matrix); });
+            mesh.instanceMatrix.needsUpdate = true;
+            mesh.userData.cells = cells;
+            blockGroup.add(mesh);
+          }
+        } else {
+          // Texture loaded — render with NFT artwork.
+          touchSkinLRU(skinId);
+          const mat = new THREE.MeshLambertMaterial({ map: tex });
+          const mesh = new THREE.InstancedMesh(cube, mat, cells.length);
+          cells.forEach((c, i) => { dummy.position.set(c.x + 0.5, c.y + 0.5, c.z + 0.5); dummy.updateMatrix(); mesh.setMatrixAt(i, dummy.matrix); });
+          mesh.instanceMatrix.needsUpdate = true;
+          mesh.userData.cells = cells;
+          blockGroup.add(mesh);
+        }
+      }
+    }
+
+    function touchSkinLRU(skinId) {
+      const idx = skinTextureOrder.indexOf(skinId);
+      if (idx !== -1) skinTextureOrder.splice(idx, 1);
+      skinTextureOrder.push(skinId);
+      // Evict oldest if over cap.
+      while (skinTextureOrder.length > SKIN_TEXTURE_CAP) {
+        const oldest = skinTextureOrder.shift();
+        const old = skinTextures.get(oldest);
+        if (old && old !== 'loading' && old !== 'error') old.dispose();
+        skinTextures.delete(oldest);
+      }
+    }
+
+    async function loadSkinTexture(skinId) {
+      if (skinTextures.has(skinId)) return; // already loading or loaded
+      skinTextures.set(skinId, 'loading');
+      try {
+        const res = await fetch('/api/skins/' + encodeURIComponent(skinId), { headers });
+        if (!res.ok) throw new Error('not found');
+        const { image_url } = await res.json();
+        if (!image_url) throw new Error('no image_url');
+        const loader = new THREE.TextureLoader();
+        loader.load(
+          image_url,
+          (texture) => {
+            texture.colorSpace = THREE.SRGBColorSpace;
+            skinTextures.set(skinId, texture);
+            rebuildBlockMeshes();
+          },
+          undefined,
+          () => { skinTextures.set(skinId, 'error'); rebuildBlockMeshes(); }
+        );
+      } catch (_) {
+        skinTextures.set(skinId, 'error');
+        rebuildBlockMeshes();
       }
     }
 
@@ -3271,13 +3688,11 @@
     // ---- Raycast from screen center to find the aimed cell + face ----
     const raycaster = new THREE.Raycaster();
     const centre = new THREE.Vector2(0, 0);
-    let target = null; // { cell:{x,y,z}, place:{x,y,z} }
+    let target = null;
 
-    // ---- Block attribution ("Who built this?") ----
+    // ---- Block attribution ----
     const attributionEl = document.getElementById('attribution');
-    let _attrTimer = null;   // debounce handle
-    let _attrAbort = null;   // AbortController for in-flight fetch
-    let _attrKey = null;     // cell key of last fetch so we don't re-fetch same cell
+    let _attrTimer = null, _attrAbort = null, _attrKey = null;
 
     function relativeTime(isoStr) {
       const diff = Math.floor((Date.now() - new Date(isoStr).getTime()) / 1000);
@@ -3607,7 +4022,7 @@
     }
 
     function scheduleAttribution(cellKey, x, y, z) {
-      if (_attrKey === cellKey) return; // already showing / fetching this cell
+      if (_attrKey === cellKey) return;
       clearAttribution();
       _attrKey = cellKey;
       _attrTimer = setTimeout(async () => {
@@ -3615,8 +4030,7 @@
         const ac = new AbortController();
         _attrAbort = ac;
         try {
-          const res = await fetch('/api/block/' + x + '/' + y + '/' + z,
-            { headers, signal: ac.signal });
+          const res = await fetch('/api/block/' + x + '/' + y + '/' + z, { headers, signal: ac.signal });
           if (!res.ok || ac.signal.aborted) return;
           const data = await res.json();
           if (!data || !data.username) return;
@@ -3647,6 +4061,7 @@
     }
 
     function updateAttribution() {
+      if (mode === 'speedrun') { clearAttribution(); return; }
       if (!target || target.cell.y < 1 || !blocks.has(key(target.cell.x, target.cell.y, target.cell.z))) {
         clearAttribution();
       } else {
@@ -3809,10 +4224,7 @@
       const cell = cells && cells[hit.instanceId];
       if (!cell) return;
       const n = hit.face ? hit.face.normal : { x: 0, y: 1, z: 0 };
-      target = {
-        cell,
-        place: { x: cell.x + n.x, y: cell.y + n.y, z: cell.z + n.z },
-      };
+      target = { cell, place: { x: cell.x + n.x, y: cell.y + n.y, z: cell.z + n.z } };
       highlight.position.set(cell.x + 0.5, cell.y + 0.5, cell.z + 0.5);
       highlight.visible = true;
       if (stampDragInProgress && stampStartCell) {
@@ -3837,29 +4249,57 @@
       x >= 0 && x < DIMS.w && z >= 0 && z < DIMS.d && y >= 1 && y < DIMS.h;
 
     // ---- Apply an edit locally + send to server (optimistic) ----
-    function applyLocal(x, y, z, t) {
+    function applyLocal(x, y, z, t, skinId) {
       const k = key(x, y, z);
-      if (t === 0) blocks.delete(k); else blocks.set(k, t);
-      messageBlocks.delete(k); // any message at this cell is gone once overwritten/broken
+      if (t === 0) { blocks.delete(k); blockSkins.delete(k); }
+      else {
+        blocks.set(k, t);
+        if (skinId) blockSkins.set(k, skinId); else blockSkins.delete(k);
+      }
+      messageBlocks.delete(k);
       rebuildBlockMeshes();
-      clearAttribution(); // label is stale after any block change; loop will re-fetch
+      clearAttribution();
     }
-    // ---- Daily Challenge rendering ----
-    function renderChallenge() {
-      if (!challengeDate) return;
-      const pct = Math.min(100, Math.round((challengePlaced / challengeTarget) * 100));
-      const barColor = challengeCompleted ? '#22c55e' : '#7c3aed';
-      const streakText = dailyChallengeStreak > 0 ? ' • 🔥 ' + dailyChallengeStreak + ' day streak' : '';
-      challengeHudEl.innerHTML =
-        '<div style="font-weight:600;color:rgba(95,87,114,0.85);margin-bottom:2px;line-height:1.2">Daily Challenge' + streakText + '</div>' +
-        '<div style="margin-bottom:3px;line-height:1.2">Place ' + challengeTarget + ' blocks</div>' +
-        (challengeCompleted
-          ? '<div style="font-weight:600;color:#2f9e54">✓ Complete!</div>'
-          : '<div style="font-variant-numeric:tabular-nums">' + challengePlaced + ' / ' + challengeTarget + '</div>'
+
+    // ---- Daily Challenge + Mission rendering ----
+    function renderMissionSection() {
+      if (!missionDate) return '';
+      const pct = Math.min(100, Math.round((missionProgress / missionTarget) * 100));
+      const barColor = missionCompleted ? '#22c55e' : '#7c3aed';
+      const label = missionLabel.length > 28 ? missionLabel.slice(0, 27) + '…' : missionLabel;
+      return '<div style="margin-top:6px;padding-top:5px;border-top:1px solid rgba(255,255,255,0.12)">' +
+        '<div style="font-weight:600;color:rgba(255,255,255,0.45);margin-bottom:2px;line-height:1.2">Daily Mission</div>' +
+        '<div style="margin-bottom:3px;line-height:1.2">' + label + '</div>' +
+        (missionCompleted
+          ? '<div style="font-weight:600;color:#4ade80">✓ Complete! +50 pts</div>'
+          : '<div style="font-variant-numeric:tabular-nums">' + missionProgress + ' / ' + missionTarget + '</div>'
         ) +
         '<div style="margin-top:5px;height:3px;border-radius:9999px;background:rgba(120,108,150,0.22);overflow:hidden">' +
           '<div style="width:' + pct + '%;height:100%;border-radius:9999px;background:' + barColor + ';transition:width 0.3s"></div>' +
+        '</div>' +
         '</div>';
+    }
+
+    function renderChallenge() {
+      if (!challengeDate && !missionDate) return;
+      let html = '';
+      if (challengeDate) {
+        const pct = Math.min(100, Math.round((challengePlaced / challengeTarget) * 100));
+        const barColor = challengeCompleted ? '#22c55e' : '#7c3aed';
+        const streakText = dailyChallengeStreak > 0 ? ' • 🔥 ' + dailyChallengeStreak + ' day streak' : '';
+        html +=
+          '<div style="font-weight:600;color:rgba(255,255,255,0.45);margin-bottom:2px;line-height:1.2">Daily Challenge' + streakText + '</div>' +
+          '<div style="margin-bottom:3px;line-height:1.2">Place ' + challengeTarget + ' blocks</div>' +
+          (challengeCompleted
+            ? '<div style="font-weight:600;color:#4ade80">✓ Complete!</div>'
+            : '<div style="font-variant-numeric:tabular-nums">' + challengePlaced + ' / ' + challengeTarget + '</div>'
+          ) +
+          '<div style="margin-top:5px;height:3px;border-radius:9999px;background:rgba(255,255,255,0.18);overflow:hidden">' +
+            '<div style="width:' + pct + '%;height:100%;border-radius:9999px;background:' + barColor + ';transition:width 0.3s"></div>' +
+          '</div>';
+      }
+      html += renderMissionSection();
+      challengeHudEl.innerHTML = html;
     }
 
     function syncChallenge(data) {
@@ -3943,6 +4383,20 @@
       shareModalEl.classList.add('hidden');
     });
 
+    function syncMission(data) {
+      if (!data) return;
+      missionDate = data.date;
+      missionType = data.type;
+      missionLabel = data.label;
+      missionTarget = data.target;
+      missionBlockType = data.blockType || null;
+      missionProgress = data.progress;
+      missionCompleted = !!data.completed_at;
+      renderChallenge();
+      if (gameMode !== 'spectate') challengeHudEl.classList.remove('hidden');
+    }
+
+
     function renderBlocksPlacedHud() {
       document.getElementById('blocks-placed-count').textContent = myBlocksPlaced.toLocaleString();
     }
@@ -3951,8 +4405,10 @@
       if (!undoInProgress && gameMode === 'classic' && prevType !== undefined) {
         pushUndo(x, y, z, prevType, t);
       }
-      applyLocal(x, y, z, t);
-      // Optimistic challenge increment for placements (not breaks).
+      // Optimistic skin: use active skin for placements, none for breaks.
+      applyLocal(x, y, z, t, t !== 0 ? myActiveSkinId : null);
+      // Optimistic challenge and mission updates.
+      let goalsChanged = false;
       if (t !== 0 && challengeDate && !challengeCompleted) {
         challengePlaced++;
         if (challengePlaced >= challengeTarget) {
@@ -3961,8 +4417,24 @@
           // Show daily challenge completion modal
           showDailyChallengeGameOver();
         }
-        renderChallenge();
+        goalsChanged = true;
       }
+      if (missionDate && !missionCompleted) {
+        if (missionType === 'place_type' && t === missionBlockType && t !== 0) {
+          missionProgress++;
+          if (missionProgress >= missionTarget) missionCompleted = true;
+          goalsChanged = true;
+        } else if (missionType === 'reach_height' && t !== 0 && y >= missionTarget) {
+          missionProgress = missionTarget;
+          missionCompleted = true;
+          goalsChanged = true;
+        } else if (missionType === 'break_blocks' && t === 0) {
+          missionProgress++;
+          if (missionProgress >= missionTarget) missionCompleted = true;
+          goalsChanged = true;
+        }
+      }
+      if (goalsChanged) renderChallenge();
       // Session tracking for coach milestone trigger.
       if (t !== 0) {
         sessionBlocksPlaced++;
@@ -4001,6 +4473,18 @@
               emitLineClearExplosion(yLevel, clearedRows);
             }
           }
+          if (data.bomb_explosions && data.bomb_explosions.length) {
+            const totalBonus = data.bomb_explosions.reduce((s, e) => s + (e.bonus_points || 0), 0);
+            if (totalBonus > 0) {
+              sessionScore += totalBonus;
+              updateScoreHud();
+            }
+            for (const entry of data.bomb_explosions) {
+              emitBombExplosion(entry.x + 0.5, entry.y + 0.5, entry.z + 0.5);
+            }
+            const bombLabel = data.bomb_explosions.length > 1 ? `Boom! x${data.bomb_explosions.length}` : 'Boom!';
+            showBadgeToast({ icon: '💣', name: bombLabel, flavour: totalBonus > 0 ? `+${totalBonus} bonus points` : 'Bombs detonated!' });
+          }
           if (data.seq && data.seq > cursor) cursor = data.seq;
           if (data.newly_earned_badges && data.newly_earned_badges.length) {
             for (const badge of data.newly_earned_badges) {
@@ -4037,13 +4521,91 @@
             updateRecordButton();
             showShareModal(window.location.origin + '/replay/' + sid);
           }
+          if (data.mission) {
+            syncMission({
+              date: missionDate,
+              type: missionType,
+              label: missionLabel,
+              target: data.mission.target,
+              blockType: missionBlockType,
+              progress: data.mission.progress,
+              completed_at: data.mission.completed_at,
+            });
+            if (data.mission.newly_earned_mission_badges && data.mission.newly_earned_mission_badges.length) {
+              for (const badge of data.mission.newly_earned_mission_badges) {
+                earnedBadges.set(badge.id, { earned_at: new Date().toISOString() });
+                showBadgeToast(badge);
+              }
+              if (badgesOpen) renderBadgesPanel();
+            }
+          }
+          // Reconcile block skin with server-confirmed value (handles cases
+          // where the server's stored skin differs from the client's optimistic one).
           if (t !== 0) {
+            const k = key(x, y, z);
+            if (data.skin_id) blockSkins.set(k, data.skin_id);
+            else blockSkins.delete(k);
             myBlocksPlaced++;
             renderBlocksPlacedHud();
             blocksPlacedHudEl.classList.remove('hidden');
           }
         }
-      } catch (e) { /* poll loop will reconcile */ }
+      } catch (e) {}
+    }
+
+    // ---- Send block to speedrun session ----
+    async function speedrunSendBlock(x, y, z, t) {
+      applyLocal(x, y, z, t);
+      if (!srSession) return;
+      try {
+        const res = await fetch('/api/speedrun/block', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...headers },
+          body: JSON.stringify({ session_id: srSession.session_id, x, y, z, block_type: t }),
+        });
+        if (!res.ok) {
+          if (res.status === 409) {
+            // Session abandoned by another tab — go to lobby.
+            exitSpeedrun().then(() => openSpeedrunLobby(null));
+          }
+          return;
+        }
+        const data = await res.json();
+        if (!data.level_progress) return; // break action
+
+        srLevelProgress = data.level_progress;
+        updateSpeedrunHUD();
+
+        // Update wireframe if this block was in the current zone and newly placed.
+        if (!data.already_placed && srSession) {
+          const lv = srSession.levels[srLevelProgress.level - 1];
+          if (!data.level_complete) {
+            // Same level — check if placed cell is in zone to update wireframe.
+            const cLv = srSession.levels[data.level_progress.level - 1];
+            const { zone } = cLv;
+            if (x >= zone.x[0] && x <= zone.x[1] && y >= zone.y[0] && y <= zone.y[1] && z >= zone.z[0] && z <= zone.z[1]) {
+              srFilledInZone.add(key(x, y, z));
+              buildWireframeZone(cLv, srFilledInZone);
+            }
+          }
+        }
+
+        if (data.level_complete && !data.run_complete) {
+          // Show banner for the completed level, switch wireframe to new level.
+          const completedLvDef = srSession.levels[data.completed_level - 1];
+          showLevelComplete(completedLvDef.name);
+          srFilledInZone = new Set();
+          const newLvDef = srSession.levels[data.level_progress.level - 1];
+          buildWireframeZone(newLvDef, srFilledInZone);
+        }
+
+        if (data.run_complete) {
+          playing = false;
+          if (document.pointerLockElement === canvas) document.exitPointerLock();
+          else { dragMode = false; canvas.style.cursor = ''; }
+          await showRunComplete(data.elapsed_ms, data.is_personal_best);
+        }
+      } catch (_) {}
     }
 
     // ---- Cascade combo HUD ----
@@ -4237,14 +4799,14 @@
 
       if (step.dismissible) {
         const nextBtn = document.createElement('button');
-        nextBtn.className = 'px-6 py-2 rounded-lg bg-violet-600 hover:bg-violet-500 text-white font-semibold transition hover:scale-105 active:scale-95';
+        nextBtn.className = 'px-6 py-2 rounded-lg bg-violet-600 hover:bg-violet-500 text-white font-semibold transition-colors';
         nextBtn.textContent = stepIndex === TUTORIAL_STEPS_DEF.length - 1 ? '✓ Finish' : 'Next →';
         nextBtn.onclick = () => advanceTutorialStep('hint_dismissed');
         actions.appendChild(nextBtn);
 
         if (stepIndex > 0) {
           const skipBtn = document.createElement('button');
-          skipBtn.className = 'px-6 py-2 rounded-lg bg-zinc-700 hover:bg-zinc-600 text-white font-semibold transition hover:scale-105 active:scale-95';
+          skipBtn.className = 'px-6 py-2 rounded-lg bg-zinc-700 hover:bg-zinc-600 text-white font-semibold transition-colors';
           skipBtn.textContent = 'Back to Menu';
           skipBtn.onclick = () => endTutorialMode();
           actions.appendChild(skipBtn);
@@ -4449,12 +5011,15 @@
       if (blocks.get(key(x, y, z)) === actualType) return;
       const prevType = blocks.get(key(x, y, z)) ?? 0;
       audio.playPlace();
-      emitBlockPlace(x + 0.5, y + 0.5, z + 0.5);
-      sendEdit(x, y, z, actualType, prevType);
-      pushHistory(x, y, z, prevType, actualType);
-      // Unlock hold after each successful placement (Tetris lock rule)
-      holdLocked = false;
-      updateHoldPanel();
+      if (mode === 'speedrun') speedrunSendBlock(x, y, z, actualType);
+      else {
+        emitBlockPlace(x + 0.5, y + 0.5, z + 0.5);
+        sendEdit(x, y, z, actualType, prevType);
+        pushHistory(x, y, z, prevType, actualType);
+        // Unlock hold after each successful placement (Tetris lock rule)
+        holdLocked = false;
+        updateHoldPanel();
+      }
     }
 
     function toggleStampMode() {
@@ -4609,9 +5174,14 @@
       if (!blocks.has(key(x, y, z))) return;
       const brokenType = blocks.get(key(x, y, z));
       audio.playBreak();
-      emitBlockBreak(x + 0.5, y + 0.5, z + 0.5, brokenType);
-      sendEdit(x, y, z, 0, brokenType);
-      pushHistory(x, y, z, brokenType, 0);
+      if (mode === 'speedrun') {
+        // Visual-only break; server tracks first placement permanently.
+        applyLocal(x, y, z, 0);
+      } else {
+        emitBlockBreak(x + 0.5, y + 0.5, z + 0.5, brokenType);
+        sendEdit(x, y, z, 0, brokenType);
+        pushHistory(x, y, z, brokenType, 0);
+      }
     }
 
     // ---- Undo/Redo history functions ----
@@ -5085,6 +5655,101 @@
     document.getElementById('profile-tab-stats').addEventListener('click',  () => setProfileTab('stats'));
     document.getElementById('profile-tab-badges').addEventListener('click', () => setProfileTab('badges'));
 
+    // ---- NFT Skins panel ----
+    const skinsPanelEl = document.getElementById('skins-panel');
+    const skinsContentEl = document.getElementById('skins-content');
+    let skinsOpen = false;
+
+    function closeSkins() {
+      skinsOpen = false;
+      skinsPanelEl.classList.add('hidden');
+    }
+    function toggleSkins() {
+      skinsOpen = !skinsOpen;
+      if (skinsOpen) {
+        skinsPanelEl.classList.remove('hidden');
+        fetchAndRenderSkins();
+      } else {
+        skinsPanelEl.classList.add('hidden');
+      }
+    }
+    document.getElementById('skins-btn').addEventListener('click', toggleSkins);
+    document.getElementById('skins-close').addEventListener('click', closeSkins);
+
+    async function fetchAndRenderSkins() {
+      skinsContentEl.innerHTML = '<span class="text-zinc-500">Loading…</span>';
+      try {
+        const res = await fetch('/api/skins/my-nfts', { headers });
+        if (!res.ok) throw new Error('fetch failed');
+        const { wallet_linked, nfts } = await res.json();
+        renderSkinsPanel(wallet_linked, nfts);
+      } catch (_) {
+        skinsContentEl.innerHTML = '<span class="text-zinc-500">Couldn\'t load skins.</span>';
+      }
+    }
+
+    function renderSkinsPanel(wallet_linked, nfts) {
+      if (!wallet_linked) {
+        skinsContentEl.innerHTML =
+          '<p class="text-zinc-400 text-xs text-center py-2">Link a Usernode wallet to unlock NFT block skins.</p>';
+        return;
+      }
+      let html = '<button id="skins-use-default" class="w-full mb-3 px-3 py-1.5 rounded-lg text-xs font-semibold cursor-pointer transition-colors ' +
+        (!myActiveSkinId ? 'bg-violet-600 text-white' : 'bg-zinc-700 text-zinc-300 hover:bg-zinc-600') + '">Use default appearance</button>';
+      if (!nfts.length) {
+        html += '<p class="text-zinc-500 text-xs text-center py-1">No NFTs found in your wallet.</p>';
+        skinsContentEl.innerHTML = html;
+        skinsContentEl.querySelector('#skins-use-default').addEventListener('click', unequipSkin);
+        return;
+      }
+      html += '<div class="grid grid-cols-3 gap-2">';
+      for (const nft of nfts) {
+        const isActive = myActiveSkinId === nft.skin_id;
+        html += '<div class="relative rounded-lg overflow-hidden bg-zinc-800 cursor-pointer skin-nft-card" data-skin-id="' + escapeHtml(nft.skin_id) + '" data-image-url="' + escapeHtml(nft.image_url) + '" data-nft-name="' + escapeHtml(nft.nft_name) + '">' +
+          '<img src="' + escapeHtml(nft.image_url) + '" alt="' + escapeHtml(nft.nft_name) + '" class="w-full aspect-square object-cover" onerror="this.style.background=\'#333\'">' +
+          (isActive ? '<div class="absolute inset-0 flex items-end justify-center pb-1"><span class="text-[10px] font-bold bg-violet-600 px-1.5 py-0.5 rounded text-white">Active</span></div>' : '') +
+          '<p class="text-[9px] text-zinc-400 truncate px-1 py-0.5">' + escapeHtml(nft.nft_name) + '</p></div>';
+      }
+      html += '</div>';
+      skinsContentEl.innerHTML = html;
+
+      skinsContentEl.querySelector('#skins-use-default').addEventListener('click', unequipSkin);
+      for (const card of skinsContentEl.querySelectorAll('.skin-nft-card')) {
+        card.addEventListener('click', () => {
+          equipSkin(card.dataset.skinId, card.dataset.imageUrl, card.dataset.nftName);
+        });
+      }
+    }
+
+    async function equipSkin(skinId, imageUrl, nftName) {
+      try {
+        const res = await fetch('/api/skins/equip', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...headers },
+          body: JSON.stringify({ skin_id: skinId, image_url: imageUrl, nft_name: nftName }),
+        });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          skinsContentEl.insertAdjacentHTML('afterbegin', '<p class="text-red-400 text-xs mb-2">' + escapeHtml(data.error || 'Failed to equip') + '</p>');
+          return;
+        }
+        myActiveSkinId = skinId;
+        // Pre-load the texture so it's ready for the next placement.
+        if (!skinTextures.has(skinId)) loadSkinTexture(skinId);
+        fetchAndRenderSkins();
+      } catch (_) {
+        skinsContentEl.insertAdjacentHTML('afterbegin', '<p class="text-red-400 text-xs mb-2">Network error</p>');
+      }
+    }
+
+    async function unequipSkin() {
+      try {
+        await fetch('/api/skins/unequip', { method: 'POST', headers: { 'Content-Type': 'application/json', ...headers } });
+        myActiveSkinId = null;
+        fetchAndRenderSkins();
+      } catch (_) { /* transient */ }
+    }
+
     // ---- Pet panel ----
     const petBtnEl    = document.getElementById('pet-btn');
     const petPanelEl  = document.getElementById('pet-panel');
@@ -5197,6 +5862,7 @@
     const _lookTarget = new THREE.Vector3();
     const _camRight = new THREE.Vector3();
     let _rollWarned = false;
+
     function applyLook() {
       const cp = Math.cos(pitch);
       _lookFwd.set(-Math.sin(yaw) * cp, Math.sin(pitch), -Math.cos(yaw) * cp);
@@ -5215,8 +5881,8 @@
 
     function spawnCamera() {
       camera.position.set(DIMS.w / 2, 6, DIMS.d / 2 + 10);
-      const target = new THREE.Vector3(DIMS.w / 2, 3, DIMS.d / 2);
-      const dir = target.sub(camera.position).normalize();
+      const tgt = new THREE.Vector3(DIMS.w / 2, 3, DIMS.d / 2);
+      const dir = tgt.sub(camera.position).normalize();
       pitch = Math.asin(Math.max(-1, Math.min(1, dir.y)));
       yaw = Math.atan2(-dir.x, -dir.z);
       applyLook();
@@ -6068,6 +6734,7 @@
 
     // ---- Control scheme helpers ----
 
+
     function refreshControlCopy() {
       if (isTouch) {
         hintEl.classList.add('hidden');
@@ -6112,6 +6779,7 @@
       dragging = false;
       canvas.style.cursor = 'grab';
       overlayEl.style.display = 'none';
+      if (mode !== 'speedrun') mode = 'normal';
       if (!wasAlreadyPlaying) showMinimap();
       refreshControlCopy();
       if (!wasAlreadyPlaying) onPlayEntered();
@@ -6123,6 +6791,7 @@
       playing = true;
       dragging = false;
       overlayEl.style.display = 'none';
+      if (mode !== 'speedrun') mode = 'normal';
       showMinimap();
       refreshControlCopy();
       updateTouchControlsVisibility();
@@ -6130,9 +6799,14 @@
     }
 
     function exitToMenu() {
+      if (mode === 'speedrun') {
+        showAbandonConfirm();
+        return;
+      }
       // Stop recording if in progress (silent — don't show share modal on menu exit).
       if (recordingSessionId) stopRecording(true);
       recordBtnEl.classList.add('hidden');
+
 
       // In TA mode, if still actively playing, end the run first (shows game-over).
       if (gameMode === 'timeattack' && playing) {
@@ -6166,6 +6840,7 @@
       playing = false;
       paused = false;
       dragMode = false;
+      mode = 'menu';
       resetMove();
       canvas.style.cursor = '';
       audio.stopReggae();
@@ -6233,12 +6908,8 @@
     }
 
     canvas.addEventListener('mousemove', (e) => {
-      if (locked) {
-        applyLookDelta(e.movementX, e.movementY);
-      } else if (playing && dragging) {
-        applyLookDelta(e.movementX, e.movementY);
-        canvas.style.cursor = 'grabbing';
-      }
+      if (locked) applyLookDelta(e.movementX, e.movementY);
+      else if (playing && dragging) { applyLookDelta(e.movementX, e.movementY); canvas.style.cursor = 'grabbing'; }
     });
 
     document.addEventListener('pointerlockchange', () => {
@@ -6250,6 +6921,7 @@
         lockUnavailable = false;
         canvas.style.cursor = '';
         overlayEl.style.display = 'none';
+        if (mode !== 'speedrun') mode = 'normal';
         showMinimap();
         onPlayEntered();
       } else if (chatOpening) {
@@ -6260,7 +6932,9 @@
         dragMode = true;
         canvas.style.cursor = 'grab';
       } else if (!dragMode) {
-        if (gameMode === 'timeattack' && playing) {
+        if (mode === 'speedrun') {
+          showAbandonConfirm();
+        } else if (gameMode === 'timeattack' && playing) {
           // Esc pressed mid-TA run in native-lock mode — end the game.
           endTimeAttack();
           return; // endTimeAttack calls refreshControlCopy
@@ -6949,7 +7623,9 @@
         } else if (!themePanelEl.classList.contains('hidden')) {
           closeThemePanel();
         } else if (dragMode && playing && !isReplayMode) {
-          if (gameMode === 'timeattack') {
+          if (mode === 'speedrun') {
+            showAbandonConfirm();
+          } else if (gameMode === 'timeattack') {
             endTimeAttack();
           } else {
             playing = false;
@@ -6974,19 +7650,15 @@
     canvas.addEventListener('touchstart', (e) => {
       if (!isTouch || !playing || lookTouchId !== null) return;
       const t = e.changedTouches[0];
-      lookTouchId = t.identifier;
-      lookLastX = t.clientX;
-      lookLastY = t.clientY;
+      lookTouchId = t.identifier; lookLastX = t.clientX; lookLastY = t.clientY;
       e.preventDefault();
     }, { passive: false });
     window.addEventListener('touchmove', (e) => {
       if (lookTouchId === null) return;
       for (const t of e.changedTouches) {
         if (t.identifier !== lookTouchId) continue;
-        const pdx = t.clientX - lookLastX;
-        const pdy = t.clientY - lookLastY;
-        lookLastX = t.clientX;
-        lookLastY = t.clientY;
+        const pdx = t.clientX - lookLastX, pdy = t.clientY - lookLastY;
+        lookLastX = t.clientX; lookLastY = t.clientY;
         if (forceRotated) applyLookDelta(pdy, -pdx);
         else applyLookDelta(pdx, pdy);
         e.preventDefault();
@@ -7100,9 +7772,7 @@
     }
     function toggleControls() { controlsEl.classList.toggle('hidden'); }
     document.getElementById('help-btn').addEventListener('click', toggleControls);
-    document.getElementById('controls-close').addEventListener('click', () => {
-      controlsEl.classList.add('hidden');
-    });
+    document.getElementById('controls-close').addEventListener('click', () => controlsEl.classList.add('hidden'));
 
     // ---- Mobile hamburger menu ----
     const menuBtn = document.getElementById('menu-btn');
@@ -9189,7 +9859,7 @@
     }
 
     async function poll() {
-      if (document.hidden || paused) return;
+      if (document.hidden || mode === 'speedrun' || paused) return;
 
       // World changes (shared or custom world)
       try {
@@ -9201,7 +9871,8 @@
           if (changes && changes.length) {
             for (const ch of changes) {
               const k = key(ch.x, ch.y, ch.z);
-              if (ch.t === 0) blocks.delete(k); else blocks.set(k, ch.t);
+              if (ch.t === 0) { blocks.delete(k); blockSkins.delete(k); }
+              else { blocks.set(k, ch.t); if (ch.s) blockSkins.set(k, ch.s); else blockSkins.delete(k); }
               if (ch.m) messageBlocks.add(k); else messageBlocks.delete(k);
             }
             rebuildBlockMeshes();
@@ -9236,6 +9907,98 @@
         }
       } catch (e) { /* transient */ }
     }
+
+    // ---- Speed Run UI event handlers ----
+
+    document.getElementById('speedrun-btn').addEventListener('click', async () => {
+      // Check for existing active session before showing lobby.
+      let activeSession = null;
+      try {
+        const res = await fetch('/api/speedrun/session', { headers });
+        if (res.ok) activeSession = await res.json();
+      } catch (_) {}
+      openSpeedrunLobby(activeSession);
+    });
+
+    document.getElementById('sr-back-btn').addEventListener('click', () => {
+      srLobbyEl.classList.add('hidden');
+      overlayEl.style.display = 'flex';
+    });
+
+    document.getElementById('sr-start-btn').addEventListener('click', async () => {
+      document.getElementById('sr-start-btn').disabled = true;
+      try {
+        const res = await fetch('/api/speedrun/start', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...headers },
+        });
+        if (!res.ok) throw new Error('start failed');
+        const session = await res.json();
+        session.level_progress = { level: 1, placed: 0, required: session.levels[0].required };
+        await enterSpeedrunPlay(session, []);
+      } catch (e) {
+        document.getElementById('sr-start-btn').disabled = false;
+      }
+    });
+
+    document.getElementById('sr-resume-btn').addEventListener('click', async () => {
+      try {
+        const res = await fetch('/api/speedrun/session', { headers });
+        if (!res.ok) throw new Error();
+        const session = await res.json();
+        if (!session) { openSpeedrunLobby(null); return; }
+        await enterSpeedrunPlay(session, session.filled_cells || []);
+      } catch (_) {}
+    });
+
+    document.getElementById('sr-abandon-active-btn').addEventListener('click', async () => {
+      try {
+        const res = await fetch('/api/speedrun/session', { headers });
+        if (res.ok) {
+          const sess = await res.json();
+          if (sess) {
+            await fetch('/api/speedrun/abandon', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', ...headers },
+              body: JSON.stringify({ session_id: sess.session_id }),
+            });
+          }
+        }
+      } catch (_) {}
+      openSpeedrunLobby(null);
+    });
+
+    document.getElementById('sr-abandon-cancel-btn').addEventListener('click', () => {
+      hideAbandonConfirm();
+      // Re-acquire pointer lock or re-enter drag mode so the run continues.
+      if (!locked && !dragMode) tryPointerLock();
+      else if (dragMode) { playing = true; canvas.style.cursor = 'grab'; }
+    });
+
+    document.getElementById('sr-abandon-confirm-btn').addEventListener('click', async () => {
+      hideAbandonConfirm();
+      const sessId = srSession ? srSession.session_id : null;
+      await exitSpeedrun();
+      if (sessId) {
+        try {
+          await fetch('/api/speedrun/abandon', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...headers },
+            body: JSON.stringify({ session_id: sessId }),
+          });
+        } catch (_) {}
+      }
+      openSpeedrunLobby(null);
+    });
+
+    document.getElementById('sr-main-menu-btn').addEventListener('click', () => {
+      exitSpeedrun();
+    });
+
+    document.getElementById('sr-run-again-btn').addEventListener('click', () => {
+      srRunCompleteEl.classList.add('hidden');
+      openSpeedrunLobby(null);
+    });
 
     // ---- Render loop ----
     let forceRotated = false;
@@ -9389,6 +10152,10 @@
         }
       }
 
+      // Update speedrun timer display every frame.
+      if (mode === 'speedrun' && srStartedAt !== null && playing) {
+        srTimerEl.textContent = formatTime(Date.now() - srStartedAt);
+      }
       // Animate monument orbs — gentle slow bob
       for (const orb of monumentOrbs) {
         orb.position.y = orb.userData.baseY + Math.sin(now * 0.0015 + orb.userData.phase) * 0.2;
@@ -9453,7 +10220,6 @@
       requestAnimationFrame(loop);
     }
 
-    // Fade the controls hint after a few seconds.
     setTimeout(() => { hintEl.style.opacity = '0'; hintFallbackEl.style.opacity = '0'; }, 6000);
 
     // ---- Energy system initialization ----
@@ -9747,6 +10513,12 @@
         }
       });
 
+      // Load today's mission progress (non-fatal if unavailable).
+      try {
+        const mr = await fetch('/api/mission/today', { headers });
+        if (mr.ok) syncMission(await mr.json());
+      } catch (_) {}
+
       loadTournamentTeaser();
       loadPromptTeaser();
 
@@ -9853,14 +10625,27 @@
         setInterval(pollPowerUps, 1500);
         pollMobs();
         setInterval(pollMobs, 2000);
-        // Re-fetch challenge every 30s to catch midnight UTC rollover and
-        // progress made in other tabs.
+        // Re-fetch challenge and mission every 30s to catch midnight UTC rollover
+        // and progress made in other tabs.
         setInterval(async () => {
           try {
             const cr = await fetch('/api/challenge/today', { headers });
             if (cr.ok) syncChallenge(await cr.json());
           } catch (_) {}
+          try {
+            const mr = await fetch('/api/mission/today', { headers });
+            if (mr.ok) syncMission(await mr.json());
+          } catch (_) {}
         }, 30000);
+
+        // Check for an in-progress speedrun session and surface it on load.
+        try {
+          const res = await fetch('/api/speedrun/session', { headers });
+          if (res.ok) {
+            const active = await res.json();
+            if (active) openSpeedrunLobby(active);
+          }
+        } catch (_) {}
       })();
     }
   </script>
