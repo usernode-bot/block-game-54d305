@@ -161,6 +161,7 @@
       <div id="tournament-teaser" class="hidden mt-3 rounded-xl bg-zinc-900/60 px-4 py-2.5 text-xs text-zinc-300"></div>
       <div id="status" class="mt-3 text-xs text-zinc-500 text-center"></div>
       <div id="online-list" class="mt-3 text-sm text-zinc-400 text-center"></div>
+      <div id="attract-label" class="hidden mt-3 text-center text-xs text-zinc-400 transition-opacity duration-1000 opacity-0">Demo — click a mode to play</div>
     </div>
   </div>
 
@@ -1567,6 +1568,10 @@
     let playing = false;
     let turntableEnabled = true;
     let turntableAngle = 0;
+    const ATTRACT_IDLE_MS = 8000;
+    let attractMode = false;
+    let attractT = 0;
+    let idleTimer = null;
     let dragMode = false;
     let lockUnavailable = false;
     let lockTimer = null;
@@ -1614,6 +1619,35 @@
       turntableEnabled = !turntableEnabled;
       syncTurntableBtn();
     });
+
+    const attractLabelEl = document.getElementById('attract-label');
+    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+    function enterAttract() {
+      if (playing || !turntableEnabled || reducedMotion) return;
+      attractMode = true;
+      attractT = 0;
+      overlayEl.classList.remove('bg-black/60', 'backdrop-blur-sm');
+      overlayEl.classList.add('bg-black/75', 'backdrop-blur');
+      attractLabelEl.classList.remove('hidden');
+      // Defer opacity change by one frame so the CSS transition fires.
+      requestAnimationFrame(() => attractLabelEl.classList.remove('opacity-0'));
+    }
+
+    function exitAttract() {
+      attractMode = false;
+      overlayEl.classList.remove('bg-black/75', 'backdrop-blur');
+      overlayEl.classList.add('bg-black/60', 'backdrop-blur-sm');
+      attractLabelEl.classList.add('hidden', 'opacity-0');
+    }
+
+    function resetIdle() {
+      if (idleTimer !== null) { clearTimeout(idleTimer); idleTimer = null; }
+      if (attractMode) exitAttract();
+      if (!playing && turntableEnabled && !reducedMotion) {
+        idleTimer = setTimeout(enterAttract, ATTRACT_IDLE_MS);
+      }
+    }
 
     // Badges button: toggle the badges panel.
     const badgesBtnEl = document.getElementById('badges-btn');
@@ -1780,6 +1814,8 @@
     }
 
     function startMode(mode) {
+      if (idleTimer !== null) { clearTimeout(idleTimer); idleTimer = null; }
+      if (attractMode) exitAttract();
       gameMode = mode;
       if (mode === 'timeattack') pendingTaInit = true;
       tryPointerLock();
@@ -1878,6 +1914,7 @@
       overlayEl.style.display = 'flex';
       refreshControlCopy();
       updateTouchControlsVisibility();
+      resetIdle();
     }
 
     function updateTouchControlsVisibility() {
@@ -2004,6 +2041,7 @@
       Space: 'up', ShiftLeft: 'down', ShiftRight: 'down',
     };
     window.addEventListener('keydown', (e) => {
+      resetIdle();
       // While the chat input is focused, only Escape is handled globally
       // (to close the drawer); all other keys are for typing.
       if (document.activeElement === chatInputEl) {
@@ -2073,6 +2111,13 @@
       if (codeMap[e.code]) move[codeMap[e.code]] = false;
       if (e.code === 'KeyF') placeHeld = false;
     });
+
+    // ---- Idle detection for attract mode ----
+    window.addEventListener('mousemove', (e) => {
+      if (Math.abs(e.movementX) + Math.abs(e.movementY) > 12) resetIdle();
+    });
+    window.addEventListener('mousedown', () => resetIdle());
+    window.addEventListener('touchstart', () => resetIdle(), { passive: true });
 
     // ---- Touch input ----
     let lookTouchId = null, lookLastX = 0, lookLastY = 0;
@@ -2884,10 +2929,20 @@
       }
 
       if (!playing && turntableEnabled) {
-        turntableAngle += dt * 0.25;
         const cx = DIMS.w / 2, cz = DIMS.d / 2;
-        camera.position.set(cx + 8 * Math.sin(turntableAngle), 3.5, cz + 8 * Math.cos(turntableAngle));
-        camera.lookAt(cx, 1.5, cz);
+        if (attractMode) {
+          attractT += dt;
+          turntableAngle += dt * 0.18;
+          const r = 8 + 3 * Math.sin(attractT * 0.07);
+          const h = 2 + 4 * Math.abs(Math.sin(attractT * 0.05));
+          const lookY = 1.5 + 2 * Math.sin(attractT * 0.04);
+          camera.position.set(cx + r * Math.sin(turntableAngle), h, cz + r * Math.cos(turntableAngle));
+          camera.lookAt(cx, lookY, cz);
+        } else {
+          turntableAngle += dt * 0.25;
+          camera.position.set(cx + 8 * Math.sin(turntableAngle), 3.5, cz + 8 * Math.cos(turntableAngle));
+          camera.lookAt(cx, 1.5, cz);
+        }
       } else if (playing && (locked || dragMode)) {
         fwd.set(-Math.sin(yaw), 0, -Math.cos(yaw));
         right.set(Math.cos(yaw), 0, -Math.sin(yaw));
@@ -3001,6 +3056,7 @@
       } catch (_) {}
 
       requestAnimationFrame(loop);
+      resetIdle();
       // Poll is started per-mode in onPlayEntered(), not here.
       heartbeat();
       setInterval(heartbeat, 30000);
