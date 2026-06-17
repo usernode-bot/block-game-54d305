@@ -628,6 +628,13 @@
     <div id="combo-badge" class="text-2xl sm:text-3xl font-mono font-bold text-white rounded-xl px-3 sm:px-4 py-1 sm:py-2 leading-tight tabular-nums bg-amber-500" style="transition: transform 0.15s ease-out;">2×</div>
   </div>
 
+  <!-- Score HUD: shows session score during Classic mode -->
+  <div id="score-hud" class="hidden pointer-events-none fixed top-12 left-3 z-20 transition-opacity duration-200">
+    <div id="score-display" class="text-xs sm:text-sm font-semibold text-zinc-200 bg-black/50 rounded-xl px-3 sm:px-4 py-1 sm:py-1.5">
+      Score: <span id="score-value">0</span>
+    </div>
+  </div>
+
   <!-- Desktop undo button: shown in Classic mode while playing; greyed when stack is empty. -->
   <button id="undo-btn" class="hidden pointer-events-auto fixed top-3 left-16 z-20 px-3 h-9 rounded-lg bg-black/50 hover:bg-black/70 active:scale-95 text-zinc-100 text-sm sm:text-sm font-semibold flex items-center justify-center gap-1.5 transition">↩ Undo</button>
 
@@ -1954,7 +1961,10 @@
           const newMult = data.combo_multiplier || 1;
           if (newMult > lastComboMultiplier && newMult > 1) fetchCoachTip('combo_tier_up');
           updateComboHud(newMult);
-          if (data.earned) sessionScore += data.earned;
+          if (data.earned) {
+            sessionScore += data.earned;
+            updateScoreHud();
+          }
           if (data.seq && data.seq > cursor) cursor = data.seq;
           if (data.newly_earned_badges && data.newly_earned_badges.length) {
             for (const badge of data.newly_earned_badges) {
@@ -2011,6 +2021,23 @@
         lastComboMultiplier = 1;
         comboHideTimer = null;
       }, 3000);
+    }
+
+    // ---- Score HUD ----
+    const scoreHudEl = document.getElementById('score-hud');
+    const scoreValueEl = document.getElementById('score-value');
+
+    function updateScoreHud() {
+      if (gameMode !== 'classic' || !playing) {
+        scoreHudEl.classList.add('hidden');
+        return;
+      }
+      scoreValueEl.textContent = sessionScore;
+      scoreHudEl.classList.remove('hidden');
+    }
+
+    function hideScoreHud() {
+      scoreHudEl.classList.add('hidden');
     }
 
     // ---- Undo helpers ----
@@ -2425,9 +2452,12 @@
       if (pendingTaInit) {
         pendingTaInit = false;
         initTimeAttack();
+        hideScoreHud();
         coachBtnEl.classList.remove('hidden');
         setTimeout(() => fetchCoachTip('time_attack_start'), 2000);
       } else if (gameMode === 'classic') {
+        sessionScore = 0;
+        updateScoreHud();
         if (!pollHandle) pollHandle = setInterval(poll, 1500);
         coachBtnEl.classList.remove('hidden');
         setTimeout(() => fetchCoachTip('mode_start'), 3000);
@@ -2541,6 +2571,7 @@
       document.getElementById('hold-panel').classList.remove('hidden');
       document.getElementById('crosshair').style.opacity = '';
       hideComboHud();
+      hideScoreHud();
 
       hideMinimap();
       // Dismiss any active coach tip and restore coach button.
