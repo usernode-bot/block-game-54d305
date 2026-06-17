@@ -450,6 +450,12 @@
           <p class="text-zinc-400 text-sm sm:text-sm lg:text-sm mb-5 mode-desc">Build forever on an endless grid. No timer, no score multiplier—just how long until you run out of valid moves?</p>
           <button id="play-endless-btn" class="w-full px-4 py-3 rounded-lg bg-rose-600 hover:bg-rose-500 font-semibold text-sm sm:text-sm lg:text-base transition hover:scale-[1.02] active:scale-[0.98] mode-btn">Play Endless</button>
         </div>
+        <div class="bg-zinc-900/80 rounded-xl p-5 sm:p-6 lg:p-7 transition hover:bg-zinc-800/80" data-mode="puzzle">
+          <canvas id="preview-puzzle" class="w-full rounded-lg mb-4" height="140"></canvas>
+          <h2 class="font-semibold text-lg sm:text-base lg:text-lg text-zinc-100 mb-2 mode-title">🧩 Puzzle Mode</h2>
+          <p class="text-zinc-400 text-sm sm:text-sm lg:text-sm mb-5 mode-desc">Clear a fixed set of blocks level by level. Solve increasingly difficult puzzles.</p>
+          <button id="play-puzzle-btn" class="w-full px-4 py-3 rounded-lg bg-indigo-600 hover:bg-indigo-500 font-semibold text-sm sm:text-sm lg:text-base transition hover:scale-[1.02] active:scale-[0.98] mode-btn">Play Puzzle</button>
+        </div>
         <div class="bg-zinc-900/80 rounded-xl p-5 sm:p-6 lg:p-7 transition hover:bg-zinc-800/80" data-mode="tutorial">
           <canvas id="preview-tutorial" class="w-full rounded-lg mb-4" height="140"></canvas>
           <h2 class="font-semibold text-lg sm:text-base lg:text-lg text-zinc-100 mb-2 mode-title">Tutorial</h2>
@@ -723,6 +729,7 @@
         <button id="tab-ta-60" class="px-2 py-0.5 rounded text-xs font-semibold text-zinc-400 hover:text-zinc-200 cursor-pointer transition-colors whitespace-nowrap" data-tab="ta-60">TA (60s)</button>
         <button id="tab-daily-challenge" class="px-2 py-0.5 rounded text-xs font-semibold text-zinc-400 hover:text-zinc-200 cursor-pointer transition-colors whitespace-nowrap" data-tab="daily">Daily</button>
         <button id="tab-endless" class="px-2 py-0.5 rounded text-xs font-semibold text-zinc-400 hover:text-zinc-200 cursor-pointer transition-colors whitespace-nowrap" data-tab="endless">Endless</button>
+        <button id="tab-puzzle" class="px-2 py-0.5 rounded text-xs font-semibold text-zinc-400 hover:text-zinc-200 cursor-pointer transition-colors whitespace-nowrap" data-tab="puzzle">Puzzle</button>
       </div>
       <button id="leaderboard-close" aria-label="Close leaderboard" class="text-zinc-400 hover:text-zinc-100 cursor-pointer leading-none transition-colors">✕</button>
     </div>
@@ -1283,6 +1290,10 @@
         mode_endless_desc: 'Build forever on an endless grid. No timer, no score multiplier—just how long until you run out of valid moves?',
         mode_endless_btn: 'Play Endless',
 
+        mode_puzzle_title: '🧩 Puzzle Mode',
+        mode_puzzle_desc: 'Clear a fixed set of blocks level by level. Solve increasingly difficult puzzles.',
+        mode_puzzle_btn: 'Play Puzzle',
+
         mode_tutorial_title: 'Tutorial',
         mode_tutorial_desc: 'Learn the basics step-by-step: place blocks, break them, earn points, and clear lines.',
         mode_tutorial_btn: '📚 Start Tutorial',
@@ -1342,6 +1353,7 @@
         tab_ta_60: 'TA (60s)',
         tab_daily: 'Daily',
         tab_endless: 'Endless',
+        tab_puzzle: 'Puzzle',
       },
       id: {
         // Header and subtitle
@@ -1369,6 +1381,10 @@
         mode_endless_title: 'Mode Tak Terbatas',
         mode_endless_desc: 'Bangun selamanya di grid tak terbatas. Tidak ada waktu, tidak ada pengganda poin—seberapa lama sampai Anda kehabisan gerakan yang valid?',
         mode_endless_btn: 'Mainkan Tak Terbatas',
+
+        mode_puzzle_title: '🧩 Mode Puzzle',
+        mode_puzzle_desc: 'Hapus satu set blok tetap tingkat demi tingkat. Pecahkan puzzle yang semakin sulit.',
+        mode_puzzle_btn: 'Mainkan Puzzle',
 
         mode_tutorial_title: 'Tutorial',
         mode_tutorial_desc: 'Pelajari dasar-dasarnya langkah demi langkah: tempatkan blok, hancurkan, dapatkan poin, dan hapus baris.',
@@ -1429,6 +1445,7 @@
         tab_ta_60: 'ST (60d)',
         tab_daily: 'Harian',
         tab_endless: 'Tak Terbatas',
+        tab_puzzle: 'Puzzle',
       }
     };
 
@@ -1534,6 +1551,7 @@
         'tab-ta-60': 'tab_ta_60',
         'tab-daily-challenge': 'tab_daily',
         'tab-endless': 'tab_endless',
+        'tab-puzzle': 'tab_puzzle',
       };
       for (const [id, key] of Object.entries(tabConfigs)) {
         const el = document.getElementById(id);
@@ -1691,6 +1709,14 @@
     let endlessBlocksPlaced = 0;         // blocks placed in current run
     let endlessMovesStarted = 0;         // moves made in this run
     let pendingEndlessInit = false;      // true while waiting for play-entry to fire initEndlessMode
+
+    // ---- Puzzle Mode state ----
+    const puzzleBlocks = new Map();      // Puzzle session: key = 'x,y,z', value = block_type
+    let puzzleLevel = 1;                 // current puzzle level
+    let puzzleTarget = 10;               // blocks to clear this level
+    let puzzleCleared = 0;               // blocks cleared so far
+    let puzzleStartTime = null;          // when the level started
+    let pendingPuzzleInit = false;       // true while waiting for play-entry to fire initPuzzleMode
 
     // ---- Learn Mode state ----
     const learnBlocks = new Map();       // Learn session: key = 'x,y,z', value = block_type
@@ -3813,6 +3839,7 @@
       if (mode === 'timeattack') pendingTaInit = true;
       if (mode === 'time-attack-60') pendingTa60Init = true;
       if (mode === 'endless') pendingEndlessInit = true;
+      if (mode === 'puzzle') pendingPuzzleInit = true;
       if (mode === 'learn') pendingLearnInit = true;
       if (mode === 'tutorial') pendingTutorialInit = true;
       refreshUndoButton();
@@ -4009,6 +4036,7 @@
     document.getElementById('play-ta-60-btn').addEventListener('click', () => { audio.init(); startMode('time-attack-60'); });
     document.getElementById('play-daily-challenge-btn').addEventListener('click', () => { audio.init(); startMode('daily-challenge'); });
     document.getElementById('play-endless-btn').addEventListener('click', () => { audio.init(); startMode('endless'); });
+    document.getElementById('play-puzzle-btn').addEventListener('click', () => { audio.init(); startMode('puzzle'); });
     document.getElementById('play-tutorial-btn').addEventListener('click', () => { audio.init(); startMode('tutorial'); });
     document.getElementById('play-learn-btn').addEventListener('click', () => { audio.init(); startMode('learn'); });
     document.getElementById('play-spectate-btn').addEventListener('click', () => { audio.init(); startMode('spectate'); });
@@ -4685,7 +4713,7 @@
 
     function setLeaderboardTab(tab) {
       leaderboardTab = tab;
-      const tabs = { alltime: 'tab-alltime', tournament: 'tab-tournament', ta: 'tab-ta', 'ta-60': 'tab-ta-60', 'daily-challenge': 'tab-daily-challenge', endless: 'tab-endless' };
+      const tabs = { alltime: 'tab-alltime', tournament: 'tab-tournament', ta: 'tab-ta', 'ta-60': 'tab-ta-60', 'daily-challenge': 'tab-daily-challenge', endless: 'tab-endless', puzzle: 'tab-puzzle' };
       for (const [key2, id] of Object.entries(tabs)) {
         const el = document.getElementById(id);
         if (!el) continue;
@@ -4906,6 +4934,14 @@
         } catch (_) {
           leaderboardContentEl.innerHTML = '<p class="py-1 text-zinc-500">Couldn\'t load Endless scores.</p>';
         }
+      } else if (leaderboardTab === 'puzzle') {
+        try {
+          const res = await fetch('/api/puzzle-leaderboard', { headers });
+          if (!res.ok) throw new Error('fetch failed');
+          renderPuzzleLeaderboard(await res.json());
+        } catch (_) {
+          leaderboardContentEl.innerHTML = '<p class="py-1 text-zinc-500">Couldn\'t load Puzzle scores.</p>';
+        }
       } else {
         try {
           const res = await fetch('/api/leaderboard', { headers });
@@ -5034,6 +5070,44 @@
         btn.addEventListener('click', () => showProfile(btn.textContent));
       }
     }
+
+    function renderPuzzleLeaderboard(data) {
+      const medals = ['🥇', '🥈', '🥉'];
+      if (!data.entries.length) {
+        leaderboardContentEl.innerHTML =
+          '<p class="py-1 text-center text-zinc-400">No scores yet — solve some puzzles!</p>';
+        return;
+      }
+      let html = '<table class="w-full text-xs">' +
+        '<thead><tr class="text-zinc-500 uppercase border-b border-zinc-700">' +
+        '<th class="text-left pb-1 w-8">#</th>' +
+        '<th class="text-left pb-1 pl-2">Player</th>' +
+        '<th class="text-right pb-1">Level</th>' +
+        '<th class="text-right pb-1 pl-1">Blocks</th></tr></thead><tbody>' +
+        data.entries.map(e =>
+          '<tr class="border-b border-zinc-800/60 last:border-0">' +
+          '<td class="py-1">' + (medals[e.rank - 1] || e.rank) + '</td>' +
+          '<td class="py-1 pl-2 max-w-[130px] truncate"><button class="text-violet-400 hover:text-violet-300 hover:underline cursor-pointer" data-profile-btn>' + escapeHtml(e.username) + '</button></td>' +
+          '<td class="py-1 text-right font-mono text-zinc-100">' + e.highest_level + '</td>' +
+          '<td class="py-1 text-right pl-1 text-indigo-400">' + e.total_blocks_cleared_best_session + '</td></tr>'
+        ).join('') +
+        '</tbody></table>';
+      if (data.self && !data.entries.find(e => e.user_id === data.self.user_id)) {
+        html += '<div class="mt-2 pt-2 border-t border-zinc-700 text-xs">' +
+          '<table class="w-full"><tbody><tr class="text-indigo-300">' +
+          '<td class="w-8">' + (medals[data.self.rank - 1] || data.self.rank) + '</td>' +
+          '<td class="pl-2 max-w-[110px] truncate"><button class="text-indigo-300 hover:text-indigo-200 hover:underline cursor-pointer" data-profile-btn>' + escapeHtml(data.self.username) + '</button> (you)</td>' +
+          '<td class="text-right font-mono">' + data.self.highest_level + '</td>' +
+          '<td class="text-right pl-1 text-indigo-300">' + data.self.total_blocks_cleared_best_session + '</td>' +
+          '</tr></tbody></table></div>';
+      }
+      leaderboardContentEl.innerHTML = html;
+      // Attach click handlers to profile buttons
+      for (const btn of leaderboardContentEl.querySelectorAll('[data-profile-btn]')) {
+        btn.addEventListener('click', () => showProfile(btn.textContent));
+      }
+    }
+
     document.getElementById('leaderboard-btn').addEventListener('click', toggleLeaderboard);
     document.getElementById('leaderboard-close').addEventListener('click', closeLeaderboard);
     document.getElementById('profile-close').addEventListener('click', closeProfile);
@@ -5043,6 +5117,7 @@
     document.getElementById('tab-ta-60').addEventListener('click', () => setLeaderboardTab('ta-60'));
     document.getElementById('tab-daily-challenge').addEventListener('click', () => setLeaderboardTab('daily-challenge'));
     document.getElementById('tab-endless').addEventListener('click', () => setLeaderboardTab('endless'));
+    document.getElementById('tab-puzzle').addEventListener('click', () => setLeaderboardTab('puzzle'));
 
     // Close profile on ESC key
     document.addEventListener('keydown', (e) => {
