@@ -106,9 +106,12 @@
 
     /* Hold panel swatch transition for locked/unlocked state */
     #hold-swatch { transition: opacity 0.2s; }
+
+    #bg-canvas { position: fixed; inset: 0; pointer-events: none; }
   </style>
 </head>
 <body class="bg-zinc-950 text-zinc-100">
+  <canvas id="bg-canvas"></canvas>
   <!-- Rotor: everything visual lives inside so portrait phones can force-rotate
        the whole app to landscape in one transform (see CSS). -->
   <div id="rotor">
@@ -233,6 +236,12 @@
        confirmed at a glance. Bump BUILD_VERSION (below) on every change.
        Shifted down to make room for the leaderboard and friends buttons above. -->
   <div id="build-stamp" class="pointer-events-none fixed top-36 right-3 z-20 text-[11px] text-zinc-300/70 bg-black/40 rounded px-2 py-1 font-mono"></div>
+
+  <!-- Mini-map: top-down 128×128 px overhead view of the 32×32 world.
+       Hidden until a play mode is chosen; shown/hidden via JS. -->
+  <canvas id="minimap" width="128" height="128"
+          class="hidden fixed z-20 pointer-events-none"
+          style="top: 11.5rem; right: 0.75rem; border-radius: 6px; border: 1px solid rgba(255,255,255,0.15); opacity: 0.9"></canvas>
 
   <!-- Badges panel: lists all 10 badges with earned/locked state. Hidden by
        default; toggled by the trophy button. -->
@@ -437,7 +446,7 @@
 
     // Build identifier — bump this (to the deploying commit short SHA) on every
     // change so the top-right stamp confirms exactly which code is running.
-    const BUILD_VERSION = 'power-ups+hold-queue+achievements-badges+chat+daily-challenge+leaderboard+online-presence+block-attribution+audio-sfx+next-piece-preview+spectator-mode+weekly-tournament+friends+coin-gifting';
+    const BUILD_VERSION = 'power-ups+hold-queue+achievements-badges+chat+daily-challenge+leaderboard+online-presence+block-attribution+audio-sfx+next-piece-preview+spectator-mode+weekly-tournament+friends+coin-gifting+minimap';
 
     // Badge definitions — mirror of the server-side BADGES array, extended with
     // a `hint` field shown in the panel for unearned badges.
@@ -452,6 +461,7 @@
       { id: 'glowmaster',      name: 'Glowmaster',      icon: '💡', flavour: 'Placed a Glowstone block!',       hint: 'Place a Glowstone block' },
       { id: 'shadow_sculptor', name: 'Shadow Sculptor', icon: '🌑', flavour: 'Placed an Obsidian block!',       hint: 'Place an Obsidian block' },
       { id: 'material_artist', name: 'Material Artist', icon: '🎨', flavour: 'Used 8+ different block types!', hint: 'Use 8 or more different block types' },
+      { id: 'crystal_placer',  name: 'Crystal Placer',  icon: '💎', flavour: 'Placed a Crystal Block!',        hint: 'Place a Crystal Block (unlock by placing 50 blocks first)' },
       { id: 'streak_3',        name: 'Hot Start',       icon: '🔥', flavour: 'Logged in 3 days in a row!',     hint: 'Log in 3 days in a row' },
       { id: 'streak_7',        name: 'Week Warrior',    icon: '🗓️', flavour: 'A full week of building!',       hint: 'Log in 7 days in a row' },
       { id: 'streak_14',       name: 'Fortnight Pro',   icon: '🏆', flavour: 'Two weeks of daily play!',       hint: 'Log in 14 days in a row' },
@@ -666,6 +676,7 @@
     const blocks = new Map();        // "x,y,z" -> block_type (non-zero only) — classic world
     let cursor = 0;                  // last seq seen from the server
     let selectedType = 1;
+    let unlockedTypes = new Set(); // block type IDs earned by the current user
     const key = (x, y, z) => x + ',' + y + ',' + z;
 
     // ---- Power-up state ----
@@ -730,7 +741,13 @@
     const materials = new Map();
     function materialFor(p) {
       const opts = { color: new THREE.Color(p.color) };
-      if (p.opacity != null && p.opacity < 1) { opts.transparent = true; opts.opacity = p.opacity; }
+      if (p.opacity != null && p.opacity < 1) { opts.transparent = true; opts.opacity = p.opacity; opts.side = THREE.DoubleSide; }
+      if (p.emissive) { opts.emissive = new THREE.Color(p.emissive); opts.emissiveIntensity = p.emissiveIntensity ?? 1; }
+      if (p.material === 'standard' || p.metalness != null || p.emissive) {
+        if (p.metalness != null) opts.metalness = p.metalness;
+        if (p.roughness != null) opts.roughness = p.roughness;
+        return new THREE.MeshStandardMaterial(opts);
+      }
       return new THREE.MeshLambertMaterial(opts);
     }
 
@@ -749,6 +766,128 @@
     }
     const powerupGroup = new THREE.Group();
     scene.add(powerupGroup);
+
+    // ---- Particle system ----
+    const PARTICLE_POOL_SIZE = 150;
+    const particleGeom = new THREE.BoxGeometry(0.1, 0.1, 0.1);
+    const particleGroup = new THREE.Group();
+    scene.add(particleGroup);
+
+    const particlePool = [];
+    for (let _i = 0; _i < PARTICLE_POOL_SIZE; _i++) {
+      const mat = new THREE.MeshBasicMaterial({
+        color: 0xffffff,
+        transparent: true,
+        depthWrite: false,
+        opacity: 1,
+      });
+      const mesh = new THREE.Mesh(particleGeom, mat);
+      mesh.visible = false;
+      particleGroup.add(mesh);
+      particlePool.push({ mesh, active: false, vx: 0, vy: 0, vz: 0, age: 0, maxAge: 1, startOpacity: 1, gravity: 0 });
+    }
+
+    function _acquireParticle() {
+      for (let _j = 0; _j < PARTICLE_POOL_SIZE; _j++) {
+        if (!particlePool[_j].active) return particlePool[_j];
+      }
+      return null;
+    }
+
+    function emitBlockBreak(cx, cy, cz, blockType) {
+      const p = PALETTE.find((q) => q.id === blockType);
+      const hexColor = p ? p.color : '#888888';
+      const baseColor = new THREE.Color(hexColor);
+      for (let _k = 0; _k < 14; _k++) {
+        const slot = _acquireParticle();
+        if (!slot) break;
+        const speed = 2 + Math.random() * 3;
+        const theta = Math.random() * Math.PI * 2;
+        const phi = Math.acos(2 * Math.random() - 1);
+        const c = new THREE.Color(baseColor);
+        const darken = 0.75 + Math.random() * 0.25;
+        c.r = Math.min(1, c.r * darken);
+        c.g = Math.min(1, c.g * darken);
+        c.b = Math.min(1, c.b * darken);
+        slot.mesh.material.color.copy(c);
+        slot.mesh.material.opacity = 1;
+        slot.startOpacity = 1;
+        slot.vx = Math.sin(phi) * Math.cos(theta) * speed;
+        slot.vy = Math.sin(phi) * Math.sin(theta) * speed + 1.5;
+        slot.vz = Math.cos(phi) * speed;
+        slot.gravity = 9;
+        slot.age = 0;
+        slot.maxAge = 0.5 + Math.random() * 0.3;
+        const scale = 0.6 + Math.random() * 0.6;
+        slot.mesh.scale.setScalar(scale);
+        slot.mesh.position.set(cx + (Math.random() - 0.5) * 0.3, cy + (Math.random() - 0.5) * 0.3, cz + (Math.random() - 0.5) * 0.3);
+        slot.mesh.visible = true;
+        slot.active = true;
+      }
+    }
+
+    function emitBlockPlace(cx, cy, cz) {
+      for (let _k = 0; _k < 7; _k++) {
+        const slot = _acquireParticle();
+        if (!slot) break;
+        const speed = 0.8 + Math.random() * 1.2;
+        const theta = Math.random() * Math.PI * 2;
+        const phi = Math.acos(2 * Math.random() - 1);
+        slot.mesh.material.color.set(0xe8e8e8);
+        slot.mesh.material.opacity = 0.85;
+        slot.startOpacity = 0.85;
+        slot.vx = Math.sin(phi) * Math.cos(theta) * speed;
+        slot.vy = Math.sin(phi) * Math.sin(theta) * speed;
+        slot.vz = Math.cos(phi) * speed;
+        slot.gravity = 1.5;
+        slot.age = 0;
+        slot.maxAge = 0.2 + Math.random() * 0.15;
+        const scale = 0.5 + Math.random() * 0.4;
+        slot.mesh.scale.setScalar(scale);
+        slot.mesh.position.set(cx + (Math.random() - 0.5) * 0.2, cy + (Math.random() - 0.5) * 0.2, cz + (Math.random() - 0.5) * 0.2);
+        slot.mesh.visible = true;
+        slot.active = true;
+      }
+    }
+
+    function emitFootstepDust(px, py, pz) {
+      for (let _k = 0; _k < 3; _k++) {
+        const slot = _acquireParticle();
+        if (!slot) break;
+        slot.mesh.material.color.set(0x9a8070);
+        slot.mesh.material.opacity = 0.7;
+        slot.startOpacity = 0.7;
+        slot.vx = (Math.random() - 0.5) * 0.6;
+        slot.vy = 0.3 + Math.random() * 0.4;
+        slot.vz = (Math.random() - 0.5) * 0.6;
+        slot.gravity = 0;
+        slot.age = 0;
+        slot.maxAge = 0.2 + Math.random() * 0.15;
+        const scale = 0.4 + Math.random() * 0.3;
+        slot.mesh.scale.setScalar(scale);
+        slot.mesh.position.set(px + (Math.random() - 0.5) * 0.4, py, pz + (Math.random() - 0.5) * 0.4);
+        slot.mesh.visible = true;
+        slot.active = true;
+      }
+    }
+
+    function tickParticles(dt) {
+      for (let _j = 0; _j < PARTICLE_POOL_SIZE; _j++) {
+        const slot = particlePool[_j];
+        if (!slot.active) continue;
+        slot.vy -= slot.gravity * dt;
+        slot.mesh.position.x += slot.vx * dt;
+        slot.mesh.position.y += slot.vy * dt;
+        slot.mesh.position.z += slot.vz * dt;
+        slot.age += dt;
+        const t = slot.age / slot.maxAge;
+        slot.mesh.material.opacity = (1 - t) * slot.startOpacity;
+        if (slot.age >= slot.maxAge) {
+          slot.active = false;
+          slot.mesh.visible = false;
+        }
+      }
+    }
 
     // Ground = immutable grass layer at y = 0 (one InstancedMesh, raycastable
     // so blocks can be placed on top, but never breakable).
@@ -794,8 +933,10 @@
     // In TA mode uses taBlocks; otherwise uses the shared blocks map.
     const blockGroup = new THREE.Group();
     scene.add(blockGroup);
+    let crystalMaterial = null; // tracked for emissive pulse animation in the render loop
     function rebuildBlockMeshes() {
       blockGroup.clear();
+      crystalMaterial = null;
       const source = gameMode === 'timeattack' ? taBlocks : blocks;
       const byType = new Map();
       for (const [k, t] of source) {
@@ -807,7 +948,9 @@
       for (const [t, cells] of byType) {
         const p = PALETTE.find((q) => q.id === t);
         if (!p) continue;
-        const mesh = new THREE.InstancedMesh(cube, materialFor(p), cells.length);
+        const mat = materialFor(p);
+        if (t === 18) crystalMaterial = mat;
+        const mesh = new THREE.InstancedMesh(cube, mat, cells.length);
         cells.forEach((c, i) => {
           dummy.position.set(c.x + 0.5, c.y + 0.5, c.z + 0.5);
           dummy.updateMatrix();
@@ -894,7 +1037,7 @@
       const badge = toastQueue.shift();
       const container = document.getElementById('badge-toasts');
       const toast = document.createElement('div');
-      toast.className = 'flex items-center gap-3 bg-black/85 backdrop-blur rounded-xl px-4 py-2.5 text-sm text-zinc-100 shadow-xl';
+      toast.className = 'flex items-center gap-3 bg-black/85 backdrop-blur rounded-xl px-4 py-2.5 text-sm text-zinc-100 shadow-xl' + (badge._isUnlock ? ' ring-2 ring-violet-500/60' : '');
       toast.style.cssText = 'opacity:0;transition:opacity 0.3s;';
       const iconSpan = document.createElement('span');
       iconSpan.className = 'text-2xl leading-none flex-shrink-0';
@@ -922,6 +1065,11 @@
 
     function showBadgeToast(badge) {
       toastQueue.push(badge);
+      if (!toastShowing) showNextToast();
+    }
+
+    function showUnlockToast(item) {
+      toastQueue.push({ icon: item.icon, name: item.name, flavour: item.description, _isUnlock: true });
       if (!toastShowing) showNextToast();
     }
 
@@ -977,6 +1125,59 @@
         }
       }
       if (html !== _lastHudHtml) { powerupHudEl.innerHTML = html; _lastHudHtml = html; }
+    }
+
+    // ---- Mini-map rendering ----
+    function renderMinimap() {
+      const SCALE = 4; // px per world unit (128px / 32 units)
+      const SIZE = 128;
+
+      // Dark background for cells with no blocks (borders / unbuilt areas).
+      minimapCtx.fillStyle = 'rgba(20,20,30,0.85)';
+      minimapCtx.fillRect(0, 0, SIZE, SIZE);
+
+      // Grass base layer — every (x, z) cell starts as grass.
+      const grassEntry = PALETTE.find((p) => p.name === 'Grass');
+      const grassColor = grassEntry ? grassEntry.color : '#5a8a3c';
+      minimapCtx.fillStyle = grassColor;
+      for (let x = 0; x < DIMS.w; x++) {
+        for (let z = 0; z < DIMS.d; z++) {
+          minimapCtx.fillRect(x * SCALE, z * SCALE, SCALE, SCALE);
+        }
+      }
+
+      // Topmost player-placed block at each (x, z) overpaints the grass.
+      const source = gameMode === 'timeattack' ? taBlocks : blocks;
+      for (let x = 0; x < DIMS.w; x++) {
+        for (let z = 0; z < DIMS.d; z++) {
+          for (let y = DIMS.h - 1; y >= 1; y--) {
+            const t = source.get(key(x, y, z));
+            if (t) {
+              const p = PALETTE.find((q) => q.id === t);
+              if (p) { minimapCtx.fillStyle = p.color; minimapCtx.fillRect(x * SCALE, z * SCALE, SCALE, SCALE); }
+              break;
+            }
+          }
+        }
+      }
+
+      // Player position dot + facing indicator.
+      const mx = Math.max(0, Math.min(SIZE, camera.position.x * SCALE));
+      const mz = Math.max(0, Math.min(SIZE, camera.position.z * SCALE));
+      const dx = -Math.sin(yaw);
+      const dz = -Math.cos(yaw);
+
+      minimapCtx.strokeStyle = 'white';
+      minimapCtx.lineWidth = 1.5;
+      minimapCtx.beginPath();
+      minimapCtx.moveTo(mx, mz);
+      minimapCtx.lineTo(mx + dx * 7, mz + dz * 7);
+      minimapCtx.stroke();
+
+      minimapCtx.fillStyle = 'white';
+      minimapCtx.beginPath();
+      minimapCtx.arc(mx, mz, 3.5, 0, Math.PI * 2);
+      minimapCtx.fill();
     }
 
     // ---- Power-up world sync ----
@@ -1123,6 +1324,13 @@
             }
             if (badgesOpen) renderBadgesPanel();
           }
+          if (data.newly_unlocked_types && data.newly_unlocked_types.length) {
+            for (const ut of data.newly_unlocked_types) {
+              unlockedTypes.add(ut.id);
+              showUnlockToast(ut);
+            }
+            buildPalette(); // re-render palette so the newly unlocked swatch activates
+          }
           if (data.challenge) syncChallenge(data.challenge);
           if (data.coin_balance != null) {
             coinBalance = data.coin_balance;
@@ -1177,11 +1385,13 @@
         const k = key(x, y, z);
         if (taBlocks.get(k) === selectedType) return;
         taBlocks.set(k, selectedType);
+        emitBlockPlace(x + 0.5, y + 0.5, z + 0.5);
         rebuildBlockMeshes();
         return;
       }
       if (blocks.get(key(x, y, z)) === selectedType) return;
       audio.playPlace();
+      emitBlockPlace(x + 0.5, y + 0.5, z + 0.5);
       sendEdit(x, y, z, selectedType);
       // Unlock hold after each successful placement (Tetris lock rule)
       holdLocked = false;
@@ -1195,14 +1405,18 @@
       if (gameMode === 'timeattack') {
         const k = key(x, y, z);
         if (!taBlocks.has(k)) return;
+        const brokenTypeTa = taBlocks.get(k);
         taBlocks.delete(k);
+        emitBlockBreak(x + 0.5, y + 0.5, z + 0.5, brokenTypeTa);
         taScore++;
         rebuildBlockMeshes();
         updateTaScoreDisplay();
         return;
       }
       if (!blocks.has(key(x, y, z))) return;
+      const brokenType = blocks.get(key(x, y, z));
       audio.playBreak();
+      emitBlockBreak(x + 0.5, y + 0.5, z + 0.5, brokenType);
       sendEdit(x, y, z, 0);
     }
 
@@ -1227,6 +1441,12 @@
     const hintFallbackEl = document.getElementById('hint-fallback');
     const lookModeEl = document.getElementById('lookmode');
     const touchControlsEl = document.getElementById('touch-controls');
+
+    // ---- Mini-map DOM refs + helpers ----
+    const minimapEl = document.getElementById('minimap');
+    const minimapCtx = minimapEl.getContext('2d');
+    function showMinimap() { minimapEl.classList.remove('hidden'); }
+    function hideMinimap() { minimapEl.classList.add('hidden'); }
 
     // ---- Chat DOM refs ----
     const chatDrawerEl = document.getElementById('chat-drawer');
@@ -1469,6 +1689,7 @@
       dragging = false;
       canvas.style.cursor = 'grab';
       overlayEl.style.display = 'none';
+      if (!wasAlreadyPlaying) showMinimap();
       refreshControlCopy();
       if (!wasAlreadyPlaying) onPlayEntered();
     }
@@ -1479,6 +1700,7 @@
       playing = true;
       dragging = false;
       overlayEl.style.display = 'none';
+      showMinimap();
       refreshControlCopy();
       updateTouchControlsVisibility();
       onPlayEntered();
@@ -1511,6 +1733,7 @@
       document.getElementById('crosshair').style.opacity = '';
       hideComboHud();
 
+      hideMinimap();
       overlayEl.style.display = 'flex';
       refreshControlCopy();
       updateTouchControlsVisibility();
@@ -1553,6 +1776,7 @@
         lockUnavailable = false;
         canvas.style.cursor = '';
         overlayEl.style.display = 'none';
+        showMinimap();
         onPlayEntered();
       } else if (chatOpening) {
         // Lock released specifically so the player can type in chat.
@@ -1570,6 +1794,7 @@
           playing = false;
           resetMove();
           hideComboHud();
+          hideMinimap();
           overlayEl.style.display = 'flex';
         }
         // gameMode === 'timeattack' && !playing: endTimeAttack already ran, nothing to do.
@@ -1696,6 +1921,7 @@
             resetMove();
             hideComboHud();
             canvas.style.cursor = '';
+            hideMinimap();
             overlayEl.style.display = 'flex';
             refreshControlCopy();
           }
@@ -2304,6 +2530,8 @@
 
     // ---- Palette UI ----
     function selectType(id) {
+      const _p = PALETTE.find((q) => q.id === id);
+      if (_p && _p.unlockAt && !unlockedTypes.has(id)) return; // block not yet unlocked
       selectedType = id;
       for (const el of document.querySelectorAll('#palette [data-id]')) {
         el.classList.toggle('ring-2', Number(el.dataset.id) === id);
@@ -2322,19 +2550,30 @@
       const wrap = document.getElementById('palette');
       wrap.innerHTML = '';
       PALETTE.forEach((p, i) => {
+        const isLocked = !!(p.unlockAt && !unlockedTypes.has(p.id));
         const btn = document.createElement('button');
         btn.dataset.id = p.id;
-        btn.title = p.name + (i < 9 ? ' (' + (i + 1) + ')' : '');
+        btn.title = isLocked
+          ? p.name + ' (place ' + p.unlockAt + ' blocks to unlock)'
+          : p.name + (i < 9 ? ' (' + (i + 1) + ')' : '');
         btn.className = 'relative w-10 h-10 rounded-md ring-offset-1 ring-offset-black/0 transition';
         btn.style.background = p.color;
-        if (p.opacity != null && p.opacity < 1) btn.style.opacity = '0.7';
-        if (i < 9) {
-          const num = document.createElement('span');
-          num.textContent = i + 1;
-          num.className = 'absolute bottom-0 right-0.5 text-[10px] font-bold text-black/60';
-          btn.appendChild(num);
+        if (isLocked) {
+          btn.style.opacity = '0.35';
+          const lock = document.createElement('span');
+          lock.textContent = '🔒';
+          lock.className = 'absolute top-0 right-0 text-[9px] leading-none';
+          btn.appendChild(lock);
+        } else {
+          if (p.opacity != null && p.opacity < 1) btn.style.opacity = '0.7';
+          if (i < 9) {
+            const num = document.createElement('span');
+            num.textContent = i + 1;
+            num.className = 'absolute bottom-0 right-0.5 text-[10px] font-bold text-black/60';
+            btn.appendChild(num);
+          }
+          btn.addEventListener('click', () => selectType(p.id));
         }
-        btn.addEventListener('click', () => selectType(p.id));
         wrap.appendChild(btn);
       });
       selectType(selectedType);
@@ -2482,6 +2721,7 @@
       DIMS = data.dims;
       PALETTE = data.palette;
       cursor = data.cursor || 0;
+      unlockedTypes = new Set(data.unlockedTypes || []);
       selectedType = PALETTE[0] ? PALETTE[0].id : 1;
       blocks.clear();
       for (const b of data.blocks) blocks.set(key(b.x, b.y, b.z), b.t);
@@ -2606,8 +2846,6 @@
             rebuildBlockMeshes();
           }
           if (c && c > cursor) cursor = c;
-          // Only rebuild if we're currently in classic mode showing the shared world.
-          if (gameMode !== 'timeattack') rebuildBlockMeshes();
         }
       } catch (e) { /* transient; next tick retries */ }
 
@@ -2665,6 +2903,7 @@
     }
 
     let prev = performance.now();
+    let lastFootstep = 0;
     const fwd = new THREE.Vector3(), right = new THREE.Vector3(), horiz = new THREE.Vector3();
     function loop(now) {
       const dt = Math.min((now - prev) / 1000, 0.1);
@@ -2698,6 +2937,10 @@
         if (move.r) horiz.add(right);
         if (move.l) horiz.sub(right);
         if (horiz.lengthSq() > 1) horiz.normalize();
+        if (horiz.lengthSq() > 0 && (now - lastFootstep) > 300) {
+          emitFootstepDust(camera.position.x, camera.position.y - 0.9, camera.position.z);
+          lastFootstep = now;
+        }
         camera.position.addScaledVector(horiz, horizStep);
         if (move.up)   camera.position.y += vertStep;
         if (move.down) camera.position.y -= vertStep;
@@ -2736,10 +2979,14 @@
         }
       }
 
+      tickParticles(dt);
       updateTarget();
       updateAttribution();
+      // Animate Crystal block emissive glow: gentle 0.2→0.4 pulse (~7.9s period).
+      if (crystalMaterial) crystalMaterial.emissiveIntensity = 0.2 + 0.2 * Math.sin(now * 0.0008);
       renderBuffHud();
       renderer.render(scene, camera);
+      if (gameMode !== null) renderMinimap();
       requestAnimationFrame(loop);
     }
 
@@ -2815,6 +3062,73 @@
         } catch (_) {}
       }, 30000);
     })();
+  </script>
+  <script>
+  // Animated background: falling, rotating mini-blocks
+  (function () {
+    var bgCanvas = document.getElementById('bg-canvas');
+    var ctx = bgCanvas.getContext('2d');
+    var COLORS = ['#5fae3a','#8d8d92','#ddca8a','#9c4a3c','#3b6dd2','#f5c842'];
+    var particles = [];
+
+    function rand(min, max) { return min + Math.random() * (max - min); }
+
+    function makeParticle(randomY) {
+      var size = rand(14, 22);
+      return {
+        x: rand(0, bgCanvas.width),
+        y: randomY ? rand(-size, bgCanvas.height + size) : -size,
+        size: size,
+        speed: rand(0.4, 1.2),
+        drift: rand(-0.3, 0.3),
+        angle: rand(0, Math.PI * 2),
+        angleSpeed: rand(0.006, 0.010) * (Math.random() < 0.5 ? 1 : -1),
+        alpha: rand(0.45, 0.80),
+        color: COLORS[Math.floor(Math.random() * COLORS.length)],
+      };
+    }
+
+    function resize() {
+      bgCanvas.width = window.innerWidth;
+      bgCanvas.height = window.innerHeight;
+      var count = Math.max(8, Math.round((bgCanvas.width * bgCanvas.height) / 40000));
+      particles = [];
+      for (var i = 0; i < count; i++) particles.push(makeParticle(true));
+    }
+
+    function draw() {
+      ctx.clearRect(0, 0, bgCanvas.width, bgCanvas.height);
+      for (var i = 0; i < particles.length; i++) {
+        var p = particles[i];
+        p.y += p.speed;
+        p.x += p.drift;
+        p.angle += p.angleSpeed;
+        if (p.y > bgCanvas.height + p.size) {
+          particles[i] = makeParticle(false);
+          continue;
+        }
+        ctx.save();
+        ctx.globalAlpha = p.alpha;
+        ctx.fillStyle = p.color;
+        ctx.translate(p.x, p.y);
+        ctx.rotate(p.angle);
+        ctx.fillRect(-p.size / 2, -p.size / 2, p.size, p.size);
+        ctx.restore();
+      }
+    }
+
+    var reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+    resize();
+    window.addEventListener('resize', resize);
+
+    if (!reducedMotion) {
+      (function bgLoop() {
+        draw();
+        requestAnimationFrame(bgLoop);
+      })();
+    }
+  })();
   </script>
 </body>
 </html>
