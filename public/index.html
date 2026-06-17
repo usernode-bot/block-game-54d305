@@ -584,8 +584,8 @@
           class="hidden fixed z-20 pointer-events-none"
           style="top: 11.5rem; right: 0.75rem; border-radius: 6px; border: 1px solid rgba(255,255,255,0.15); opacity: 0.9"></canvas>
 
-  <!-- AI Coach bubble: appears on the left side with a tip. Hidden by default. -->
-  <div id="coach-bubble" class="hidden fixed left-4 top-1/2 -translate-y-1/2 z-20 max-w-[240px]"
+  <!-- AI Coach bubble: persistent floating bubble in bottom-left corner. Hidden by default. -->
+  <div id="coach-bubble" class="hidden fixed bottom-4 left-4 z-20 max-w-[240px]"
        style="transition: opacity 0.3s; opacity: 0">
     <div class="bg-black/75 backdrop-blur rounded-xl px-4 py-3 text-sm text-zinc-100 shadow-xl">
       <div class="flex items-start gap-2">
@@ -1608,7 +1608,6 @@
     const COACH_COOLDOWN_MS = 30_000;
     let coachGrantRequired = false;  // true if LLM proxy returned grant_required
     let coachFetching = false;       // prevents concurrent tip fetches
-    let coachDismissTimer = null;
     let sessionBlocksPlaced = 0;     // placements this session, for milestone trigger
     let sessionScore = 0;
 
@@ -3901,7 +3900,6 @@
       // Dismiss any active coach tip and restore coach button.
       coachBubbleEl.classList.add('hidden');
       coachBubbleEl.style.opacity = '0';
-      if (coachDismissTimer) { clearTimeout(coachDismissTimer); coachDismissTimer = null; }
       coachBtnEl.classList.remove('hidden');
       overlayEl.style.display = 'flex';
       refreshControlCopy();
@@ -5126,31 +5124,13 @@
       // Force reflow then fade in.
       void coachBubbleEl.offsetWidth;
       coachBubbleEl.style.opacity = '1';
-      if (coachDismissTimer) clearTimeout(coachDismissTimer);
-      coachDismissTimer = setTimeout(() => {
-        coachBubbleEl.style.opacity = '0';
-        coachDismissTimer = setTimeout(() => {
-          coachBubbleEl.classList.add('hidden');
-          coachDismissTimer = null;
-        }, 350);
-      }, 8000);
     }
 
     function showCoachUnavailable() {
-      const prev = coachTipTextEl.textContent;
       coachTipTextEl.textContent = 'Coach is resting — try again later.';
       coachBubbleEl.classList.remove('hidden');
       void coachBubbleEl.offsetWidth;
       coachBubbleEl.style.opacity = '1';
-      if (coachDismissTimer) clearTimeout(coachDismissTimer);
-      coachDismissTimer = setTimeout(() => {
-        coachBubbleEl.style.opacity = '0';
-        coachDismissTimer = setTimeout(() => {
-          coachBubbleEl.classList.add('hidden');
-          coachTipTextEl.textContent = prev;
-          coachDismissTimer = null;
-        }, 350);
-      }, 3000);
     }
 
     async function fetchCoachTip(trigger, badgeName, _retried) {
@@ -5212,7 +5192,6 @@
 
     coachBtnEl.addEventListener('click', () => fetchCoachTip('player_asked'));
     document.getElementById('coach-dismiss').addEventListener('click', () => {
-      if (coachDismissTimer) { clearTimeout(coachDismissTimer); coachDismissTimer = null; }
       coachBubbleEl.style.opacity = '0';
       setTimeout(() => coachBubbleEl.classList.add('hidden'), 350);
     });
