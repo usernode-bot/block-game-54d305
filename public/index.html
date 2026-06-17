@@ -240,6 +240,21 @@
     }
     .a11y-toggle[aria-checked="true"]::after { transform: translateX(20px); }
 
+    /* Chaos Mode: pulsing rainbow outline on the palette */
+    @keyframes chaos-rainbow {
+      0%   { box-shadow: 0 0 0 2px hsl(0,100%,60%); }
+      16%  { box-shadow: 0 0 0 2px hsl(60,100%,60%); }
+      33%  { box-shadow: 0 0 0 2px hsl(120,100%,60%); }
+      50%  { box-shadow: 0 0 0 2px hsl(180,100%,60%); }
+      66%  { box-shadow: 0 0 0 2px hsl(240,100%,70%); }
+      83%  { box-shadow: 0 0 0 2px hsl(300,100%,65%); }
+      100% { box-shadow: 0 0 0 2px hsl(360,100%,60%); }
+    }
+    #palette.chaos-active {
+      animation: chaos-rainbow 1.6s linear infinite;
+      border-radius: 0.5rem;
+    }
+
     /* Undo/redo buttons: disabled state */
     #undo-btn:disabled, #redo-btn:disabled,
     #history-undo-btn:disabled, #history-redo-btn:disabled {
@@ -363,6 +378,74 @@
         max-height: auto;
         overflow-y: auto;
         padding: 1rem !important;
+      }
+    }
+
+    /* Landscape mode: split gameplay control buttons to corners for two-thumb control.
+       When in landscape orientation, move Undo/Delete to bottom-left, keep Add/Hold at bottom-right. */
+    @media (orientation: landscape) {
+      /* In landscape mode on touch, split the action buttons between left and right corners. */
+
+      /* Position Undo and Delete buttons absolutely at bottom-left. */
+      #touch-controls.landscape-mode #tc-actions > div:nth-child(2) > button:nth-child(1),
+      #touch-controls.landscape-mode #tc-actions > div:nth-child(2) > button:nth-child(2) {
+        position: fixed;
+        bottom: calc(1rem + env(safe-area-inset-bottom));
+        z-index: 20;
+      }
+
+      /* Undo button at bottom-left. */
+      #touch-controls.landscape-mode #tc-actions > div:nth-child(2) > button:nth-child(1) {
+        left: calc(1rem + env(safe-area-inset-left));
+        right: auto;
+      }
+
+      /* Delete button to the right of Undo. Approximately 4rem for button + gap. */
+      #touch-controls.landscape-mode #tc-actions > div:nth-child(2) > button:nth-child(2) {
+        left: calc(4.25rem + env(safe-area-inset-left));
+        right: auto;
+      }
+
+      /* Keep row 2 container visible but only Add will show on the right. */
+      #touch-controls.landscape-mode #tc-actions > div:nth-child(2) {
+        position: relative;
+      }
+
+      /* Main actions container: keep at bottom-right. */
+      #touch-controls.landscape-mode #tc-actions {
+        right: calc(1rem + env(safe-area-inset-right));
+        bottom: calc(1rem + env(safe-area-inset-bottom));
+        flex-direction: column;
+        align-items: flex-end;
+        gap: 0.25rem;
+      }
+
+      /* Row 1 (Hold/Down/Up): show Hold, hide Down and Up. */
+      #touch-controls.landscape-mode #tc-actions > div:nth-child(1) {
+        display: flex;
+        gap: 0.25rem;
+      }
+
+      #touch-controls.landscape-mode #tc-actions > div:nth-child(1) > button:nth-child(2),
+      #touch-controls.landscape-mode #tc-actions > div:nth-child(1) > button:nth-child(3) {
+        display: none;
+      }
+
+      /* Row 2: show in place at right, but Undo/Delete are now positioned at left. */
+      #touch-controls.landscape-mode #tc-actions > div:nth-child(2) {
+        display: flex;
+        gap: 0.25rem;
+      }
+
+      /* Row 3 (Stamp): show on the right. */
+      #touch-controls.landscape-mode #tc-actions > div:nth-child(3) {
+        display: flex;
+        gap: 0.25rem;
+      }
+
+      /* Reduce palette bottom offset to avoid overlap with landscape controls. */
+      #palette.touch-playing {
+        bottom: 8.5rem;
       }
     }
 
@@ -510,8 +593,8 @@
       position: absolute;
       font-weight: 800;
       font-size: 1.4rem;
-      color: #ffb700;
-      text-shadow: 0 1px 3px rgba(0,0,0,0.7), 0 0 8px rgba(255,183,0,0.5);
+      color: #f5d27a;
+      text-shadow: 0 1px 3px rgba(0,0,0,0.7), 0 0 8px rgba(245,210,122,0.5);
       white-space: nowrap;
       will-change: transform, opacity;
     }
@@ -620,6 +703,27 @@
         <button id="accessibility-link" class="text-xs text-zinc-400 hover:text-zinc-100 underline underline-offset-2 cursor-pointer transition-colors">♿ Accessibility</button>
       </div>
       <div id="online-list" class="mt-3 text-sm text-zinc-400 text-center"></div>
+
+      <!-- Wager step: replaces mode cards when player clicks Play Time Attack -->
+      <div id="wager-panel" class="hidden w-full">
+        <div class="text-center mb-4">
+          <h2 class="text-xl font-bold mb-1">Place Your Wager</h2>
+          <p class="text-zinc-400 text-sm">Bet coins on your Time Attack score.</p>
+          <p id="wager-balance-display" class="text-amber-300 font-semibold text-sm mt-1">🪙 0 coins</p>
+        </div>
+        <div id="wager-tiers" class="grid grid-cols-2 gap-2 mb-3"></div>
+        <div id="wager-amount-row" class="hidden mb-3">
+          <label class="text-zinc-400 text-xs mb-1 block">Bet amount (5–<span id="wager-max-label">100</span> coins)</label>
+          <input id="wager-amount" type="number" min="5" max="100" value="25"
+                 class="w-full bg-zinc-800 text-zinc-100 text-sm rounded px-3 py-2 border border-zinc-700 focus:border-amber-500 outline-none">
+        </div>
+        <div class="flex gap-3">
+          <button id="wager-bet-btn" class="hidden flex-1 px-4 py-2 rounded-lg bg-amber-600 hover:bg-amber-500 font-semibold text-sm transition-colors">Bet &amp; Play</button>
+          <button id="wager-skip-btn" class="flex-1 px-4 py-2 rounded-lg bg-zinc-700 hover:bg-zinc-600 font-semibold text-sm transition-colors">Skip (play free)</button>
+        </div>
+        <div id="wager-error" class="mt-2 text-xs text-red-400 text-center min-h-[1.2em]"></div>
+      </div>
+
       <div id="footer" class="mt-4 pt-3 border-t border-zinc-700/60 text-xs text-zinc-500 text-center">
         <p class="mb-1" id="footer-copyright">© 2026 block-game</p>
         <p id="footer-credit">Built with Three.js and Tailwind CSS</p>
@@ -714,6 +818,10 @@
   <!-- Badges toggle: sits to the left of the mute button. -->
   <button id="badges-btn" title="Badges" aria-label="Toggle badges"
           class="fixed top-3 z-30 w-12 h-12 sm:w-9 sm:h-9 rounded-full bg-black/50 hover:bg-black/70 text-zinc-100 text-lg leading-none flex items-center justify-center transition hover:scale-110 active:scale-95 cursor-pointer">🏆</button>
+
+  <!-- Pet companion toggle: sits to the left of the badges button. -->
+  <button id="pet-btn" title="Pet Companions" aria-label="Toggle pet companions"
+          class="fixed top-3 z-30 w-9 h-9 rounded-full bg-black/50 hover:bg-black/70 text-zinc-100 text-lg leading-none flex items-center justify-center transition-colors cursor-pointer" style="right: 9.5rem">🐾</button>
 
   <!-- Audio mute toggle: sits to the left of the help button. -->
   <button id="mute-btn" title="Mute/unmute audio (M)" aria-label="Toggle audio"
@@ -837,6 +945,13 @@
           <span id="settings-sound-knob" class="absolute top-0.5 left-0.5 w-6 h-6 rounded-full bg-white shadow transition-transform" style="transform: translateX(20px)"></span>
         </button>
       </div>
+      <!-- Music volume slider -->
+      <div class="text-zinc-300 pt-3 border-t border-zinc-700">
+        <div class="font-semibold text-zinc-100 mb-2" id="settings-music-volume-label">Music Volume</div>
+        <input type="range" id="settings-music-volume" min="0" max="100" value="70" aria-label="Music volume"
+               class="w-full h-2 bg-zinc-700 rounded-lg appearance-none cursor-pointer accent-emerald-600" />
+        <div class="text-xs text-zinc-400 mt-1">Reggae background music level</div>
+      </div>
       <!-- Language toggle -->
       <div class="flex items-center justify-between gap-3">
         <div>
@@ -846,6 +961,17 @@
         <button id="settings-language-toggle" role="switch" aria-checked="false"
                 class="relative w-12 h-7 rounded-full bg-violet-600 transition-colors cursor-pointer flex-shrink-0">
           <span id="settings-language-knob" class="absolute top-0.5 left-0.5 w-6 h-6 rounded-full bg-white shadow transition-transform" style="transform: translateX(0px)"></span>
+        </button>
+      </div>
+      <!-- Chaos Mode toggle -->
+      <div class="flex items-center justify-between gap-3">
+        <div>
+          <div class="font-semibold text-zinc-100" id="settings-chaos-label">Chaos Mode</div>
+          <div class="text-xs text-zinc-400" id="settings-chaos-desc">Placed blocks get a random type.</div>
+        </div>
+        <button id="settings-chaos-toggle" role="switch" aria-checked="false"
+                class="relative w-12 h-7 rounded-full bg-zinc-600 transition-colors cursor-pointer flex-shrink-0">
+          <span id="settings-chaos-knob" class="absolute top-0.5 left-0.5 w-6 h-6 rounded-full bg-white shadow transition-transform" style="transform: translateX(0px)"></span>
         </button>
       </div>
       <!-- Time Attack difficulty -->
@@ -889,8 +1015,21 @@
     </div>
   </div>
 
+  <!-- Pet companions panel: equip / unequip pixel pet. Hidden by default. -->
+  <div id="pet-panel" class="hidden fixed top-16 z-30 w-80 max-w-[90vw] rounded-xl bg-black/70 backdrop-blur p-4 text-sm text-zinc-200 shadow-xl" style="right: 3rem">
+    <div class="flex items-center justify-between mb-3">
+      <h2 class="font-bold text-zinc-100">Pet Companions</h2>
+      <button id="pet-close" aria-label="Close pets" class="text-zinc-400 hover:text-zinc-100 cursor-pointer leading-none">✕</button>
+    </div>
+    <div id="pet-grid" class="grid grid-cols-3 gap-2"></div>
+    <p id="pet-hint" class="mt-3 text-xs text-zinc-400 text-center">Place more blocks to unlock companions!</p>
+  </div>
+
   <!-- Badge toast container: toasts stack above the palette, bottom-centre. -->
   <div id="badge-toasts" class="pointer-events-none fixed left-1/2 -translate-x-1/2 z-40 flex flex-col-reverse items-center gap-2" style="bottom: 5.5rem"></div>
+
+  <!-- Coins HUD: coin balance pill above the streak pill. Bottom set by JS. -->
+  <div id="coins-hud" class="hidden pointer-events-none fixed right-3 z-20 rounded-lg bg-black/55 px-2 py-1.5 text-xs text-amber-300 font-semibold whitespace-nowrap"></div>
 
   <!-- Daily Prompt HUD: compact pill above the streak HUD. Bottom set by JS. -->
   <div id="prompt-hud" class="hidden pointer-events-none fixed right-3 z-20 w-36 rounded-lg bg-black/55 px-2 py-1.5 text-xs text-white/90"></div>
@@ -901,6 +1040,9 @@
   <!-- Daily Challenge HUD: bottom position set by JS (touch devices are raised
        to clear the on-screen action cluster). Hidden until init() loads data. -->
   <div id="challenge-hud" class="hidden pointer-events-none fixed right-3 z-20 w-36 rounded-lg bg-black/55 px-2 py-1.5 text-xs text-white/90"></div>
+
+  <!-- Chaos Mode indicator pill: shown when chaos mode is active. -->
+  <div id="chaos-indicator" class="hidden pointer-events-none fixed left-3 z-20 rounded-lg bg-amber-500/80 px-2 py-1 text-xs font-bold text-white whitespace-nowrap">🎲 CHAOS</div>
 
   <!-- Blocks Placed HUD: personal lifetime stat, bottom-left corner.
        Bottom position set by JS (raised on touch to clear movement pad). -->
@@ -1130,6 +1272,7 @@
   <div id="ta-hud" class="hidden pointer-events-none fixed top-3 left-3 z-20 flex flex-col gap-1">
     <div id="ta-timer" class="text-2xl sm:text-3xl font-mono font-bold text-white bg-black/50 rounded-xl px-3 sm:px-4 py-1.5 sm:py-2 tabular-nums leading-tight">1:00</div>
     <div id="ta-score" class="text-xs sm:text-sm font-semibold text-zinc-200 bg-black/50 rounded-xl px-3 sm:px-4 py-1 sm:py-1.5 text-center">0 blocks</div>
+    <div id="ta-wager-pill" class="hidden text-xs font-semibold text-amber-300 bg-black/50 rounded-xl px-3 py-1.5 text-center"></div>
     <div id="ta-best" class="hidden text-xs sm:text-sm font-semibold text-zinc-400 bg-black/50 rounded-xl px-3 sm:px-4 py-1 sm:py-1.5 text-center">Best: <span id="ta-best-value">0</span> blocks</div>
     <div id="ta-difficulty-label" class="text-[11px] sm:text-xs font-semibold text-zinc-400 bg-black/50 rounded-xl px-3 sm:px-4 py-0.5 sm:py-1 text-center">Difficulty: Easy</div>
   </div>
@@ -1201,7 +1344,8 @@
       <h2 class="text-2xl font-bold mb-2">Time's up!</h2>
       <div id="ta-best-banner" class="hidden mb-3 rounded-xl bg-gradient-to-r from-amber-500 to-yellow-400 text-zinc-900 font-bold py-2 px-3 text-sm shadow">🎉 New personal best!</div>
       <p id="ta-final-score" class="text-zinc-300 text-lg mb-2">You cleared 0 blocks</p>
-      <p id="ta-feedback-msg" class="text-zinc-500 text-sm mb-6"></p>
+      <p id="ta-feedback-msg" class="text-zinc-500 text-sm mb-4"></p>
+      <div id="ta-wager-result" class="hidden mb-4 pt-3 border-t border-zinc-700/60 text-sm"></div>
       <div class="flex flex-col gap-2 justify-center">
         <div class="flex flex-col sm:flex-row gap-2 sm:gap-3 justify-center">
           <button id="ta-share-btn" class="w-full sm:w-auto px-6 py-3 rounded-lg bg-amber-600 hover:bg-amber-500 font-semibold transition hover:scale-105 active:scale-95">Share Score</button>
@@ -1297,7 +1441,7 @@
 
     // Build identifier — bump this (to the deploying commit short SHA) on every
     // change so the top-right stamp confirms exactly which code is running.
-    const BUILD_VERSION = 'power-ups+hold-queue+achievements-badges+chat+daily-challenge+leaderboard+online-presence+block-attribution+audio-sfx+next-piece-preview+spectator-mode+weekly-tournament+friends+blocks-placed-hud+day-night-cycle+minimap+ai-coach+daily-theme-voting+natural-disasters+community-monuments+undo-redo-history+pastel-chrome+mobs+message-in-a-block+accessibility-panel';
+    const BUILD_VERSION = 'power-ups+hold-queue+achievements-badges+chat+daily-challenge+leaderboard+online-presence+block-attribution+audio-sfx+next-piece-preview+spectator-mode+weekly-tournament+friends+betting-system+blocks-placed-hud+day-night-cycle+minimap+ai-coach+daily-theme-voting+natural-disasters+community-monuments+undo-redo-history+pastel-chrome+mobs+message-in-a-block+accessibility-panel+pixel-pets';
 
     // Badge definitions — mirror of the server-side BADGES array, extended with
     // a `hint` field shown in the panel for unearned badges.
@@ -1315,9 +1459,16 @@
       { id: 'crystal_placer',  name: 'Crystal Placer',  icon: '💎', flavour: 'Placed a Crystal Block!',        hint: 'Place a Crystal Block (unlock by placing 50 blocks first)' },
       { id: 'streak_3',        name: 'Hot Start',       icon: '🔥', flavour: 'Logged in 3 days in a row!',     hint: 'Log in 3 days in a row' },
       { id: 'streak_7',        name: 'Week Warrior',    icon: '🗓️', flavour: 'A full week of building!',       hint: 'Log in 7 days in a row' },
-      { id: 'streak_14',       name: 'Fortnight Pro',   icon: '🏆', flavour: 'Two weeks of daily play!',       hint: 'Log in 14 days in a row' },
-      { id: 'streak_30',       name: 'Monthly Master',  icon: '👑', flavour: 'A full month on the block!',     hint: 'Log in 30 days in a row' },
-      { id: 'theme_winner',   name: 'Theme Champion',  icon: '🥇', flavour: 'First place in the daily build theme vote!', hint: 'Win the daily build theme vote' },
+      { id: 'theme_winner',    name: 'Theme Champion',  icon: '🥇', flavour: 'First place in the daily build theme vote!', hint: 'Win the daily build theme vote' },
+      { id: 'daily_devotee',   name: 'Daily Devotee',   icon: '🌟', flavour: 'Completed the daily challenge 7 days in a row!', hint: 'Complete the daily challenge 7 days in a row' },
+    ];
+
+    // Wager tier definitions — mirror of WAGER_TIERS in server.js.
+    const WAGER_TIERS = [
+      { id: 'easy',   label: 'Easy',   target: 20,  multiplier: 1.5 },
+      { id: 'medium', label: 'Medium', target: 50,  multiplier: 2.0 },
+      { id: 'hard',   label: 'Hard',   target: 80,  multiplier: 3.0 },
+      { id: 'expert', label: 'Expert', target: 110, multiplier: 5.0 },
     ];
 
     // Touch capability: drives (a) the on-screen control overlay, (b) skipping
@@ -1588,6 +1739,7 @@
         if (ctx.state === 'suspended') ctx.resume();
         playJoin();
         startMusic();
+        loadReggae();
       }
 
       function playLineClear() {
@@ -1601,7 +1753,78 @@
         });
       }
 
-      return { init, playPlace, playBreak, playDisasterSound, playGameOver, playFanfare, toggleMute, isMuted, playLineClear, stopMusic };
+      // Reggae background music playback
+      let reggaeBuffer = null;
+      let reggaeSource = null;
+      let reggaeGain = null;
+      let reggaeVolume = parseFloat(localStorage.getItem('blockgame-reggae-volume') || '0.7');
+      let reggaePlaying = false;
+
+      async function loadReggae() {
+        if (reggaeBuffer) return; // Already loaded
+        try {
+          const response = await fetch('/music/reggae.wav');
+          if (!response.ok) {
+            console.warn('Reggae audio file not found');
+            return;
+          }
+          const arrayBuffer = await response.arrayBuffer();
+          reggaeBuffer = await ctx.decodeAudioData(arrayBuffer);
+        } catch (e) {
+          console.warn('Failed to load reggae music:', e);
+        }
+      }
+
+      function startReggae() {
+        if (!ctx || !reggaeBuffer || reggaePlaying) return;
+        reggaePlaying = true;
+
+        if (!reggaeGain) {
+          reggaeGain = ctx.createGain();
+          reggaeGain.connect(masterGain);
+        }
+
+        reggaeGain.gain.setValueAtTime(muted ? 0 : reggaeVolume * 0.7, ctx.currentTime);
+
+        reggaeSource = ctx.createBufferSource();
+        reggaeSource.buffer = reggaeBuffer;
+        reggaeSource.loop = true;
+        reggaeSource.connect(reggaeGain);
+        reggaeSource.start(ctx.currentTime);
+      }
+
+      function stopReggae() {
+        if (reggaeSource) {
+          try {
+            reggaeSource.stop(ctx.currentTime);
+          } catch (_) {}
+          reggaeSource = null;
+        }
+        reggaePlaying = false;
+      }
+
+      function setReggaeVolume(level) {
+        reggaeVolume = Math.max(0, Math.min(1, level));
+        localStorage.setItem('blockgame-reggae-volume', String(reggaeVolume));
+        if (reggaeGain && ctx) {
+          reggaeGain.gain.setValueAtTime(muted ? 0 : reggaeVolume * 0.7, ctx.currentTime);
+        }
+      }
+
+      function syncReggaeMute() {
+        if (reggaeGain && ctx) {
+          reggaeGain.gain.setValueAtTime(muted ? 0 : reggaeVolume * 0.7, ctx.currentTime);
+        }
+      }
+
+      // Override toggleMute to also sync reggae
+      const originalToggleMute = toggleMute;
+      function toggleMuteWithReggae() {
+        originalToggleMute();
+        syncReggaeMute();
+      }
+
+      return { init, playPlace, playBreak, playDisasterSound, playGameOver, playFanfare, toggleMute: toggleMuteWithReggae, isMuted, playLineClear, stopMusic, startReggae, stopReggae, setReggaeVolume, loadReggae };
     })();
 
     // ---- Language system ----
@@ -1666,6 +1889,8 @@
         settings_sound_desc: 'Music & sound effects',
         settings_language_label: 'Language',
         settings_language_desc: 'Indonesian / English',
+        settings_chaos_label: 'Chaos Mode',
+        settings_chaos_desc: 'Placed blocks get a random type.',
         settings_ta_label: 'Time Attack difficulty',
         settings_ta_desc: 'Also auto-adjusts based on your recent runs.',
 
@@ -1758,6 +1983,8 @@
         settings_sound_desc: 'Musik & efek suara',
         settings_language_label: 'Bahasa',
         settings_language_desc: 'Indonesia / English',
+        settings_chaos_label: 'Mode Kacau',
+        settings_chaos_desc: 'Blok yang ditempatkan mendapat tipe acak.',
         settings_ta_label: 'Kesulitan Serangan Waktu',
         settings_ta_desc: 'Juga secara otomatis menyesuaikan berdasarkan lari terbaru Anda.',
 
@@ -1874,6 +2101,8 @@
       document.getElementById('settings-sound-desc').textContent = t('settings_sound_desc');
       document.getElementById('settings-language-label').textContent = t('settings_language_label');
       document.getElementById('settings-language-desc').textContent = t('settings_language_desc');
+      document.getElementById('settings-chaos-label').textContent = t('settings_chaos_label');
+      document.getElementById('settings-chaos-desc').textContent = t('settings_chaos_desc');
       document.getElementById('settings-ta-label').textContent = t('settings_ta_label');
       document.getElementById('settings-ta-desc').textContent = t('settings_ta_desc');
 
@@ -1935,6 +2164,8 @@
     challengeHudEl.style.bottom = (challengeBaseBottomPx + saBottomPx) + 'px';
     const blocksPlacedHudEl = document.getElementById('blocks-placed-hud');
     blocksPlacedHudEl.style.bottom = isTouch ? '18rem' : '5.5rem';
+    const chaosIndicatorEl = document.getElementById('chaos-indicator');
+    chaosIndicatorEl.style.bottom = isTouch ? 'calc(18rem + 2.5rem)' : 'calc(5.5rem + 2.5rem)';
 
     // Streak HUD pill sits above the challenge HUD.
     const streakHudEl = document.getElementById('streak-hud');
@@ -1946,6 +2177,26 @@
     const promptHudEl = document.getElementById('prompt-hud');
     const STREAK_HUD_HEIGHT_PX = 28; // approx rendered height (px) of streak pill
     promptHudEl.style.bottom = (challengeHudBottomPx + CHALLENGE_HUD_HEIGHT_PX + STREAK_GAP_PX + STREAK_HUD_HEIGHT_PX + STREAK_GAP_PX) + 'px';
+
+    // Coins HUD sits above the streak pill.
+    const coinsHudEl = document.getElementById('coins-hud');
+    const STREAK_HUD_HEIGHT_PX = 28;
+    coinsHudEl.style.bottom = (challengeHudBottomPx + CHALLENGE_HUD_HEIGHT_PX + STREAK_GAP_PX + STREAK_HUD_HEIGHT_PX + STREAK_GAP_PX) + 'px';
+
+    function updateCoinsHud(balance) {
+      coinsHudEl.textContent = '🪙 ' + balance;
+      coinsHudEl.classList.remove('hidden');
+    }
+
+    async function fetchCoins() {
+      try {
+        const res = await fetch('/api/coins', { headers });
+        if (!res.ok) return;
+        const { balance } = await res.json();
+        coinsBalance = balance;
+        if (balance > 0) updateCoinsHud(balance);
+      } catch (_) {}
+    }
 
     // Apply touch-device layout overrides once at startup.
     if (isTouch) {
@@ -1975,7 +2226,14 @@
     let shakeEndTime = 0;            // ms timestamp when camera shake ends
     let shakeMag = 0;                // shake amplitude (world units)
     let shakeFreq = 0;               // shake frequency (rad/ms)
+
+    // ---- Fog of War state (Classic mode only) ----
+    const revealedCells = new Set(); // "x,z" strings of permanently revealed columns
+    const pendingReveal = new Set(); // newly revealed since last server sync
+    let fogDirty = false;            // true when revealedCells changed and fogMesh needs rebuild
     let selectedType = 1;
+    let chaosMode = false;
+    try { const _cm = localStorage.getItem('blockgame-chaos-mode'); if (_cm !== null) chaosMode = JSON.parse(_cm); } catch (_) {}
     let unlockedTypes = new Set(); // block type IDs earned by the current user
     const key = (x, y, z) => x + ',' + y + ',' + z;
 
@@ -2029,8 +2287,7 @@
     let sessionTa60Best = 0;
     let sessionEndlessBest = 0;
 
-    // ---- Undo stack (Classic mode only) ----
-    const undoStack = [];  // entries: { x, y, z, prevType, newType }, newest last, max 5
+    // ---- Undo stack (Classic mode only, continued) ----
     let undoInProgress = false;
 
     // ---- Smart Difficulty (Time Attack) ----
@@ -2138,6 +2395,12 @@
       if (sEl) sEl.textContent = label;
     }
 
+    // ---- Coin / wager state ----
+    let coinsBalance = 0;
+    let pendingWagerId   = null; // wager_id of active wager, or null
+    let pendingWagerInfo = null; // { id, label, bet_amount, target_blocks, multiplier }
+    let selectedWagerTier = null; // currently selected tier id in the wager panel
+
     // ---- Mob / creature state ----
     const mobMap    = new Map();   // id -> { ...serverData, group: THREE.Group }
     const mobMeshes = new Map();   // bodyMesh -> mob id (raycaster hit detection)
@@ -2150,6 +2413,13 @@
 
     // ---- Blocks placed (lifetime) ----
     let myBlocksPlaced = 0;
+
+    // ---- Pet companion state ----
+    let petTypes = [];              // full PET_TYPES array from /api/world
+    let unlockedPets = new Set();   // pet ids the player has earned
+    let activePet = null;           // currently equipped pet id, or null
+    let petMesh = null;             // THREE.Group for the active pet, added to scene
+    let petPanelOpen = false;
 
     // ---- Game mode state ----
     let gameMode = null;           // null | 'classic' | 'timeattack' | 'endless' | 'learn' | 'tutorial' | 'time-attack-60'
@@ -2227,15 +2497,24 @@
     sun.position.set(30, 60, 20);
     scene.add(sun);
 
+    // ---- Fog of War: instanced dark slabs over unrevealed (x,z) columns ----
+    const fogGeom = new THREE.BoxGeometry(1, 0.05, 1);
+    const fogMat = new THREE.MeshBasicMaterial({ color: 0x050510, transparent: true, opacity: 0.75, depthWrite: false });
+    const fogMesh = new THREE.InstancedMesh(fogGeom, fogMat, 1024);
+    fogMesh.visible = false;
+    fogMesh.renderOrder = 1;
+    scene.add(fogMesh);
+    const _fogDummy = new THREE.Object3D();
+
     // ---- Day/night cycle ----
     const DAY_DURATION_MS = 600_000; // 10 minutes per full cycle
 
     // Sky color keyframes: [midnight, dawn, noon, dusk]
     const SKY_KEYS = [
       { zenith: new THREE.Color('#05101f'), horizon: new THREE.Color('#0a1230'), fog: new THREE.Color('#0a1230'), ambient: 0.30, sunInt: 0.0, sunColor: new THREE.Color('#b0c8ff') },
-      { zenith: new THREE.Color('#1a2a6c'), horizon: new THREE.Color('#ff5722'), fog: new THREE.Color('#d85f1f'), ambient: 0.50, sunInt: 0.5, sunColor: new THREE.Color('#ffb070') },
-      { zenith: new THREE.Color('#4ab8ff'), horizon: new THREE.Color('#7dd9ff'), fog: new THREE.Color('#7dd9ff'), ambient: 0.65, sunInt: 0.9, sunColor: new THREE.Color('#fffaeb') },
-      { zenith: new THREE.Color('#1a2a6c'), horizon: new THREE.Color('#ff4500'), fog: new THREE.Color('#b83a0a'), ambient: 0.50, sunInt: 0.5, sunColor: new THREE.Color('#ff9040') },
+      { zenith: new THREE.Color('#1a2a6c'), horizon: new THREE.Color('#f5a978'), fog: new THREE.Color('#e8a878'), ambient: 0.50, sunInt: 0.5, sunColor: new THREE.Color('#ffd0a8') },
+      { zenith: new THREE.Color('#82c4e8'), horizon: new THREE.Color('#a8e0f0'), fog: new THREE.Color('#a8e0f0'), ambient: 0.65, sunInt: 0.9, sunColor: new THREE.Color('#fffaeb') },
+      { zenith: new THREE.Color('#1a2a6c'), horizon: new THREE.Color('#f59068'), fog: new THREE.Color('#e89870'), ambient: 0.50, sunInt: 0.5, sunColor: new THREE.Color('#f5c090') },
     ];
 
     function skyColors(phase) {
@@ -2433,9 +2712,9 @@
     // ---- Power-up geometry, materials, and scene group ----
     const powerupGeom = new THREE.BoxGeometry(0.5, 0.5, 0.5);
     const POWERUP_DEFS = {
-      speed_boost: { color: '#FFC700', label: 'Speed Boost' },
-      super_jump:  { color: '#00E5FF', label: 'Super Jump'  },
-      rapid_place: { color: '#FF8C00', label: 'Rapid Place' },
+      speed_boost: { color: '#FFE085', label: 'Speed Boost' },
+      super_jump:  { color: '#9AE8D9', label: 'Super Jump'  },
+      rapid_place: { color: '#F5C080', label: 'Rapid Place' },
     };
     const powerupMats = {};
     for (const [type, def] of Object.entries(POWERUP_DEFS)) {
@@ -2453,8 +2732,8 @@
     let lastMonumentHash = '';
     const monumentShaftGeom = new THREE.CylinderGeometry(0.08, 0.08, 17, 8);
     const monumentOrbGeom = new THREE.SphereGeometry(0.35, 8, 8);
-    const monumentShaftMat = new THREE.MeshBasicMaterial({ color: '#f5c842', transparent: true, opacity: 0.45, fog: false });
-    const monumentOrbMat = new THREE.MeshBasicMaterial({ color: '#f5c842', fog: false });
+    const monumentShaftMat = new THREE.MeshBasicMaterial({ color: '#f5da85', transparent: true, opacity: 0.45, fog: false });
+    const monumentOrbMat = new THREE.MeshBasicMaterial({ color: '#f5da85', fog: false });
 
     function rebuildMonumentMeshes(monuments) {
       monumentGroup.clear();
@@ -2567,7 +2846,7 @@
       for (let _k = 0; _k < 3; _k++) {
         const slot = _acquireParticle();
         if (!slot) break;
-        slot.mesh.material.color.set(0x8b6f47);
+        slot.mesh.material.color.set(0xb09070);
         slot.mesh.material.opacity = 0.7;
         slot.startOpacity = 0.7;
         slot.vx = (Math.random() - 0.5) * 0.6;
@@ -2581,6 +2860,40 @@
         slot.mesh.position.set(px + (Math.random() - 0.5) * 0.4, py, pz + (Math.random() - 0.5) * 0.4);
         slot.mesh.visible = true;
         slot.active = true;
+      }
+    }
+
+    function emitLineClearExplosion(yLevel, lineCount) {
+      if (reducedMotion) return;
+      const lineClearColors = [
+        0xff7f00, 0x00ffff, 0x00ff00, 0xff1493, 0xffff00, 0xee82ee, 0xff4444
+      ];
+      for (let _line = 0; _line < lineCount; _line++) {
+        const cy = yLevel + _line + 0.5;
+        for (let _k = 0; _k < 26; _k++) {
+          const slot = _acquireParticle();
+          if (!slot) break;
+          const angle = Math.random() * Math.PI * 2;
+          const speed = 3 + Math.random() * 2;
+          const verticalVel = (Math.random() - 0.5) * 1;
+          const colorIdx = Math.floor(Math.random() * lineClearColors.length);
+          slot.mesh.material.color.setHex(lineClearColors[colorIdx]);
+          slot.mesh.material.opacity = 1;
+          slot.startOpacity = 1;
+          slot.vx = Math.cos(angle) * speed;
+          slot.vy = verticalVel;
+          slot.vz = Math.sin(angle) * speed;
+          slot.gravity = 2;
+          slot.age = 0;
+          slot.maxAge = 0.7;
+          const scale = 0.4 + Math.random() * 0.3;
+          slot.mesh.scale.setScalar(scale);
+          const randX = Math.random() * DIMS.w;
+          const randZ = Math.random() * DIMS.d;
+          slot.mesh.position.set(randX + 0.5, cy, randZ + 0.5);
+          slot.mesh.visible = true;
+          slot.active = true;
+        }
       }
     }
 
@@ -2853,6 +3166,72 @@
       if (!toastShowing) showNextToast();
     }
 
+    // ---- Pixel pet mesh builder ----
+    function buildPetMesh(petDef) {
+      const g = new THREE.Group();
+      const c = new THREE.Color(petDef.color || '#e8a857');
+      const op = petDef.opacity !== undefined ? petDef.opacity : 1.0;
+      const transparent = op < 1;
+
+      function box(w, h, d, col, alpha) {
+        const mat = (alpha !== undefined && alpha < 1)
+          ? new THREE.MeshLambertMaterial({ color: new THREE.Color(col || c), transparent: true, opacity: alpha })
+          : new THREE.MeshLambertMaterial({ color: col ? new THREE.Color(col) : c });
+        return new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
+      }
+
+      const body = box(0.40, 0.30, 0.22, null, op);
+      body.position.set(0, 0, 0);
+      g.add(body);
+
+      const head = box(0.26, 0.26, 0.26, null, op);
+      head.position.set(0, 0.30, 0);
+      g.add(head);
+
+      if (petDef.id === 'cat') {
+        const earL = box(0.08, 0.13, 0.05, null, op); earL.position.set(-0.08, 0.30 + 0.19, 0); g.add(earL);
+        const earR = box(0.08, 0.13, 0.05, null, op); earR.position.set( 0.08, 0.30 + 0.19, 0); g.add(earR);
+      } else if (petDef.id === 'dog') {
+        const earL = box(0.10, 0.06, 0.18, null, op); earL.position.set(-0.19, 0.30 - 0.04, 0); g.add(earL);
+        const earR = box(0.10, 0.06, 0.18, null, op); earR.position.set( 0.19, 0.30 - 0.04, 0); g.add(earR);
+      } else if (petDef.id === 'ghost') {
+        body.scale.y = 1.5;
+        body.position.y = 0.08;
+        head.scale.y = 0.9;
+        const eyeL = box(0.06, 0.06, 0.04, '#1a1a2e', 1); eyeL.position.set(-0.07, 0.30, 0.13); g.add(eyeL);
+        const eyeR = box(0.06, 0.06, 0.04, '#1a1a2e', 1); eyeR.position.set( 0.07, 0.30, 0.13); g.add(eyeR);
+      } else if (petDef.id === 'dragon') {
+        const wingL = box(0.18, 0.08, 0.04, null, op); wingL.position.set(-0.31, 0.06, 0); g.add(wingL);
+        const wingR = box(0.18, 0.08, 0.04, null, op); wingR.position.set( 0.31, 0.06, 0); g.add(wingR);
+        const horn  = box(0.05, 0.10, 0.05, null, op); horn.position.set( 0, 0.30 + 0.18, 0); g.add(horn);
+      } else if (petDef.id === 'robot') {
+        head.material = new THREE.MeshStandardMaterial({ color: c, metalness: 0.6, roughness: 0.25, transparent, opacity: op });
+        const antenna = new THREE.Mesh(
+          new THREE.BoxGeometry(0.04, 0.10, 0.04),
+          new THREE.MeshStandardMaterial({ color: c, metalness: 0.6, roughness: 0.25 })
+        );
+        antenna.position.set(0, 0.30 + 0.18, 0);
+        g.add(antenna);
+        const eyeL = box(0.06, 0.04, 0.04, '#00ffcc', 1); eyeL.position.set(-0.06, 0.30, 0.13); g.add(eyeL);
+        const eyeR = box(0.06, 0.04, 0.04, '#00ffcc', 1); eyeR.position.set( 0.06, 0.30, 0.13); g.add(eyeR);
+      }
+
+      return g;
+    }
+
+    // ---- Pet tick: bob + trail behind camera. Called every RAF from loop(). ----
+    const _petTarget = new THREE.Vector3();
+    function tickPet(now) {
+      if (!petMesh) return;
+      const offsetX = -Math.sin(yaw) * 1.2;
+      const offsetZ = -Math.cos(yaw) * 1.2;
+      const baseY   = Math.max(0.55, camera.position.y - 1.1);
+      const bobY    = baseY + Math.sin(now * 0.003) * 0.08;
+      _petTarget.set(camera.position.x + offsetX, bobY, camera.position.z + offsetZ);
+      petMesh.position.lerp(_petTarget, 0.10);
+      petMesh.rotation.y = yaw;
+    }
+
     function showLineClearToast(points) {
       toastQueue.push({ icon: '🎯', name: 'Line Clear!', flavour: `+${points} points`, _isLineClear: true });
       if (!toastShowing) showNextToast();
@@ -2892,7 +3271,7 @@
     function showDisasterFlash(type) {
       const el = document.getElementById('disaster-flash');
       if (!el) return;
-      const colors = { earthquake: 'rgba(255,200,20,0.4)', eruption: 'rgba(255,70,0,0.45)', meteor: 'rgba(255,240,200,0.5)' };
+      const colors = { earthquake: 'rgba(245,210,120,0.35)', eruption: 'rgba(235,140,100,0.40)', meteor: 'rgba(245,235,210,0.45)' };
       el.style.background = colors[type] || 'rgba(255,255,255,0.4)';
       el.classList.remove('hidden');
       el.style.opacity = '1';
@@ -3051,6 +3430,18 @@
       minimapCtx.beginPath();
       minimapCtx.arc(mx, mz, 3.5, 0, Math.PI * 2);
       minimapCtx.fill();
+
+      // Fog of War overlay: darken unrevealed cells (Classic mode only).
+      if (gameMode === 'classic') {
+        minimapCtx.fillStyle = 'rgba(10,10,20,0.82)';
+        for (let x = 0; x < DIMS.w; x++) {
+          for (let z = 0; z < DIMS.d; z++) {
+            if (!revealedCells.has(x + ',' + z)) {
+              minimapCtx.fillRect(x * SCALE, z * SCALE, SCALE, SCALE);
+            }
+          }
+        }
+      }
     }
 
     // ---- Power-up world sync ----
@@ -3236,6 +3627,9 @@
             if (data.lines_cleared > 0) {
               showLineClearToast(data.line_clear_points);
               audio.playLineClear();
+              const clearedRows = data.lines_cleared || 0;
+              const yLevel = data.lines_cleared_at ? data.lines_cleared_at[0] : 12;
+              emitLineClearExplosion(yLevel, clearedRows);
             }
           }
           if (data.seq && data.seq > cursor) cursor = data.seq;
@@ -3253,6 +3647,13 @@
               showUnlockToast(ut);
             }
             buildPalette(); // re-render palette so the newly unlocked swatch activates
+          }
+          if (data.newly_unlocked_pets && data.newly_unlocked_pets.length) {
+            for (const pet of data.newly_unlocked_pets) {
+              unlockedPets.add(pet.id);
+              showUnlockToast({ icon: pet.icon, name: pet.name, description: `${pet.name} companion unlocked! Equip it from the 🐾 menu.` });
+            }
+            if (petPanelOpen) renderPetPanel();
           }
           if (data.newly_crowned_monuments && data.newly_crowned_monuments.length) {
             for (const m of data.newly_crowned_monuments) {
@@ -3518,6 +3919,7 @@
       resetMove();
       canvas.style.cursor = '';
       if (locked) { try { document.exitPointerLock(); } catch (_) {} }
+      audio.stopReggae();
 
       tutorialBlocks.clear();
       tutorialStep = 0;
@@ -3609,10 +4011,11 @@
       if (!target || paused) return;
       const { x, y, z } = target.place;
       if (!inBounds(x, y, z)) return;
+      const actualType = resolveBlockType();
       if (gameMode === 'timeattack') {
         const k = key(x, y, z);
-        if (taBlocks.get(k) === selectedType) return;
-        taBlocks.set(k, selectedType);
+        if (taBlocks.get(k) === actualType) return;
+        taBlocks.set(k, actualType);
         emitBlockPlace(x + 0.5, y + 0.5, z + 0.5);
         rebuildBlockMeshes();
         return;
@@ -3623,8 +4026,8 @@
       }
       if (gameMode === 'endless') {
         const k = key(x, y, z);
-        if (endlessBlocks.get(k) === selectedType) return;
-        endlessBlocks.set(k, selectedType);
+        if (endlessBlocks.get(k) === actualType) return;
+        endlessBlocks.set(k, actualType);
         endlessBlocksPlaced++;
         endlessMovesStarted++;
         endlessMovesRemaining--;
@@ -3666,12 +4069,12 @@
         updateHoldPanel();
         return;
       }
-      if (blocks.get(key(x, y, z)) === selectedType) return;
+      if (blocks.get(key(x, y, z)) === actualType) return;
       const prevType = blocks.get(key(x, y, z)) ?? 0;
       audio.playPlace();
       emitBlockPlace(x + 0.5, y + 0.5, z + 0.5);
-      sendEdit(x, y, z, selectedType, prevType);
-      pushHistory(x, y, z, prevType, selectedType);
+      sendEdit(x, y, z, actualType, prevType);
+      pushHistory(x, y, z, prevType, actualType);
       // Unlock hold after each successful placement (Tetris lock rule)
       holdLocked = false;
       updateHoldPanel();
@@ -3705,10 +4108,11 @@
       if (cellsToPlace.length === 0) return;
       for (const cell of cellsToPlace) {
         const k = key(cell.x, cell.y, cell.z);
-        if (blocks.get(k) !== selectedType) {
+        const stampType = resolveBlockType();
+        if (blocks.get(k) !== stampType) {
           const prevType = blocks.get(k) ?? 0;
           const isNewBlock = prevType === 0;
-          blocks.set(k, selectedType);
+          blocks.set(k, stampType);
           emitBlockPlace(cell.x + 0.5, cell.y + 0.5, cell.z + 0.5);
           if (isNewBlock && gameMode === 'classic' && challengeDate && !challengeCompleted) {
             challengePlaced++;
@@ -3910,7 +4314,7 @@
       zombie:  _makeMobLabelTexture('Zombie'),
       phantom: _makeMobLabelTexture('Phantom'),
     };
-    const MOB_COLORS     = { slime: '#6fcf3a', zombie: '#4a7c59', phantom: '#7c3aed' };
+    const MOB_COLORS     = { slime: '#9ada6a', zombie: '#7aaa8a', phantom: '#a88de8' };
     const MOB_PART_TYPES = { slime: 5, zombie: 3, phantom: 10 }; // palette ids for hit particles
 
     function _createMobGroup(mob) {
@@ -3925,12 +4329,12 @@
       mobMeshes.set(bMesh, mob.id);
 
       const hpBg = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.07, 0.07),
-        new THREE.MeshBasicMaterial({ color: '#444444' }));
+        new THREE.MeshBasicMaterial({ color: '#c8bedd' }));
       hpBg.position.y = 1.1;
       g.add(hpBg);
 
       const hpFill = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.07, 0.07),
-        new THREE.MeshBasicMaterial({ color: '#22c55e' }));
+        new THREE.MeshBasicMaterial({ color: '#72d490' }));
       hpFill.position.y = 1.1;
       g.add(hpFill);
 
@@ -3956,7 +4360,7 @@
       const frac = Math.max(0, Math.min(1, hp / maxHp));
       fill.scale.x = Math.max(0.001, frac);
       fill.position.x = (frac - 1) * 0.4;
-      fill.material.color.set(frac > 0.5 ? '#22c55e' : frac > 0.25 ? '#f59e0b' : '#ef4444');
+      fill.material.color.set(frac > 0.5 ? '#72d490' : frac > 0.25 ? '#f5c56a' : '#f09090');
     }
 
     // ---- Player HP helpers ----
@@ -3972,10 +4376,10 @@
       if (!damageVignetteEl) return;
       damageVignetteEl.style.transition = 'none';
       damageVignetteEl.style.background = strong
-        ? 'rgba(239,68,68,0.7)' : 'rgba(239,68,68,0.38)';
+        ? 'rgba(210,110,110,0.7)' : 'rgba(210,110,110,0.38)';
       requestAnimationFrame(() => {
         damageVignetteEl.style.transition = strong ? 'background 1s' : 'background 0.45s';
-        damageVignetteEl.style.background = 'rgba(239,68,68,0)';
+        damageVignetteEl.style.background = 'rgba(210,110,110,0)';
       });
     }
 
@@ -4187,6 +4591,30 @@
     // Mute button + Settings sound toggle share one stored preference. This
     // helper repaints both UIs from the audio engine's current muted state.
     const muteBtnEl = document.getElementById('mute-btn');
+    const CHAOS_MODES = new Set(['classic', 'endless', 'timeattack']);
+
+    function resolveBlockType() {
+      if (!chaosMode || !CHAOS_MODES.has(gameMode)) return selectedType;
+      const available = PALETTE.filter((p) => unlockedTypes.has(p.id));
+      if (available.length === 0) return selectedType;
+      return available[Math.floor(Math.random() * available.length)].id;
+    }
+
+    function syncChaosUi() {
+      const toggle = document.getElementById('settings-chaos-toggle');
+      const knob = document.getElementById('settings-chaos-knob');
+      if (toggle && knob) {
+        toggle.setAttribute('aria-checked', String(chaosMode));
+        toggle.classList.toggle('bg-amber-500', chaosMode);
+        toggle.classList.toggle('bg-zinc-600', !chaosMode);
+        knob.style.transform = chaosMode ? 'translateX(20px)' : 'translateX(0px)';
+      }
+      const indicator = document.getElementById('chaos-indicator');
+      if (indicator) indicator.classList.toggle('hidden', !chaosMode);
+      const paletteEl = document.getElementById('palette');
+      if (paletteEl) paletteEl.classList.toggle('chaos-active', chaosMode);
+    }
+
     function syncSoundUi() {
       const m = audio.isMuted();
       muteBtnEl.textContent = m ? '🔇' : '🔊';
@@ -4210,6 +4638,7 @@
     document.getElementById('settings-btn').addEventListener('click', () => {
       if (settingsPanelEl.classList.contains('hidden')) {
         syncSoundUi();
+        syncChaosUi();
         updateTaTierPicker();
         settingsPanelEl.classList.remove('hidden');
       } else {
@@ -4218,6 +4647,15 @@
     });
     document.getElementById('settings-close').addEventListener('click', closeSettings);
     document.getElementById('settings-sound-toggle').addEventListener('click', toggleSound);
+    document.getElementById('settings-chaos-toggle').addEventListener('click', () => {
+      chaosMode = !chaosMode;
+      lsSet('blockgame-chaos-mode', chaosMode);
+      syncChaosUi();
+    });
+    syncChaosUi();
+    document.getElementById('settings-music-volume').addEventListener('input', (e) => {
+      audio.setReggaeVolume(e.target.value / 100);
+    });
     document.getElementById('settings-diff-down').addEventListener('click', () => {
       if (taDifficulty > 1) { taDifficulty--; lsSet('ta_difficulty', taDifficulty); updateTaTierPicker(); }
     });
@@ -4251,6 +4689,79 @@
     document.getElementById('badges-close').addEventListener('click', () => {
       badgesOpen = false;
       badgesPanelEl.classList.add('hidden');
+    });
+
+    // ---- Pet panel ----
+    const petBtnEl    = document.getElementById('pet-btn');
+    const petPanelEl  = document.getElementById('pet-panel');
+    const petGridEl   = document.getElementById('pet-grid');
+    const petHintEl   = document.getElementById('pet-hint');
+
+    function equipPetMesh(petId) {
+      if (petMesh) { scene.remove(petMesh); petMesh = null; }
+      if (!petId) return;
+      const def = petTypes.find((p) => p.id === petId);
+      if (!def) return;
+      petMesh = buildPetMesh(def);
+      petMesh.position.copy(camera.position);
+      scene.add(petMesh);
+    }
+
+    function renderPetPanel() {
+      petGridEl.innerHTML = '';
+      const totalUnlocked = petTypes.filter((p) => unlockedPets.has(p.id)).length;
+      petHintEl.classList.toggle('hidden', totalUnlocked > 0);
+
+      // None option
+      const noneCard = document.createElement('button');
+      noneCard.className = 'flex flex-col items-center gap-1 p-2 rounded-lg cursor-pointer transition-colors ' +
+        (!activePet ? 'bg-violet-700/80 ring-1 ring-violet-400' : 'bg-zinc-800/80 hover:bg-zinc-700/80');
+      noneCard.innerHTML = '<span class="text-2xl leading-none">🚫</span><span class="text-xs text-zinc-300">None</span>';
+      noneCard.addEventListener('click', async () => {
+        activePet = null;
+        equipPetMesh(null);
+        renderPetPanel();
+        await fetch('/api/pet/equip', { method: 'POST', headers: { 'Content-Type': 'application/json', ...headers }, body: JSON.stringify({ pet_id: null }) });
+      });
+      petGridEl.appendChild(noneCard);
+
+      for (const pet of petTypes) {
+        const unlocked = unlockedPets.has(pet.id);
+        const isActive = activePet === pet.id;
+        const card = document.createElement('button');
+        card.disabled = !unlocked;
+        card.className = 'flex flex-col items-center gap-1 p-2 rounded-lg transition-colors ' +
+          (isActive ? 'bg-violet-700/80 ring-1 ring-violet-400 cursor-pointer' :
+            unlocked ? 'bg-zinc-800/80 hover:bg-zinc-700/80 cursor-pointer' :
+            'bg-zinc-800/30 opacity-50 cursor-not-allowed');
+        const lockIcon = unlocked ? '' : '<span class="text-[9px] text-zinc-500 leading-none">🔒 ' + pet.unlockAt + '</span>';
+        card.innerHTML = '<span class="text-2xl leading-none">' + pet.icon + '</span>' +
+          '<span class="text-xs text-zinc-300">' + pet.name + '</span>' +
+          (unlocked ? '' : lockIcon);
+        if (unlocked) {
+          card.addEventListener('click', async () => {
+            activePet = pet.id;
+            equipPetMesh(pet.id);
+            renderPetPanel();
+            await fetch('/api/pet/equip', { method: 'POST', headers: { 'Content-Type': 'application/json', ...headers }, body: JSON.stringify({ pet_id: pet.id }) });
+          });
+        }
+        petGridEl.appendChild(card);
+      }
+    }
+
+    petBtnEl.addEventListener('click', () => {
+      petPanelOpen = !petPanelOpen;
+      if (petPanelOpen) {
+        renderPetPanel();
+        petPanelEl.classList.remove('hidden');
+      } else {
+        petPanelEl.classList.add('hidden');
+      }
+    });
+    document.getElementById('pet-close').addEventListener('click', () => {
+      petPanelOpen = false;
+      petPanelEl.classList.add('hidden');
     });
 
     // ---- Accessibility panel: open/close + the two toggles ----
@@ -4392,6 +4903,12 @@
       document.getElementById('ta-hud').classList.remove('hidden');
       document.getElementById('palette').classList.add('hidden');
       document.getElementById('ta-difficulty-label').textContent = 'Difficulty: ' + tier.label;
+      if (pendingWagerId && pendingWagerInfo) {
+        const pill = document.getElementById('ta-wager-pill');
+        pill.textContent = '🎲 ' + pendingWagerInfo.label + ' · ' +
+          pendingWagerInfo.bet_amount + '🪙 · Need ' + pendingWagerInfo.target_blocks;
+        pill.classList.remove('hidden');
+      }
       updateTaTimerDisplay();
       updateTaScoreDisplay();
 
@@ -4443,6 +4960,7 @@
       resetMove();
       canvas.style.cursor = '';
       if (locked) { try { document.exitPointerLock(); } catch (_) {} }
+      audio.stopReggae();
       clearScorePops();
 
       // Capture what the run was actually played at BEFORE the auto-adjust
@@ -4472,10 +4990,25 @@
       updateTaTierPicker();
 
       document.getElementById('ta-hud').classList.add('hidden');
+      document.getElementById('ta-wager-pill').classList.add('hidden');
       const fs = document.getElementById('ta-final-score');
       fs.textContent = 'You cleared ' + clearedThisRun + ' block' + (clearedThisRun === 1 ? '' : 's');
       document.getElementById('ta-feedback-msg').textContent = feedbackMsg;
       document.getElementById('ta-best-banner').classList.add('hidden');
+
+      const wagerResultEl = document.getElementById('ta-wager-result');
+      if (pendingWagerId) {
+        wagerResultEl.classList.remove('hidden');
+        wagerResultEl.innerHTML = '<div class="text-zinc-400 text-xs animate-pulse">Resolving wager…</div>';
+        const wid = pendingWagerId;
+        const winfo = pendingWagerInfo;
+        const finalBlocks = taScore;
+        pendingWagerId   = null;
+        pendingWagerInfo = null;
+        resolveWager(wid, finalBlocks, winfo, wagerResultEl, 0);
+      } else {
+        wagerResultEl.classList.add('hidden');
+      }
       document.getElementById('ta-gameover').classList.remove('hidden');
       // Restore theme button when Time Attack ends.
       themeBtnEl.classList.remove('hidden');
@@ -4588,6 +5121,7 @@
       resetMove();
       canvas.style.cursor = '';
       if (locked) { try { document.exitPointerLock(); } catch (_) {} }
+      audio.stopReggae();
       clearScorePops();
 
       const clearedThisRun = ta60Score;
@@ -4696,6 +5230,7 @@
       resetMove();
       canvas.style.cursor = '';
       if (locked) { try { document.exitPointerLock(); } catch (_) {} }
+      audio.stopReggae();
 
       const placedThisRun = endlessBlocksPlaced;
       const movesSurvived = endlessMovesStarted;
@@ -4736,6 +5271,7 @@
       resetMove();
       canvas.style.cursor = '';
       if (locked) { try { document.exitPointerLock(); } catch (_) {} }
+      audio.stopReggae();
 
       learnBlocks.clear();
       document.getElementById('learn-hints').innerHTML = '';
@@ -4757,6 +5293,7 @@
     // of whether play was entered via pointer lock, drag fallback, or touch.
     function onPlayEntered() {
       refreshUndoButton();
+      audio.startReggae();
       if (pendingTaInit) {
         pendingTaInit = false;
         initTimeAttack();
@@ -4793,6 +5330,8 @@
         hpHudEl.classList.remove('hidden');
         updateHpHud();
         mobGroup.visible = true;
+        fogMesh.visible = true;
+        loadFogRevealed();
         if (!lsGet('blockgame-tutorial-seen', false)) {
           setTimeout(showTutorial, 600);
         } else {
@@ -4805,6 +5344,7 @@
         document.getElementById('undo-redo-hud').classList.add('hidden');
         document.getElementById('history-panel').classList.add('hidden');
         challengeHudEl.classList.add('hidden');
+        coinsHudEl.classList.add('hidden');
         document.getElementById('crosshair').style.opacity = '0.3';
         // Hide coach and prompt HUD in spectate mode — player isn't building.
         coachBtnEl.classList.add('hidden');
@@ -4919,6 +5459,7 @@
       dragMode = false;
       resetMove();
       canvas.style.cursor = '';
+      audio.stopReggae();
       pauseOverlayEl.classList.add('hidden');
       canvas.style.pointerEvents = 'auto';
       refreshUndoButton();
@@ -4928,6 +5469,7 @@
       rebuildBlockMeshes(); // gameMode is now null → renders classic blocks
 
       document.getElementById('ta-hud').classList.add('hidden');
+      document.getElementById('ta-wager-pill').classList.add('hidden');
       document.getElementById('ta-gameover').classList.add('hidden');
       document.getElementById('daily-challenge-gameover').classList.add('hidden');
       document.getElementById('learn-hints').innerHTML = '';
@@ -4937,12 +5479,14 @@
       document.getElementById('history-panel').classList.add('hidden');
       document.getElementById('crosshair').style.opacity = '';
       hideComboHud();
+      showModeCards();
       hideScoreHud();
 
       hpHudEl.classList.add('hidden');
       playerHp = PLAYER_MAX_HP;
       deathInvincibleUntil = 0;
       mobGroup.visible = false;
+      fogMesh.visible = false;
       hideMinimap();
       // Dismiss any active coach tip and restore coach button.
       coachBubbleEl.classList.add('hidden');
@@ -5025,8 +5569,173 @@
     });
     document.addEventListener('pointerlockerror', onLockFail);
 
+    // ---- Wager panel helpers ----
+    const wagerPanelEl     = document.getElementById('wager-panel');
+    const wagerTiersEl     = document.getElementById('wager-tiers');
+    const wagerAmountRowEl = document.getElementById('wager-amount-row');
+    const wagerAmountEl    = document.getElementById('wager-amount');
+    const wagerBetBtnEl    = document.getElementById('wager-bet-btn');
+    const wagerSkipBtnEl   = document.getElementById('wager-skip-btn');
+    const wagerErrorEl     = document.getElementById('wager-error');
+    const wagerBalanceEl   = document.getElementById('wager-balance-display');
+    const wagerMaxLabelEl  = document.getElementById('wager-max-label');
+    // The mode cards container (first .flex child inside .max-w-lg)
+    const modeCardsEl = document.querySelector('#overlay .max-w-lg > .flex');
+
+    function showModeCards() {
+      wagerPanelEl.classList.add('hidden');
+      if (modeCardsEl) modeCardsEl.style.display = '';
+      selectedWagerTier = null;
+    }
+
+    function renderWagerTiers() {
+      wagerTiersEl.innerHTML = '';
+      const canBet = coinsBalance > 0;
+      for (const tier of WAGER_TIERS) {
+        const btn = document.createElement('button');
+        const isSelected = selectedWagerTier === tier.id;
+        const disabled = !canBet;
+        btn.className = 'rounded-xl px-3 py-3 text-left border transition-colors cursor-pointer ' +
+          (disabled ? 'opacity-40 cursor-not-allowed border-zinc-700 bg-zinc-900/60' :
+            isSelected ? 'border-amber-500 bg-amber-900/40 text-white' :
+            'border-zinc-700 bg-zinc-900/60 hover:border-zinc-500 text-zinc-200');
+        btn.disabled = disabled;
+        btn.innerHTML =
+          '<div class="font-semibold text-sm">' + escapeHtml(tier.label) + '</div>' +
+          '<div class="text-xs text-zinc-400 mt-0.5">≥' + tier.target + ' blocks · ' + tier.multiplier + '×</div>';
+        if (!disabled) {
+          btn.addEventListener('click', () => {
+            selectedWagerTier = (selectedWagerTier === tier.id) ? null : tier.id;
+            renderWagerTiers();
+            updateWagerAmountRow();
+          });
+        }
+        wagerTiersEl.appendChild(btn);
+      }
+    }
+
+    function updateWagerAmountRow() {
+      if (!selectedWagerTier) {
+        wagerAmountRowEl.classList.add('hidden');
+        wagerBetBtnEl.classList.add('hidden');
+        return;
+      }
+      const maxBet = Math.min(100, coinsBalance);
+      wagerMaxLabelEl.textContent = maxBet;
+      wagerAmountEl.max = maxBet;
+      if (Number(wagerAmountEl.value) > maxBet) wagerAmountEl.value = maxBet;
+      if (Number(wagerAmountEl.value) < 5) wagerAmountEl.value = 5;
+      wagerAmountRowEl.classList.remove('hidden');
+      wagerBetBtnEl.classList.remove('hidden');
+    }
+
+    function openWagerPanel() {
+      selectedWagerTier = null;
+      wagerErrorEl.textContent = '';
+      wagerBalanceEl.textContent = '🪙 ' + coinsBalance + ' coins';
+      if (modeCardsEl) modeCardsEl.style.display = 'none';
+      wagerPanelEl.classList.remove('hidden');
+      renderWagerTiers();
+      // If balance is 0, show a hint
+      if (coinsBalance === 0) {
+        wagerErrorEl.textContent = 'Earn coins by placing blocks in Classic mode or logging in daily.';
+        wagerErrorEl.className = 'mt-2 text-xs text-zinc-400 text-center';
+      }
+      updateWagerAmountRow();
+    }
+
+    wagerSkipBtnEl.addEventListener('click', () => {
+      showModeCards();
+      startMode('timeattack');
+    });
+
+    wagerBetBtnEl.addEventListener('click', async () => {
+      const tier = selectedWagerTier;
+      const bet = Number(wagerAmountEl.value);
+      if (!tier) return;
+      if (!Number.isInteger(bet) || bet < 5 || bet > Math.min(100, coinsBalance)) {
+        wagerErrorEl.textContent = 'Enter a valid amount (5–' + Math.min(100, coinsBalance) + ').';
+        wagerErrorEl.className = 'mt-2 text-xs text-red-400 text-center';
+        return;
+      }
+      wagerBetBtnEl.disabled = true;
+      wagerBetBtnEl.textContent = 'Placing bet…';
+      wagerErrorEl.textContent = '';
+      try {
+        const res = await fetch('/api/wager', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...headers },
+          body: JSON.stringify({ bet_amount: bet, tier }),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          wagerErrorEl.textContent = data.error || 'Failed to place wager.';
+          wagerErrorEl.className = 'mt-2 text-xs text-red-400 text-center';
+          wagerBetBtnEl.disabled = false;
+          wagerBetBtnEl.textContent = 'Bet & Play';
+          return;
+        }
+        const tierDef = WAGER_TIERS.find((t) => t.id === tier);
+        pendingWagerId   = data.wager_id;
+        pendingWagerInfo = { id: tier, label: tierDef.label, bet_amount: bet,
+                             target_blocks: tierDef.target, multiplier: tierDef.multiplier };
+        coinsBalance = data.balance;
+        updateCoinsHud(coinsBalance);
+        showModeCards();
+        startMode('timeattack');
+      } catch (_) {
+        wagerErrorEl.textContent = 'Network error — try again.';
+        wagerErrorEl.className = 'mt-2 text-xs text-red-400 text-center';
+        wagerBetBtnEl.disabled = false;
+        wagerBetBtnEl.textContent = 'Bet & Play';
+      }
+    });
+
+    wagerAmountEl.addEventListener('input', () => {
+      const max = Math.min(100, coinsBalance);
+      const v = Number(wagerAmountEl.value);
+      if (v > max) wagerAmountEl.value = max;
+      if (v < 1) wagerAmountEl.value = 1;
+    });
+
+    // ---- Active wager resolution ----
+    async function resolveWager(wagerId, finalBlocks, wagerInfo, resultEl, retryCount) {
+      try {
+        const res = await fetch('/api/timeattack/result', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...headers },
+          body: JSON.stringify({ wager_id: wagerId, final_blocks: finalBlocks }),
+        });
+        if (!res.ok) throw new Error('status ' + res.status);
+        const data = await res.json();
+        coinsBalance = data.balance;
+        updateCoinsHud(coinsBalance);
+        const won = data.outcome === 'won';
+        const netGain = won ? data.payout - wagerInfo.bet_amount : wagerInfo.bet_amount;
+        if (won) {
+          resultEl.innerHTML =
+            '<div class="text-green-400 font-semibold">🎉 Target hit! +' + netGain + '🪙</div>' +
+            '<div class="text-zinc-400 text-xs mt-0.5">' +
+              escapeHtml(wagerInfo.label) + ' · ' + finalBlocks + ' blocks · Balance: ' + data.balance + '🪙' +
+            '</div>';
+        } else {
+          resultEl.innerHTML =
+            '<div class="text-zinc-300 font-semibold">💸 −' + netGain + '🪙</div>' +
+            '<div class="text-zinc-500 text-xs mt-0.5">' +
+              'Needed ' + wagerInfo.target_blocks + ', got ' + finalBlocks + ' · Balance: ' + data.balance + '🪙' +
+            '</div>';
+        }
+      } catch (_) {
+        if ((retryCount || 0) < 2) {
+          setTimeout(() => resolveWager(wagerId, finalBlocks, wagerInfo, resultEl, (retryCount || 0) + 1), 1500);
+        } else {
+          resultEl.innerHTML = '<div class="text-zinc-400 text-xs">Wager pending… will sync when online.</div>';
+        }
+      }
+    }
+
     document.getElementById('play-classic-btn').addEventListener('click', () => { audio.init(); tryStartGameWithEnergy('classic'); });
-    document.getElementById('play-ta-btn').addEventListener('click', () => { audio.init(); tryStartGameWithEnergy('timeattack'); });
+    document.getElementById('play-ta-btn').addEventListener('click', () => { audio.init(); openWagerPanel(); });
     document.getElementById('play-ta-60-btn').addEventListener('click', () => { audio.init(); tryStartGameWithEnergy('time-attack-60'); });
     document.getElementById('play-daily-challenge-btn').addEventListener('click', () => { audio.init(); tryStartGameWithEnergy('daily-challenge'); });
     document.getElementById('play-endless-btn').addEventListener('click', () => { audio.init(); tryStartGameWithEnergy('endless'); });
@@ -5341,6 +6050,9 @@
           closeLeaderboard();
         } else if (!friendsPanelEl.classList.contains('hidden')) {
           closeFriends();
+        } else if (petPanelOpen) {
+          petPanelOpen = false;
+          petPanelEl.classList.add('hidden');
         } else if (!themePanelEl.classList.contains('hidden')) {
           closeThemePanel();
         } else if (dragMode && playing) {
@@ -5352,6 +6064,7 @@
             hideComboHud();
             canvas.style.cursor = '';
             hideMinimap();
+            audio.stopReggae();
             overlayEl.style.display = 'flex';
             refreshControlCopy();
           }
@@ -5727,9 +6440,9 @@
 
       // Mode info
       const modeInfo = {
-        ta: { emoji: '⚡', label: 'Time Attack', color: '#fbbf24' },
-        'ta-60': { emoji: '⏱️', label: 'Time Attack (60s)', color: '#06b6d4' },
-        endless: { emoji: '♾️', label: 'Endless Mode', color: '#f43f5e' }
+        ta: { emoji: '⚡', label: 'Time Attack', color: '#f5d27a' },
+        'ta-60': { emoji: '⏱️', label: 'Time Attack (60s)', color: '#9AE8D9' },
+        endless: { emoji: '♾️', label: 'Endless Mode', color: '#f0a8c5' }
       }[mode];
 
       const username = myUsername || 'Anonymous Player';
@@ -7360,6 +8073,10 @@
           blocks.set(key(b.x, b.y, b.z), b.t);
           if (b.m) messageBlocks.add(key(b.x, b.y, b.z));
         }
+        petTypes = data.petTypes || [];
+        unlockedPets = new Set(data.unlockedPets || []);
+        activePet = data.activePet || null;
+        equipPetMesh(activePet);
         buildGround();
         buildGroundGrid();
         buildPalette();
@@ -7404,6 +8121,7 @@
         if (!res.ok) return;
         const data = await res.json();
         if (data.streak) updateStreakHud(data.streak.current);
+        if (typeof data.coins_balance === 'number') updateCoinsHud(data.coins_balance);
         if (data.daily_reward && data.daily_reward.coins_earned && !sessionShownDailyReward) {
           showDailyRewardModal(data.daily_reward);
           sessionShownDailyReward = true;
@@ -7417,6 +8135,52 @@
         }
       } catch (_) { /* transient */ }
     }
+
+    // ---- Fog of War: load revealed cells on Classic mode entry ----
+    async function loadFogRevealed() {
+      if (!token) return;
+      revealedCells.clear();
+      pendingReveal.clear();
+      try {
+        const res = await fetch('/api/fog/revealed', { headers });
+        if (res.ok) {
+          const { cells } = await res.json();
+          for (const [x, z] of cells) revealedCells.add(x + ',' + z);
+        }
+      } catch (_) { /* transient — will reveal from scratch */ }
+      // Pre-reveal spawn area (radius 5) so new players aren't completely blind.
+      const spawnX = Math.floor(camera.position.x);
+      const spawnZ = Math.floor(camera.position.z);
+      const SR = 5, SR2 = SR * SR;
+      for (let dx = -SR; dx <= SR; dx++) {
+        for (let dz = -SR; dz <= SR; dz++) {
+          if (dx * dx + dz * dz > SR2) continue;
+          const nx = Math.max(0, Math.min(31, spawnX + dx));
+          const nz = Math.max(0, Math.min(31, spawnZ + dz));
+          const ck = nx + ',' + nz;
+          if (!revealedCells.has(ck)) { revealedCells.add(ck); pendingReveal.add(ck); }
+        }
+      }
+      fogDirty = true;
+    }
+
+    // ---- Fog of War: flush pending reveals to the server ----
+    async function flushFogReveal() {
+      if (!token || pendingReveal.size === 0 || gameMode !== 'classic') return;
+      const cells = Array.from(pendingReveal).map((k) => k.split(',').map(Number));
+      pendingReveal.clear();
+      try {
+        await fetch('/api/fog/reveal', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...headers },
+          body: JSON.stringify({ cells }),
+        });
+      } catch (_) { /* transient; cells re-revealed next visit */ }
+    }
+
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'hidden') flushFogReveal();
+    });
 
     const onlineListEl = document.getElementById('online-list');
     async function pollPresence() {
@@ -7452,16 +8216,20 @@
           } else if (!isSelf && !friendsCache) {
             statusHtml = '<button class="ol-add-btn text-xs ml-1 px-1.5 py-0.5 rounded bg-zinc-700 hover:bg-zinc-600 text-zinc-200 cursor-pointer" data-username="' + safe + '">+ Add</button>';
           }
+          const petIcon = u.active_pet
+            ? (petTypes.find((p) => p.id === u.active_pet) || {}).icon || ''
+            : '';
+          const petHtml = petIcon ? '<span class="text-xs shrink-0 leading-none" title="' + u.active_pet + ' companion">' + petIcon + '</span>' : '';
           if (isSpectator) {
             return '<div class="flex items-center gap-1.5 py-0.5">' +
               '<span class="text-xs shrink-0 leading-none" title="Spectating">👁</span>' +
               '<span class="text-zinc-500">' + safe + '</span>' +
-              statusHtml + '</div>';
+              petHtml + statusHtml + '</div>';
           }
           return '<div class="flex items-center gap-1.5 py-0.5">' +
             '<span class="inline-block w-2 h-2 rounded-full bg-green-400 shrink-0"></span>' +
             '<span>' + safe + '</span>' +
-            statusHtml + '</div>';
+            petHtml + statusHtml + '</div>';
         };
         let html = '<div class="mb-1 text-zinc-500 text-xs font-semibold uppercase tracking-wide">Online now</div>';
         for (const u of builders) html += makeRow(u, false);
@@ -7549,6 +8317,12 @@
       const portrait = !!(window.matchMedia && window.matchMedia('(orientation: portrait)').matches);
       forceRotated = isTouch && portrait;
       rotorEl.classList.toggle('rotated', forceRotated);
+      // In landscape mode on touch devices, enable landscape-specific button layout.
+      const touchControlsEl = document.getElementById('touch-controls');
+      const isLandscape = !portrait && isTouch;
+      if (touchControlsEl) {
+        touchControlsEl.classList.toggle('landscape-mode', isLandscape);
+      }
       resize();
     }
     function resize() {
@@ -7641,6 +8415,44 @@
         }
       }
 
+      // Fog of War: reveal cells near the player each frame (Classic mode only).
+      if (playing && gameMode === 'classic') {
+        const cx = Math.floor(camera.position.x);
+        const cz = Math.floor(camera.position.z);
+        const R = 3, R2 = R * R;
+        for (let dx = -R; dx <= R; dx++) {
+          for (let dz = -R; dz <= R; dz++) {
+            if (dx * dx + dz * dz > R2) continue;
+            const nx = cx + dx, nz = cz + dz;
+            if (nx < 0 || nx > 31 || nz < 0 || nz > 31) continue;
+            const ck = nx + ',' + nz;
+            if (!revealedCells.has(ck)) {
+              revealedCells.add(ck);
+              pendingReveal.add(ck);
+              fogDirty = true;
+            }
+          }
+        }
+      }
+
+      // Rebuild fog InstancedMesh when the revealed set changed.
+      if (fogDirty) {
+        fogDirty = false;
+        let count = 0;
+        for (let x = 0; x < DIMS.w; x++) {
+          for (let z = 0; z < DIMS.d; z++) {
+            if (!revealedCells.has(x + ',' + z)) {
+              _fogDummy.position.set(x + 0.5, 0.55, z + 0.5);
+              _fogDummy.updateMatrix();
+              fogMesh.setMatrixAt(count, _fogDummy.matrix);
+              count++;
+            }
+          }
+        }
+        fogMesh.count = count;
+        fogMesh.instanceMatrix.needsUpdate = true;
+      }
+
       // Animate power-up meshes every frame (even when the overlay is showing).
       for (const [, pu] of powerupMap) {
         if (pu.mesh) {
@@ -7692,6 +8504,7 @@
       }
 
       tickParticles(dt);
+      tickPet(now);
       updateTarget();
       updateAttribution();
       // Animate Crystal block emissive glow: gentle 0.2→0.4 pulse (~7.9s period).
@@ -7924,6 +8737,9 @@
         }
       } catch (_) {}
 
+      // Load coin balance so HUD shows before first heartbeat.
+      fetchCoins().catch(() => {});
+
       // Load initial blocks-placed count from leaderboard self row.
       fetchLeaderboard().catch(() => {});
 
@@ -7934,6 +8750,7 @@
       // Poll is started per-mode in onPlayEntered(), not here.
       heartbeat();
       setInterval(heartbeat, 30000);
+      setInterval(flushFogReveal, 15000);
       pollPresence();
       setInterval(pollPresence, 15000);
       pollPowerUps();
@@ -8012,7 +8829,7 @@
     (function () {
       var c = canvases[0];
       var ctx = ctxs[0];
-      var COLORS = ['#3dd847','#b8643e','#a8aeb8','#d4944f','#2ac142','#fce67f','#f04a38'];
+      var COLORS = ['#7ed98a','#c9917a','#c2c6cf','#ddb680','#6ec67a','#fdf0a8','#e88c82'];
       var BLOCK = 14;
       var grid = null;
       var frame = 0;
@@ -8078,7 +8895,7 @@
     (function () {
       var c = canvases[1];
       var ctx = ctxs[1];
-      var TA_COLORS = ['#d12121','#1e5fc0','#d4a817','#b8643e','#c4a872','#a8aeb8'];
+      var TA_COLORS = ['#f09090','#80a8f0','#ffe580','#c9917a','#ddb680','#c2c6cf'];
       var blocks = [];
       var score = 0;
       var frame = 0;
@@ -8174,7 +8991,7 @@
     (function () {
       var c = canvases[2];
       var ctx = ctxs[2];
-      var TA60_COLORS = ['#0891b2','#06b6d4','#22d3ee','#1e5f74','#0c4a6e'];
+      var TA60_COLORS = ['#80a8f0','#9AE8D9','#b3e8f5','#80a8c8','#a8c8e0'];
       var blocks = [];
       var score = 0;
       var frame = 0;
@@ -8247,7 +9064,7 @@
           }
         }
 
-        ctx2.fillStyle = '#06b6d4';
+        ctx2.fillStyle = '#9AE8D9';
         ctx2.font = 'bold 12px monospace';
         ctx2.textAlign = 'right';
         ctx2.fillText('+' + score, w - 6, 16);
@@ -8267,7 +9084,7 @@
     (function () {
       var c = canvases[3];
       var ctx = ctxs[3];
-      var ENDLESS_COLORS = ['#d4b860','#b89a5f','#a8764d','#9a6b48','#b8825f'];
+      var ENDLESS_COLORS = ['#f5d27a','#ddb680','#c9917a','#c2c6cf','#fdf0a8'];
       var blocks = [];
       var frame = 0;
       var BSIZE = 14;
@@ -8394,8 +9211,8 @@
     (function () {
       var c = canvases[5];
       var ctx = ctxs[5];
-      var FAR_COLORS  = ['#2ac142','#3dd847','#b8643e','#a8aeb8','#3dd847','#2ac142','#b8643e'];
-      var NEAR_COLORS = ['#3dd847','#b8643e','#3dd847','#a8aeb8','#3dd847','#b8643e','#3dd847'];
+      var FAR_COLORS  = ['#6ec67a','#7ed98a','#c9917a','#c2c6cf','#7ed98a','#6ec67a','#c9917a'];
+      var NEAR_COLORS = ['#7ed98a','#c9917a','#7ed98a','#c2c6cf','#7ed98a','#c9917a','#7ed98a'];
       var BW = 18; // block width in the parallax strips
       var farOff = 0, nearOff = 0;
 
@@ -8420,7 +9237,7 @@
           var ci = ((i + Math.floor(farOff / BW)) % FAR_COLORS.length + FAR_COLORS.length) % FAR_COLORS.length;
           drawBlock(ctx2, x, farY, BW - 1, FAR_COLORS[ci]);
           // dirt row below
-          drawBlock(ctx2, x, farY + BW - 1, BW - 1, '#8a5a32');
+          drawBlock(ctx2, x, farY + BW - 1, BW - 1, '#b09070');
         }
 
         // near terrain strip (bottom)
@@ -8431,9 +9248,9 @@
           var nx = (j * BW - (nearOff % BW));
           var nci = ((j + Math.floor(nearOff / BW)) % NEAR_COLORS.length + NEAR_COLORS.length) % NEAR_COLORS.length;
           drawBlock(ctx2, nx, nearY, BW - 1, NEAR_COLORS[nci]);
-          drawBlock(ctx2, nx, nearY + BW - 1, BW - 1, '#8a5a32');
+          drawBlock(ctx2, nx, nearY + BW - 1, BW - 1, '#b09070');
           // fill remaining height
-          ctx2.fillStyle = '#6b3a1f';
+          ctx2.fillStyle = '#a07860';
           ctx2.fillRect(nx, nearY + BW * 2 - 2, BW - 1, h - (nearY + BW * 2 - 2));
         }
 
@@ -8459,7 +9276,7 @@
   (function () {
     var bgCanvas = document.getElementById('bg-canvas');
     var ctx = bgCanvas.getContext('2d');
-    var COLORS = ['#3dd847','#a8aeb8','#d4b860','#b8643e','#1e5fc0','#ffb800'];
+    var COLORS = ['#7ed98a','#c2c6cf','#f5d27a','#c9917a','#80a8f0','#ffd099'];
     var particles = [];
 
     function rand(min, max) { return min + Math.random() * (max - min); }
