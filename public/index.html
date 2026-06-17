@@ -733,6 +733,7 @@
         <button id="accessibility-link" class="text-xs text-zinc-400 hover:text-zinc-100 underline underline-offset-2 cursor-pointer transition-colors">♿ Accessibility</button>
       </div>
       <div id="online-list" class="mt-3 text-sm text-zinc-400 text-center"></div>
+      <div id="attract-label" class="hidden mt-3 text-center text-xs text-zinc-400 transition-opacity duration-1000 opacity-0">Demo — click a mode to play</div>
 
       <!-- Wager step: replaces mode cards when player clicks Play Time Attack -->
       <div id="wager-panel" class="hidden w-full">
@@ -753,7 +754,6 @@
         </div>
         <div id="wager-error" class="mt-2 text-xs text-red-400 text-center min-h-[1.2em]"></div>
       </div>
-
       <div id="footer" class="mt-4 pt-3 border-t border-zinc-700/60 text-xs text-zinc-500 text-center">
         <p class="mb-1" id="footer-copyright">© 2026 block-game</p>
         <p id="footer-credit">Built with Three.js and Tailwind CSS</p>
@@ -880,12 +880,12 @@
   <div id="hint" class="pointer-events-none fixed top-3 left-1/2 -translate-x-1/2 z-20 text-center text-[10px] sm:text-xs text-zinc-300/90 bg-black/40 rounded-lg px-2 sm:px-3 py-1 sm:py-2 transition-opacity duration-700">
     <span class="font-semibold">WASD</span> move · <span class="font-semibold">Space/Shift</span> up·down ·
     <span class="font-semibold">Left-click/F</span> add · <span class="font-semibold">Right-click/G</span> delete · <span class="font-semibold">Drag+📦</span> stamp ·
-    <span class="font-semibold">1–9</span> pick · <span class="font-semibold">H</span> hold · <span class="font-semibold">Enter</span> chat · <span class="font-semibold">Esc</span> release
+    <span class="font-semibold">1–9</span> pick block · <span class="font-semibold">H</span> hold/controls · <span class="font-semibold">X</span> hint · <span class="font-semibold">Enter</span> chat · <span class="font-semibold">M</span> mute · <span class="font-semibold">Esc</span> release
   </div>
   <div id="hint-fallback" class="hidden pointer-events-none fixed top-3 left-1/2 -translate-x-1/2 z-20 text-center text-[10px] sm:text-xs text-zinc-300/90 bg-black/40 rounded-lg px-2 sm:px-3 py-1 sm:py-2 transition-opacity duration-700">
     <span class="font-semibold">WASD</span> move · <span class="font-semibold">Space/Shift</span> up·down ·
     <span class="font-semibold">Drag</span> look · <span class="font-semibold">Left-click/F</span> add · <span class="font-semibold">Right-click/G</span> delete · <span class="font-semibold">Drag+📦</span> stamp ·
-    <span class="font-semibold">1–9</span> pick · <span class="font-semibold">H</span> hold · <span class="font-semibold">Enter</span> chat · <span class="font-semibold">Esc</span> menu
+    <span class="font-semibold">1–9</span> pick block · <span class="font-semibold">H</span> hold/controls · <span class="font-semibold">X</span> hint · <span class="font-semibold">Enter</span> chat · <span class="font-semibold">M</span> mute · <span class="font-semibold">Esc</span> menu
   </div>
 
   <!-- Look-mode control: always-visible, clickable, shows the active look
@@ -1006,6 +1006,10 @@
   <button id="theme-btn" title="Daily Build Theme" aria-label="Daily Build Theme"
           class="fixed top-[10.5rem] right-3 z-30 w-9 h-9 rounded-full bg-black/50 hover:bg-black/70 text-zinc-100 text-lg leading-none flex items-center justify-center transition-colors cursor-pointer">🌟</button>
 
+  <!-- AI Hint button: placement suggestion. Shown only in Classic mode. -->
+  <button id="hint-btn" title="Placement hint (X)" aria-label="Ask for placement hint"
+          class="hidden fixed top-[10.5rem] right-3 z-30 w-9 h-9 rounded-full bg-black/50 hover:bg-black/70 text-zinc-100 text-lg leading-none flex items-center justify-center transition-colors cursor-pointer">🎯</button>
+
   <!-- NFT Skins toggle: below the coach button. -->
   <button id="skins-btn" title="NFT Block Skins" aria-label="Toggle NFT skins"
           class="fixed top-[11rem] right-3 z-30 w-9 h-9 rounded-full bg-black/50 hover:bg-black/70 text-zinc-100 text-lg leading-none flex items-center justify-center transition-colors cursor-pointer">🎨</button>
@@ -1016,7 +1020,7 @@
 
   <!-- Build/version stamp: always visible, dim, so the running build can be
        confirmed at a glance. Bump BUILD_VERSION (below) on every change.
-       Shifted down to make room for the leaderboard, friends, coach, skins, accessibility, and theme buttons. -->
+       Shifted down to make room for the leaderboard, friends, coach, hint, skins, accessibility, and theme buttons. -->
   <div id="build-stamp" class="pointer-events-none fixed top-[13rem] right-3 z-20 text-[11px] text-zinc-300/70 bg-black/40 rounded px-2 py-1 font-mono"></div>
 
   <!-- NFT Skins panel: shows owned NFTs for equipping as block textures. -->
@@ -1433,6 +1437,13 @@
     <div id="combo-badge" class="text-2xl sm:text-3xl font-mono font-bold text-white rounded-xl px-3 sm:px-4 py-1 sm:py-2 leading-tight tabular-nums bg-amber-500" style="transition: transform 0.15s ease-out;">2×</div>
   </div>
 
+  <!-- Move Analyzer HUD: chess-style rating badge shown after each Classic placement -->
+  <div id="move-rating-hud" class="hidden pointer-events-none fixed bottom-24 left-4 z-20" style="transition: opacity 0.3s;">
+    <div id="move-rating-badge" class="flex items-center gap-1.5 text-sm font-semibold text-white rounded-full px-3 py-1 bg-black/80 backdrop-blur" style="transition: transform 0.15s ease-out;">
+      <span id="move-rating-icon"></span><span id="move-rating-label"></span>
+    </div>
+  </div>
+
   <!-- Score HUD: shows session score during Classic mode -->
   <div id="score-hud" class="hidden pointer-events-none fixed top-12 left-3 z-20 flex flex-col gap-1 transition-opacity duration-200">
     <div id="score-display" class="text-xs sm:text-sm font-semibold text-zinc-200 bg-black/50 rounded-xl px-3 sm:px-4 py-1 sm:py-1.5">
@@ -1681,7 +1692,7 @@
 
     // Build identifier — bump this (to the deploying commit short SHA) on every
     // change so the top-right stamp confirms exactly which code is running.
-    const BUILD_VERSION = 'speedrun-mode+power-ups+hold-queue+achievements-badges+chat+daily-challenge+leaderboard+online-presence+block-attribution+audio-sfx+next-piece-preview+spectator-mode+weekly-tournament+friends+betting-system+blocks-placed-hud+weather-system+day-night-cycle+minimap+ai-coach+nft-skins+player-stats+leaderboard-daily+new-badges+daily-theme-voting+natural-disasters+community-monuments+undo-redo-history+pastel-chrome+mobs+land-claims+message-in-a-block+accessibility-panel+pixel-pets+versus-mode';
+    const BUILD_VERSION = 'speedrun-mode+power-ups+hold-queue+achievements-badges+chat+daily-challenge+leaderboard+online-presence+block-attribution+audio-sfx+next-piece-preview+spectator-mode+weekly-tournament+friends+betting-system+blocks-placed-hud+ai-opponent+weather-system+day-night-cycle+minimap+ai-coach+ai-hints+nft-skins+player-stats+leaderboard-daily+new-badges+daily-theme-voting+natural-disasters+community-monuments+undo-redo-history+pastel-chrome+mobs+land-claims+message-in-a-block+accessibility-panel+pixel-pets+versus-mode';
 
     // Badge definitions — mirror of the server-side BADGES array, extended with
     // a `hint` field shown in the panel for unearned badges.
@@ -2425,6 +2436,15 @@
       streakHudEl.classList.remove('hidden');
     }
 
+    // ---- Move Analyzer: block point values (mirrors BLOCK_POINTS in server.js) ----
+    const MOVE_POINTS = {
+      1:1, 2:1, 3:1, 4:1, 5:1, 6:1, 13:1,  // Grass, Dirt, Stone, Wood, Leaves, Sand, Snow
+      7:2, 8:2, 9:2, 10:2, 11:2, 12:2,      // Brick, Glass, Red, Blue, Yellow, White
+      15:3, 18:3,                            // Glowstone, Crystal
+      16:4,                                  // Obsidian
+      14:5, 17:5,                            // Gold Block, Rainbow Block
+    };
+
     // ---- World/runtime state ----
     let DIMS = { w: 32, d: 32, h: 24 };
     let PALETTE = [];
@@ -2668,6 +2688,13 @@
 
     // ---- Blocks placed (lifetime) ----
     let myBlocksPlaced = 0;
+
+    // ---- Hint state ----
+    let hintCell = null;             // {x,y,z} of active highlight, or null
+    let hintExpiry = 0;              // ms timestamp when highlight auto-clears
+    let hintFetching = false;        // prevents concurrent hint requests
+    let lastHintAt = 0;              // ms timestamp of last hint shown
+    const HINT_COOLDOWN_MS = 20_000;
 
     // ---- Pet companion state ----
     let petTypes = [];              // full PET_TYPES array from /api/world
@@ -3702,6 +3729,14 @@
     const previewMesh = new THREE.Mesh(cube, previewMaterial);
     previewMesh.visible = false;
     scene.add(previewMesh);
+
+    // Hint highlight: glowing cyan wireframe cube at the AI-suggested cell.
+    // Pulses in opacity via the render loop; visible only when a hint is active.
+    const hintHighlightGeo = new THREE.EdgesGeometry(new THREE.BoxGeometry(1.08, 1.08, 1.08));
+    const hintHighlightMat = new THREE.LineBasicMaterial({ color: 0x00e5ff, transparent: true, opacity: 1.0 });
+    const hintHighlightMesh = new THREE.LineSegments(hintHighlightGeo, hintHighlightMat);
+    hintHighlightMesh.visible = false;
+    scene.add(hintHighlightMesh);
 
     // Stamp preview: wireframe box showing the rectangular region during a stamp drag
     const stampMaterial = new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.5 });
@@ -4740,6 +4775,64 @@
       }, 3000);
     }
 
+    // ---- Move Analyzer ----
+    const moveRatingHudEl = document.getElementById('move-rating-hud');
+    const moveRatingBadgeEl = document.getElementById('move-rating-badge');
+    const moveRatingIconEl = document.getElementById('move-rating-icon');
+    const moveRatingLabelEl = document.getElementById('move-rating-label');
+    let moveRatingTimer = null;
+
+    function countNeighbors(x, y, z) {
+      const dirs = [[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]];
+      let count = 0;
+      for (const [dx, dy, dz] of dirs) {
+        const ny = y + dy;
+        if (ny < 0) { count++; continue; } // ground layer is always solid
+        if (blocks.has(key(x + dx, ny, z + dz))) count++;
+      }
+      return count;
+    }
+
+    const MOVE_TIERS = [
+      { icon: '🌟', label: 'Brilliant', bg: 'bg-violet-600' },
+      { icon: '✨', label: 'Great',     bg: 'bg-blue-600'   },
+      { icon: '👍', label: 'Good',      bg: 'bg-zinc-600'   },
+      { icon: '〰️', label: 'Inaccuracy',bg: 'bg-zinc-700'   },
+      { icon: '⚠️', label: 'Mistake',   bg: 'bg-orange-600' },
+      { icon: '💥', label: 'Blunder',   bg: 'bg-red-700'    },
+    ];
+    const BG_CLASSES = MOVE_TIERS.map((t) => t.bg);
+
+    function getTier(neighbors, blockType) {
+      const pts = MOVE_POINTS[blockType] || 1;
+      if (neighbors >= 5) return 0; // Brilliant
+      if (neighbors >= 3) return 1; // Great
+      if (neighbors >= 2) return 2; // Good
+      if (neighbors === 1 && pts >= 4) return 2; // Good
+      if (neighbors === 1) return 3; // Inaccuracy
+      if (pts >= 4) return 3; // Inaccuracy (alone but premium)
+      if (pts >= 2) return 4; // Mistake
+      return 5; // Blunder
+    }
+
+    function showMoveRating(neighbors, blockType) {
+      const tier = MOVE_TIERS[getTier(neighbors, blockType)];
+      moveRatingIconEl.textContent = tier.icon;
+      moveRatingLabelEl.textContent = tier.label;
+      BG_CLASSES.forEach((c) => moveRatingBadgeEl.classList.remove(c));
+      moveRatingBadgeEl.classList.add(tier.bg);
+      moveRatingBadgeEl.style.transform = 'scale(1.15)';
+      requestAnimationFrame(() => requestAnimationFrame(() => { moveRatingBadgeEl.style.transform = ''; }));
+      moveRatingHudEl.style.opacity = '1';
+      moveRatingHudEl.classList.remove('hidden');
+      if (moveRatingTimer !== null) clearTimeout(moveRatingTimer);
+      moveRatingTimer = setTimeout(() => {
+        moveRatingHudEl.style.opacity = '0';
+        setTimeout(() => { moveRatingHudEl.classList.add('hidden'); }, 300);
+        moveRatingTimer = null;
+      }, 2500);
+    }
+
     // ---- Score HUD ----
     const scoreHudEl = document.getElementById('score-hud');
     const scoreValueEl = document.getElementById('score-value');
@@ -5044,6 +5137,7 @@
       if (!target || paused) return;
       const { x, y, z } = target.place;
       if (!inBounds(x, y, z)) return;
+      clearHintHighlight();
       const actualType = resolveBlockType();
       if (gameMode === 'timeattack') {
         const k = key(x, y, z);
@@ -5116,11 +5210,13 @@
       if (mode === 'speedrun') speedrunSendBlock(x, y, z, actualType);
       else {
         emitBlockPlace(x + 0.5, y + 0.5, z + 0.5);
+        const ratingNeighbors = countNeighbors(x, y, z);
         sendEdit(x, y, z, actualType, prevType);
         pushHistory(x, y, z, prevType, actualType);
         // Unlock hold after each successful placement (Tetris lock rule)
         holdLocked = false;
         updateHoldPanel();
+        showMoveRating(ratingNeighbors, actualType);
       }
     }
 
@@ -5195,6 +5291,7 @@
       if (!target || paused) return;
       const { x, y, z } = target.cell;
       if (y < 1) return;
+      clearHintHighlight();
       if (gameMode === 'timeattack') {
         const k = key(x, y, z);
         if (!taBlocks.has(k)) return;
@@ -5538,6 +5635,10 @@
     let paused = false;
     let turntableEnabled = true;
     let turntableAngle = 0;
+    const ATTRACT_IDLE_MS = 8000;
+    let attractMode = false;
+    let attractT = 0;
+    let idleTimer = null;
     let dragMode = false;
     let lockUnavailable = false;
     let lockTimer = null;
@@ -5570,6 +5671,9 @@
     const coachTipTextEl = document.getElementById('coach-tip-text');
     const coachProgressEl = document.getElementById('coach-progress');
     const coachBtnEl = document.getElementById('coach-btn');
+
+    // ---- Hint DOM refs ----
+    const hintBtnEl = document.getElementById('hint-btn');
 
     // ---- Chat DOM refs ----
     const chatDrawerEl = document.getElementById('chat-drawer');
@@ -5744,6 +5848,35 @@
       turntableEnabled = !turntableEnabled;
       syncTurntableBtn();
     });
+
+    const attractLabelEl = document.getElementById('attract-label');
+    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+    function enterAttract() {
+      if (playing || !turntableEnabled || reducedMotion) return;
+      attractMode = true;
+      attractT = 0;
+      overlayEl.classList.remove('bg-black/60', 'backdrop-blur-sm');
+      overlayEl.classList.add('bg-black/75', 'backdrop-blur');
+      attractLabelEl.classList.remove('hidden');
+      // Defer opacity change by one frame so the CSS transition fires.
+      requestAnimationFrame(() => attractLabelEl.classList.remove('opacity-0'));
+    }
+
+    function exitAttract() {
+      attractMode = false;
+      overlayEl.classList.remove('bg-black/75', 'backdrop-blur');
+      overlayEl.classList.add('bg-black/60', 'backdrop-blur-sm');
+      attractLabelEl.classList.add('hidden', 'opacity-0');
+    }
+
+    function resetIdle() {
+      if (idleTimer !== null) { clearTimeout(idleTimer); idleTimer = null; }
+      if (attractMode) exitAttract();
+      if (!playing && turntableEnabled && !reducedMotion) {
+        idleTimer = setTimeout(enterAttract, ATTRACT_IDLE_MS);
+      }
+    }
 
     // Profile panel (badges-btn): toggle + tabs.
     const badgesBtnEl = document.getElementById('badges-btn');
@@ -6758,6 +6891,7 @@
         initTimeAttack();
         hideScoreHud();
         coachBtnEl.classList.remove('hidden');
+        hintBtnEl.classList.add('hidden'); // TA is client-only; no server context for hints
         // Hide theme button and panel during Time Attack.
         themeBtnEl.classList.add('hidden');
         closeThemePanel();
@@ -6790,6 +6924,7 @@
         document.getElementById('hud-copy-score-btn').classList.remove('hidden');
         if (!pollHandle) pollHandle = setInterval(poll, 1500);
         coachBtnEl.classList.remove('hidden');
+        hintBtnEl.classList.remove('hidden');
         document.getElementById('undo-redo-hud').classList.remove('hidden');
         hpHudEl.classList.remove('hidden');
         updateHpHud();
@@ -6810,9 +6945,11 @@
         challengeHudEl.classList.add('hidden');
         coinsHudEl.classList.add('hidden');
         document.getElementById('crosshair').style.opacity = '0.3';
-        // Hide coach and prompt HUD in spectate mode — player isn't building.
+        // Hide coach, hint, and prompt HUD in spectate mode — player isn't building.
         coachBtnEl.classList.add('hidden');
         dismissCoachTip();
+        hintBtnEl.classList.add('hidden');
+        clearHintHighlight();
         promptHudEl.classList.add('hidden');
         // Immediately ping presence as a spectator so the online list updates fast.
         heartbeat();
@@ -6821,6 +6958,8 @@
     }
 
     function startMode(mode) {
+      if (idleTimer !== null) { clearTimeout(idleTimer); idleTimer = null; }
+      if (attractMode) exitAttract();
       gameMode = mode;
       if (mode === 'timeattack') pendingTaInit = true;
       if (mode === 'time-attack-60') pendingTa60Init = true;
@@ -6981,12 +7120,18 @@
       // Dismiss any active coach tip and restore coach button.
       dismissCoachTip();
       coachBtnEl.classList.remove('hidden');
+      // Clear any active hint and hide hint button (no mode active at overlay).
+      clearHintHighlight();
+      hintBtnEl.classList.add('hidden');
+      hintBtnEl.disabled = false;
+      hintBtnEl.style.opacity = '';
       closeMsgCompose();
       updateMsgWriteBtn();
       overlayEl.style.display = 'flex';
       energyDisplayEl.classList.add('hidden');
       refreshControlCopy();
       updateTouchControlsVisibility();
+      resetIdle();
     }
 
     function updateTouchControlsVisibility() {
@@ -7628,6 +7773,7 @@
       Space: 'up', ShiftLeft: 'down', ShiftRight: 'down',
     };
     window.addEventListener('keydown', (e) => {
+      resetIdle();
       // While the chat input is focused, only Escape is handled globally
       // (to close the drawer); all other keys are for typing.
       if (document.activeElement === chatInputEl) {
@@ -7702,6 +7848,8 @@
       // L toggles the leaderboard panel.
       if (e.code === 'KeyL') toggleLeaderboard();
       if (e.code === 'KeyM') { toggleSound(); }
+      // X requests a placement hint (Classic mode only).
+      if (e.code === 'KeyX' && playing && gameMode === 'classic') fetchPlacementHint();
       // P toggles pause while playing (only in playable modes, not spectate).
       if (e.code === 'KeyP' && playing && gameMode !== 'spectate') {
         e.preventDefault();
@@ -7744,6 +7892,13 @@
       if (codeMap[e.code]) move[codeMap[e.code]] = false;
       if (e.code === 'KeyF') placeHeld = false;
     });
+
+    // ---- Idle detection for attract mode ----
+    window.addEventListener('mousemove', (e) => {
+      if (Math.abs(e.movementX) + Math.abs(e.movementY) > 12) resetIdle();
+    });
+    window.addEventListener('mousedown', () => resetIdle());
+    window.addEventListener('touchstart', () => resetIdle(), { passive: true });
 
     // ---- Touch input ----
     let lookTouchId = null, lookLastX = 0, lookLastY = 0;
@@ -9345,6 +9500,100 @@
     document.getElementById('theme-close').addEventListener('click', closeThemePanel);
 
     document.getElementById('coach-dismiss').addEventListener('click', dismissCoachTip);
+
+    // ---- Hint functions ----
+    function clearHintHighlight() {
+      hintHighlightMesh.visible = false;
+      hintCell = null;
+      hintExpiry = 0;
+    }
+
+    function showHintHighlight(x, y, z, reason) {
+      hintHighlightMesh.position.set(x + 0.5, y + 0.5, z + 0.5);
+      hintHighlightMesh.visible = true;
+      hintCell = { x, y, z };
+      hintExpiry = Date.now() + 20000;
+      lastHintAt = Date.now();
+      showCoachTip(reason);
+    }
+
+    async function fetchPlacementHint(_retried) {
+      if (hintFetching) return;
+      if (!playing || gameMode !== 'classic') return;
+      if (Date.now() - lastHintAt < HINT_COOLDOWN_MS) {
+        hintBtnEl.disabled = true;
+        hintBtnEl.style.opacity = '0.4';
+        setTimeout(() => { hintBtnEl.disabled = false; hintBtnEl.style.opacity = ''; }, 2000);
+        return;
+      }
+
+      // Build nearby blocks list from the live world snapshot.
+      const px = Math.floor(camera.position.x);
+      const py = Math.floor(camera.position.y);
+      const pz = Math.floor(camera.position.z);
+      const nearby = [];
+      for (const [k, t] of blocks) {
+        if (!t) continue;
+        const parts = k.split(',');
+        const bx = +parts[0], by = +parts[1], bz = +parts[2];
+        const d = Math.sqrt((bx - px) ** 2 + (by - py) ** 2 + (bz - pz) ** 2);
+        if (d <= 5) {
+          const nm = (PALETTE.find(p => p.id === t) || {}).name || 'Block';
+          nearby.push({ x: bx, y: by, z: bz, name: nm, d });
+        }
+      }
+      nearby.sort((a, b) => a.d - b.d);
+      nearby.splice(80);
+
+      const pal = PALETTE.find(p => p.id === selectedType) || PALETTE[0] || {};
+      const pts = { 1:1,2:1,3:1,4:1,5:1,6:1,7:2,8:2,9:2,10:2,11:2,12:2,13:2,14:5,15:3,16:4,17:5,18:3 }[selectedType] || 1;
+
+      hintFetching = true;
+      hintBtnEl.style.opacity = '0.5';
+      try {
+        const res = await fetch('/api/hint', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...headers },
+          body: JSON.stringify({
+            selected_type: selectedType,
+            selected_type_name: pal.name || 'Block',
+            selected_type_points: pts,
+            player_pos: { x: camera.position.x, y: camera.position.y, z: camera.position.z },
+            combo_tier: lastComboMultiplier >= 5 ? 4 : lastComboMultiplier >= 3 ? 3 : lastComboMultiplier >= 2 ? 2 : 1,
+            session_score: sessionScore,
+            nearby_blocks: nearby.map(({ x, y, z, name }) => ({ x, y, z, name })),
+          }),
+        });
+        const data = await res.json();
+
+        if (res.status === 403 && data.error === 'grant_required') {
+          if (!_retried) {
+            try {
+              const result = await usernode.requestLlmAccess();
+              if (result && result.granted) {
+                hintFetching = false;
+                hintBtnEl.style.opacity = '';
+                fetchPlacementHint(true);
+                return;
+              }
+            } catch (_) { /* bridge unavailable */ }
+          }
+          return;
+        }
+        if (!res.ok || data.x === undefined) {
+          showCoachTip('Hint unavailable — try again in a moment.');
+          return;
+        }
+        showHintHighlight(data.x, data.y, data.z, data.reason || 'Try placing your block here!');
+      } catch (_) {
+        showCoachTip('Hint unavailable — try again in a moment.');
+      } finally {
+        hintFetching = false;
+        hintBtnEl.style.opacity = '';
+      }
+    }
+
+    hintBtnEl.addEventListener('click', () => fetchPlacementHint());
     document.getElementById('friends-add-btn').addEventListener('click', () => {
       const u = friendsInputEl.value.trim();
       if (u) sendFriendRequest(u);
@@ -9558,7 +9807,7 @@
           if (i < 9) {
             const num = document.createElement('span');
             num.textContent = i + 1;
-            num.className = 'absolute bottom-0 right-0.5 text-[10px] font-bold text-black/60';
+            num.className = 'absolute bottom-0 right-0.5 text-[10px] font-bold text-white/60';
             btn.appendChild(num);
           }
           btn.addEventListener('click', () => selectType(p.id));
@@ -9895,8 +10144,9 @@
         const makeRow = (u, isSpectator) => {
           const safe = u.username.replace(/&/g, '&amp;').replace(/</g, '&lt;');
           const isSelf = myUsername && u.username.toLowerCase() === myUsername.toLowerCase();
+          const isAi = u.username.startsWith('🤖 ');
           let statusHtml = '';
-          if (!isSelf && friendsCache) {
+          if (!isSelf && !isAi && friendsCache) {
             const lc = u.username.toLowerCase();
             const isFriend = friendsCache.friends.some((f) => f.username.toLowerCase() === lc);
             const isOutgoing = friendsCache.outgoing.some((r) => r.username.toLowerCase() === lc);
@@ -9910,7 +10160,7 @@
             } else {
               statusHtml = '<button class="ol-add-btn text-xs ml-1 px-1.5 py-0.5 rounded bg-zinc-700 hover:bg-zinc-600 text-zinc-200 cursor-pointer" data-username="' + safe + '">+ Add</button>';
             }
-          } else if (!isSelf && !friendsCache) {
+          } else if (!isSelf && !isAi && !friendsCache) {
             statusHtml = '<button class="ol-add-btn text-xs ml-1 px-1.5 py-0.5 rounded bg-zinc-700 hover:bg-zinc-600 text-zinc-200 cursor-pointer" data-username="' + safe + '">+ Add</button>';
           }
           const petIcon = u.active_pet
@@ -10202,10 +10452,20 @@
       }
 
       if (!playing && turntableEnabled) {
-        turntableAngle += dt * 0.25;
         const cx = DIMS.w / 2, cz = DIMS.d / 2;
-        camera.position.set(cx + 8 * Math.sin(turntableAngle), 3.5, cz + 8 * Math.cos(turntableAngle));
-        camera.lookAt(cx, 1.5, cz);
+        if (attractMode) {
+          attractT += dt;
+          turntableAngle += dt * 0.18;
+          const r = 8 + 3 * Math.sin(attractT * 0.07);
+          const h = 2 + 4 * Math.abs(Math.sin(attractT * 0.05));
+          const lookY = 1.5 + 2 * Math.sin(attractT * 0.04);
+          camera.position.set(cx + r * Math.sin(turntableAngle), h, cz + r * Math.cos(turntableAngle));
+          camera.lookAt(cx, lookY, cz);
+        } else {
+          turntableAngle += dt * 0.25;
+          camera.position.set(cx + 8 * Math.sin(turntableAngle), 3.5, cz + 8 * Math.cos(turntableAngle));
+          camera.lookAt(cx, 1.5, cz);
+        }
       } else if (playing && (locked || dragMode)) {
         fwd.set(-Math.sin(yaw), 0, -Math.cos(yaw));
         right.set(Math.cos(yaw), 0, -Math.sin(yaw));
@@ -10355,6 +10615,11 @@
       updateAttribution();
       // Animate Crystal block emissive glow: gentle 0.2→0.4 pulse (~7.9s period).
       if (crystalMaterial) crystalMaterial.emissiveIntensity = 0.2 + 0.2 * Math.sin(now * 0.0008);
+      // Pulse hint highlight and expire it when the timer runs out.
+      if (hintHighlightMesh.visible) {
+        hintHighlightMat.opacity = 0.5 + 0.5 * Math.abs(Math.sin(now * 0.003));
+      }
+      if (hintExpiry && Date.now() > hintExpiry) clearHintHighlight();
       // Animate Gold Star sparkle: sharp 0.25→0.7 pulse (~2.1s period).
       if (wildcardMaterial) wildcardMaterial.emissiveIntensity = 0.25 + 0.45 * Math.abs(Math.sin(now * 0.003));
       renderBuffHud();
@@ -10600,6 +10865,8 @@
       fetchTheme().catch(() => {});
 
       requestAnimationFrame(loop);
+      resetIdle();
+      // Poll is started per-mode in onPlayEntered(), not here.
       setInterval(poll, 1500);
       heartbeat();
       setInterval(heartbeat, 30000);
