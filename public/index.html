@@ -66,6 +66,7 @@
   <title>block-game</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script>tailwind.config = { darkMode: 'class' }</script>
+  <script src="https://social-vibecoding.usernodelabs.org/usernode-bridge/v1/bridge.js"></script>
   <script type="importmap">
   { "imports": { "three": "https://unpkg.com/three@0.160.0/build/three.module.js" } }
   </script>
@@ -224,16 +225,32 @@
   <button id="friends-btn" title="Friends" aria-label="Toggle friends"
           class="fixed top-[6.25rem] right-3 z-30 w-9 h-9 rounded-full bg-black/50 hover:bg-black/70 text-zinc-100 text-lg leading-none flex items-center justify-center transition-colors cursor-pointer relative">👥<span id="friends-badge" class="hidden absolute -top-1 -right-1 w-3 h-3 rounded-full bg-red-500 pointer-events-none"></span></button>
 
+  <!-- AI Coach toggle: below the friends button. Hidden in spectate mode. -->
+  <button id="coach-btn" title="Ask AI Coach" aria-label="Ask AI Coach"
+          class="fixed top-[8.5rem] right-3 z-30 w-9 h-9 rounded-full bg-black/50 hover:bg-black/70 text-zinc-100 text-lg leading-none flex items-center justify-center transition-colors cursor-pointer">💡</button>
+
   <!-- Build/version stamp: always visible, dim, so the running build can be
        confirmed at a glance. Bump BUILD_VERSION (below) on every change.
-       Shifted down to make room for the leaderboard and friends buttons above. -->
-  <div id="build-stamp" class="pointer-events-none fixed top-36 right-3 z-20 text-[11px] text-zinc-300/70 bg-black/40 rounded px-2 py-1 font-mono"></div>
+       Shifted down to make room for the leaderboard, friends, and coach buttons above. -->
+  <div id="build-stamp" class="pointer-events-none fixed top-[10.5rem] right-3 z-20 text-[11px] text-zinc-300/70 bg-black/40 rounded px-2 py-1 font-mono"></div>
 
   <!-- Mini-map: top-down 128×128 px overhead view of the 32×32 world.
        Hidden until a play mode is chosen; shown/hidden via JS. -->
   <canvas id="minimap" width="128" height="128"
           class="hidden fixed z-20 pointer-events-none"
           style="top: 11.5rem; right: 0.75rem; border-radius: 6px; border: 1px solid rgba(255,255,255,0.15); opacity: 0.9"></canvas>
+
+  <!-- AI Coach bubble: appears on the left side with a tip. Hidden by default. -->
+  <div id="coach-bubble" class="hidden fixed left-4 top-1/2 -translate-y-1/2 z-20 max-w-[240px]"
+       style="transition: opacity 0.3s; opacity: 0">
+    <div class="bg-black/75 backdrop-blur rounded-xl px-4 py-3 text-sm text-zinc-100 shadow-xl">
+      <div class="flex items-start gap-2">
+        <span class="text-base leading-none mt-0.5 shrink-0 pointer-events-none">💡</span>
+        <p id="coach-tip-text" class="leading-snug flex-1 pointer-events-none"></p>
+        <button id="coach-dismiss" class="shrink-0 text-zinc-500 hover:text-zinc-200 text-xs leading-none cursor-pointer ml-1 mt-0.5">✕</button>
+      </div>
+    </div>
+  </div>
 
   <!-- Badges panel: lists all 10 badges with earned/locked state. Hidden by
        default; toggled by the trophy button. -->
@@ -407,7 +424,7 @@
 
     // Build identifier — bump this (to the deploying commit short SHA) on every
     // change so the top-right stamp confirms exactly which code is running.
-    const BUILD_VERSION = 'power-ups+hold-queue+achievements-badges+chat+daily-challenge+leaderboard+online-presence+block-attribution+audio-sfx+next-piece-preview+spectator-mode+weekly-tournament+friends+day-night-cycle+minimap';
+    const BUILD_VERSION = 'power-ups+hold-queue+achievements-badges+chat+daily-challenge+leaderboard+online-presence+block-attribution+audio-sfx+next-piece-preview+spectator-mode+weekly-tournament+friends+day-night-cycle+minimap+ai-coach';
 
     // Badge definitions — mirror of the server-side BADGES array, extended with
     // a `hint` field shown in the panel for unearned badges.
@@ -665,6 +682,15 @@
     let challengeTarget = 0;         // today's placement goal
     let challengePlaced = 0;         // blocks placed today by this user
     let challengeCompleted = false;  // true once placed >= target
+
+    // ---- AI Coach state ----
+    let lastTipAt = 0;               // ms timestamp of last tip shown
+    const COACH_COOLDOWN_MS = 30_000;
+    let coachGrantRequired = false;  // true if LLM proxy returned grant_required
+    let coachFetching = false;       // prevents concurrent tip fetches
+    let coachDismissTimer = null;
+    let sessionBlocksPlaced = 0;     // placements this session, for milestone trigger
+    let sessionScore = 0;
 
     // ---- Game mode state ----
     let gameMode = null;           // null | 'classic' | 'timeattack'
@@ -1449,8 +1475,16 @@
       // Optimistic challenge increment for placements (not breaks).
       if (t !== 0 && challengeDate && !challengeCompleted) {
         challengePlaced++;
-        if (challengePlaced >= challengeTarget) challengeCompleted = true;
+        if (challengePlaced >= challengeTarget) {
+          challengeCompleted = true;
+          fetchCoachTip('daily_complete');
+        }
         renderChallenge();
+      }
+      // Session tracking for coach milestone trigger.
+      if (t !== 0) {
+        sessionBlocksPlaced++;
+        if (sessionBlocksPlaced % 25 === 0) fetchCoachTip('block_milestone');
       }
       try {
         const res = await fetch('/api/block', {
@@ -1460,13 +1494,18 @@
         });
         if (res.ok) {
           const data = await res.json();
-          updateComboHud(data.combo_multiplier || 1);
+          // Check combo tier-up before updateComboHud mutates lastComboMultiplier.
+          const newMult = data.combo_multiplier || 1;
+          if (newMult > lastComboMultiplier && newMult > 1) fetchCoachTip('combo_tier_up');
+          updateComboHud(newMult);
+          if (data.earned) sessionScore += data.earned;
           if (data.seq && data.seq > cursor) cursor = data.seq;
           if (data.newly_earned_badges && data.newly_earned_badges.length) {
             for (const badge of data.newly_earned_badges) {
               earnedBadges.set(badge.id, { earned_at: new Date().toISOString() });
               showBadgeToast(badge);
             }
+            fetchCoachTip('badge_earned', data.newly_earned_badges[0].name);
             if (badgesOpen) renderBadgesPanel();
           }
           if (data.newly_unlocked_types && data.newly_unlocked_types.length) {
@@ -1588,6 +1627,11 @@
     const minimapCtx = minimapEl.getContext('2d');
     function showMinimap() { minimapEl.classList.remove('hidden'); }
     function hideMinimap() { minimapEl.classList.add('hidden'); }
+
+    // ---- AI Coach DOM refs ----
+    const coachBubbleEl = document.getElementById('coach-bubble');
+    const coachTipTextEl = document.getElementById('coach-tip-text');
+    const coachBtnEl = document.getElementById('coach-btn');
 
     // ---- Chat DOM refs ----
     const chatDrawerEl = document.getElementById('chat-drawer');
@@ -1766,14 +1810,21 @@
       if (pendingTaInit) {
         pendingTaInit = false;
         initTimeAttack();
+        coachBtnEl.classList.remove('hidden');
+        setTimeout(() => fetchCoachTip('time_attack_start'), 2000);
       } else if (gameMode === 'classic') {
         if (!pollHandle) pollHandle = setInterval(poll, 1500);
+        coachBtnEl.classList.remove('hidden');
+        setTimeout(() => fetchCoachTip('mode_start'), 3000);
       } else if (gameMode === 'spectate') {
         if (!pollHandle) pollHandle = setInterval(poll, 1500);
         document.getElementById('palette').classList.add('hidden');
         document.getElementById('hold-panel').classList.add('hidden');
         challengeHudEl.classList.add('hidden');
         document.getElementById('crosshair').style.opacity = '0.3';
+        // Hide coach in spectate mode — player isn't building.
+        coachBtnEl.classList.add('hidden');
+        coachBubbleEl.classList.add('hidden');
         // Immediately ping presence as a spectator so the online list updates fast.
         heartbeat();
       }
@@ -1875,6 +1926,11 @@
       hideComboHud();
 
       hideMinimap();
+      // Dismiss any active coach tip and restore coach button.
+      coachBubbleEl.classList.add('hidden');
+      coachBubbleEl.style.opacity = '0';
+      if (coachDismissTimer) { clearTimeout(coachDismissTimer); coachDismissTimer = null; }
+      coachBtnEl.classList.remove('hidden');
       overlayEl.style.display = 'flex';
       refreshControlCopy();
       updateTouchControlsVisibility();
@@ -2494,6 +2550,125 @@
 
     document.getElementById('friends-btn').addEventListener('click', toggleFriends);
     document.getElementById('friends-close').addEventListener('click', closeFriends);
+
+    // ---- AI Coach ----
+    function buildCoachContext(trigger, badgeName) {
+      const now = performance.now();
+      const activeBuffNames = [...activeBuff.keys()].filter(k => activeBuff.get(k) > now);
+      return {
+        trigger,
+        mode: gameMode || 'classic',
+        blocks_placed: sessionBlocksPlaced,
+        score: sessionScore,
+        unlocked_types_count: unlockedTypes.size,
+        combo_tier: lastComboMultiplier >= 5 ? 4 : lastComboMultiplier >= 3 ? 3 : lastComboMultiplier >= 2 ? 2 : 1,
+        active_buffs: activeBuffNames,
+        challenge_progress: {
+          placed: challengePlaced,
+          target: challengeTarget,
+          completed: challengeCompleted,
+        },
+        ...(badgeName ? { badge_name: badgeName } : {}),
+      };
+    }
+
+    function showCoachTip(text) {
+      lastTipAt = Date.now();
+      coachTipTextEl.textContent = text;
+      coachBubbleEl.classList.remove('hidden');
+      // Force reflow then fade in.
+      void coachBubbleEl.offsetWidth;
+      coachBubbleEl.style.opacity = '1';
+      if (coachDismissTimer) clearTimeout(coachDismissTimer);
+      coachDismissTimer = setTimeout(() => {
+        coachBubbleEl.style.opacity = '0';
+        coachDismissTimer = setTimeout(() => {
+          coachBubbleEl.classList.add('hidden');
+          coachDismissTimer = null;
+        }, 350);
+      }, 8000);
+    }
+
+    function showCoachUnavailable() {
+      const prev = coachTipTextEl.textContent;
+      coachTipTextEl.textContent = 'Coach is resting — try again later.';
+      coachBubbleEl.classList.remove('hidden');
+      void coachBubbleEl.offsetWidth;
+      coachBubbleEl.style.opacity = '1';
+      if (coachDismissTimer) clearTimeout(coachDismissTimer);
+      coachDismissTimer = setTimeout(() => {
+        coachBubbleEl.style.opacity = '0';
+        coachDismissTimer = setTimeout(() => {
+          coachBubbleEl.classList.add('hidden');
+          coachTipTextEl.textContent = prev;
+          coachDismissTimer = null;
+        }, 350);
+      }, 3000);
+    }
+
+    async function fetchCoachTip(trigger, badgeName, _retried) {
+      if (coachFetching) return;
+      // Auto-tips: skip if grant hasn't been given yet, or if not actively playing.
+      if (trigger !== 'player_asked') {
+        if (coachGrantRequired) return;
+        if (!playing) return;
+        if (Date.now() - lastTipAt < COACH_COOLDOWN_MS) return;
+      } else {
+        // player_asked: respect cooldown by briefly disabling the button.
+        if (Date.now() - lastTipAt < COACH_COOLDOWN_MS) {
+          coachBtnEl.disabled = true;
+          coachBtnEl.style.opacity = '0.4';
+          setTimeout(() => {
+            coachBtnEl.disabled = false;
+            coachBtnEl.style.opacity = '';
+          }, 2000);
+          return;
+        }
+      }
+
+      coachFetching = true;
+      try {
+        const body = buildCoachContext(trigger, badgeName);
+        const res = await fetch('/api/coach/tip', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...headers },
+          body: JSON.stringify(body),
+        });
+        const data = await res.json();
+
+        if (res.status === 403 && data.error === 'grant_required') {
+          coachGrantRequired = true;
+          if (!_retried) {
+            try {
+              const result = await usernode.requestLlmAccess();
+              if (result && result.granted) {
+                coachGrantRequired = false;
+                coachFetching = false;
+                fetchCoachTip(trigger, badgeName, true);
+                return;
+              }
+            } catch (_) { /* bridge unavailable */ }
+          }
+          return;
+        }
+        if (!res.ok || !data.tip) {
+          if (trigger === 'player_asked') showCoachUnavailable();
+          return;
+        }
+        showCoachTip(data.tip);
+      } catch (_) {
+        if (trigger === 'player_asked') showCoachUnavailable();
+      } finally {
+        coachFetching = false;
+      }
+    }
+
+    coachBtnEl.addEventListener('click', () => fetchCoachTip('player_asked'));
+    document.getElementById('coach-dismiss').addEventListener('click', () => {
+      if (coachDismissTimer) { clearTimeout(coachDismissTimer); coachDismissTimer = null; }
+      coachBubbleEl.style.opacity = '0';
+      setTimeout(() => coachBubbleEl.classList.add('hidden'), 350);
+    });
     document.getElementById('friends-add-btn').addEventListener('click', () => {
       const u = friendsInputEl.value.trim();
       if (u) sendFriendRequest(u);
