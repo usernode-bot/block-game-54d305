@@ -502,6 +502,24 @@ function weekStart(dateObj) {
   return monday.toISOString().slice(0, 10);
 }
 
+// ---- Collaborative Challenge: 2-hour UTC windows ----
+// windowId is a monotonically increasing integer: floor(epoch_ms / 7200000).
+// The target is deterministic so no DB row is needed for the definition itself.
+const COLLAB_WINDOW_MS = 2 * 60 * 60 * 1000;
+
+function challengeWindowId(dateObj) {
+  return Math.floor(dateObj.getTime() / COLLAB_WINDOW_MS);
+}
+function challengeWindowBounds(windowId) {
+  return {
+    startsAt: new Date(windowId * COLLAB_WINDOW_MS),
+    endsAt:   new Date((windowId + 1) * COLLAB_WINDOW_MS),
+  };
+}
+function challengeWindowTarget(windowId) {
+  return 75 + ((windowId * 37 + 13) % 175); // deterministic range [75, 249]
+}
+
 // ---- In-memory Tetris room state ----
 // room_code -> { hostWs, guestWs, status, countdownTimer }
 const rooms = new Map();
@@ -820,6 +838,7 @@ app.post('/api/block', async (req, res) => {
 
     // Track challenge progress for placements only (breaks don't count).
     let challenge = null;
+    let collab = null;
     const now = new Date();
     const dateStr = now.toISOString().slice(0, 10);
     // ---- Scoring (placements only; breaks earn 0) ----
@@ -951,6 +970,58 @@ app.post('/api/block', async (req, res) => {
       newly_earned_badges = newBadges.map((b) => ({ id: b.id, name: b.name, icon: b.icon, flavour: b.flavour }));
       placement_xp = { total_score: lb.total_score, level: getLevel(lb.total_score) };
 
+      // ---- Collaborative Challenge contribution ----
+      const winId = challengeWindowId(now);
+      const { startsAt, endsAt } = challengeWindowBounds(winId);
+      const collabTarget = challengeWindowTarget(winId);
+
+      await pool.query(
+        `INSERT INTO collab_challenges (window_id, starts_at, ends_at, target)
+         VALUES ($1, $2, $3, $4)
+         ON CONFLICT (window_id) DO NOTHING`,
+        [winId, startsAt, endsAt, collabTarget]
+      );
+      await pool.query(
+        `INSERT INTO collab_challenge_contributions (window_id, user_id, username, blocks_placed, updated_at)
+         VALUES ($1, $2, $3, 1, NOW())
+         ON CONFLICT (window_id, user_id) DO UPDATE SET
+           blocks_placed = collab_challenge_contributions.blocks_placed + 1,
+           username      = EXCLUDED.username,
+           updated_at    = NOW()`,
+        [winId, req.user.id, req.user.username]
+      );
+      const totalRes = await pool.query(
+        `SELECT COALESCE(SUM(blocks_placed), 0)::int AS total
+         FROM collab_challenge_contributions WHERE window_id = $1`,
+        [winId]
+      );
+      const collabTotal = totalRes.rows[0].total;
+
+      let collabCompletedAt = null;
+      if (collabTotal >= collabTarget) {
+        const compRes = await pool.query(
+          `UPDATE collab_challenges SET completed_at = NOW()
+           WHERE window_id = $1 AND completed_at IS NULL
+           RETURNING window_id`,
+          [winId]
+        );
+        if (compRes.rows.length > 0) {
+          // This request triggered completion — broadcast via chat.
+          await pool.query(
+            `INSERT INTO chat_messages (user_id, username, body)
+             VALUES ($1, $2, $3)`,
+            [SEED_USER_ID, 'System',
+             `🎉 Community Challenge complete — the community placed ${collabTotal} blocks together!`]
+          );
+        }
+        const completedRow = await pool.query(
+          `SELECT completed_at FROM collab_challenges WHERE window_id = $1`, [winId]
+        );
+        collabCompletedAt = completedRow.rows[0]?.completed_at || null;
+      }
+
+      collab = { total_placed: collabTotal, target: collabTarget, completed_at: collabCompletedAt };
+
       // Check daily_regular badge: fires when the challenge is completed and the
       // player hasn't earned it yet. Queries total completions only at that moment.
       if (challenge && challenge.completed_at && !earnedIds.has('daily_regular')) {
@@ -969,6 +1040,7 @@ app.post('/api/block', async (req, res) => {
           }
         }
       }
+
 
       // Detect first crossing of any block unlock threshold (blocks_placed increments by 1 per
       // placement, so === only fires once — the exact turn the threshold is first reached).
@@ -1237,6 +1309,7 @@ app.post('/api/block', async (req, res) => {
       ...(challenge ? { challenge } : {}),
       earned, combo_multiplier, rainbow_multiplier,
       newly_earned_badges, newly_unlocked_types, newly_unlocked_pets,
+      ...(collab ? { collab } : {}),
       lines_cleared, line_clear_points, bomb_explosions, newly_crowned_monuments,
       ...(mission_data ? { mission: mission_data } : {}),
       ...(activeSkinId ? { skin_id: activeSkinId } : {}),
@@ -3677,6 +3750,57 @@ app.get('/api/challenge/stats', async (req, res) => {
   }
 });
 
+// ---- Collaborative Challenge: current 2-hour window state ----
+app.get('/api/collab/current', async (req, res) => {
+  try {
+    const now = new Date();
+    const winId = challengeWindowId(now);
+    const { startsAt, endsAt } = challengeWindowBounds(winId);
+    const target = challengeWindowTarget(winId);
+
+    // Ensure the challenge row exists (no-op if already present).
+    await pool.query(
+      `INSERT INTO collab_challenges (window_id, starts_at, ends_at, target)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (window_id) DO NOTHING`,
+      [winId, startsAt, endsAt, target]
+    );
+
+    const contribRes = await pool.query(
+      `SELECT user_id, username, blocks_placed
+       FROM collab_challenge_contributions
+       WHERE window_id = $1
+       ORDER BY blocks_placed DESC`,
+      [winId]
+    );
+
+    const totalPlaced = contribRes.rows.reduce((s, r) => s + Number(r.blocks_placed), 0);
+    const topContributors = contribRes.rows.slice(0, 3).map((r) => ({
+      username: r.username,
+      blocks_placed: Number(r.blocks_placed),
+    }));
+    const myRow = contribRes.rows.find((r) => r.user_id === req.user.id);
+
+    const challengeRow = await pool.query(
+      `SELECT completed_at FROM collab_challenges WHERE window_id = $1`,
+      [winId]
+    );
+
+    res.json({
+      window_id:       winId,
+      starts_at:       startsAt,
+      ends_at:         endsAt,
+      target,
+      total_placed:    totalPlaced,
+      completed_at:    challengeRow.rows[0]?.completed_at || null,
+      my_placed:       myRow ? Number(myRow.blocks_placed) : 0,
+      top_contributors: topContributors,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ---- Daily Mission: today's mission definition and the requesting user's progress. ----
 app.get('/api/mission/today', async (req, res) => {
   try {
@@ -5775,6 +5899,63 @@ async function seedStreaks() {
   );
 }
 
+async function seedCollabChallenge() {
+  const now = new Date();
+  const curWinId = challengeWindowId(now);
+  const prevWinId = curWinId - 1;
+  const { startsAt: curStart, endsAt: curEnd } = challengeWindowBounds(curWinId);
+  const { startsAt: prevStart, endsAt: prevEnd } = challengeWindowBounds(prevWinId);
+
+  // Current window: in-progress at ~62% (124 / 200).
+  await pool.query(
+    `INSERT INTO collab_challenges (window_id, starts_at, ends_at, target, completed_at)
+     VALUES ($1, $2, $3, 200, NULL)
+     ON CONFLICT (window_id) DO NOTHING`,
+    [curWinId, curStart, curEnd]
+  );
+  // Previous window: completed 30 minutes ago.
+  await pool.query(
+    `INSERT INTO collab_challenges (window_id, starts_at, ends_at, target, completed_at)
+     VALUES ($1, $2, $3, 150, NOW() - INTERVAL '30 minutes')
+     ON CONFLICT (window_id) DO NOTHING`,
+    [prevWinId, prevStart, prevEnd]
+  );
+
+  const curContribs = [
+    { userId: -1, username: 'Staging demo alice',   blocks: 42 },
+    { userId: -2, username: 'Staging demo bob',     blocks: 31 },
+    { userId: -3, username: 'Staging demo charlie', blocks: 24 },
+    { userId: -4, username: 'Staging demo dana',    blocks: 18 },
+    { userId: -5, username: 'Staging demo eli',     blocks:  9 },
+  ];
+  for (const c of curContribs) {
+    await pool.query(
+      `INSERT INTO collab_challenge_contributions
+         (window_id, user_id, username, blocks_placed, updated_at)
+       VALUES ($1, $2, $3, $4, NOW())
+       ON CONFLICT (window_id, user_id) DO NOTHING`,
+      [curWinId, c.userId, c.username, c.blocks]
+    );
+  }
+
+  // Previous window contributions (total 155 ≥ 150 target → completed).
+  const prevContribs = [
+    { userId: -1, username: 'Staging demo alice',   blocks: 68 },
+    { userId: -2, username: 'Staging demo bob',     blocks: 45 },
+    { userId: -3, username: 'Staging demo charlie', blocks: 28 },
+    { userId: -4, username: 'Staging demo dana',    blocks: 14 },
+  ];
+  for (const c of prevContribs) {
+    await pool.query(
+      `INSERT INTO collab_challenge_contributions
+         (window_id, user_id, username, blocks_placed, updated_at)
+       VALUES ($1, $2, $3, $4, NOW() - INTERVAL '35 minutes')
+       ON CONFLICT (window_id, user_id) DO NOTHING`,
+      [prevWinId, c.userId, c.username, c.blocks]
+    );
+  }
+}
+
 async function seedCoins() {
   const coinSeeds = [
     { user_id: -1, username: 'Staging demo Alice',   balance: 340, loginOffset: 1 },
@@ -6681,6 +6862,34 @@ async function start() {
   await pool.query(`CREATE INDEX IF NOT EXISTS friendships_addressee_status_idx ON friendships (addressee_id, status)`);
   await pool.query(`CREATE INDEX IF NOT EXISTS friendships_requester_status_idx ON friendships (requester_id, status)`);
 
+  // Collaborative Building Challenges: one row per 2-hour UTC window.
+  // Public — placement counts and usernames are not sensitive.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS collab_challenges (
+      window_id    BIGINT       PRIMARY KEY,
+      starts_at    TIMESTAMPTZ  NOT NULL,
+      ends_at      TIMESTAMPTZ  NOT NULL,
+      target       INTEGER      NOT NULL,
+      completed_at TIMESTAMPTZ
+    )
+  `);
+
+  // Per-player contribution per window; one row per (window_id, user_id).
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS collab_challenge_contributions (
+      window_id    BIGINT       NOT NULL,
+      user_id      INTEGER      NOT NULL,
+      username     VARCHAR(255) NOT NULL,
+      blocks_placed INTEGER     NOT NULL DEFAULT 0,
+      updated_at   TIMESTAMPTZ  DEFAULT NOW(),
+      PRIMARY KEY (window_id, user_id)
+    )
+  `);
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS collab_contributions_window_placed_idx
+    ON collab_challenge_contributions (window_id, blocks_placed DESC)
+  `);
+
   // Ensure all expected player_coins columns exist for deployments that had an older schema.
   await pool.query(`ALTER TABLE player_coins ADD COLUMN IF NOT EXISTS username VARCHAR(255) NOT NULL DEFAULT ''`);
   await pool.query(`ALTER TABLE player_coins ADD COLUMN IF NOT EXISTS balance BIGINT NOT NULL DEFAULT 0`);
@@ -6944,6 +7153,8 @@ async function start() {
     catch (err) { console.error('endless-scores seed failed', err); }
     try { await seedStreaks(); }
     catch (err) { console.error('streak seed failed', err); }
+    try { await seedCollabChallenge(); }
+    catch (err) { console.error('collab challenge seed failed', err); }
     try { await seedSkins(); }
     catch (err) { console.error('skins seed failed', err); }
     try { await seedCoins(); }

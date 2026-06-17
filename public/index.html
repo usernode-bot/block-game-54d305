@@ -59,7 +59,17 @@
     try { post('info', ['[dev-console ready]'], { kind: 'ready' }); } catch (_) {}
   })();
   </script>
+
+  <!-- Apply stored theme before first paint to prevent flash -->
+  <script>(function(){var t=localStorage.getItem('block-game-theme')||'default';document.documentElement.dataset.theme=t;})()</script>
+
   <title>block-game</title>
+
+  <!-- Orbitron for cyberpunk theme headings -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&display=swap" rel="stylesheet">
+
   <script src="https://cdn.tailwindcss.com"></script>
   <script>tailwind.config = { darkMode: 'class' }</script>
   <script src="https://social-vibecoding.usernodelabs.org/usernode-bridge/v1/bridge.js"></script>
@@ -98,6 +108,99 @@
     }
     .recording-pulse { animation: record-pulse 1.2s ease-in-out infinite; }
 
+    /* ---- Cyberpunk theme overrides ---- */
+    [data-theme="cyberpunk"] body {
+      background-color: #030314 !important;
+    }
+    [data-theme="cyberpunk"] #overlay {
+      background: rgba(0, 0, 10, 0.82) !important;
+    }
+    [data-theme="cyberpunk"] #overlay h1 {
+      font-family: 'Orbitron', sans-serif;
+      color: #d0f8ff !important;
+    }
+    [data-theme="cyberpunk"] #overlay p {
+      color: #4a9aaa !important;
+    }
+    [data-theme="cyberpunk"] #status {
+      color: #4a9aaa !important;
+    }
+    [data-theme="cyberpunk"] #play-btn {
+      background-color: #ff0090 !important;
+    }
+    [data-theme="cyberpunk"] #play-btn:hover {
+      background-color: #ff35a2 !important;
+    }
+    [data-theme="cyberpunk"] #hint,
+    [data-theme="cyberpunk"] #hint-fallback {
+      background: rgba(0, 8, 28, 0.88) !important;
+      color: #d0f8ff !important;
+      border: 1px solid rgba(0, 229, 255, 0.25) !important;
+    }
+    [data-theme="cyberpunk"] #lookmode {
+      background: rgba(0, 8, 28, 0.75) !important;
+      color: #d0f8ff !important;
+    }
+    [data-theme="cyberpunk"] #lookmode:hover {
+      background: rgba(0, 8, 28, 1) !important;
+    }
+    [data-theme="cyberpunk"] #attribution {
+      background: rgba(0, 8, 28, 0.88) !important;
+      color: #d0f8ff !important;
+      border: 1px solid rgba(0, 229, 255, 0.25) !important;
+    }
+    [data-theme="cyberpunk"] #palette {
+      background: rgba(0, 8, 28, 0.88) !important;
+      border: 1px solid rgba(0, 229, 255, 0.25) !important;
+    }
+    [data-theme="cyberpunk"] #help-btn {
+      background: rgba(0, 8, 28, 0.88) !important;
+      color: #00e5ff !important;
+      border: 1px solid rgba(0, 229, 255, 0.25) !important;
+    }
+    [data-theme="cyberpunk"] #help-btn:hover {
+      background: rgba(0, 8, 28, 1) !important;
+    }
+    [data-theme="cyberpunk"] #theme-btn {
+      background: rgba(0, 8, 28, 0.88) !important;
+      color: #00e5ff !important;
+      border: 1px solid rgba(0, 229, 255, 0.25) !important;
+    }
+    [data-theme="cyberpunk"] #theme-btn:hover {
+      background: rgba(0, 8, 28, 1) !important;
+    }
+    [data-theme="cyberpunk"] #build-stamp {
+      color: #4a9aaa !important;
+      background: rgba(0, 8, 28, 0.60) !important;
+    }
+    [data-theme="cyberpunk"] #controls {
+      background: rgba(0, 8, 28, 0.92) !important;
+      border: 1px solid rgba(0, 229, 255, 0.25) !important;
+      color: #d0f8ff !important;
+    }
+    [data-theme="cyberpunk"] #controls h2 {
+      color: #d0f8ff !important;
+      font-family: 'Orbitron', sans-serif;
+    }
+    [data-theme="cyberpunk"] #controls-close {
+      color: #4a9aaa !important;
+    }
+    [data-theme="cyberpunk"] #controls-close:hover {
+      color: #d0f8ff !important;
+    }
+    [data-theme="cyberpunk"] #touch-controls [data-act="break"] {
+      background: rgba(255, 0, 144, 0.55) !important;
+    }
+    [data-theme="cyberpunk"] #touch-controls [data-act="break"]:active {
+      background: rgba(255, 0, 144, 0.80) !important;
+    }
+    [data-theme="cyberpunk"] #touch-controls [data-act="place"] {
+      background: rgba(0, 229, 255, 0.45) !important;
+    }
+    [data-theme="cyberpunk"] #touch-controls [data-act="place"]:active {
+      background: rgba(0, 229, 255, 0.75) !important;
+    }
+
     /* Battle overlay covers 3D canvas while in battle mode */
     #battle-overlay {
       position: absolute;
@@ -119,7 +222,6 @@
     /* Spinner animation */
     @keyframes spin { to { transform: rotate(360deg); } }
     .spin { animation: spin 0.8s linear infinite; }
-
     @keyframes sr-banner-fade {
       0%   { opacity: 0; transform: translateY(-12px); }
       15%  { opacity: 1; transform: translateY(0); }
@@ -758,6 +860,7 @@
         </div>
       </div>
       <div id="tournament-teaser" class="hidden mt-3 rounded-xl bg-zinc-900/60 px-4 py-2.5 text-xs text-zinc-300"></div>
+      <div id="collab-teaser" class="hidden mt-2 rounded-xl bg-zinc-900/60 px-4 py-2.5 text-xs text-zinc-300"></div>
       <div id="prompt-teaser" class="hidden mt-2 rounded-xl bg-zinc-900/60 px-4 py-2.5 text-xs text-zinc-300"></div>
       <div id="status" class="mt-3 text-xs text-zinc-500 text-center"></div>
       <div class="mt-2 text-center">
@@ -962,6 +1065,11 @@
 
   <!-- Block palette -->
   <div id="palette" class="fixed bottom-4 left-1/2 -translate-x-1/2 z-20 flex gap-1.5 p-1.5 rounded-xl bg-black/50 backdrop-blur max-w-[calc(100vw-2rem)] overflow-x-auto"></div>
+
+  <!-- Theme toggle: sits to the left of the top-right button cluster.
+       Label shows what the button will switch TO (opposite of current theme). -->
+  <button id="theme-btn" title="Toggle theme" aria-label="Toggle theme"
+          class="fixed top-3 z-30 h-9 px-3 rounded-full bg-black/50 hover:bg-black/70 text-zinc-100 text-xs font-semibold flex items-center justify-center transition-colors cursor-pointer" style="right: 9.5rem">◈ Cyber</button>
 
   <!-- Badges toggle: sits to the left of the mute button. -->
   <button id="badges-btn" title="Badges" aria-label="Toggle badges"
@@ -1201,6 +1309,9 @@
 
   <!-- Badge toast container: toasts stack above the palette, bottom-centre. -->
   <div id="badge-toasts" class="pointer-events-none fixed left-1/2 -translate-x-1/2 z-40 flex flex-col-reverse items-center gap-2" style="bottom: 5.5rem"></div>
+
+  <!-- Collab Challenge HUD: stacked above streak/daily HUDs. Bottom set by JS. -->
+  <div id="collab-challenge-hud" class="hidden pointer-events-none fixed right-3 z-20 w-44 rounded-lg bg-black/55 px-2 py-1.5 text-xs text-white/90"></div>
 
   <!-- Coins HUD: coin balance pill above the streak pill. Bottom set by JS. -->
   <div id="coins-hud" class="hidden pointer-events-none fixed right-3 z-20 rounded-lg bg-black/55 px-2 py-1.5 text-xs text-amber-300 font-semibold whitespace-nowrap"></div>
@@ -1875,7 +1986,7 @@
 
     // Build identifier — bump this (to the deploying commit short SHA) on every
     // change so the top-right stamp confirms exactly which code is running.
-    const BUILD_VERSION = 'replay-sharing+speedrun-mode+power-ups+hold-queue+achievements-badges+chat+daily-challenge+leaderboard+online-presence+block-attribution+audio-sfx+next-piece-preview+spectator-mode+weekly-tournament+friends+xp-levels+betting-system+blocks-placed-hud+ai-opponent+weather-system+day-night-cycle+minimap+ai-coach+ai-hints+nft-skins+player-stats+leaderboard-daily+new-badges+daily-theme-voting+natural-disasters+community-monuments+undo-redo-history+pastel-chrome+mobs+message-in-a-block+accessibility-panel+pixel-pets+versus-mode+battle-mode';
+    const BUILD_VERSION = 'replay-sharing+cyberpunk-theme+speedrun-mode+power-ups+hold-queue+achievements-badges+chat+daily-challenge+leaderboard+online-presence+block-attribution+audio-sfx+next-piece-preview+spectator-mode+weekly-tournament+friends+xp-levels+collab-challenges+betting-system+blocks-placed-hud+ai-opponent+weather-system+day-night-cycle+minimap+ai-coach+ai-hints+nft-skins+player-stats+leaderboard-daily+new-badges+daily-theme-voting+natural-disasters+community-monuments+undo-redo-history+pastel-chrome+mobs+message-in-a-block+accessibility-panel+pixel-pets+versus-mode+battle-mode';
 
     // Badge definitions — mirror of the server-side BADGES array, extended with
     // a `hint` field shown in the panel for unearned badges.
@@ -1948,8 +2059,10 @@
 
     // Touch capability: drives (a) the on-screen control overlay, (b) skipping
     // mouse-lock in favour of direct touch play, and (c) portrait force-rotation.
+    // Desktop (isTouch === false) keeps every existing mouse/keyboard path.
     const isTouch = (window.matchMedia && window.matchMedia('(pointer: coarse)').matches)
       || ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
+
 
     // ---- Audio system ----
     const audio = (() => {
@@ -2585,6 +2698,45 @@
     const buildStampEl = document.getElementById('build-stamp');
     buildStampEl.textContent = 'build ' + BUILD_VERSION;
 
+    // ---- Theme management ----
+    function getStoredTheme() {
+      return localStorage.getItem('block-game-theme') || 'default';
+    }
+
+    function getThemeColors(themeName) {
+      if (themeName === 'cyberpunk') {
+        return { sky: '#030314', fog: '#030314', gridPrimary: 0x00e5ff, gridSecondary: 0x003344 };
+      }
+      return { sky: '#8ec7ff', fog: '#8ec7ff', gridPrimary: 0x6b7a8d, gridSecondary: 0x44505f };
+    }
+
+    const themeBtnEl = document.getElementById('theme-btn');
+
+    // Sync JS state with the theme already set by the inline anti-flash script
+    (function () {
+      const t = getStoredTheme();
+      document.documentElement.dataset.theme = t;
+      themeBtnEl.textContent = t === 'cyberpunk' ? '◈ Default' : '◈ Cyber';
+    })();
+
+    function applyTheme(name) {
+      document.documentElement.dataset.theme = name;
+      themeBtnEl.textContent = name === 'cyberpunk' ? '◈ Default' : '◈ Cyber';
+      localStorage.setItem('block-game-theme', name);
+      // Update Three.js scene colors once the world has loaded
+      if (groundGrid) {
+        const colors = getThemeColors(name);
+        scene.background = new THREE.Color(colors.sky);
+        scene.fog.color.set(colors.sky);
+        buildGroundGrid();
+      }
+    }
+
+    themeBtnEl.addEventListener('click', () => {
+      const current = document.documentElement.dataset.theme || 'default';
+      applyTheme(current === 'cyberpunk' ? 'default' : 'cyberpunk');
+    });
+
     // Daily Challenge HUD element — bottom position raised on touch to clear
     // the on-screen fly/build action cluster that lives at bottom-right.
     // Incorporates safe-area-inset-bottom so the pill clears the home indicator.
@@ -2627,6 +2779,12 @@
         if (balance > 0) updateCoinsHud(balance);
       } catch (_) {}
     }
+
+    // Collab challenge HUD sits above the streak HUD.
+    const collabHudEl = document.getElementById('collab-challenge-hud');
+    const STREAK_HUD_HEIGHT_PX = 28; // approx rendered height of streak pill
+    const streakHudBottomPx = challengeHudBottomPx + CHALLENGE_HUD_HEIGHT_PX + STREAK_GAP_PX;
+    collabHudEl.style.bottom = (streakHudBottomPx + STREAK_HUD_HEIGHT_PX + STREAK_GAP_PX) + 'px';
 
     // Apply touch-device layout overrides once at startup.
     if (isTouch) {
@@ -2892,6 +3050,15 @@
     let playerHp           = PLAYER_MAX_HP;
     let lastDamagedAt      = 0;   // ms; 2-second inter-hit immunity
     let deathInvincibleUntil = 0; // ms; 5-second post-respawn invincibility
+
+    // ---- Collaborative Challenge state ----
+    let collabWindowId = null;
+    let collabTarget = 0;
+    let collabTotal = 0;
+    let collabMyPlaced = 0;
+    let collabCompleted = false;
+    let collabEndsAt = null;
+    let collabTopContributors = [];
 
     // ---- XP / Level state ----
     let playerLevel = 1;
@@ -3211,7 +3378,7 @@
       scene.fog = new THREE.Fog('#00bfff', 40, 90);
 
       camera = new THREE.PerspectiveCamera(70, 1, 0.1, 500);
-      camera.up.set(0, 1, 0);
+      camera.up.set(0, 1, 0); // pin world up so the horizon can never roll
       camera.position.set(DIMS.w / 2, 3.5, DIMS.d / 2 + 8);
     } catch (err) {
       console.error('[Three.js] Initialization failed:', err.message);
@@ -3460,7 +3627,7 @@
     }
 
     const cube = new THREE.BoxGeometry(1, 1, 1);
-    const materials = new Map();
+    const materials = new Map();     // block_type -> Material
     function materialFor(p) {
       const opts = { color: new THREE.Color(hcColor(p.color)) };
       if (p.opacity != null && p.opacity < 1) { opts.transparent = true; opts.opacity = p.opacity; opts.side = THREE.DoubleSide; }
@@ -3771,11 +3938,14 @@
       scene.add(mesh);
     }
 
+    // Infinite-looking ground grid: colours driven by the active theme.
     let groundGrid = null;
     function buildGroundGrid() {
       if (groundGrid) { scene.remove(groundGrid); groundGrid = null; }
-      const SIZE = 400;
-      const grid = new THREE.GridHelper(SIZE, SIZE, 0x00ffcc, 0x007766);
+      const SIZE = 400; // world units — far beyond the plot and the fly margin
+      const colors = getThemeColors(document.documentElement.dataset.theme || 'default');
+      const grid = new THREE.GridHelper(SIZE, SIZE, colors.gridPrimary, colors.gridSecondary);
+      // Centre on the plot centre (an integer) so lines land on cell borders.
       grid.position.set(DIMS.w / 2, -0.01, DIMS.d / 2);
       grid.material.transparent = true;
       grid.material.opacity = 0.35;
@@ -3785,13 +3955,16 @@
       scene.add(grid);
     }
 
-    // Dynamic blocks: one InstancedMesh per type, rebuilt from the active map.
-    // In TA mode uses taBlocks; otherwise uses the shared blocks map.
+    // Dynamic (user-placed) blocks: one InstancedMesh per type, rebuilt from
+    // the `blocks` map whenever it changes. Plot is small, so a full rebuild
+    // is cheap and keeps instanceId -> cell mapping trivial.
     const blockGroup = new THREE.Group();
     scene.add(blockGroup);
     let crystalMaterial = null;  // tracked for emissive pulse animation in the render loop
     let wildcardMaterial = null; // tracked for Gold Star sparkle animation in the render loop
     function rebuildBlockMeshes() {
+      // InstancedMeshes share the cached `cube` geometry and palette materials,
+      // so disposing them here would break other meshes — just drop the refs.
       blockGroup.clear();
       crystalMaterial = null;
       wildcardMaterial = null;
@@ -3926,7 +4099,7 @@
       }
     }
 
-    // Targeting highlight.
+    // Targeting highlight (thin wireframe box on the aimed cell).
     const highlight = new THREE.LineSegments(
       new THREE.EdgesGeometry(cube),
       new THREE.LineBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.6 })
@@ -4680,6 +4853,73 @@
       shareModalEl.classList.add('hidden');
     });
 
+    // ---- Collab Challenge rendering ----
+    function renderCollabChallenge() {
+      if (!collabWindowId) return;
+      const pct = collabTarget > 0 ? Math.min(100, Math.round((collabTotal / collabTarget) * 100)) : 0;
+      const barColor = collabCompleted ? '#22c55e' : '#7c3aed';
+      const msLeft = collabEndsAt ? new Date(collabEndsAt).getTime() - Date.now() : 0;
+      const timeStr = msLeft > 0 ? formatCountdown(msLeft) + ' left' : 'ending soon';
+      collabHudEl.innerHTML =
+        '<div style="font-weight:600;color:rgba(255,255,255,0.45);margin-bottom:2px;line-height:1.2">Community Challenge</div>' +
+        '<div style="margin-bottom:3px;line-height:1.2">Place ' + collabTarget + ' together</div>' +
+        (collabCompleted
+          ? '<div style="font-weight:600;color:#4ade80">✓ Complete!</div>'
+          : '<div style="font-variant-numeric:tabular-nums">' + collabTotal + ' / ' + collabTarget + '</div>'
+        ) +
+        '<div style="margin-top:5px;height:3px;border-radius:9999px;background:rgba(255,255,255,0.18);overflow:hidden">' +
+          '<div style="width:' + pct + '%;height:100%;border-radius:9999px;background:' + barColor + ';transition:width 0.3s"></div>' +
+        '</div>' +
+        (collabTopContributors.length
+          ? '<div style="margin-top:5px;color:rgba(255,255,255,0.45);font-size:10px;line-height:1.5">' +
+            collabTopContributors.map((c) => escapeHtml(c.username) + ' — ' + c.blocks_placed).join('<br>') +
+            '</div>'
+          : '') +
+        (collabCompleted ? '' : '<div style="color:rgba(255,255,255,0.3);font-size:10px;margin-top:3px">' + timeStr + '</div>');
+    }
+
+    function showCollabCompleteToast() {
+      const container = document.getElementById('badge-toasts');
+      const toast = document.createElement('div');
+      toast.className = 'flex items-center gap-3 bg-emerald-900/90 backdrop-blur rounded-xl px-4 py-2.5 text-sm text-emerald-100 shadow-xl';
+      toast.style.cssText = 'opacity:0;transition:opacity 0.3s;';
+      const iconSpan = document.createElement('span');
+      iconSpan.className = 'text-2xl leading-none flex-shrink-0';
+      iconSpan.textContent = '🎉';
+      const textDiv = document.createElement('div');
+      const nameDiv = document.createElement('div');
+      nameDiv.className = 'font-semibold';
+      nameDiv.textContent = 'Community goal reached!';
+      const subDiv = document.createElement('div');
+      subDiv.className = 'text-emerald-300 text-xs mt-0.5';
+      subDiv.textContent = collabTotal + ' blocks placed together';
+      textDiv.appendChild(nameDiv);
+      textDiv.appendChild(subDiv);
+      toast.appendChild(iconSpan);
+      toast.appendChild(textDiv);
+      container.appendChild(toast);
+      requestAnimationFrame(() => { toast.style.opacity = '1'; });
+      setTimeout(() => {
+        toast.style.opacity = '0';
+        setTimeout(() => toast.remove(), 300);
+      }, 5000);
+    }
+
+    function syncCollab(data) {
+      if (!data) return;
+      const wasCompleted = collabCompleted;
+      collabWindowId = data.window_id;
+      collabTarget = data.target;
+      collabTotal = data.total_placed;
+      collabMyPlaced = data.my_placed || 0;
+      collabCompleted = !!data.completed_at;
+      collabEndsAt = data.ends_at;
+      collabTopContributors = data.top_contributors || [];
+      renderCollabChallenge();
+      collabHudEl.classList.remove('hidden');
+      if (!wasCompleted && collabCompleted) showCollabCompleteToast();
+    }
+
     function syncMission(data) {
       if (!data) return;
       missionDate = data.date;
@@ -4818,6 +5058,7 @@
             updateRecordButton();
             showShareModal(window.location.origin + '/replay/' + sid);
           }
+          if (data.collab) syncCollab(data.collab);
           if (typeof data.total_score === 'number') {
             const newLevel = data.level || getLevel(data.total_score);
             if (newLevel > playerLevel) {
@@ -5462,7 +5703,7 @@
       }
       if (!target || paused) return;
       const { x, y, z } = target.cell;
-      if (y < 1) return;
+      if (y < 1) return; // ground layer is immutable
       clearHintHighlight();
       if (gameMode === 'timeattack') {
         const k = key(x, y, z);
@@ -5794,8 +6035,8 @@
 
     // ---- Camera ----
     let yaw = 0, pitch = 0;
-    let locked = false;
-    let playing = false;
+    let locked = false;          // true OS pointer lock is held (native path)
+    let playing = false;         // game is active / overlay hidden
     let paused = false;
     let turntableEnabled = true;
     let turntableAngle = 0;
@@ -5803,12 +6044,12 @@
     let attractMode = false;
     let attractT = 0;
     let idleTimer = null;
-    let dragMode = false;
-    let lockUnavailable = false;
-    let lockTimer = null;
-    let dragging = false;
-    let pressX = 0, pressY = 0;
-    const DRAG_THRESHOLD = 5;
+    let dragMode = false;        // fallback: playing without OS pointer lock
+    let lockUnavailable = false; // a *retry* was denied — stop inviting retries
+    let lockTimer = null;        // pending silent-denial watchdog (cleared per try)
+    let dragging = false;        // fallback: a look-drag is in progress
+    let pressX = 0, pressY = 0;  // fallback: where the press started
+    const DRAG_THRESHOLD = 5;    // px of movement that turns a click into a drag
     let stampModeActive = false;
     let stampStartCell = null;
     let stampEndCell = null;
@@ -6263,6 +6504,7 @@
     });
     syncA11yToggles();
 
+
     // Reusable temporaries + one-shot roll diagnostic state for applyLook().
     const _lookFwd = new THREE.Vector3();
     const _lookTarget = new THREE.Vector3();
@@ -6270,11 +6512,20 @@
     let _rollWarned = false;
 
     function applyLook() {
+      // Build orientation from yaw+pitch and aim the camera with a FIXED world
+      // up-vector. lookAt() with up = (0,1,0) constructs the camera's right axis
+      // as up × viewDir, which is always horizontal (right.y == 0) — i.e. zero
+      // roll, dead-level horizon — at every yaw/pitch (pitch is clamped away
+      // from straight up/down, so the basis never degenerates).
       const cp = Math.cos(pitch);
       _lookFwd.set(-Math.sin(yaw) * cp, Math.sin(pitch), -Math.cos(yaw) * cp);
       _lookTarget.copy(camera.position).add(_lookFwd);
       camera.up.set(0, 1, 0);
       camera.lookAt(_lookTarget);
+      // Runtime self-check: the rendered horizon is level iff the camera's world
+      // right vector has no vertical component. If a real roll ever appears,
+      // surface its actual magnitude once (forwarded to the platform dev
+      // console) instead of guessing from the static source.
       if (!_rollWarned) {
         _camRight.set(1, 0, 0).applyQuaternion(camera.quaternion);
         if (Math.abs(_camRight.y) > 1e-3) {
@@ -6285,6 +6536,10 @@
       }
     }
 
+    // Place the camera at a comfortable spawn and aim it at the build-plot
+    // centre so the ground and any structures fill the lower screen instead of
+    // open sky. yaw/pitch are derived from the look direction so the (yaw-only)
+    // movement basis stays consistent with where the camera faces.
     function spawnCamera() {
       camera.position.set(DIMS.w / 2, 6, DIMS.d / 2 + 10);
       const tgt = new THREE.Vector3(DIMS.w / 2, 3, DIMS.d / 2);
@@ -6303,6 +6558,9 @@
       applyLook();
     }
 
+    // Clear all held-movement state. Called whenever the game loses input
+    // focus (tab/window blur, page hidden) or play is released, so a key whose
+    // `keyup` never arrives can't leave the camera drifting forever.
     function resetMove() {
       for (const k in move) move[k] = false;
       dragging = false;
@@ -7145,14 +7403,18 @@
     }
 
     // ---- Control scheme helpers ----
+    // Reflect the active control scheme in the overlay copy, keys hint, and the
+    // always-visible look-mode control.
 
 
     function refreshControlCopy() {
       if (isTouch) {
+        // Touch devices use the on-screen overlay; the keyboard/mouse hints and
+        // the look-mode control don't apply.
         hintEl.classList.add('hidden');
         hintFallbackEl.classList.add('hidden');
         lookModeEl.classList.add('hidden');
-        overlayHelpEl.textContent = 'Tap a mode to start — drag to look, use the on-screen buttons to move and build.';
+        overlayHelpEl.textContent = 'Tap to play — drag to look, use the on-screen buttons to move and build.';
         return;
       }
       if (locked) {
@@ -7160,6 +7422,7 @@
         hintEl.classList.remove('hidden');
         hintFallbackEl.classList.add('hidden');
       } else if (dragMode) {
+        // In drag fallback: invite a retry unless a retry already failed.
         lookModeEl.textContent = lockUnavailable
           ? 'Mouse-lock unavailable here'
           : 'Look: Drag — click for mouse-lock';
@@ -7170,9 +7433,12 @@
         hintEl.classList.remove('hidden');
         hintFallbackEl.classList.add('hidden');
       }
+      // Overlay entry copy stays honest about whether mouse-lock has proven
+      // unavailable this session.
       overlayHelpEl.textContent = lockUnavailable
-        ? 'Click a mode — drag to look, click to build, press Esc for this menu.'
-        : 'Click a mode — move the mouse to look, press Esc to release. If your browser blocks mouse-lock, you can drag to look instead.';
+        ? 'Click to play — drag to look, click to build, press Esc for this menu.'
+        : 'Click to play — move the mouse to look, press Esc to release. If your browser blocks mouse-lock, you can drag to look instead.';
+      // The interactive control is only meaningful while the game is running.
       lookModeEl.classList.toggle('hidden', !playing);
       pauseBtnEl.classList.toggle('hidden', !playing || gameMode === 'spectate');
     }
@@ -7181,11 +7447,14 @@
       if (lockTimer !== null) { clearTimeout(lockTimer); lockTimer = null; }
     }
 
+    // A pointer-lock attempt was denied — start (or stay in) drag-to-look.
+    // Never permanently blocks future attempts; retries are always allowed.
     function onLockFail() {
       clearLockTimer();
-      if (locked) return;
-      const wasAlreadyPlaying = dragMode && playing;
-      if (wasAlreadyPlaying) lockUnavailable = true;
+      if (locked) return;           // a real lock won the race; ignore stale denial
+      // If we were already playing in drag mode, this denial came from an
+      // explicit retry that also failed — stop inviting further retries.
+      if (dragMode && playing) lockUnavailable = true;
       dragMode = true;
       playing = true;
       dragging = false;
@@ -7194,9 +7463,11 @@
       if (mode !== 'speedrun') mode = 'normal';
       if (!wasAlreadyPlaying) showMinimap();
       refreshControlCopy();
-      if (!wasAlreadyPlaying) onPlayEntered();
     }
 
+    // Touch devices can't use OS pointer lock — enter play directly using the
+    // existing drag-mode path (which loop() already integrates movement under),
+    // and reveal the on-screen controls.
     function enterTouchPlay() {
       clearLockTimer();
       dragMode = true;
@@ -7207,9 +7478,9 @@
       showMinimap();
       refreshControlCopy();
       updateTouchControlsVisibility();
-      onPlayEntered();
     }
 
+    // Return to the start overlay from touch play (the Esc / "pause" equivalent).
     function exitToMenu() {
       if (mode === 'speedrun') {
         showAbandonConfirm();
@@ -7310,6 +7581,8 @@
       document.getElementById('palette').classList.toggle('touch-playing', !!(isTouch && playing));
     }
 
+    // Always attempt a native lock on an explicit user gesture (play button or
+    // the look-mode control), regardless of any prior failure.
     function tryPointerLock() {
       if (isTouch) { enterTouchPlay(); return; }
       clearLockTimer();
@@ -7319,6 +7592,13 @@
         onLockFail();
         return;
       }
+      // Safety net for the "silent no-op" denial mode: some browsers neither
+      // reject the promise nor fire pointerlockerror — requestPointerLock()
+      // just returns undefined and does nothing. If we haven't locked shortly
+      // after, assume denial and fall back. Guard on !locked only (not
+      // !playing) so a retry from drag mode — where playing is already true —
+      // still detects a silent failure; pointerlockchange clears this timer on
+      // a real lock so a slow-but-genuine lock isn't clobbered.
       lockTimer = setTimeout(() => {
         lockTimer = null;
         if (!locked) onLockFail();
@@ -7333,6 +7613,8 @@
     document.addEventListener('pointerlockchange', () => {
       locked = document.pointerLockElement === canvas;
       if (locked) {
+        // Native lock acquired — exit drag fallback and clear any "blocked"
+        // state, since mouse-lock just demonstrably works.
         clearLockTimer();
         playing = true;
         dragMode = false;
@@ -7375,6 +7657,8 @@
       }
       refreshControlCopy();
     });
+    // Iframe Permissions-Policy denials commonly surface here (not as a
+    // rejected promise), so this is the primary failure path in production.
     document.addEventListener('pointerlockerror', onLockFail);
 
     // ---- Wager panel helpers ----
@@ -7883,9 +8167,14 @@
     });
 
     canvas.addEventListener('click', () => {
+      // Native path only: re-acquire the lock on a bare canvas click. In
+      // drag fallback mode clicks are handled by the drag/click logic below.
+      // Touch devices drive play via the overlay buttons / touch handlers.
       if (isTouch) return;
       if (!locked && !playing) tryPointerLock();
     });
+    // The look-mode control re-attempts native mouse-lock when clicked from
+    // drag mode (a fresh user gesture, which pointer lock requires).
     lookModeEl.addEventListener('click', () => {
       if (!locked) tryPointerLock();
     });
@@ -7912,6 +8201,7 @@
         stampEndCell = null;
         return;
       }
+      // Fallback path: begin a potential look-drag; decide click vs drag on up.
       dragging = true;
       pressX = e.clientX;
       pressY = e.clientY;
@@ -7934,6 +8224,7 @@
       canvas.style.cursor = isReplayMode ? 'default' : 'grab';
       const moved = Math.hypot(e.clientX - pressX, e.clientY - pressY);
       if (moved < DRAG_THRESHOLD && gameMode !== 'spectate') {
+        // Left adds, right deletes.
         if (e.button === 0) placeBlock();
         else if (e.button === 2) breakBlock();
       }
@@ -8080,6 +8371,11 @@
     window.addEventListener('touchstart', () => resetIdle(), { passive: true });
 
     // ---- Touch input ----
+    // Look-drag: a one-finger drag on open canvas turns/tilts the camera, reusing
+    // applyLookDelta (the same path the mouse uses). A single touch is tracked by
+    // identifier so a second finger held on a move/build button never hijacks it.
+    // When force-rotated to landscape, raw screen deltas are remapped into the
+    // rotated frame: a 90° CW rotor means local-x = screen-y and local-y = -screen-x.
     let lookTouchId = null, lookLastX = 0, lookLastY = 0;
     canvas.addEventListener('touchstart', (e) => {
       if (!isTouch || !playing || lookTouchId !== null) return;
@@ -8107,6 +8403,8 @@
     window.addEventListener('touchend', endLookTouch);
     window.addEventListener('touchcancel', endLookTouch);
 
+    // Held movement buttons (forward/back/left/right/up/down) flip the same
+    // `move` flags the keyboard uses; tap-action buttons fire once on press.
     function bindHold(el, flag) {
       el.addEventListener('touchstart', (e) => { e.preventDefault(); move[flag] = true; }, { passive: false });
       const release = (e) => { if (e.cancelable) e.preventDefault(); move[flag] = false; };
@@ -8178,6 +8476,8 @@
     // Shared by the `h` key (when not playing) and the top-right "(?)" button —
     // both show/hide the help panel listing every key/mouse binding.
     const controlsEl = document.getElementById('controls');
+    // On touch devices, rewrite the help panel + start-overlay copy to describe
+    // the on-screen controls instead of keyboard/mouse bindings.
     if (isTouch) {
       const ul = controlsEl.querySelector('ul');
       if (ul) ul.innerHTML = [
@@ -8808,6 +9108,28 @@
       } catch (_) { /* non-fatal */ }
     }
 
+    async function loadCollabTeaser() {
+      const teaserEl = document.getElementById('collab-teaser');
+      if (!teaserEl) return;
+      try {
+        const res = await fetch('/api/collab/current', { headers });
+        if (!res.ok) return;
+        const data = await res.json();
+        syncCollab(data);
+        const msLeft = data.ends_at ? new Date(data.ends_at).getTime() - Date.now() : 0;
+        const timeStr = msLeft > 0 ? formatCountdown(msLeft) + ' left' : '';
+        if (data.completed_at) {
+          teaserEl.innerHTML = '<span class="font-semibold text-emerald-400">🎉 Community Challenge — Complete!</span>';
+        } else {
+          teaserEl.innerHTML =
+            '<span class="font-semibold text-zinc-200">🤝 Community Challenge</span>' +
+            ' · ' + data.total_placed + ' / ' + data.target +
+            (timeStr ? ' — ' + timeStr : '');
+        }
+        teaserEl.classList.remove('hidden');
+      } catch (_) { /* non-fatal */ }
+    }
+
     function relTimeShort(ts) {
       if (!ts) return '';
       const diff = Math.floor((Date.now() - new Date(ts).getTime()) / 1000);
@@ -8926,6 +9248,7 @@
         ).join('') +
         '</tbody></table>';
     }
+
 
     async function fetchLeaderboard() {
       clearTimeout(leaderboardTimer);
@@ -10437,6 +10760,12 @@
           if (cc && cc > chatCursor) chatCursor = cc;
         }
       } catch (e) { /* transient */ }
+
+      // Collaborative challenge
+      try {
+        const collabRes = await fetch('/api/collab/current', { headers });
+        if (collabRes.ok) syncCollab(await collabRes.json());
+      } catch (e) { /* transient */ }
     }
 
     // ---- Speed Run UI event handlers ----
@@ -10532,6 +10861,9 @@
     });
 
     // ---- Render loop ----
+    // forceRotated: true only when a touch device is held in portrait. The rotor
+    // is CSS-rotated 90° (see <style>), so the renderer/camera must use the
+    // SWAPPED (landscape) viewport dimensions to match the rotated box.
     let forceRotated = false;
     const rotorEl = document.getElementById('rotor');
     function updateOrientation() {
@@ -10547,8 +10879,16 @@
       resize();
     }
     function resize() {
+      // When force-rotated, the visible game area is the viewport with width/height
+      // swapped (the rotor is 100vh × 100vw spun 90°).
       const w = forceRotated ? window.innerHeight : window.innerWidth;
       const h = forceRotated ? window.innerWidth : window.innerHeight;
+      // updateStyle MUST stay true (the default): a fixed-position <canvas>
+      // with width:auto is a replaced element that falls back to its intrinsic
+      // (drawing-buffer) size and ignores `inset:0`, so passing false here let
+      // the canvas display at w·devicePixelRatio — 2× the viewport on HiDPI,
+      // breaking aim and making the world appear to "tilt". Let three.js set the
+      // inline CSS size to the viewport while keeping the 2× buffer for sharpness.
       renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
       renderer.setSize(w, h);
       camera.aspect = w / h;
@@ -10648,6 +10988,13 @@
           camera.lookAt(cx, 1.5, cz);
         }
       } else if (!inBattleMode && playing && (locked || dragMode)) {
+        // Movement basis is derived from `yaw` ALONE — a single scalar that
+        // cannot encode roll or pitch and never depends on the camera's
+        // world-matrix being current. fwd is the camera's horizontal facing and
+        // right is 90° clockwise from it, both unit-length and dead horizontal,
+        // so W/S glide toward/away from the gaze and A/D strafe correctly no
+        // matter what the camera orientation or render timing does. Vertical is
+        // Space/Shift only; aiming/raycasting still use the full pitched look.
         fwd.set(-Math.sin(yaw), 0, -Math.cos(yaw));
         right.set(Math.cos(yaw), 0, -Math.sin(yaw));
 
@@ -10673,6 +11020,7 @@
         if (move.up)   camera.position.y += vertStep;
         if (move.down) camera.position.y -= vertStep;
 
+        // Clamp to the plot (plus a small margin) so you can't fly away.
         const m = 4;
         camera.position.x = Math.max(-m, Math.min(DIMS.w + m, camera.position.x));
         camera.position.z = Math.max(-m, Math.min(DIMS.d + m, camera.position.z));
@@ -11129,6 +11477,7 @@
       } catch (_) {}
 
       loadTournamentTeaser();
+      loadCollabTeaser();
       loadPromptTeaser();
 
       // Load login streak so the HUD shows immediately without waiting for heartbeat.
@@ -11201,6 +11550,8 @@
         document.addEventListener('touchstart', resumeAudioOnGesture);
         const ok = await loadWorld();
         if (!ok) return;
+        // Apply stored theme to Three.js scene now that scene objects are ready
+        applyTheme(getStoredTheme());
         // Fetch earned badges so the panel renders correctly from the first open.
         try {
           const badgesRes = await fetch('/api/badges', { headers });
@@ -11225,6 +11576,13 @@
           const cr = await fetch('/api/challenge/today', { headers });
           if (cr.ok) syncChallenge(await cr.json());
         } catch (_) {}
+        // Re-fetch collab challenge every 30s for overlay and non-playing updates.
+        setInterval(async () => {
+          try {
+            const cr = await fetch('/api/collab/current', { headers });
+            if (cr.ok) syncCollab(await cr.json());
+          } catch (_) {}
+        }, 30000);
 
         requestAnimationFrame(loop);
         // Poll is started per-mode in onPlayEntered(), not here.
