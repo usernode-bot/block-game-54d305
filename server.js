@@ -39,24 +39,24 @@ const STAGING_DEMO_USERS = [
 const DIMS = { w: 32, d: 32, h: 24 };
 
 const PALETTE = [
-  { id: 1,  name: 'Grass',         color: '#7ed98a' },
-  { id: 2,  name: 'Dirt',          color: '#c9917a' },
-  { id: 3,  name: 'Stone',         color: '#c2c6cf' },
-  { id: 4,  name: 'Wood',          color: '#ddb680' },
-  { id: 5,  name: 'Leaves',        color: '#6ec67a' },
-  { id: 6,  name: 'Sand',          color: '#fdf0a8' },
-  { id: 7,  name: 'Brick',         color: '#e88c82' },
-  { id: 8,  name: 'Glass',         color: '#b3e8f5', opacity: 0.45 },
-  { id: 9,  name: 'Red',           color: '#f09090' },
-  { id: 10, name: 'Blue',          color: '#80a8f0' },
-  { id: 11, name: 'Yellow',        color: '#ffe580' },
-  { id: 12, name: 'White',         color: '#f8f6ff' },
-  { id: 13, name: 'Snow',          color: '#e4eeff' },
-  { id: 14, name: 'Gold Block',    color: '#f5d27a', material: 'standard', metalness: 0.85, roughness: 0.2 },
-  { id: 15, name: 'Glowstone',     color: '#ffd099', emissive: '#f0a870', emissiveIntensity: 0.6 },
-  { id: 16, name: 'Obsidian',      color: '#6b5588', material: 'standard', metalness: 0.3, roughness: 0.1 },
-  { id: 17, name: 'Rainbow Block', color: '#f0a8c5', powerup: true },
-  { id: 18, name: 'Crystal',       color: '#d4c8ff', opacity: 0.65, emissive: '#b0a0ff', emissiveIntensity: 0.3, material: 'standard', metalness: 0.1, roughness: 0.2, unlockAt: 50, unlockIcon: '💎' },
+  { id: 1,  name: 'Grass',         color: '#2d6b1a' },
+  { id: 2,  name: 'Dirt',          color: '#4d2f12' },
+  { id: 3,  name: 'Stone',         color: '#4a4a52' },
+  { id: 4,  name: 'Wood',          color: '#5e3e1c' },
+  { id: 5,  name: 'Leaves',        color: '#1c4e18' },
+  { id: 6,  name: 'Sand',          color: '#8c7d50' },
+  { id: 7,  name: 'Brick',         color: '#6b2518' },
+  { id: 8,  name: 'Glass',         color: '#4a7080', opacity: 0.45 },
+  { id: 9,  name: 'Red',           color: '#8c1a1a' },
+  { id: 10, name: 'Blue',          color: '#1c3d80' },
+  { id: 11, name: 'Yellow',        color: '#8c7820' },
+  { id: 12, name: 'White',         color: '#a0a0a8' },
+  { id: 13, name: 'Snow',          color: '#8aaccc' },
+  { id: 14, name: 'Gold Block',    color: '#9c6e00', material: 'standard', metalness: 0.85, roughness: 0.2 },
+  { id: 15, name: 'Glowstone',     color: '#9c5000', emissive: '#ff8800', emissiveIntensity: 1.0 },
+  { id: 16, name: 'Obsidian',      color: '#0d041a', material: 'standard', metalness: 0.3, roughness: 0.1 },
+  { id: 17, name: 'Rainbow Block', color: '#88003a', powerup: true },
+  { id: 18, name: 'Crystal',       color: '#b39dff', opacity: 0.65, emissive: '#7a4dff', emissiveIntensity: 0.3, material: 'standard', metalness: 0.1, roughness: 0.2, unlockAt: 50, unlockIcon: '💎' },
   { id: 19, name: 'Ice',           color: '#aadeef', opacity: 0.55 },
   { id: 20, name: 'Lava',          color: '#e8540f', emissive: '#ff2200', emissiveIntensity: 0.8 },
   { id: 21, name: 'Lime',          color: '#78de3e' },
@@ -89,6 +89,12 @@ const BLOCK_POINTS = {
 };
 
 const SEED_USER_ID = 0;
+
+// AI opponent constants.
+const AI_USER_ID = -100;
+const AI_USERNAME = '🤖 BlockBot';
+const AI_DIFFICULTY_MAP = { easy: 15000, medium: 6000, hard: 3000 };
+const AI_INTERVAL_MS = AI_DIFFICULTY_MAP[process.env.AI_DIFFICULTY] || AI_DIFFICULTY_MAP.medium;
 
 // ---- NFT skin helpers ----
 const nftCache = new Map(); // user_id -> { ts: number, nfts: Array }
@@ -539,6 +545,158 @@ app.get('/api/world', async (req, res) => {
   }
 });
 
+// ---- Shared block-placement logic used by both the HTTP handler and the AI loop ----
+// Validates, persists, and scores a single placement or break. Returns the same
+// shape the HTTP handler sends to the client. Throws on validation failure
+// (err.statusCode = 400) or DB error.
+async function applyBlock({ userId, username, x, y, z, blockType }) {
+  const intIn = (v, lo, hi) => Number.isInteger(v) && v >= lo && v <= hi;
+  if (!intIn(x, 0, DIMS.w - 1) || !intIn(z, 0, DIMS.d - 1)) {
+    const e = new Error('coordinate out of bounds'); e.statusCode = 400; throw e;
+  }
+  if (!intIn(y, 1, DIMS.h - 1)) {
+    const e = new Error('y out of buildable range'); e.statusCode = 400; throw e;
+  }
+  if (blockType !== 0 && !VALID_TYPES.has(blockType)) {
+    const e = new Error('unknown block_type'); e.statusCode = 400; throw e;
+  }
+
+  const { rows } = await pool.query(
+    `INSERT INTO blocks (x, y, z, block_type, seq, updated_by_user_id, updated_by_username, updated_at)
+     VALUES ($1, $2, $3, $4, nextval('block_seq'), $5, $6, NOW())
+     ON CONFLICT (x, y, z) DO UPDATE SET
+       block_type = EXCLUDED.block_type,
+       seq = EXCLUDED.seq,
+       updated_by_user_id = EXCLUDED.updated_by_user_id,
+       updated_by_username = EXCLUDED.updated_by_username,
+       updated_at = NOW()
+     RETURNING seq`,
+    [x, y, z, blockType, userId, username]
+  );
+  const seq = Number(rows[0].seq);
+
+  let challenge = null;
+  let earned = 0, combo_multiplier = 1, rainbow_multiplier = 1, combo_tier = 1;
+  let newly_earned_badges = [];
+
+  if (blockType !== 0) {
+    const now = new Date();
+    const dateStr = now.toISOString().slice(0, 10);
+    const target = dailyTarget(now);
+    const cr = await pool.query(
+      `INSERT INTO daily_challenge_progress
+         (challenge_date, user_id, username, blocks_placed, completed_at, updated_at)
+       VALUES ($1, $2, $3, 1,
+         CASE WHEN 1 >= $4 THEN NOW() ELSE NULL END,
+         NOW())
+       ON CONFLICT (challenge_date, user_id) DO UPDATE SET
+         blocks_placed = daily_challenge_progress.blocks_placed + 1,
+         username = EXCLUDED.username,
+         completed_at = CASE
+           WHEN daily_challenge_progress.completed_at IS NOT NULL
+             THEN daily_challenge_progress.completed_at
+           WHEN daily_challenge_progress.blocks_placed + 1 >= $4
+             THEN NOW()
+           ELSE NULL
+         END,
+         updated_at = NOW()
+       RETURNING blocks_placed, completed_at`,
+      [dateStr, userId, username, target]
+    );
+    const cr0 = cr.rows[0];
+    challenge = { placed: cr0.blocks_placed, target, completed_at: cr0.completed_at };
+
+    const base = BLOCK_POINTS[blockType] || 1;
+
+    // Combo: count placements this user made in the last 10 seconds
+    // (exclude the just-inserted cell to avoid double-counting).
+    const comboRes = await pool.query(
+      `SELECT COUNT(*)::int AS recent
+       FROM blocks
+       WHERE updated_by_user_id = $1
+         AND block_type <> 0
+         AND updated_at > NOW() - INTERVAL '10 seconds'
+         AND NOT (x = $2 AND y = $3 AND z = $4)`,
+      [userId, x, y, z]
+    );
+    const recent = comboRes.rows[0].recent;
+    if (recent >= 10) { combo_multiplier = 5; combo_tier = 4; }
+    else if (recent >= 6) { combo_multiplier = 3; combo_tier = 3; }
+    else if (recent >= 3) { combo_multiplier = 2; combo_tier = 2; }
+
+    // Rainbow power-up: did this user place a Rainbow Block in the last 30s?
+    const rainbowRes = await pool.query(
+      `SELECT 1 FROM blocks
+       WHERE updated_by_user_id = $1
+         AND block_type = 17
+         AND updated_at > NOW() - INTERVAL '30 seconds'
+       LIMIT 1`,
+      [userId]
+    );
+    if (rainbowRes.rows.length > 0) rainbow_multiplier = 2;
+
+    earned = Math.round(base * combo_multiplier * rainbow_multiplier);
+
+    const lbRes = await pool.query(
+      `INSERT INTO leaderboard (user_id, username, total_score, blocks_placed, best_combo, updated_at)
+       VALUES ($1, $2, $3, 1, $4, NOW())
+       ON CONFLICT (user_id) DO UPDATE SET
+         total_score   = leaderboard.total_score + EXCLUDED.total_score,
+         blocks_placed = leaderboard.blocks_placed + 1,
+         best_combo    = GREATEST(leaderboard.best_combo, EXCLUDED.best_combo),
+         username      = EXCLUDED.username,
+         updated_at    = NOW()
+       RETURNING total_score, blocks_placed, best_combo`,
+      [userId, username, earned, combo_tier]
+    );
+
+    const lb = {
+      total_score:   Number(lbRes.rows[0].total_score),
+      blocks_placed: Number(lbRes.rows[0].blocks_placed),
+      best_combo:    lbRes.rows[0].best_combo,
+    };
+
+    await pool.query(
+      `INSERT INTO tournament_scores (week_start, user_id, username, score, blocks_placed, updated_at)
+       VALUES ($1, $2, $3, $4, 1, NOW())
+       ON CONFLICT (week_start, user_id) DO UPDATE SET
+         score         = tournament_scores.score + EXCLUDED.score,
+         blocks_placed = tournament_scores.blocks_placed + 1,
+         username      = EXCLUDED.username,
+         updated_at    = NOW()`,
+      [weekStart(now), userId, username, earned]
+    );
+
+    await pool.query(
+      `INSERT INTO player_type_usage (user_id, block_type) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+      [userId, blockType]
+    );
+
+    const earnedRes = await pool.query(
+      `SELECT badge_id FROM player_badges WHERE user_id = $1`,
+      [userId]
+    );
+    const earnedIds = new Set(earnedRes.rows.map((r) => r.badge_id));
+
+    const typeCountRes = await pool.query(
+      `SELECT COUNT(*)::int AS type_count FROM player_type_usage WHERE user_id = $1`,
+      [userId]
+    );
+    const typeCount = typeCountRes.rows[0].type_count;
+
+    const newBadges = checkBadges({ lb, justPlacedType: blockType, typeCount }, earnedIds);
+    for (const badge of newBadges) {
+      await pool.query(
+        `INSERT INTO player_badges (user_id, badge_id, earned_at) VALUES ($1, $2, NOW()) ON CONFLICT DO NOTHING`,
+        [userId, badge.id]
+      );
+    }
+    newly_earned_badges = newBadges.map((b) => ({ id: b.id, name: b.name, icon: b.icon, flavour: b.flavour }));
+  }
+
+  return { seq, ...(challenge ? { challenge } : {}), earned, combo_multiplier, rainbow_multiplier, newly_earned_badges };
+}
+
 // ---- Place / break a single block. block_type 0 means break (air). ----
 // Air-as-row: breaking writes block_type = 0 (never DELETE) with a bumped
 // seq, so the change feed below can surface breaks to other clients.
@@ -647,7 +805,7 @@ app.post('/api/block', async (req, res) => {
       const cr0 = cr.rows[0];
       challenge = { placed: cr0.blocks_placed, target, completed_at: cr0.completed_at };
 
-      const base = 10;
+      const base = BLOCK_POINTS[t] || 1;
 
       const comboRes = await pool.query(
         `SELECT COUNT(*)::int AS recent FROM blocks
@@ -999,7 +1157,7 @@ app.post('/api/block', async (req, res) => {
 
     res.json({ ok: true, seq, ...(challenge ? { challenge } : {}), earned, combo_multiplier, rainbow_multiplier, newly_earned_badges, newly_unlocked_types, newly_unlocked_pets, lines_cleared, line_clear_points, bomb_explosions, newly_crowned_monuments, ...(mission_data ? { mission: mission_data } : {}), ...(activeSkinId ? { skin_id: activeSkinId } : {}), ...(coin_balance !== null ? { coin_balance } : {}) });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(err.statusCode || 500).json({ error: err.message });
   }
 });
 
@@ -4024,6 +4182,110 @@ app.post('/api/coach/tip', async (req, res) => {
   }
 });
 
+// ---- AI Placement Hints ----
+const CANNED_HINT = { x: 16, y: 4, z: 16, reason: 'Building upward near the center is a great way to start a combo chain.' };
+
+async function checkHintCell(x, y, z) {
+  if (x < 0 || x > 31 || y < 1 || y > 23 || z < 0 || z > 31) return false;
+  const occupied = await pool.query(
+    'SELECT 1 FROM blocks WHERE x=$1 AND y=$2 AND z=$3 AND block_type != 0 LIMIT 1',
+    [x, y, z]
+  );
+  if (occupied.rows.length > 0) return false;
+  const neighbors = [[x-1,y,z],[x+1,y,z],[x,y-1,z],[x,y+1,z],[x,y,z-1],[x,y,z+1]];
+  for (const [nx, ny, nz] of neighbors) {
+    if (ny === 0) return true; // immovable grass ground always present
+    if (nx < 0 || nx > 31 || ny < 0 || ny > 23 || nz < 0 || nz > 31) continue;
+    const r = await pool.query(
+      'SELECT 1 FROM blocks WHERE x=$1 AND y=$2 AND z=$3 AND block_type != 0 LIMIT 1',
+      [nx, ny, nz]
+    );
+    if (r.rows.length > 0) return true;
+  }
+  return false;
+}
+
+app.post('/api/hint', async (req, res) => {
+  const { selected_type_name, selected_type_points, player_pos, combo_tier, session_score, nearby_blocks } = req.body || {};
+
+  if (!LLM_ENABLED) {
+    try {
+      const { x: cx, y: cy, z: cz, reason } = CANNED_HINT;
+      if (await checkHintCell(cx, cy, cz)) return res.json({ x: cx, y: cy, z: cz, reason });
+      for (let dx = 0; dx <= 3; dx++) {
+        for (let dz = 0; dz <= 3; dz++) {
+          for (let dy = 1; dy <= 10; dy++) {
+            const nx = Math.min(31, cx + dx), nz = Math.min(31, cz + dz);
+            if (await checkHintCell(nx, dy, nz)) return res.json({ x: nx, y: dy, z: nz, reason });
+          }
+        }
+      }
+    } catch (_) {}
+    return res.status(500).json({ error: 'unavailable' });
+  }
+
+  const px = Math.floor(Number(player_pos?.x) || 0);
+  const py = Math.floor(Number(player_pos?.y) || 0);
+  const pz = Math.floor(Number(player_pos?.z) || 0);
+  const nearbyStr = (Array.isArray(nearby_blocks) ? nearby_blocks : []).slice(0, 80)
+    .map(b => `(${b.x},${b.y},${b.z}:${b.name})`).join(' ');
+
+  const userMsg = [
+    `Player at (${px},${py},${pz})`,
+    `Holding: ${selected_type_name || 'block'} (${selected_type_points || 1} pt)`,
+    `Combo tier: ${combo_tier || 1}`,
+    `Session score: ${session_score || 0}`,
+    `Nearby occupied cells (≤5 units): ${nearbyStr || 'none'}`,
+    `Bounds: 0≤x≤31, 1≤y≤23, 0≤z≤31. y=0 is immovable ground.`,
+    `Reply ONLY as JSON: {"x":<int>,"y":<int>,"z":<int>,"reason":"<one sentence>"}`,
+  ].join('\n');
+
+  try {
+    const resp = await fetch(`${process.env.USERNODE_LLM_PROXY_URL}/v1/messages`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'anthropic-version': '2023-06-01',
+        'x-usernode-app-token': process.env.USERNODE_LLM_PROXY_TOKEN,
+        'x-usernode-user-token': req.headers['x-usernode-token'],
+      },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 80,
+        system: "You are a placement advisor for block-game, a 3D builder. Suggest ONE interesting cell for the player's next block — extend a structure, stack for height, or cluster for combos. Reply ONLY as JSON: {\"x\":<int>,\"y\":<int>,\"z\":<int>,\"reason\":\"<one sentence>\"}. The cell MUST be empty and 6-face-adjacent to an occupied cell or y=0 ground. No other text.",
+        messages: [{ role: 'user', content: userMsg }],
+      }),
+    });
+
+    if (resp.status === 403) {
+      const body = await resp.json().catch(() => ({}));
+      if (body.code === 'grant_required') return res.status(403).json({ error: 'grant_required' });
+    }
+    if (resp.status === 429) return res.status(429).json({ error: 'unavailable' });
+    if (!resp.ok) return res.status(500).json({ error: 'unavailable' });
+
+    const llmData = await resp.json();
+    const raw = (llmData?.content?.[0]?.text || '').trim();
+    if (!raw) return res.status(500).json({ error: 'unavailable' });
+
+    let parsed;
+    try { parsed = JSON.parse(raw); } catch (_) {
+      const m = raw.match(/\{[^}]+\}/);
+      if (!m) return res.status(500).json({ error: 'unavailable' });
+      try { parsed = JSON.parse(m[0]); } catch (_) { return res.status(500).json({ error: 'unavailable' }); }
+    }
+
+    const hx = Math.round(Number(parsed.x)), hy = Math.round(Number(parsed.y)), hz = Math.round(Number(parsed.z));
+    const reason = String(parsed.reason || '').trim();
+    if (!reason || isNaN(hx) || isNaN(hy) || isNaN(hz)) return res.status(500).json({ error: 'unavailable' });
+    if (!await checkHintCell(hx, hy, hz)) return res.status(500).json({ error: 'unavailable' });
+    return res.json({ x: hx, y: hy, z: hz, reason });
+  } catch (err) {
+    console.error('hint error', err.message);
+    return res.status(500).json({ error: 'unavailable' });
+  }
+});
+
 // ---- NFT Block Skins ----
 
 // Returns NFTs owned by the requesting user. In staging, returns hardcoded
@@ -4839,6 +5101,44 @@ async function seedStaging() {
     ON CONFLICT (sector_x, sector_z) DO NOTHING
   `);
 
+  // BlockBot leaderboard entry — placed mid-table so it's clearly visible.
+  await pool.query(
+    `INSERT INTO leaderboard (user_id, username, total_score, blocks_placed, best_combo, updated_at)
+     VALUES ($1, $2, 720, 160, 3, NOW())
+     ON CONFLICT (user_id) DO NOTHING`,
+    [AI_USER_ID, AI_USERNAME]
+  );
+
+  // BlockBot tournament entry for the current week.
+  const botNow = new Date();
+  await pool.query(
+    `INSERT INTO tournament_scores (week_start, user_id, username, score, blocks_placed, updated_at)
+     VALUES ($1, $2, $3, 210, 50, NOW())
+     ON CONFLICT (week_start, user_id) DO NOTHING`,
+    [weekStart(botNow), AI_USER_ID, AI_USERNAME]
+  );
+
+  // BlockBot world blocks — scattered in the open area at x 9–13, z 1–4, y=1
+  // (clear of alice/bob/charlie/dave patches at x 1–8, z 1–12).
+  const botBlocks = [
+    { x: 9,  z: 1, t: 1  }, { x: 10, z: 1, t: 15 }, { x: 11, z: 1, t: 17 },
+    { x: 12, z: 1, t: 1  }, { x: 13, z: 1, t: 15 },
+    { x: 9,  z: 2, t: 3  }, { x: 10, z: 2, t: 1  }, { x: 11, z: 2, t: 15 },
+    { x: 12, z: 2, t: 17 }, { x: 13, z: 2, t: 1  },
+    { x: 9,  z: 3, t: 17 }, { x: 10, z: 3, t: 3  }, { x: 11, z: 3, t: 1  },
+    { x: 12, z: 3, t: 15 }, { x: 13, z: 3, t: 3  },
+    { x: 9,  z: 4, t: 1  }, { x: 10, z: 4, t: 17 }, { x: 11, z: 4, t: 3  },
+    { x: 12, z: 4, t: 1  }, { x: 13, z: 4, t: 15 },
+  ];
+  for (const b of botBlocks) {
+    await pool.query(
+      `INSERT INTO blocks (x, y, z, block_type, seq, updated_by_user_id, updated_by_username, updated_at)
+       VALUES ($1, 1, $2, $3, nextval('block_seq'), $4, $5, NOW())
+       ON CONFLICT (x, y, z) DO NOTHING`,
+      [b.x, b.z, b.t, AI_USER_ID, AI_USERNAME]
+    );
+  }
+
   // Seed a complete horizontal line at y=2 for testing line-clear mechanics.
   // A complete line consists of 1024 blocks (32 × 32 grid, all non-zero type).
   // This allows testers to place a single block to trigger a line clear.
@@ -4981,6 +5281,60 @@ async function seedLeaderboard() {
       );
     }
   }
+}
+
+// ---- AI opponent loop ----
+// Runs entirely server-side after the server starts listening. Two intervals:
+//   1. Placement: pick a random empty cell at y 1-3 and place a random block.
+//   2. Presence: keep BlockBot visible in the online list (expires after 60s).
+function startAiLoop() {
+  const PALETTE_IDS = PALETTE.map((p) => p.id);
+
+  async function pingPresence() {
+    try {
+      await pool.query(
+        `INSERT INTO user_presence (user_id, username, last_seen, mode)
+         VALUES ($1, $2, NOW(), 'classic')
+         ON CONFLICT (user_id) DO UPDATE
+           SET username = EXCLUDED.username, last_seen = NOW(), mode = 'classic'`,
+        [AI_USER_ID, AI_USERNAME]
+      );
+    } catch (err) {
+      console.error('AI presence ping failed:', err.message);
+    }
+  }
+
+  async function placeTick() {
+    try {
+      const { rows: occupied } = await pool.query(
+        `SELECT x, y, z FROM blocks WHERE block_type != 0`
+      );
+      const occupiedSet = new Set(occupied.map((r) => `${r.x},${r.y},${r.z}`));
+
+      let target = null;
+      for (let attempt = 0; attempt < 10; attempt++) {
+        const x = Math.floor(Math.random() * DIMS.w);
+        const z = Math.floor(Math.random() * DIMS.d);
+        for (let y = 1; y <= 3; y++) {
+          if (!occupiedSet.has(`${x},${y},${z}`)) {
+            target = { x, y, z };
+            break;
+          }
+        }
+        if (target) break;
+      }
+      if (!target) return; // all attempts collided — skip this tick
+
+      const blockType = PALETTE_IDS[Math.floor(Math.random() * PALETTE_IDS.length)];
+      await applyBlock({ userId: AI_USER_ID, username: AI_USERNAME, ...target, blockType });
+    } catch (err) {
+      console.error('AI placement tick failed:', err.message);
+    }
+  }
+
+  pingPresence(); // immediate on boot
+  setInterval(placeTick, AI_INTERVAL_MS);
+  setInterval(pingPresence, 30000);
 }
 
 // ---- Ensure at least one of each power-up type is live in the world ----
@@ -6353,7 +6707,10 @@ async function start() {
 
     console.log('[startup] Database initialization complete.');
     startupComplete = true;
-    app.listen(port, () => console.log(`[startup] Listening on :${port}`));
+    app.listen(port, () => {
+      console.log(`[startup] Listening on :${port}`);
+      startAiLoop();
+    });
   } catch (err) {
     const msg = err.message || String(err);
     console.error('[startup] FATAL: Database initialization failed:', msg);
