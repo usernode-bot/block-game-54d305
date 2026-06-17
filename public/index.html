@@ -240,6 +240,21 @@
     }
     .a11y-toggle[aria-checked="true"]::after { transform: translateX(20px); }
 
+    /* Chaos Mode: pulsing rainbow outline on the palette */
+    @keyframes chaos-rainbow {
+      0%   { box-shadow: 0 0 0 2px hsl(0,100%,60%); }
+      16%  { box-shadow: 0 0 0 2px hsl(60,100%,60%); }
+      33%  { box-shadow: 0 0 0 2px hsl(120,100%,60%); }
+      50%  { box-shadow: 0 0 0 2px hsl(180,100%,60%); }
+      66%  { box-shadow: 0 0 0 2px hsl(240,100%,70%); }
+      83%  { box-shadow: 0 0 0 2px hsl(300,100%,65%); }
+      100% { box-shadow: 0 0 0 2px hsl(360,100%,60%); }
+    }
+    #palette.chaos-active {
+      animation: chaos-rainbow 1.6s linear infinite;
+      border-radius: 0.5rem;
+    }
+
     /* Undo/redo buttons: disabled state */
     #undo-btn:disabled, #redo-btn:disabled,
     #history-undo-btn:disabled, #history-redo-btn:disabled {
@@ -819,6 +834,17 @@
           <span id="settings-language-knob" class="absolute top-0.5 left-0.5 w-6 h-6 rounded-full bg-white shadow transition-transform" style="transform: translateX(0px)"></span>
         </button>
       </div>
+      <!-- Chaos Mode toggle -->
+      <div class="flex items-center justify-between gap-3">
+        <div>
+          <div class="font-semibold text-zinc-100" id="settings-chaos-label">Chaos Mode</div>
+          <div class="text-xs text-zinc-400" id="settings-chaos-desc">Placed blocks get a random type.</div>
+        </div>
+        <button id="settings-chaos-toggle" role="switch" aria-checked="false"
+                class="relative w-12 h-7 rounded-full bg-zinc-600 transition-colors cursor-pointer flex-shrink-0">
+          <span id="settings-chaos-knob" class="absolute top-0.5 left-0.5 w-6 h-6 rounded-full bg-white shadow transition-transform" style="transform: translateX(0px)"></span>
+        </button>
+      </div>
       <!-- Time Attack difficulty -->
       <div>
         <div class="font-semibold text-zinc-100 mb-1" id="settings-ta-label">Time Attack difficulty</div>
@@ -869,6 +895,9 @@
   <!-- Daily Challenge HUD: bottom position set by JS (touch devices are raised
        to clear the on-screen action cluster). Hidden until init() loads data. -->
   <div id="challenge-hud" class="hidden pointer-events-none fixed right-3 z-20 w-36 rounded-lg bg-black/55 px-2 py-1.5 text-xs text-white/90"></div>
+
+  <!-- Chaos Mode indicator pill: shown when chaos mode is active. -->
+  <div id="chaos-indicator" class="hidden pointer-events-none fixed left-3 z-20 rounded-lg bg-amber-500/80 px-2 py-1 text-xs font-bold text-white whitespace-nowrap">🎲 CHAOS</div>
 
   <!-- Blocks Placed HUD: personal lifetime stat, bottom-left corner.
        Bottom position set by JS (raised on touch to clear movement pad). -->
@@ -1610,6 +1639,8 @@
         settings_sound_desc: 'Music & sound effects',
         settings_language_label: 'Language',
         settings_language_desc: 'Indonesian / English',
+        settings_chaos_label: 'Chaos Mode',
+        settings_chaos_desc: 'Placed blocks get a random type.',
         settings_ta_label: 'Time Attack difficulty',
         settings_ta_desc: 'Also auto-adjusts based on your recent runs.',
 
@@ -1702,6 +1733,8 @@
         settings_sound_desc: 'Musik & efek suara',
         settings_language_label: 'Bahasa',
         settings_language_desc: 'Indonesia / English',
+        settings_chaos_label: 'Mode Kacau',
+        settings_chaos_desc: 'Blok yang ditempatkan mendapat tipe acak.',
         settings_ta_label: 'Kesulitan Serangan Waktu',
         settings_ta_desc: 'Juga secara otomatis menyesuaikan berdasarkan lari terbaru Anda.',
 
@@ -1818,6 +1851,8 @@
       document.getElementById('settings-sound-desc').textContent = t('settings_sound_desc');
       document.getElementById('settings-language-label').textContent = t('settings_language_label');
       document.getElementById('settings-language-desc').textContent = t('settings_language_desc');
+      document.getElementById('settings-chaos-label').textContent = t('settings_chaos_label');
+      document.getElementById('settings-chaos-desc').textContent = t('settings_chaos_desc');
       document.getElementById('settings-ta-label').textContent = t('settings_ta_label');
       document.getElementById('settings-ta-desc').textContent = t('settings_ta_desc');
 
@@ -1879,6 +1914,8 @@
     challengeHudEl.style.bottom = (challengeBaseBottomPx + saBottomPx) + 'px';
     const blocksPlacedHudEl = document.getElementById('blocks-placed-hud');
     blocksPlacedHudEl.style.bottom = isTouch ? '18rem' : '5.5rem';
+    const chaosIndicatorEl = document.getElementById('chaos-indicator');
+    chaosIndicatorEl.style.bottom = isTouch ? 'calc(18rem + 2.5rem)' : 'calc(5.5rem + 2.5rem)';
 
     // Streak HUD pill sits above the challenge HUD.
     const streakHudEl = document.getElementById('streak-hud');
@@ -1915,6 +1952,8 @@
     let shakeMag = 0;                // shake amplitude (world units)
     let shakeFreq = 0;               // shake frequency (rad/ms)
     let selectedType = 1;
+    let chaosMode = false;
+    try { const _cm = localStorage.getItem('blockgame-chaos-mode'); if (_cm !== null) chaosMode = JSON.parse(_cm); } catch (_) {}
     let unlockedTypes = new Set(); // block type IDs earned by the current user
     const key = (x, y, z) => x + ',' + y + ',' + z;
 
@@ -1964,8 +2003,7 @@
     let sessionTa60Best = 0;
     let sessionEndlessBest = 0;
 
-    // ---- Undo stack (Classic mode only) ----
-    const undoStack = [];  // entries: { x, y, z, prevType, newType }, newest last, max 5
+    // ---- Undo stack (Classic mode only, continued) ----
     let undoInProgress = false;
 
     // ---- Smart Difficulty (Time Attack) ----
@@ -3499,10 +3537,11 @@
       if (!target || paused) return;
       const { x, y, z } = target.place;
       if (!inBounds(x, y, z)) return;
+      const actualType = resolveBlockType();
       if (gameMode === 'timeattack') {
         const k = key(x, y, z);
-        if (taBlocks.get(k) === selectedType) return;
-        taBlocks.set(k, selectedType);
+        if (taBlocks.get(k) === actualType) return;
+        taBlocks.set(k, actualType);
         emitBlockPlace(x + 0.5, y + 0.5, z + 0.5);
         rebuildBlockMeshes();
         return;
@@ -3513,8 +3552,8 @@
       }
       if (gameMode === 'endless') {
         const k = key(x, y, z);
-        if (endlessBlocks.get(k) === selectedType) return;
-        endlessBlocks.set(k, selectedType);
+        if (endlessBlocks.get(k) === actualType) return;
+        endlessBlocks.set(k, actualType);
         endlessBlocksPlaced++;
         endlessMovesStarted++;
         endlessMovesRemaining--;
@@ -3556,12 +3595,12 @@
         updateHoldPanel();
         return;
       }
-      if (blocks.get(key(x, y, z)) === selectedType) return;
+      if (blocks.get(key(x, y, z)) === actualType) return;
       const prevType = blocks.get(key(x, y, z)) ?? 0;
       audio.playPlace();
       emitBlockPlace(x + 0.5, y + 0.5, z + 0.5);
-      sendEdit(x, y, z, selectedType, prevType);
-      pushHistory(x, y, z, prevType, selectedType);
+      sendEdit(x, y, z, actualType, prevType);
+      pushHistory(x, y, z, prevType, actualType);
       // Unlock hold after each successful placement (Tetris lock rule)
       holdLocked = false;
       updateHoldPanel();
@@ -3595,10 +3634,11 @@
       if (cellsToPlace.length === 0) return;
       for (const cell of cellsToPlace) {
         const k = key(cell.x, cell.y, cell.z);
-        if (blocks.get(k) !== selectedType) {
+        const stampType = resolveBlockType();
+        if (blocks.get(k) !== stampType) {
           const prevType = blocks.get(k) ?? 0;
           const isNewBlock = prevType === 0;
-          blocks.set(k, selectedType);
+          blocks.set(k, stampType);
           emitBlockPlace(cell.x + 0.5, cell.y + 0.5, cell.z + 0.5);
           if (isNewBlock && gameMode === 'classic' && challengeDate && !challengeCompleted) {
             challengePlaced++;
@@ -3997,6 +4037,30 @@
     // Mute button + Settings sound toggle share one stored preference. This
     // helper repaints both UIs from the audio engine's current muted state.
     const muteBtnEl = document.getElementById('mute-btn');
+    const CHAOS_MODES = new Set(['classic', 'endless', 'timeattack']);
+
+    function resolveBlockType() {
+      if (!chaosMode || !CHAOS_MODES.has(gameMode)) return selectedType;
+      const available = PALETTE.filter((p) => unlockedTypes.has(p.id));
+      if (available.length === 0) return selectedType;
+      return available[Math.floor(Math.random() * available.length)].id;
+    }
+
+    function syncChaosUi() {
+      const toggle = document.getElementById('settings-chaos-toggle');
+      const knob = document.getElementById('settings-chaos-knob');
+      if (toggle && knob) {
+        toggle.setAttribute('aria-checked', String(chaosMode));
+        toggle.classList.toggle('bg-amber-500', chaosMode);
+        toggle.classList.toggle('bg-zinc-600', !chaosMode);
+        knob.style.transform = chaosMode ? 'translateX(20px)' : 'translateX(0px)';
+      }
+      const indicator = document.getElementById('chaos-indicator');
+      if (indicator) indicator.classList.toggle('hidden', !chaosMode);
+      const paletteEl = document.getElementById('palette');
+      if (paletteEl) paletteEl.classList.toggle('chaos-active', chaosMode);
+    }
+
     function syncSoundUi() {
       const m = audio.isMuted();
       muteBtnEl.textContent = m ? '🔇' : '🔊';
@@ -4020,6 +4084,7 @@
     document.getElementById('settings-btn').addEventListener('click', () => {
       if (settingsPanelEl.classList.contains('hidden')) {
         syncSoundUi();
+        syncChaosUi();
         updateTaTierPicker();
         settingsPanelEl.classList.remove('hidden');
       } else {
@@ -4028,6 +4093,12 @@
     });
     document.getElementById('settings-close').addEventListener('click', closeSettings);
     document.getElementById('settings-sound-toggle').addEventListener('click', toggleSound);
+    document.getElementById('settings-chaos-toggle').addEventListener('click', () => {
+      chaosMode = !chaosMode;
+      lsSet('blockgame-chaos-mode', chaosMode);
+      syncChaosUi();
+    });
+    syncChaosUi();
     document.getElementById('settings-diff-down').addEventListener('click', () => {
       if (taDifficulty > 1) { taDifficulty--; lsSet('ta_difficulty', taDifficulty); updateTaTierPicker(); }
     });
