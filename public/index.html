@@ -578,8 +578,8 @@
       position: absolute;
       font-weight: 800;
       font-size: 1.4rem;
-      color: #ffb700;
-      text-shadow: 0 1px 3px rgba(0,0,0,0.7), 0 0 8px rgba(255,183,0,0.5);
+      color: #f5d27a;
+      text-shadow: 0 1px 3px rgba(0,0,0,0.7), 0 0 8px rgba(245,210,122,0.5);
       white-space: nowrap;
       will-change: transform, opacity;
     }
@@ -2474,9 +2474,9 @@
     // Sky color keyframes: [midnight, dawn, noon, dusk]
     const SKY_KEYS = [
       { zenith: new THREE.Color('#05101f'), horizon: new THREE.Color('#0a1230'), fog: new THREE.Color('#0a1230'), ambient: 0.30, sunInt: 0.0, sunColor: new THREE.Color('#b0c8ff') },
-      { zenith: new THREE.Color('#1a2a6c'), horizon: new THREE.Color('#ff5722'), fog: new THREE.Color('#d85f1f'), ambient: 0.50, sunInt: 0.5, sunColor: new THREE.Color('#ffb070') },
-      { zenith: new THREE.Color('#4ab8ff'), horizon: new THREE.Color('#7dd9ff'), fog: new THREE.Color('#7dd9ff'), ambient: 0.65, sunInt: 0.9, sunColor: new THREE.Color('#fffaeb') },
-      { zenith: new THREE.Color('#1a2a6c'), horizon: new THREE.Color('#ff4500'), fog: new THREE.Color('#b83a0a'), ambient: 0.50, sunInt: 0.5, sunColor: new THREE.Color('#ff9040') },
+      { zenith: new THREE.Color('#1a2a6c'), horizon: new THREE.Color('#f5a978'), fog: new THREE.Color('#e8a878'), ambient: 0.50, sunInt: 0.5, sunColor: new THREE.Color('#ffd0a8') },
+      { zenith: new THREE.Color('#82c4e8'), horizon: new THREE.Color('#a8e0f0'), fog: new THREE.Color('#a8e0f0'), ambient: 0.65, sunInt: 0.9, sunColor: new THREE.Color('#fffaeb') },
+      { zenith: new THREE.Color('#1a2a6c'), horizon: new THREE.Color('#f59068'), fog: new THREE.Color('#e89870'), ambient: 0.50, sunInt: 0.5, sunColor: new THREE.Color('#f5c090') },
     ];
 
     function skyColors(phase) {
@@ -2674,9 +2674,9 @@
     // ---- Power-up geometry, materials, and scene group ----
     const powerupGeom = new THREE.BoxGeometry(0.5, 0.5, 0.5);
     const POWERUP_DEFS = {
-      speed_boost: { color: '#FFC700', label: 'Speed Boost' },
-      super_jump:  { color: '#00E5FF', label: 'Super Jump'  },
-      rapid_place: { color: '#FF8C00', label: 'Rapid Place' },
+      speed_boost: { color: '#FFE085', label: 'Speed Boost' },
+      super_jump:  { color: '#9AE8D9', label: 'Super Jump'  },
+      rapid_place: { color: '#F5C080', label: 'Rapid Place' },
     };
     const powerupMats = {};
     for (const [type, def] of Object.entries(POWERUP_DEFS)) {
@@ -2694,8 +2694,8 @@
     let lastMonumentHash = '';
     const monumentShaftGeom = new THREE.CylinderGeometry(0.08, 0.08, 17, 8);
     const monumentOrbGeom = new THREE.SphereGeometry(0.35, 8, 8);
-    const monumentShaftMat = new THREE.MeshBasicMaterial({ color: '#f5c842', transparent: true, opacity: 0.45, fog: false });
-    const monumentOrbMat = new THREE.MeshBasicMaterial({ color: '#f5c842', fog: false });
+    const monumentShaftMat = new THREE.MeshBasicMaterial({ color: '#f5da85', transparent: true, opacity: 0.45, fog: false });
+    const monumentOrbMat = new THREE.MeshBasicMaterial({ color: '#f5da85', fog: false });
 
     function rebuildMonumentMeshes(monuments) {
       monumentGroup.clear();
@@ -2808,7 +2808,7 @@
       for (let _k = 0; _k < 3; _k++) {
         const slot = _acquireParticle();
         if (!slot) break;
-        slot.mesh.material.color.set(0x8b6f47);
+        slot.mesh.material.color.set(0xb09070);
         slot.mesh.material.opacity = 0.7;
         slot.startOpacity = 0.7;
         slot.vx = (Math.random() - 0.5) * 0.6;
@@ -3230,7 +3230,7 @@
     function showDisasterFlash(type) {
       const el = document.getElementById('disaster-flash');
       if (!el) return;
-      const colors = { earthquake: 'rgba(255,200,20,0.4)', eruption: 'rgba(255,70,0,0.45)', meteor: 'rgba(255,240,200,0.5)' };
+      const colors = { earthquake: 'rgba(245,210,120,0.35)', eruption: 'rgba(235,140,100,0.40)', meteor: 'rgba(245,235,210,0.45)' };
       el.style.background = colors[type] || 'rgba(255,255,255,0.4)';
       el.classList.remove('hidden');
       el.style.opacity = '1';
@@ -4271,7 +4271,7 @@
       zombie:  _makeMobLabelTexture('Zombie'),
       phantom: _makeMobLabelTexture('Phantom'),
     };
-    const MOB_COLORS     = { slime: '#6fcf3a', zombie: '#4a7c59', phantom: '#7c3aed' };
+    const MOB_COLORS     = { slime: '#9ada6a', zombie: '#7aaa8a', phantom: '#a88de8' };
     const MOB_PART_TYPES = { slime: 5, zombie: 3, phantom: 10 }; // palette ids for hit particles
 
     function _createMobGroup(mob) {
@@ -4286,12 +4286,12 @@
       mobMeshes.set(bMesh, mob.id);
 
       const hpBg = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.07, 0.07),
-        new THREE.MeshBasicMaterial({ color: '#444444' }));
+        new THREE.MeshBasicMaterial({ color: '#c8bedd' }));
       hpBg.position.y = 1.1;
       g.add(hpBg);
 
       const hpFill = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.07, 0.07),
-        new THREE.MeshBasicMaterial({ color: '#22c55e' }));
+        new THREE.MeshBasicMaterial({ color: '#72d490' }));
       hpFill.position.y = 1.1;
       g.add(hpFill);
 
@@ -4317,7 +4317,7 @@
       const frac = Math.max(0, Math.min(1, hp / maxHp));
       fill.scale.x = Math.max(0.001, frac);
       fill.position.x = (frac - 1) * 0.4;
-      fill.material.color.set(frac > 0.5 ? '#22c55e' : frac > 0.25 ? '#f59e0b' : '#ef4444');
+      fill.material.color.set(frac > 0.5 ? '#72d490' : frac > 0.25 ? '#f5c56a' : '#f09090');
     }
 
     // ---- Player HP helpers ----
@@ -4333,10 +4333,10 @@
       if (!damageVignetteEl) return;
       damageVignetteEl.style.transition = 'none';
       damageVignetteEl.style.background = strong
-        ? 'rgba(239,68,68,0.7)' : 'rgba(239,68,68,0.38)';
+        ? 'rgba(210,110,110,0.7)' : 'rgba(210,110,110,0.38)';
       requestAnimationFrame(() => {
         damageVignetteEl.style.transition = strong ? 'background 1s' : 'background 0.45s';
-        damageVignetteEl.style.background = 'rgba(239,68,68,0)';
+        damageVignetteEl.style.background = 'rgba(210,110,110,0)';
       });
     }
 
@@ -6366,9 +6366,9 @@
 
       // Mode info
       const modeInfo = {
-        ta: { emoji: '⚡', label: 'Time Attack', color: '#fbbf24' },
-        'ta-60': { emoji: '⏱️', label: 'Time Attack (60s)', color: '#06b6d4' },
-        endless: { emoji: '♾️', label: 'Endless Mode', color: '#f43f5e' }
+        ta: { emoji: '⚡', label: 'Time Attack', color: '#f5d27a' },
+        'ta-60': { emoji: '⏱️', label: 'Time Attack (60s)', color: '#9AE8D9' },
+        endless: { emoji: '♾️', label: 'Endless Mode', color: '#f0a8c5' }
       }[mode];
 
       const username = myUsername || 'Anonymous Player';
@@ -8753,7 +8753,7 @@
     (function () {
       var c = canvases[0];
       var ctx = ctxs[0];
-      var COLORS = ['#3dd847','#b8643e','#a8aeb8','#d4944f','#2ac142','#fce67f','#f04a38'];
+      var COLORS = ['#7ed98a','#c9917a','#c2c6cf','#ddb680','#6ec67a','#fdf0a8','#e88c82'];
       var BLOCK = 14;
       var grid = null;
       var frame = 0;
@@ -8819,7 +8819,7 @@
     (function () {
       var c = canvases[1];
       var ctx = ctxs[1];
-      var TA_COLORS = ['#d12121','#1e5fc0','#d4a817','#b8643e','#c4a872','#a8aeb8'];
+      var TA_COLORS = ['#f09090','#80a8f0','#ffe580','#c9917a','#ddb680','#c2c6cf'];
       var blocks = [];
       var score = 0;
       var frame = 0;
@@ -8915,7 +8915,7 @@
     (function () {
       var c = canvases[2];
       var ctx = ctxs[2];
-      var TA60_COLORS = ['#0891b2','#06b6d4','#22d3ee','#1e5f74','#0c4a6e'];
+      var TA60_COLORS = ['#80a8f0','#9AE8D9','#b3e8f5','#80a8c8','#a8c8e0'];
       var blocks = [];
       var score = 0;
       var frame = 0;
@@ -8988,7 +8988,7 @@
           }
         }
 
-        ctx2.fillStyle = '#06b6d4';
+        ctx2.fillStyle = '#9AE8D9';
         ctx2.font = 'bold 12px monospace';
         ctx2.textAlign = 'right';
         ctx2.fillText('+' + score, w - 6, 16);
@@ -9008,7 +9008,7 @@
     (function () {
       var c = canvases[3];
       var ctx = ctxs[3];
-      var ENDLESS_COLORS = ['#d4b860','#b89a5f','#a8764d','#9a6b48','#b8825f'];
+      var ENDLESS_COLORS = ['#f5d27a','#ddb680','#c9917a','#c2c6cf','#fdf0a8'];
       var blocks = [];
       var frame = 0;
       var BSIZE = 14;
@@ -9135,8 +9135,8 @@
     (function () {
       var c = canvases[5];
       var ctx = ctxs[5];
-      var FAR_COLORS  = ['#2ac142','#3dd847','#b8643e','#a8aeb8','#3dd847','#2ac142','#b8643e'];
-      var NEAR_COLORS = ['#3dd847','#b8643e','#3dd847','#a8aeb8','#3dd847','#b8643e','#3dd847'];
+      var FAR_COLORS  = ['#6ec67a','#7ed98a','#c9917a','#c2c6cf','#7ed98a','#6ec67a','#c9917a'];
+      var NEAR_COLORS = ['#7ed98a','#c9917a','#7ed98a','#c2c6cf','#7ed98a','#c9917a','#7ed98a'];
       var BW = 18; // block width in the parallax strips
       var farOff = 0, nearOff = 0;
 
@@ -9161,7 +9161,7 @@
           var ci = ((i + Math.floor(farOff / BW)) % FAR_COLORS.length + FAR_COLORS.length) % FAR_COLORS.length;
           drawBlock(ctx2, x, farY, BW - 1, FAR_COLORS[ci]);
           // dirt row below
-          drawBlock(ctx2, x, farY + BW - 1, BW - 1, '#8a5a32');
+          drawBlock(ctx2, x, farY + BW - 1, BW - 1, '#b09070');
         }
 
         // near terrain strip (bottom)
@@ -9172,9 +9172,9 @@
           var nx = (j * BW - (nearOff % BW));
           var nci = ((j + Math.floor(nearOff / BW)) % NEAR_COLORS.length + NEAR_COLORS.length) % NEAR_COLORS.length;
           drawBlock(ctx2, nx, nearY, BW - 1, NEAR_COLORS[nci]);
-          drawBlock(ctx2, nx, nearY + BW - 1, BW - 1, '#8a5a32');
+          drawBlock(ctx2, nx, nearY + BW - 1, BW - 1, '#b09070');
           // fill remaining height
-          ctx2.fillStyle = '#6b3a1f';
+          ctx2.fillStyle = '#a07860';
           ctx2.fillRect(nx, nearY + BW * 2 - 2, BW - 1, h - (nearY + BW * 2 - 2));
         }
 
@@ -9200,7 +9200,7 @@
   (function () {
     var bgCanvas = document.getElementById('bg-canvas');
     var ctx = bgCanvas.getContext('2d');
-    var COLORS = ['#3dd847','#a8aeb8','#d4b860','#b8643e','#1e5fc0','#ffb800'];
+    var COLORS = ['#7ed98a','#c2c6cf','#f5d27a','#c9917a','#80a8f0','#ffd099'];
     var particles = [];
 
     function rand(min, max) { return min + Math.random() * (max - min); }
