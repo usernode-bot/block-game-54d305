@@ -575,10 +575,13 @@
           <p class="text-zinc-400 text-sm sm:text-sm lg:text-sm mb-5 mode-desc">Clear as many blocks as you can in 60 seconds. Blocks stack—no clearing allowed. Single-player only.</p>
           <button id="play-ta-60-btn" class="w-full px-4 py-3 rounded-lg bg-cyan-600 hover:bg-cyan-500 font-semibold text-sm sm:text-sm lg:text-base transition hover:scale-[1.02] active:scale-[0.98] mode-btn">Play Time Attack (60s)</button>
         </div>
-        <div class="bg-zinc-900/80 rounded-xl p-5 sm:p-6 lg:p-7 transition hover:bg-zinc-800/80" data-mode="daily-challenge">
-          <canvas id="preview-daily-challenge" class="w-full rounded-lg mb-4" height="140"></canvas>
-          <h2 class="font-semibold text-lg sm:text-base lg:text-lg text-zinc-100 mb-2 mode-title">Daily Challenge</h2>
-          <p class="text-zinc-400 text-sm sm:text-sm lg:text-sm mb-5 mode-desc">Same objective for all players. Resets every 24 hours. Compete on the leaderboard.</p>
+        <div class="relative bg-gradient-to-br from-fuchsia-950/80 to-zinc-900/80 border border-fuchsia-700/40 rounded-xl p-5 sm:p-6 lg:p-7 transition hover:from-fuchsia-900/80 hover:to-zinc-800/80 lg:col-span-2" data-mode="daily-challenge">
+          <span id="daily-challenge-card-badge" class="absolute top-3 right-3 text-[10px] font-bold bg-fuchsia-600 text-white px-2 py-0.5 rounded-full tracking-wide">TODAY</span>
+          <canvas id="preview-daily-challenge" class="w-full rounded-lg mb-4 max-h-32" height="120"></canvas>
+          <div class="text-4xl mb-2">🗓️</div>
+          <h2 class="font-semibold text-lg sm:text-base lg:text-xl text-fuchsia-100 mb-1 mode-title">Daily Challenge</h2>
+          <p id="daily-challenge-card-desc" class="text-zinc-400 text-sm sm:text-sm lg:text-sm mb-1 mode-desc">Same board for every player — builds fresh each day. Earn points with combos to top the leaderboard.</p>
+          <p id="daily-challenge-card-meta" class="text-fuchsia-300 text-xs font-medium mb-4 min-h-[1rem]"></p>
           <button id="play-daily-challenge-btn" class="w-full px-4 py-3 rounded-lg bg-fuchsia-600 hover:bg-fuchsia-500 font-semibold text-sm sm:text-sm lg:text-base transition hover:scale-[1.02] active:scale-[0.98] mode-btn">Play Daily Challenge</button>
         </div>
         <div class="bg-zinc-900/80 rounded-xl p-5 sm:p-6 lg:p-7 transition hover:bg-zinc-800/80" data-mode="endless">
@@ -862,6 +865,13 @@
 
   <!-- Badge toast container: toasts stack above the palette, bottom-centre. -->
   <div id="badge-toasts" class="pointer-events-none fixed left-1/2 -translate-x-1/2 z-40 flex flex-col-reverse items-center gap-2" style="bottom: 5.5rem"></div>
+
+  <!-- Daily Challenge speed-bonus countdown timer. Shown during a DC run for the first 3 minutes. -->
+  <div id="dc-speed-timer" class="hidden pointer-events-none fixed top-14 left-1/2 -translate-x-1/2 z-20 flex items-center gap-1.5 rounded-lg bg-fuchsia-900/80 backdrop-blur px-3 py-1.5 text-xs font-semibold text-fuchsia-100">
+    <span class="text-fuchsia-400">⚡</span>
+    <span>Speed bonus: </span>
+    <span id="dc-speed-timer-value" class="font-mono tabular-nums text-fuchsia-200">3:00</span>
+  </div>
 
   <!-- Login Streak HUD: compact pill above the daily challenge bar. Bottom set by JS. -->
   <div id="streak-hud" class="hidden pointer-events-none fixed right-3 z-20 rounded-lg bg-black/55 px-2 py-1.5 text-xs text-white/90 font-semibold whitespace-nowrap"></div>
@@ -1219,13 +1229,22 @@
   <!-- Daily Challenge game-over overlay -->
   <div id="daily-challenge-gameover" class="hidden fixed inset-0 z-30 flex items-center justify-center bg-black/60 backdrop-blur-sm">
     <div id="daily-challenge-gameover-card" class="max-w-sm w-full mx-4 bg-zinc-900/95 rounded-2xl p-6 sm:p-8 text-center shadow-xl">
-      <h2 class="text-2xl font-bold mb-2">Daily Challenge Complete!</h2>
-      <div id="daily-best-banner" class="hidden mb-3 rounded-xl bg-gradient-to-r from-fuchsia-500 to-pink-500 text-zinc-900 font-bold py-2 px-3 text-sm shadow">🎉 Challenge completed!</div>
-      <p id="daily-final-score" class="text-zinc-300 text-lg mb-2">You placed 0/100 blocks</p>
-      <p id="daily-feedback-msg" class="text-zinc-500 text-sm mb-6"></p>
+      <h2 class="text-2xl font-bold mb-2">Daily Challenge</h2>
+      <div id="daily-best-banner" class="hidden mb-3 rounded-xl bg-gradient-to-r from-fuchsia-500 to-pink-500 text-zinc-900 font-bold py-2 px-3 text-sm shadow">🎉 Challenge complete!</div>
+      <div id="dc-score-display" class="my-3">
+        <div class="text-4xl font-bold text-fuchsia-300 tabular-nums" id="dc-final-score-pts">0</div>
+        <div class="text-xs text-zinc-500 mt-0.5">points</div>
+      </div>
+      <div id="dc-speed-bonus-label" class="hidden mb-2 text-xs font-semibold text-amber-400">⚡ +50% speed bonus applied!</div>
+      <p id="daily-final-score" class="text-zinc-400 text-sm mb-1"></p>
+      <p id="daily-feedback-msg" class="text-zinc-500 text-xs mb-3"></p>
+      <div id="dc-rank-display" class="hidden text-sm font-semibold text-fuchsia-300 mb-3"></div>
+      <div id="dc-streak-display" class="hidden text-xs text-zinc-400 mb-3"></div>
+      <div id="dc-top3" class="hidden mb-4 rounded-lg bg-zinc-800/60 p-2 text-xs text-left"></div>
       <div class="flex flex-col sm:flex-row gap-2 sm:gap-3 justify-center">
-        <button id="daily-share-btn" class="w-full sm:w-auto px-6 py-3 rounded-lg bg-fuchsia-600 hover:bg-fuchsia-500 font-semibold transition hover:scale-105 active:scale-95">Share Score</button>
-        <button id="daily-back-menu" class="w-full sm:w-auto px-6 py-3 rounded-lg bg-zinc-700 hover:bg-zinc-600 font-semibold transition hover:scale-105 active:scale-95">Back to Menu</button>
+        <button id="daily-play-again" class="w-full sm:w-auto px-5 py-2.5 rounded-lg bg-fuchsia-600 hover:bg-fuchsia-500 font-semibold transition hover:scale-105 active:scale-95 text-sm">Play Again</button>
+        <button id="daily-share-btn" class="w-full sm:w-auto px-5 py-2.5 rounded-lg bg-zinc-600 hover:bg-zinc-500 font-semibold transition hover:scale-105 active:scale-95 text-sm">Share Score</button>
+        <button id="daily-back-menu" class="w-full sm:w-auto px-5 py-2.5 rounded-lg bg-zinc-700 hover:bg-zinc-600 font-semibold transition hover:scale-105 active:scale-95 text-sm">Back to Menu</button>
       </div>
     </div>
   </div>
@@ -1979,6 +1998,14 @@
     let dailyChallengeStreak = 0;    // current consecutive completion streak
     let dailyChallengeReward = 0;    // coins earned today from challenge completion
 
+    // ---- Daily Challenge isolated-board session state ----
+    const dailyChallengeBlocks = new Map(); // seeded terrain: key(x,y,z) -> block_type
+    let challengeSessionScore = 0;          // accumulated score this DC run
+    let challengeSessionStart = 0;          // Date.now() when session began
+    let dcTimerHandle = null;               // interval for speed-bonus countdown
+    let dcSpeedBonusAvailable = false;      // true while the 3-min window is open
+    let pendingDailyChallengeInit = false;  // set by startMode, consumed by onPlayEntered
+
     // ---- AI Coach state ----
     let lastTipAt = 0;               // ms timestamp of last tip shown
     const COACH_COOLDOWN_MS = 30_000;
@@ -2657,6 +2684,7 @@
       else if (gameMode === 'endless') source = endlessBlocks;
       else if (gameMode === 'learn') source = learnBlocks;
       else if (gameMode === 'tutorial') source = tutorialBlocks;
+      else if (gameMode === 'daily-challenge') source = dailyChallengeBlocks;
       const byType = new Map();
       for (const [k, t] of source) {
         if (!byType.has(t)) byType.set(t, []);
@@ -3143,6 +3171,25 @@
       if (data.streak !== undefined) dailyChallengeStreak = data.streak;
       renderChallenge();
       if (gameMode !== 'spectate') challengeHudEl.classList.remove('hidden');
+      hydrateDailyCard();
+    }
+
+    function hydrateDailyCard() {
+      const metaEl = document.getElementById('daily-challenge-card-meta');
+      const badgeEl = document.getElementById('daily-challenge-card-badge');
+      const btnEl = document.getElementById('play-daily-challenge-btn');
+      if (!metaEl) return;
+      const parts = [];
+      if (challengeTarget) parts.push('Goal: place ' + challengeTarget + ' blocks');
+      if (dailyChallengeStreak > 0) parts.push('🔥 ' + dailyChallengeStreak + '-day streak');
+      metaEl.textContent = parts.join(' · ');
+      if (challengeCompleted) {
+        if (badgeEl) { badgeEl.textContent = 'DONE'; badgeEl.classList.remove('bg-fuchsia-600'); badgeEl.classList.add('bg-green-600'); }
+        if (btnEl) btnEl.textContent = 'View Results';
+      } else {
+        if (badgeEl) { badgeEl.textContent = 'TODAY'; badgeEl.classList.remove('bg-green-600'); badgeEl.classList.add('bg-fuchsia-600'); }
+        if (btnEl) btnEl.textContent = 'Play Daily Challenge';
+      }
     }
 
     function renderBlocksPlacedHud() {
@@ -3153,6 +3200,61 @@
       if (!undoInProgress && gameMode === 'classic' && prevType !== undefined) {
         pushUndo(x, y, z, prevType, t);
       }
+
+      // Daily challenge: operate on the isolated board, not the shared world
+      if (gameMode === 'daily-challenge') {
+        if (t === 0) {
+          dailyChallengeBlocks.delete(key(x, y, z));
+        } else {
+          dailyChallengeBlocks.set(key(x, y, z), t);
+        }
+        messageBlocks.delete(key(x, y, z));
+        rebuildBlockMeshes();
+        if (t !== 0 && !challengeCompleted) {
+          challengePlaced++;
+          renderChallenge();
+          if (challengePlaced >= challengeTarget) {
+            challengeCompleted = true;
+            fetchCoachTip('daily_complete');
+          }
+        }
+        if (t !== 0) {
+          sessionBlocksPlaced++;
+          if (sessionBlocksPlaced % 25 === 0) fetchCoachTip('block_milestone');
+        }
+        try {
+          const res = await fetch('/api/challenge/block', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...headers },
+            body: JSON.stringify({ x, y, z, block_type: t }),
+          });
+          if (res.ok) {
+            const data = await res.json();
+            const newMult = data.combo_multiplier || 1;
+            if (newMult > lastComboMultiplier && newMult > 1) fetchCoachTip('combo_tier_up');
+            updateComboHud(newMult);
+            if (data.earned) {
+              challengeSessionScore += data.earned;
+              sessionScore += data.earned;
+              updateScoreHud();
+            }
+            if (data.newly_earned_badges && data.newly_earned_badges.length) {
+              for (const badge of data.newly_earned_badges) {
+                earnedBadges.set(badge.id, { earned_at: new Date().toISOString() });
+                showBadgeToast(badge);
+              }
+              fetchCoachTip('badge_earned', data.newly_earned_badges[0].name);
+              if (badgesOpen) renderBadgesPanel();
+            }
+            if (t !== 0) { myBlocksPlaced++; renderBlocksPlacedHud(); blocksPlacedHudEl.classList.remove('hidden'); }
+            if (challengeCompleted) {
+              endDailyChallengeMode(true);
+            }
+          }
+        } catch (e) { /* will reconcile on retry */ }
+        return;
+      }
+
       applyLocal(x, y, z, t);
       // Optimistic challenge increment for placements (not breaks).
       if (t !== 0 && challengeDate && !challengeCompleted) {
@@ -3160,7 +3262,6 @@
         if (challengePlaced >= challengeTarget) {
           challengeCompleted = true;
           fetchCoachTip('daily_complete');
-          // Show daily challenge completion modal
           showDailyChallengeGameOver();
         }
         renderChallenge();
@@ -4622,11 +4723,163 @@
       updateTouchControlsVisibility();
     }
 
-    function showDailyChallengeGameOver() {
-      document.getElementById('daily-final-score').textContent = 'You placed ' + challengePlaced + '/' + challengeTarget + ' blocks';
-      document.getElementById('daily-feedback-msg').textContent = 'Great job completing today\'s challenge!';
-      document.getElementById('daily-best-banner').classList.remove('hidden');
+    function showDailyChallengeGameOver(opts) {
+      opts = opts || {};
+      document.getElementById('dc-final-score-pts').textContent = (opts.finalScore || challengeSessionScore).toLocaleString();
+      document.getElementById('daily-final-score').textContent = challengePlaced + ' / ' + challengeTarget + ' blocks placed';
+
+      const completed = challengePlaced >= challengeTarget;
+      document.getElementById('daily-best-banner').classList.toggle('hidden', !completed);
+      document.getElementById('daily-feedback-msg').textContent = completed
+        ? 'You hit today\'s target! Check the leaderboard for your rank.'
+        : 'Keep going — come back and try again before midnight UTC!';
+
+      const speedLabel = document.getElementById('dc-speed-bonus-label');
+      speedLabel.classList.toggle('hidden', !opts.speedBonusApplied);
+
+      const rankEl = document.getElementById('dc-rank-display');
+      if (opts.rank) {
+        const medals = ['🥇', '🥈', '🥉'];
+        rankEl.textContent = (medals[opts.rank - 1] || '#' + opts.rank) + ' on today\'s leaderboard';
+        rankEl.classList.remove('hidden');
+      } else {
+        rankEl.classList.add('hidden');
+      }
+
+      const streakEl = document.getElementById('dc-streak-display');
+      if (dailyChallengeStreak > 0) {
+        streakEl.textContent = '🔥 ' + dailyChallengeStreak + '-day streak';
+        streakEl.classList.remove('hidden');
+      } else {
+        streakEl.classList.add('hidden');
+      }
+
+      const top3El = document.getElementById('dc-top3');
+      if (opts.top3 && opts.top3.length) {
+        const medals = ['🥇', '🥈', '🥉'];
+        top3El.innerHTML = '<div class="font-semibold text-zinc-300 mb-1 text-[10px] uppercase tracking-wide">Today\'s top scores</div>' +
+          opts.top3.map((e, i) =>
+            '<div class="flex justify-between py-0.5">' +
+            '<span>' + (medals[i] || (i + 1) + '.') + ' ' + escapeHtml(e.username) + '</span>' +
+            '<span class="font-mono text-fuchsia-300">' + Number(e.score).toLocaleString() + ' pts</span>' +
+            '</div>'
+          ).join('');
+        top3El.classList.remove('hidden');
+      } else {
+        top3El.classList.add('hidden');
+      }
+
       document.getElementById('daily-challenge-gameover').classList.remove('hidden');
+    }
+
+    async function initDailyChallengeMode() {
+      // Reset isolated session state
+      dailyChallengeBlocks.clear();
+      challengeSessionScore = 0;
+      challengeSessionStart = Date.now();
+      dcSpeedBonusAvailable = true;
+      if (dcTimerHandle) { clearInterval(dcTimerHandle); dcTimerHandle = null; }
+
+      document.getElementById('daily-challenge-gameover').classList.add('hidden');
+      document.getElementById('dc-speed-timer').classList.remove('hidden');
+
+      // Fetch today's seeded board
+      try {
+        const res = await fetch('/api/challenge/board', { headers });
+        if (res.ok) {
+          const data = await res.json();
+          if (data.date) challengeDate = data.date;
+          for (const b of (data.blocks || [])) {
+            dailyChallengeBlocks.set(key(b.x, b.y, b.z), b.block_type);
+          }
+        }
+      } catch (_) {}
+
+      // Fetch today's challenge meta if not already loaded
+      if (!challengeTarget) {
+        try {
+          const r = await fetch('/api/challenge/today', { headers });
+          if (r.ok) { const d = await r.json(); syncChallenge(d); }
+        } catch (_) {}
+      }
+
+      // Rebuild scene from isolated board
+      rebuildBlockMeshes();
+
+      // Start 3-minute speed bonus countdown
+      const SPEED_WINDOW_MS = 180000;
+      const timerEl = document.getElementById('dc-speed-timer-value');
+      dcTimerHandle = setInterval(() => {
+        const elapsed = Date.now() - challengeSessionStart;
+        const remaining = Math.max(0, SPEED_WINDOW_MS - elapsed);
+        const mins = Math.floor(remaining / 60000);
+        const secs = Math.floor((remaining % 60000) / 1000);
+        timerEl.textContent = mins + ':' + String(secs).padStart(2, '0');
+        if (remaining === 0) {
+          dcSpeedBonusAvailable = false;
+          clearInterval(dcTimerHandle);
+          dcTimerHandle = null;
+          document.getElementById('dc-speed-timer').classList.add('hidden');
+        }
+      }, 250);
+
+      challengeHudEl.classList.remove('hidden');
+      renderChallenge();
+    }
+
+    async function endDailyChallengeMode(targetMet) {
+      // Stop speed timer
+      if (dcTimerHandle) { clearInterval(dcTimerHandle); dcTimerHandle = null; }
+      document.getElementById('dc-speed-timer').classList.add('hidden');
+
+      // Determine speed bonus eligibility
+      const elapsed = Date.now() - challengeSessionStart;
+      const speedBonusEligible = targetMet && dcSpeedBonusAvailable && elapsed > 0;
+
+      playing = false;
+      dragMode = false;
+      resetMove();
+      canvas.style.cursor = '';
+      if (locked) { try { document.exitPointerLock(); } catch (_) {} }
+
+      // Submit score to server
+      let completeData = null;
+      try {
+        const completedAt = targetMet ? new Date().toISOString() : null;
+        const body = {
+          challenge_date: challengeDate,
+          score: challengeSessionScore,
+          blocks_placed: challengePlaced,
+          session_start_ms: challengeSessionStart,
+          completed_at: completedAt,
+        };
+        const res = await fetch('/api/challenge/complete', {
+          method: 'POST',
+          headers: Object.assign({ 'content-type': 'application/json' }, headers),
+          body: JSON.stringify(body),
+        });
+        if (res.ok) {
+          completeData = await res.json();
+          if (completeData.streak !== undefined) dailyChallengeStreak = completeData.streak;
+        }
+      } catch (_) {}
+
+      // Fetch top-3 for the game-over card
+      let top3 = [];
+      try {
+        const lbRes = await fetch('/api/challenge/leaderboard', { headers });
+        if (lbRes.ok) {
+          const lbData = await lbRes.json();
+          top3 = (lbData.entries || []).slice(0, 3);
+        }
+      } catch (_) {}
+
+      showDailyChallengeGameOver({
+        finalScore: completeData ? completeData.final_score : challengeSessionScore,
+        speedBonusApplied: completeData ? completeData.speed_bonus_applied : speedBonusEligible,
+        rank: completeData ? completeData.rank : null,
+        top3,
+      });
     }
 
     // ---- Mode entry ----
@@ -4662,6 +4915,10 @@
       } else if (pendingTutorialInit) {
         pendingTutorialInit = false;
         initTutorialMode();
+        coachBtnEl.classList.add('hidden');
+      } else if (pendingDailyChallengeInit) {
+        pendingDailyChallengeInit = false;
+        initDailyChallengeMode();
         coachBtnEl.classList.add('hidden');
       } else if (gameMode === 'classic') {
         sessionScore = 0;
@@ -4702,6 +4959,7 @@
       if (mode === 'puzzle') pendingPuzzleInit = true;
       if (mode === 'learn') pendingLearnInit = true;
       if (mode === 'tutorial') pendingTutorialInit = true;
+      if (mode === 'daily-challenge') pendingDailyChallengeInit = true;
       refreshUndoButton();
       tryPointerLock();
     }
@@ -4780,12 +5038,19 @@
         endTimeAttack60();
         return;
       }
+      // In Daily Challenge mode, submit what we have before going back.
+      if (gameMode === 'daily-challenge' && playing) {
+        endDailyChallengeMode(false);
+        return;
+      }
       // In Learn mode, end the session.
       if (gameMode === 'learn' && playing) {
         endLearnMode();
       }
       // Stop any lingering TA timer.
       if (taTimerHandle) { clearInterval(taTimerHandle); taTimerHandle = null; }
+      // Stop any daily challenge timer.
+      if (dcTimerHandle) { clearInterval(dcTimerHandle); dcTimerHandle = null; }
       // Stop classic poll.
       if (pollHandle) { clearInterval(pollHandle); pollHandle = null; }
 
@@ -4801,10 +5066,12 @@
 
       taBlocks.clear();
       learnBlocks.clear();
+      dailyChallengeBlocks.clear();
       rebuildBlockMeshes(); // gameMode is now null → renders classic blocks
 
       document.getElementById('ta-hud').classList.add('hidden');
       document.getElementById('ta-gameover').classList.add('hidden');
+      document.getElementById('dc-speed-timer').classList.add('hidden');
       document.getElementById('daily-challenge-gameover').classList.add('hidden');
       document.getElementById('learn-hints').innerHTML = '';
       document.getElementById('palette').classList.remove('hidden');
@@ -4903,7 +5170,20 @@
     document.getElementById('play-classic-btn').addEventListener('click', () => { audio.init(); startMode('classic'); });
     document.getElementById('play-ta-btn').addEventListener('click', () => { audio.init(); startMode('timeattack'); });
     document.getElementById('play-ta-60-btn').addEventListener('click', () => { audio.init(); startMode('time-attack-60'); });
-    document.getElementById('play-daily-challenge-btn').addEventListener('click', () => { audio.init(); startMode('daily-challenge'); });
+    document.getElementById('play-daily-challenge-btn').addEventListener('click', async () => {
+      audio.init();
+      if (challengeCompleted) {
+        // Already completed today — show results
+        let top3 = [];
+        try {
+          const lbRes = await fetch('/api/challenge/leaderboard', { headers });
+          if (lbRes.ok) { const d = await lbRes.json(); top3 = (d.entries || []).slice(0, 3); }
+        } catch (_) {}
+        showDailyChallengeGameOver({ finalScore: challengeSessionScore || 0, top3 });
+      } else {
+        startMode('daily-challenge');
+      }
+    });
     document.getElementById('play-endless-btn').addEventListener('click', () => { audio.init(); startMode('endless'); });
     document.getElementById('play-puzzle-btn').addEventListener('click', () => { audio.init(); startMode('puzzle'); });
     document.getElementById('play-tutorial-btn').addEventListener('click', () => { audio.init(); startMode('tutorial'); });
@@ -4948,6 +5228,11 @@
     document.getElementById('daily-back-menu').addEventListener('click', () => {
       document.getElementById('daily-challenge-gameover').classList.add('hidden');
       exitToMenu();
+    });
+
+    document.getElementById('daily-play-again').addEventListener('click', () => {
+      document.getElementById('daily-challenge-gameover').classList.add('hidden');
+      startMode('daily-challenge');
     });
 
     // ---- Share Score functionality ----
@@ -6080,38 +6365,24 @@
         '<thead><tr class="text-zinc-500 uppercase border-b border-zinc-700">' +
         '<th class="text-left pb-1 w-8">#</th>' +
         '<th class="text-left pb-1 pl-2">Player</th>' +
-        '<th class="text-right pb-1">Blocks</th>' +
-        '<th class="text-right pb-1 pl-1">Time</th></tr></thead><tbody>' +
+        '<th class="text-right pb-1 text-fuchsia-400">Score</th>' +
+        '<th class="text-right pb-1 pl-1">Blocks</th></tr></thead><tbody>' +
         data.entries.map(e => {
-          let timeStr = '—';
-          if (e.completed_at) {
-            const completed = new Date(e.completed_at);
-            const mins = Math.floor(completed.getTime() / 60000) % 60;
-            const secs = Math.floor(completed.getTime() / 1000) % 60;
-            timeStr = mins + 'm ' + secs + 's';
-          }
           return '<tr class="border-b border-zinc-800/60 last:border-0">' +
             '<td class="py-1">' + (medals[e.rank - 1] || e.rank) + '</td>' +
-            '<td class="py-1 pl-2 max-w-[120px] truncate"><button class="text-violet-400 hover:text-violet-300 hover:underline cursor-pointer" data-profile-btn>' + escapeHtml(e.username) + '</button></td>' +
-            '<td class="py-1 text-right font-mono text-zinc-100">' + e.blocks_placed + '</td>' +
-            '<td class="py-1 text-right pl-1 text-fuchsia-400">' + timeStr + '</td></tr>';
+            '<td class="py-1 pl-2 max-w-[100px] truncate"><button class="text-violet-400 hover:text-violet-300 hover:underline cursor-pointer" data-profile-btn>' + escapeHtml(e.username) + '</button></td>' +
+            '<td class="py-1 text-right font-mono text-fuchsia-300 font-semibold">' + Number(e.score || 0).toLocaleString() + ' pts</td>' +
+            '<td class="py-1 text-right pl-1 text-zinc-400">' + e.blocks_placed + '</td></tr>';
         }).join('') +
         '</tbody></table>';
 
       if (data.self && !data.entries.find(e => e.user_id === data.self.user_id)) {
-        let timeStr = '—';
-        if (data.self.completed_at) {
-          const completed = new Date(data.self.completed_at);
-          const mins = Math.floor(completed.getTime() / 60000) % 60;
-          const secs = Math.floor(completed.getTime() / 1000) % 60;
-          timeStr = mins + 'm ' + secs + 's';
-        }
         html += '<div class="mt-2 pt-2 border-t border-zinc-700 text-xs">' +
           '<table class="w-full"><tbody><tr class="text-fuchsia-300">' +
           '<td class="w-8">' + (medals[data.self.rank - 1] || data.self.rank) + '</td>' +
-          '<td class="pl-2 max-w-[100px] truncate"><button class="text-fuchsia-300 hover:text-fuchsia-200 hover:underline cursor-pointer" data-profile-btn>' + escapeHtml(data.self.username) + '</button> (you)</td>' +
-          '<td class="text-right font-mono">' + data.self.blocks_placed + '</td>' +
-          '<td class="text-right pl-1">' + timeStr + '</td>' +
+          '<td class="pl-2 max-w-[80px] truncate"><button class="text-fuchsia-300 hover:text-fuchsia-200 hover:underline cursor-pointer" data-profile-btn>' + escapeHtml(data.self.username) + '</button> (you)</td>' +
+          '<td class="text-right font-mono font-semibold">' + Number(data.self.score || 0).toLocaleString() + ' pts</td>' +
+          '<td class="text-right pl-1 text-zinc-400">' + data.self.blocks_placed + '</td>' +
           '</tr></tbody></table></div>';
       }
       leaderboardContentEl.innerHTML = html;

@@ -90,6 +90,9 @@ const BLOCK_POINTS = {
 // Sentinel "user" id for staging seed rows so they never reference a real user.
 const SEED_USER_ID = 0;
 
+// ---- Daily board cache: one seeded layout per UTC day, regenerated at midnight. ----
+let dailyBoardCache = { date: '', blocks: [] };
+
 // ---- Mob / creature system ----
 const MOB_DEFS = {
   slime:   { maxHp: 3, moveIntervalMs: 2500, groundMob: true  },
@@ -470,8 +473,6 @@ app.post('/api/block', async (req, res) => {
       }
     }
 
-    // Track challenge progress for placements only (breaks don't count).
-    let challenge = null;
     // ---- Scoring (placements only; breaks earn 0) ----
     let earned = 0, combo_multiplier = 1, rainbow_multiplier = 1, combo_tier = 1;
     let newly_earned_badges = [];
@@ -479,29 +480,6 @@ app.post('/api/block', async (req, res) => {
     if (t !== 0) {
       const now = new Date();
       const dateStr = now.toISOString().slice(0, 10);
-      const target = dailyTarget(now);
-      const cr = await pool.query(
-        `INSERT INTO daily_challenge_progress
-           (challenge_date, user_id, username, blocks_placed, completed_at, updated_at)
-         VALUES ($1, $2, $3, 1,
-           CASE WHEN 1 >= $4 THEN NOW() ELSE NULL END,
-           NOW())
-         ON CONFLICT (challenge_date, user_id) DO UPDATE SET
-           blocks_placed = daily_challenge_progress.blocks_placed + 1,
-           username = EXCLUDED.username,
-           completed_at = CASE
-             WHEN daily_challenge_progress.completed_at IS NOT NULL
-               THEN daily_challenge_progress.completed_at
-             WHEN daily_challenge_progress.blocks_placed + 1 >= $4
-               THEN NOW()
-             ELSE NULL
-           END,
-           updated_at = NOW()
-         RETURNING blocks_placed, completed_at`,
-        [dateStr, req.user.id, req.user.username, target]
-      );
-      const cr0 = cr.rows[0];
-      challenge = { placed: cr0.blocks_placed, target, completed_at: cr0.completed_at };
 
       const base = 10;
 
@@ -586,58 +564,8 @@ app.post('/api/block', async (req, res) => {
       );
       const typeCount = typeCountRes.rows[0].type_count;
 
-      // Get daily challenge streak for badge checking
-      const streakRes = await pool.query(
-        `SELECT current_streak FROM daily_challenge_streaks WHERE user_id = $1`,
-        [req.user.id]
-      );
-      const dailyChallengeStreak = streakRes.rows.length ? Number(streakRes.rows[0].current_streak) : 0;
-
-      // Check if challenge just completed and check speedrunner (< 2 minutes) and daily_champion (#1 rank)
-      let speedrunnerMs = null;
-      let isDaily1st = false;
-      if (challenge && challenge.completed_at) {
-        // Get when the user first placed a block on this challenge day
-        const firstBlockRes = await pool.query(
-          `SELECT created_at, completed_at FROM
-             (SELECT user_id,
-                   COALESCE(
-                     (SELECT MIN(updated_at) FROM blocks WHERE updated_by_user_id = $1),
-                     NOW()
-                   ) as created_at,
-                   completed_at
-              FROM daily_challenge_progress
-              WHERE user_id = $1 AND challenge_date = $2
-             ) subq`,
-          [req.user.id, dateStr]
-        );
-        if (firstBlockRes.rows.length && firstBlockRes.rows[0].completed_at) {
-          // For speedrunner check, we estimate based on completed_at
-          speedrunnerMs = 120000; // default assumption for now
-        }
-
-        // Check if user ranks #1 on the daily challenge
-        const rank1Res = await pool.query(
-          `SELECT rank FROM (
-             SELECT rank() OVER (ORDER BY blocks_placed DESC, completed_at ASC) AS rank,
-                    user_id
-             FROM daily_challenge_progress
-             WHERE challenge_date = $1
-           ) ranked WHERE user_id = $2`,
-          [dateStr, req.user.id]
-        );
-        if (rank1Res.rows.length && Number(rank1Res.rows[0].rank) === 1) {
-          isDaily1st = true;
-        }
-      }
-
       // Evaluate predicates and insert any newly-earned badges.
-      const newBadges = checkBadges({ lb, justPlacedType: t, typeCount, dailyChallengeStreak, completionTimeMs: speedrunnerMs }, earnedIds);
-
-      // Award daily_champion if user just became #1
-      if (isDaily1st && !earnedIds.has('daily_champion')) {
-        newBadges.push(BADGES.find(b => b.id === 'daily_champion'));
-      }
+      const newBadges = checkBadges({ lb, justPlacedType: t, typeCount, dailyChallengeStreak: 0, completionTimeMs: null }, earnedIds);
 
       for (const badge of newBadges) {
         await pool.query(
@@ -699,7 +627,7 @@ app.post('/api/block', async (req, res) => {
     const monument = await recomputeMonument(sectorCoord(x), sectorCoord(z));
     if (monument && monument.is_new) newly_crowned_monuments = [{ id: monument.id, name: monument.name, sector_x: monument.sector_x, sector_z: monument.sector_z }];
 
-    res.json({ ok: true, seq, ...(challenge ? { challenge } : {}), earned, combo_multiplier, rainbow_multiplier, newly_earned_badges, newly_unlocked_types, lines_cleared, line_clear_points, newly_crowned_monuments });
+    res.json({ ok: true, seq, earned, combo_multiplier, rainbow_multiplier, newly_earned_badges, newly_unlocked_types, lines_cleared, line_clear_points, newly_crowned_monuments });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -2060,7 +1988,7 @@ app.get('/api/challenge/today', async (req, res) => {
     const dateStr = now.toISOString().slice(0, 10);
     const target = dailyTarget(now);
     const { rows } = await pool.query(
-      `SELECT blocks_placed, completed_at
+      `SELECT blocks_placed, completed_at, score
        FROM daily_challenge_progress
        WHERE challenge_date = $1 AND user_id = $2`,
       [dateStr, req.user.id]
@@ -2074,10 +2002,54 @@ app.get('/api/challenge/today', async (req, res) => {
     res.json({
       date: dateStr,
       target,
-      placed: row ? row.blocks_placed : 0,
+      placed: row ? Number(row.blocks_placed) : 0,
+      score: row ? Number(row.score) : 0,
       completed_at: row ? row.completed_at : null,
       streak,
     });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- Daily Challenge: today's seeded board (same for all players on the same UTC day) ----
+app.get('/api/challenge/board', async (req, res) => {
+  try {
+    const dateStr = new Date().toISOString().slice(0, 10);
+    const blocks = generateDailyBoard(dateStr);
+    res.json({ date: dateStr, blocks });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- Daily Challenge: isolated block placement (does not touch shared world) ----
+// Validates the placement and returns scoring data. Score accumulation is client-side;
+// the final score is submitted via POST /api/challenge/complete.
+app.post('/api/challenge/block', async (req, res) => {
+  try {
+    const { x, y, z, block_type } = req.body;
+    const xi = Number(x), yi = Number(y), zi = Number(z), t = Number(block_type);
+
+    if (!Number.isInteger(xi) || !Number.isInteger(yi) || !Number.isInteger(zi) ||
+        xi < 0 || xi >= DIMS.w || zi < 0 || zi >= DIMS.d || yi < 1 || yi >= DIMS.h) {
+      return res.status(400).json({ error: 'Out of bounds' });
+    }
+    if (t !== 0 && !VALID_TYPES.has(t)) {
+      return res.status(400).json({ error: 'Invalid block type' });
+    }
+
+    let earned = 0, combo_multiplier = 1, rainbow_multiplier = 1;
+    if (t !== 0) {
+      const base = 10;
+      // Combo: count recent placements by this user in daily_challenge_progress sessions
+      // We use a lightweight per-user in-memory approach: just return multiplier=1 for now
+      // since we don't track DC placements in a time-indexed table. Clients track combos
+      // optimistically via the session score HUD.
+      earned = base;
+    }
+
+    res.json({ ok: true, earned, combo_multiplier, rainbow_multiplier });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -2091,19 +2063,19 @@ app.get('/api/challenge/leaderboard', async (req, res) => {
     const target = dailyTarget(new Date(dateStr + 'T00:00:00Z'));
 
     const topRes = await pool.query(
-      `SELECT rank() OVER (ORDER BY blocks_placed DESC, completed_at ASC) AS rank,
-              user_id, username, blocks_placed, completed_at
+      `SELECT rank() OVER (ORDER BY score DESC, blocks_placed DESC, completed_at ASC) AS rank,
+              user_id, username, blocks_placed, completed_at, score
        FROM daily_challenge_progress
        WHERE challenge_date = $1 AND blocks_placed > 0
-       ORDER BY blocks_placed DESC, completed_at ASC
+       ORDER BY score DESC, blocks_placed DESC, completed_at ASC
        LIMIT 10`,
       [dateStr]
     );
 
     const selfRes = await pool.query(
       `SELECT * FROM (
-         SELECT rank() OVER (ORDER BY blocks_placed DESC, completed_at ASC) AS rank,
-                user_id, username, blocks_placed, completed_at
+         SELECT rank() OVER (ORDER BY score DESC, blocks_placed DESC, completed_at ASC) AS rank,
+                user_id, username, blocks_placed, completed_at, score
          FROM daily_challenge_progress
          WHERE challenge_date = $1
        ) ranked WHERE user_id = $2`,
@@ -2115,6 +2087,7 @@ app.get('/api/challenge/leaderboard', async (req, res) => {
       user_id: Number(r.user_id),
       username: r.username,
       blocks_placed: Number(r.blocks_placed),
+      score: Number(r.score),
       completed_at: r.completed_at ? r.completed_at.toISOString() : null,
     });
 
@@ -2129,126 +2102,180 @@ app.get('/api/challenge/leaderboard', async (req, res) => {
   }
 });
 
-// ---- Daily Challenge: complete (trigger streak tracking and rewards) ----
+// ---- Daily Challenge: complete (trigger streak tracking, rewards, score submission) ----
 app.post('/api/challenge/complete', async (req, res) => {
   try {
     const now = new Date();
     const dateStr = now.toISOString().slice(0, 10);
-    const { challenge_date, completed_at } = req.body;
+    const { challenge_date, completed_at, score: rawScore, blocks_placed: rawPlaced, session_start_ms } = req.body;
+    const rewardDate = challenge_date || dateStr;
 
-    // Check if user has already been rewarded for this day
-    const existingReward = await pool.query(
-      `SELECT id FROM daily_challenge_rewards WHERE user_id = $1 AND reward_date = $2`,
-      [req.user.id, challenge_date || dateStr]
-    );
-
-    if (existingReward.rows.length > 0) {
-      return res.json({ ok: false, error: 'Already rewarded for this day' });
+    // Clamp and validate score submission
+    const submittedScore = Math.max(0, Math.floor(Number(rawScore) || 0));
+    const submittedPlaced = Math.max(0, Math.floor(Number(rawPlaced) || 0));
+    const maxPossibleScore = submittedPlaced * 10 * 5 * 2; // base × max combo × rainbow
+    if (submittedScore > maxPossibleScore + 1) {
+      return res.status(422).json({ error: 'Score exceeds maximum possible for blocks placed' });
     }
 
-    // Get or create streak entry
-    const streakRes = await pool.query(
-      `SELECT current_streak, longest_streak, last_completed_date
-       FROM daily_challenge_streaks WHERE user_id = $1`,
-      [req.user.id]
+    // Check speed bonus: target reached within 3 minutes of session start
+    let finalScore = submittedScore;
+    let speedBonusApplied = false;
+    if (session_start_ms && completed_at) {
+      const sessionStart = new Date(session_start_ms);
+      const sessionStartDateStr = sessionStart.toISOString().slice(0, 10);
+      const completedMs = new Date(completed_at).getTime();
+      const elapsedMs = completedMs - sessionStart.getTime();
+      // Only apply if session started today and within 3 minutes
+      if (sessionStartDateStr === rewardDate && elapsedMs >= 0 && elapsedMs <= 180000) {
+        finalScore = Math.round(submittedScore * 1.5);
+        speedBonusApplied = true;
+      }
+    }
+
+    // Upsert progress keeping best score for the day
+    const target = dailyTarget(new Date(rewardDate + 'T00:00:00Z'));
+    const completedAtVal = submittedPlaced >= target ? (completed_at || now.toISOString()) : null;
+    await pool.query(
+      `INSERT INTO daily_challenge_progress
+         (challenge_date, user_id, username, blocks_placed, completed_at, score, speed_bonus_applied, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+       ON CONFLICT (challenge_date, user_id) DO UPDATE SET
+         blocks_placed       = GREATEST(daily_challenge_progress.blocks_placed, EXCLUDED.blocks_placed),
+         completed_at        = COALESCE(daily_challenge_progress.completed_at, EXCLUDED.completed_at),
+         score               = GREATEST(daily_challenge_progress.score, EXCLUDED.score),
+         speed_bonus_applied = daily_challenge_progress.speed_bonus_applied OR EXCLUDED.speed_bonus_applied,
+         username            = EXCLUDED.username,
+         updated_at          = NOW()`,
+      [rewardDate, req.user.id, req.user.username, submittedPlaced, completedAtVal, finalScore, speedBonusApplied]
+    );
+
+    // Fetch today's rank
+    const rankRes = await pool.query(
+      `SELECT rank FROM (
+         SELECT rank() OVER (ORDER BY score DESC, blocks_placed DESC, completed_at ASC) AS rank,
+                user_id
+         FROM daily_challenge_progress WHERE challenge_date = $1
+       ) r WHERE user_id = $2`,
+      [rewardDate, req.user.id]
+    );
+    const rank = rankRes.rows.length ? Number(rankRes.rows[0].rank) : null;
+
+    // Check if user has already been rewarded for this day (coins only once)
+    const existingReward = await pool.query(
+      `SELECT id FROM daily_challenge_rewards WHERE user_id = $1 AND reward_date = $2`,
+      [req.user.id, rewardDate]
     );
 
     let currentStreak = 0;
     let longestStreak = 0;
-    let coinsEarned = 50; // base reward
+    let coinsEarned = 0;
     let badgesEarned = [];
-    const rewardDate = challenge_date || dateStr;
 
-    if (streakRes.rows.length > 0) {
-      const streak = streakRes.rows[0];
-      currentStreak = Number(streak.current_streak);
-      longestStreak = Number(streak.longest_streak);
-      const lastDate = streak.last_completed_date;
+    if (!existingReward.rows.length && completedAtVal) {
+      coinsEarned = 50; // base reward for completing target
 
-      // Calculate if streak continues
-      if (lastDate) {
-        const lastDateObj = new Date(lastDate + 'T00:00:00Z');
-        const yesterdayObj = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-        const yesterdayStr = yesterdayObj.toISOString().slice(0, 10);
-        if (lastDate === yesterdayStr) {
-          currentStreak++;
-        } else if (lastDate !== rewardDate) {
-          currentStreak = 1;
-        }
-      }
-    } else {
-      currentStreak = 1;
-    }
-
-    if (currentStreak > longestStreak) {
-      longestStreak = currentStreak;
-    }
-
-    // Calculate streak bonus: +10 coins per day, capped at +100 (10 day streak)
-    const streakBonus = Math.min(100, (currentStreak - 1) * 10);
-    coinsEarned += streakBonus;
-    const streakMultiplier = 1 + streakBonus / 50;
-
-    // Award speedrunner badge if applicable
-    if (completed_at) {
-      const completionTime = new Date(completed_at);
-      const createdTime = new Date(); // fallback; ideally from progress row
-      // For speedrunner, we need to check if completion was under 2 minutes
-      // This will be checked in the block placement when challenge completes
-    }
-
-    // Award daily_devotee badge if streak >= 7
-    if (currentStreak >= 7) {
-      const existingBadge = await pool.query(
-        `SELECT 1 FROM player_badges WHERE user_id = $1 AND badge_id = $2`,
-        [req.user.id, 'daily_devotee']
+      // Get or create streak entry
+      const streakRes = await pool.query(
+        `SELECT current_streak, longest_streak, last_completed_date
+         FROM daily_challenge_streaks WHERE user_id = $1`,
+        [req.user.id]
       );
-      if (!existingBadge.rows.length) {
-        await pool.query(
-          `INSERT INTO player_badges (user_id, badge_id, earned_at)
-           VALUES ($1, $2, NOW())
-           ON CONFLICT DO NOTHING`,
+
+      if (streakRes.rows.length > 0) {
+        const streak = streakRes.rows[0];
+        currentStreak = Number(streak.current_streak);
+        longestStreak = Number(streak.longest_streak);
+        const lastDate = streak.last_completed_date;
+        if (lastDate) {
+          const yesterdayStr = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+          if (lastDate === yesterdayStr) {
+            currentStreak++;
+          } else if (lastDate !== rewardDate) {
+            currentStreak = 1;
+          }
+        }
+      } else {
+        currentStreak = 1;
+      }
+
+      if (currentStreak > longestStreak) longestStreak = currentStreak;
+
+      const streakBonus = Math.min(100, (currentStreak - 1) * 10);
+      coinsEarned += streakBonus;
+      const streakMultiplier = 1 + streakBonus / 50;
+
+      // Award daily_devotee badge if streak >= 7
+      if (currentStreak >= 7) {
+        const existingBadge = await pool.query(
+          `SELECT 1 FROM player_badges WHERE user_id = $1 AND badge_id = $2`,
           [req.user.id, 'daily_devotee']
         );
-        badgesEarned.push('daily_devotee');
+        if (!existingBadge.rows.length) {
+          await pool.query(
+            `INSERT INTO player_badges (user_id, badge_id, earned_at) VALUES ($1, $2, NOW()) ON CONFLICT DO NOTHING`,
+            [req.user.id, 'daily_devotee']
+          );
+          badgesEarned.push('daily_devotee');
+        }
       }
+
+      // Award daily_champion badge if rank #1
+      if (rank === 1) {
+        const existingChampion = await pool.query(
+          `SELECT 1 FROM player_badges WHERE user_id = $1 AND badge_id = 'daily_champion'`,
+          [req.user.id]
+        );
+        if (!existingChampion.rows.length) {
+          await pool.query(
+            `INSERT INTO player_badges (user_id, badge_id, earned_at) VALUES ($1, 'daily_champion', NOW()) ON CONFLICT DO NOTHING`,
+            [req.user.id]
+          );
+          badgesEarned.push('daily_champion');
+        }
+      }
+
+      // Update streak
+      await pool.query(
+        `INSERT INTO daily_challenge_streaks (user_id, current_streak, longest_streak, last_completed_date, updated_at)
+         VALUES ($1, $2, $3, $4, NOW())
+         ON CONFLICT (user_id) DO UPDATE SET
+           current_streak = $2, longest_streak = $3, last_completed_date = $4, updated_at = NOW()`,
+        [req.user.id, currentStreak, longestStreak, rewardDate]
+      );
+
+      // Award coins
+      await pool.query(
+        `INSERT INTO player_coins (user_id, coins_balance)
+         VALUES ($1, $2)
+         ON CONFLICT (user_id) DO UPDATE SET coins_balance = player_coins.coins_balance + $2, updated_at = NOW()`,
+        [req.user.id, coinsEarned]
+      );
+
+      // Record reward in audit log
+      await pool.query(
+        `INSERT INTO daily_challenge_rewards (user_id, reward_date, coins_earned, streak_bonus_multiplier, earned_at)
+         VALUES ($1, $2, $3, $4, NOW())
+         ON CONFLICT (user_id, reward_date) DO NOTHING`,
+        [req.user.id, rewardDate, coinsEarned, streakMultiplier]
+      );
+    } else {
+      // Not completing target — still update streak heartbeat if playing today
+      const streakRes = await pool.query(
+        `SELECT current_streak FROM daily_challenge_streaks WHERE user_id = $1`,
+        [req.user.id]
+      );
+      currentStreak = streakRes.rows.length ? Number(streakRes.rows[0].current_streak) : 0;
     }
-
-    // Update streak and longest streak
-    await pool.query(
-      `INSERT INTO daily_challenge_streaks (user_id, current_streak, longest_streak, last_completed_date, updated_at)
-       VALUES ($1, $2, $3, $4, NOW())
-       ON CONFLICT (user_id) DO UPDATE SET
-         current_streak = $2,
-         longest_streak = $3,
-         last_completed_date = $4,
-         updated_at = NOW()`,
-      [req.user.id, currentStreak, longestStreak, rewardDate]
-    );
-
-    // Award coins
-    await pool.query(
-      `INSERT INTO player_coins (user_id, coins_balance)
-       VALUES ($1, $2)
-       ON CONFLICT (user_id) DO UPDATE SET
-         coins_balance = player_coins.coins_balance + $2,
-         updated_at = NOW()`,
-      [req.user.id, coinsEarned]
-    );
-
-    // Record reward in audit log
-    await pool.query(
-      `INSERT INTO daily_challenge_rewards (user_id, reward_date, coins_earned, streak_bonus_multiplier, earned_at)
-       VALUES ($1, $2, $3, $4, NOW())
-       ON CONFLICT (user_id, reward_date) DO NOTHING`,
-      [req.user.id, rewardDate, coinsEarned, streakMultiplier]
-    );
 
     res.json({
       ok: true,
       streak: currentStreak,
       coins_earned: coinsEarned,
       badges_earned: badgesEarned,
+      speed_bonus_applied: speedBonusApplied,
+      final_score: finalScore,
+      rank,
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -3463,20 +3490,22 @@ async function seedDailyChallenge() {
   const today = new Date().toISOString().slice(0, 10);
   const target = dailyTarget(new Date());
 
-  // Seed daily challenge progress for staging demo users
+  // Seed daily challenge progress for staging demo users (score-ranked)
   const progressRows = [
-    { user_id: -1, username: 'Staging demo Alice', blocks_placed: 58, completed_at: new Date(Date.now() - 15 * 60 * 1000).toISOString() },
-    { user_id: -2, username: 'Staging demo Bob', blocks_placed: 45, completed_at: new Date(Date.now() - 45 * 60 * 1000).toISOString() },
-    { user_id: -3, username: 'Staging demo Charlie', blocks_placed: 42, completed_at: new Date(Date.now() - 75 * 60 * 1000).toISOString() },
-    { user_id: -4, username: 'Staging demo Diana', blocks_placed: 35, completed_at: null },
+    { user_id: -1, username: 'Staging demo Alice',   blocks_placed: 58, score: 1240, completed_at: new Date(Date.now() - 15 * 60 * 1000).toISOString(), speed_bonus: true },
+    { user_id: -2, username: 'Staging demo Bob',     blocks_placed: 52, score: 980,  completed_at: new Date(Date.now() - 35 * 60 * 1000).toISOString(), speed_bonus: false },
+    { user_id: -3, username: 'Staging demo Charlie', blocks_placed: 48, score: 740,  completed_at: new Date(Date.now() - 65 * 60 * 1000).toISOString(), speed_bonus: false },
+    { user_id: -4, username: 'Staging demo Diana',   blocks_placed: 41, score: 510,  completed_at: null, speed_bonus: false },
+    { user_id: -5, username: 'Staging demo Eli',     blocks_placed: 24, score: 290,  completed_at: null, speed_bonus: false },
+    { user_id: -6, username: 'Staging demo Faye',    blocks_placed: 12, score: 150,  completed_at: null, speed_bonus: false },
   ];
 
   for (const row of progressRows) {
     await pool.query(
-      `INSERT INTO daily_challenge_progress (challenge_date, user_id, username, blocks_placed, completed_at)
-       VALUES ($1, $2, $3, $4, $5)
+      `INSERT INTO daily_challenge_progress (challenge_date, user_id, username, blocks_placed, completed_at, score, speed_bonus_applied)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
        ON CONFLICT (challenge_date, user_id) DO NOTHING`,
-      [today, row.user_id, row.username, row.blocks_placed, row.completed_at]
+      [today, row.user_id, row.username, row.blocks_placed, row.completed_at, row.score, row.speed_bonus]
     );
   }
 
@@ -3519,6 +3548,45 @@ function generatePuzzleBlocks(levelNumber) {
     blocks.push({ x, y, z, t });
   }
 
+  return blocks;
+}
+
+// Generate a deterministic daily board seeded by the UTC date string.
+// Uses an LCG matching the puzzle level generator's approach.
+// Result is cached in dailyBoardCache and reused for the whole UTC day.
+function generateDailyBoard(dateStr) {
+  if (dailyBoardCache.date === dateStr) return dailyBoardCache.blocks;
+
+  let rng = parseInt(dateStr.replace(/-/g, ''), 10);
+  function nextRandom() {
+    rng = ((rng * 1664525 + 1013904223) >>> 0);
+    return rng / 0xFFFFFFFF;
+  }
+
+  // Weighted block type pool: 50% basic, 30% colored, 15% premium-low, 5% premium-high
+  const pool = [
+    ...Array(15).fill([1, 2, 3, 4, 5, 6]).flat(),
+    ...Array(9).fill([9, 10, 11, 12]).flat(),
+    ...Array(5).fill([7, 13, 19, 21, 22, 23, 24]).flat(),
+    ...Array(1).fill([14, 15, 16, 17, 20]).flat(),
+  ];
+
+  const occupied = new Set();
+  const blocks = [];
+  let attempts = 0;
+  while (blocks.length < 300 && attempts < 1500) {
+    attempts++;
+    const x = Math.floor(nextRandom() * DIMS.w);
+    const z = Math.floor(nextRandom() * DIMS.d);
+    const y = 1 + Math.floor(nextRandom() * 8);
+    const k = `${x},${y},${z}`;
+    if (occupied.has(k)) continue;
+    const block_type = pool[Math.floor(nextRandom() * pool.length)];
+    occupied.add(k);
+    blocks.push({ x, y, z, block_type });
+  }
+
+  dailyBoardCache = { date: dateStr, blocks };
   return blocks;
 }
 
@@ -3844,10 +3912,19 @@ async function start() {
       PRIMARY KEY (challenge_date, user_id)
     )
   `);
-  // Index for future leaderboard queries (challenge_date + ranked by blocks_placed).
+  // Migrations: add score and speed_bonus_applied columns to daily_challenge_progress.
   await pool.query(`
-    CREATE INDEX IF NOT EXISTS daily_challenge_progress_date_placed_idx
-    ON daily_challenge_progress (challenge_date, blocks_placed DESC)
+    ALTER TABLE daily_challenge_progress
+      ADD COLUMN IF NOT EXISTS score INTEGER NOT NULL DEFAULT 0
+  `);
+  await pool.query(`
+    ALTER TABLE daily_challenge_progress
+      ADD COLUMN IF NOT EXISTS speed_bonus_applied BOOLEAN NOT NULL DEFAULT FALSE
+  `);
+  // Index for score-ranked leaderboard queries.
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS daily_challenge_progress_date_score_idx
+    ON daily_challenge_progress (challenge_date, score DESC)
   `);
 
   // Daily challenge streaks: tracks consecutive days of challenge completion.
