@@ -66,6 +66,68 @@ const BLOCK_POINTS = {
 // Sentinel "user" id for staging seed rows so they never reference a real user.
 const SEED_USER_ID = 0;
 
+// ---- Mob / creature system ----
+const MOB_DEFS = {
+  slime:   { maxHp: 3, moveIntervalMs: 2500, groundMob: true  },
+  zombie:  { maxHp: 4, moveIntervalMs: 1800, groundMob: true  },
+  phantom: { maxHp: 2, moveIntervalMs: 1200, groundMob: false },
+};
+const MOB_SPAWN_CAPS = { slime: 3, zombie: 2, phantom: 2 };
+
+let mobIdCounter = 1;
+const mobs = new Map(); // id -> mob object
+
+function pickMobSpawnPos(groundMob) {
+  // Avoid staging seed build footprint (hut x13-19, z13-19).
+  let x, z;
+  for (let i = 0; i < 20; i++) {
+    x = 2 + Math.floor(Math.random() * (DIMS.w - 4));
+    z = 2 + Math.floor(Math.random() * (DIMS.d - 4));
+    if (x < 13 || x > 19 || z < 13 || z > 19) break;
+  }
+  return { x, y: groundMob ? 1 : 8, z };
+}
+
+function spawnMob(type) {
+  const def = MOB_DEFS[type];
+  const { x, y, z } = pickMobSpawnPos(def.groundMob);
+  const id = mobIdCounter++;
+  mobs.set(id, {
+    id, type, x, y, z,
+    hp: def.maxHp, maxHp: def.maxHp,
+    dead: false, diedAt: null,
+    nextMoveAt: Date.now() + Math.floor(Math.random() * def.moveIntervalMs),
+    phase: Math.random() * Math.PI * 2,
+  });
+}
+
+function tickMobs() {
+  const now = Date.now();
+  for (const [, mob] of mobs) {
+    if (mob.dead) {
+      if (now - mob.diedAt >= 30_000) {
+        const { x, y, z } = pickMobSpawnPos(MOB_DEFS[mob.type].groundMob);
+        Object.assign(mob, { x, y, z, hp: mob.maxHp, dead: false, diedAt: null,
+          nextMoveAt: now + MOB_DEFS[mob.type].moveIntervalMs });
+      }
+    } else if (now >= mob.nextMoveAt) {
+      const def = MOB_DEFS[mob.type];
+      const dirs = [{ dx: 1, dz: 0 }, { dx: -1, dz: 0 }, { dx: 0, dz: 1 }, { dx: 0, dz: -1 }];
+      const { dx, dz } = dirs[Math.floor(Math.random() * 4)];
+      mob.x = Math.max(1, Math.min(DIMS.w - 2, mob.x + dx));
+      mob.z = Math.max(1, Math.min(DIMS.d - 2, mob.z + dz));
+      mob.nextMoveAt = now + def.moveIntervalMs + Math.floor(Math.random() * 500);
+    }
+  }
+}
+
+function initMobs() {
+  for (const [type, cap] of Object.entries(MOB_SPAWN_CAPS)) {
+    for (let i = 0; i < cap; i++) spawnMob(type);
+  }
+  setInterval(tickMobs, 500);
+}
+
 // ---- Natural Disasters ----
 const DISASTER_MIN_SECS = 180; // 3 minutes minimum between disasters
 const DISASTER_MAX_SECS = 480; // 8 minutes maximum
@@ -2208,6 +2270,28 @@ app.delete('/api/friends/:id', async (req, res) => {
   }
 });
 
+// ---- Mobs: list all alive mobs ----
+app.get('/api/mobs', (_req, res) => {
+  const result = [];
+  for (const [, mob] of mobs) {
+    if (!mob.dead) {
+      result.push({ id: mob.id, type: mob.type, x: mob.x, y: mob.y, z: mob.z,
+        hp: mob.hp, maxHp: mob.maxHp, phase: mob.phase });
+    }
+  }
+  res.json({ mobs: result });
+});
+
+// ---- Mobs: deal 1 damage to a mob ----
+app.post('/api/mobs/:id/hit', (req, res) => {
+  const id = Number(req.params.id);
+  const mob = mobs.get(id);
+  if (!mob || mob.dead) return res.status(404).json({ error: 'mob not found or dead' });
+  mob.hp -= 1;
+  if (mob.hp <= 0) { mob.hp = 0; mob.dead = true; mob.diedAt = Date.now(); }
+  res.json({ ok: true, hp: mob.hp, dead: mob.dead });
+});
+
 // ---- AI Coach ----
 const CANNED_TIPS = {
   mode_start:         'Place 3 or more blocks within 10 seconds to activate a combo multiplier and earn bonus points.',
@@ -3675,6 +3759,7 @@ async function start() {
   }
 
   await ensurePowerUps();
+  initMobs();
 
   app.listen(port, () => console.log(`Listening on :${port}`));
 }

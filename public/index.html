@@ -733,6 +733,12 @@
        to clear the on-screen action cluster). Hidden until init() loads data. -->
   <div id="challenge-hud" class="hidden pointer-events-none fixed right-3 z-20 w-36 rounded-lg bg-black/55 px-2 py-1.5 text-xs text-white/90"></div>
 
+  <!-- Player HP HUD: shown in Classic mode only. -->
+  <div id="hp-hud" class="hidden pointer-events-none fixed bottom-24 left-4 z-20 rounded-lg bg-black/55 px-2 py-1.5 text-xs text-white/90 font-semibold whitespace-nowrap">&#10084; <span id="hp-value">10</span></div>
+
+  <!-- Damage vignette: brief red flash when the player takes mob damage. -->
+  <div id="damage-vignette" class="pointer-events-none fixed inset-0 z-[60]" style="background:rgba(239,68,68,0);transition:background 0.45s;"></div>
+
   <!-- Controls overlay: a help panel listing every key/mouse binding. Hidden
        by default; toggled by pressing `h` or clicking the "(?)" button. -->
   <div id="controls" class="hidden fixed top-28 right-3 z-30 w-full sm:w-72 max-w-[90vw] rounded-xl bg-black/70 backdrop-blur px-3 py-4 sm:p-4 text-base sm:text-sm text-zinc-200 shadow-xl">
@@ -1012,7 +1018,7 @@
 
     // Build identifier — bump this (to the deploying commit short SHA) on every
     // change so the top-right stamp confirms exactly which code is running.
-    const BUILD_VERSION = 'power-ups+hold-queue+achievements-badges+chat+daily-challenge+leaderboard+online-presence+block-attribution+audio-sfx+next-piece-preview+spectator-mode+weekly-tournament+friends+day-night-cycle+minimap+ai-coach+daily-theme-voting+natural-disasters+undo-redo-history+pastel-chrome';
+    const BUILD_VERSION = 'power-ups+hold-queue+achievements-badges+chat+daily-challenge+leaderboard+online-presence+block-attribution+audio-sfx+next-piece-preview+spectator-mode+weekly-tournament+friends+day-night-cycle+minimap+ai-coach+daily-theme-voting+natural-disasters+undo-redo-history+pastel-chrome+mobs';
 
     // Badge definitions — mirror of the server-side BADGES array, extended with
     // a `hint` field shown in the panel for unearned badges.
@@ -1749,6 +1755,16 @@
       if (sEl) sEl.textContent = label;
     }
 
+    // ---- Mob / creature state ----
+    const mobMap    = new Map();   // id -> { ...serverData, group: THREE.Group }
+    const mobMeshes = new Map();   // bodyMesh -> mob id (raycaster hit detection)
+    const MOB_ATTACK_RANGES = { zombie: 1.5, phantom: 2.5 };
+    const MOB_DAMAGE_RATES  = { zombie: 1,   phantom: 2   };
+    const PLAYER_MAX_HP = 10;
+    let playerHp           = PLAYER_MAX_HP;
+    let lastDamagedAt      = 0;   // ms; 2-second inter-hit immunity
+    let deathInvincibleUntil = 0; // ms; 5-second post-respawn invincibility
+
     // ---- Game mode state ----
     let gameMode = null;           // null | 'classic' | 'timeattack' | 'endless' | 'learn' | 'tutorial' | 'time-attack-60'
     const taBlocks = new Map();    // TA layout: client-only, never written to server
@@ -2035,6 +2051,11 @@
     }
     const powerupGroup = new THREE.Group();
     scene.add(powerupGroup);
+
+    // Mob group: all creature meshes; hidden until Classic mode is entered.
+    const mobGroup = new THREE.Group();
+    mobGroup.visible = false;
+    scene.add(mobGroup);
 
     // ---- Particle system ----
     const PARTICLE_POOL_SIZE = 150;
@@ -3238,6 +3259,14 @@
     }
 
     function breakBlock() {
+      // In Classic mode, check if the crosshair is aimed at a mob before a block.
+      if (playing && gameMode === 'classic' && mobMeshes.size > 0) {
+        const hits = raycaster.intersectObjects([...mobMeshes.keys()], false);
+        if (hits.length > 0 && hits[0].distance < 8) {
+          const mobId = mobMeshes.get(hits[0].object);
+          if (mobId !== undefined) { hitMob(mobId); return; }
+        }
+      }
       if (!target || paused) return;
       const { x, y, z } = target.cell;
       if (y < 1) return;
@@ -3382,6 +3411,173 @@
       undoStack.push(entry);
       sendEdit(entry.x, entry.y, entry.z, entry.to);
       renderHistoryPanel();
+    }
+
+    // ---- Mob / creature rendering ----
+
+    function _makeMobLabelTexture(label) {
+      const c = document.createElement('canvas');
+      c.width = 128; c.height = 32;
+      const ctx2d = c.getContext('2d');
+      ctx2d.fillStyle = 'rgba(0,0,0,0.6)';
+      ctx2d.fillRect(0, 0, 128, 32);
+      ctx2d.fillStyle = '#ffffff';
+      ctx2d.font = 'bold 14px sans-serif';
+      ctx2d.textAlign = 'center';
+      ctx2d.textBaseline = 'middle';
+      ctx2d.fillText(label, 64, 16);
+      return new THREE.CanvasTexture(c);
+    }
+    const MOB_LABEL_TEX = {
+      slime:   _makeMobLabelTexture('Slime'),
+      zombie:  _makeMobLabelTexture('Zombie'),
+      phantom: _makeMobLabelTexture('Phantom'),
+    };
+    const MOB_COLORS     = { slime: '#6fcf3a', zombie: '#4a7c59', phantom: '#7c3aed' };
+    const MOB_PART_TYPES = { slime: 5, zombie: 3, phantom: 10 }; // palette ids for hit particles
+
+    function _createMobGroup(mob) {
+      const g = new THREE.Group();
+      let bGeom;
+      if (mob.type === 'slime')       bGeom = new THREE.BoxGeometry(0.7, 0.7, 0.7);
+      else if (mob.type === 'zombie') bGeom = new THREE.BoxGeometry(0.6, 1.2, 0.6);
+      else                            bGeom = new THREE.BoxGeometry(0.8, 0.3, 0.8);
+      const bMesh = new THREE.Mesh(bGeom,
+        new THREE.MeshLambertMaterial({ color: MOB_COLORS[mob.type] || '#888888' }));
+      g.add(bMesh);
+      mobMeshes.set(bMesh, mob.id);
+
+      const hpBg = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.07, 0.07),
+        new THREE.MeshBasicMaterial({ color: '#444444' }));
+      hpBg.position.y = 1.1;
+      g.add(hpBg);
+
+      const hpFill = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.07, 0.07),
+        new THREE.MeshBasicMaterial({ color: '#22c55e' }));
+      hpFill.position.y = 1.1;
+      g.add(hpFill);
+
+      const labelSprite = new THREE.Sprite(
+        new THREE.SpriteMaterial({ map: MOB_LABEL_TEX[mob.type], transparent: true, depthWrite: false })
+      );
+      labelSprite.scale.set(1.2, 0.3, 1);
+      labelSprite.position.y = 1.45;
+      g.add(labelSprite);
+
+      g.userData.mobId    = mob.id;
+      g.userData.bodyMesh = bMesh;
+      g.userData.hpFill   = hpFill;
+      g.userData.phase    = mob.phase || 0;
+
+      _updateMobHpBar(g, mob.hp, mob.maxHp);
+      return g;
+    }
+
+    function _updateMobHpBar(g, hp, maxHp) {
+      const fill = g.userData.hpFill;
+      if (!fill) return;
+      const frac = Math.max(0, Math.min(1, hp / maxHp));
+      fill.scale.x = Math.max(0.001, frac);
+      fill.position.x = (frac - 1) * 0.4;
+      fill.material.color.set(frac > 0.5 ? '#22c55e' : frac > 0.25 ? '#f59e0b' : '#ef4444');
+    }
+
+    // ---- Player HP helpers ----
+    const hpHudEl          = document.getElementById('hp-hud');
+    const hpValueEl        = document.getElementById('hp-value');
+    const damageVignetteEl = document.getElementById('damage-vignette');
+
+    function updateHpHud() {
+      if (hpValueEl) hpValueEl.textContent = String(Math.max(0, playerHp));
+    }
+
+    function flashDamage(strong) {
+      if (!damageVignetteEl) return;
+      damageVignetteEl.style.transition = 'none';
+      damageVignetteEl.style.background = strong
+        ? 'rgba(239,68,68,0.7)' : 'rgba(239,68,68,0.38)';
+      requestAnimationFrame(() => {
+        damageVignetteEl.style.transition = strong ? 'background 1s' : 'background 0.45s';
+        damageVignetteEl.style.background = 'rgba(239,68,68,0)';
+      });
+    }
+
+    function playerDie(now) {
+      flashDamage(true);
+      spawnCamera();
+      playerHp = PLAYER_MAX_HP;
+      deathInvincibleUntil = now + 5000;
+      updateHpHud();
+    }
+
+    // ---- Mob world sync ----
+    async function pollMobs() {
+      if (document.hidden) return;
+      try {
+        const res = await fetch('/api/mobs', { headers });
+        if (!res.ok) return;
+        const { mobs: serverMobs } = await res.json();
+        const serverIds = new Set(serverMobs.map((m) => m.id));
+
+        for (const [id, entry] of mobMap) {
+          if (!serverIds.has(id)) {
+            if (entry.group) {
+              emitBlockBreak(entry.group.position.x, entry.group.position.y,
+                entry.group.position.z, MOB_PART_TYPES[entry.type] || 3);
+              mobMeshes.delete(entry.group.userData.bodyMesh);
+              mobGroup.remove(entry.group);
+            }
+            mobMap.delete(id);
+          }
+        }
+
+        for (const m of serverMobs) {
+          if (!mobMap.has(m.id)) {
+            const g = _createMobGroup(m);
+            mobGroup.add(g);
+            mobMap.set(m.id, { ...m, group: g });
+          } else {
+            const entry = mobMap.get(m.id);
+            const prevHp = entry.hp;
+            Object.assign(entry, m);
+            if (entry.hp !== prevHp && entry.group) _updateMobHpBar(entry.group, entry.hp, entry.maxHp);
+          }
+        }
+      } catch (_) { /* transient */ }
+    }
+
+    async function hitMob(id) {
+      const entry = mobMap.get(id);
+      if (!entry || !entry.group) return;
+      entry.hp = Math.max(0, entry.hp - 1);
+      _updateMobHpBar(entry.group, entry.hp, entry.maxHp);
+      emitBlockBreak(entry.group.position.x, entry.group.position.y,
+        entry.group.position.z, MOB_PART_TYPES[entry.type] || 3);
+      if (entry.hp <= 0) {
+        mobMeshes.delete(entry.group.userData.bodyMesh);
+        mobGroup.remove(entry.group);
+        mobMap.delete(id);
+      }
+      try {
+        const res = await fetch('/api/mobs/' + id + '/hit', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...headers },
+        });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (data.dead) {
+          const e = mobMap.get(id);
+          if (e && e.group) {
+            mobMeshes.delete(e.group.userData.bodyMesh);
+            mobGroup.remove(e.group);
+          }
+          mobMap.delete(id);
+        } else if (mobMap.has(id)) {
+          const e = mobMap.get(id);
+          e.hp = data.hp;
+          if (e.group) _updateMobHpBar(e.group, data.hp, e.maxHp);
+        }
+      } catch (_) { /* transient; next poll will sync */ }
     }
 
     // ---- Pointer-lock fly camera ----
@@ -3997,6 +4193,9 @@
         coachBtnEl.classList.remove('hidden');
         document.getElementById('undo-redo-hud').classList.remove('hidden');
         setTimeout(() => fetchCoachTip('mode_start'), 3000);
+        hpHudEl.classList.remove('hidden');
+        updateHpHud();
+        mobGroup.visible = true;
       } else if (gameMode === 'spectate') {
         if (!pollHandle) pollHandle = setInterval(poll, 1500);
         document.getElementById('palette').classList.add('hidden');
@@ -4133,6 +4332,10 @@
       hideComboHud();
       hideScoreHud();
 
+      hpHudEl.classList.add('hidden');
+      playerHp = PLAYER_MAX_HP;
+      deathInvincibleUntil = 0;
+      mobGroup.visible = false;
       hideMinimap();
       // Dismiss any active coach tip and restore coach button.
       coachBubbleEl.classList.add('hidden');
@@ -6471,6 +6674,42 @@
         }
       }
 
+      // Animate mob meshes (position + per-type motion).
+      for (const [, entry] of mobMap) {
+        const g = entry.group;
+        if (!g) continue;
+        const ph = g.userData.phase;
+        if (entry.type === 'slime') {
+          g.position.set(entry.x + 0.5, 1.35 + 0.5 * Math.abs(Math.sin(now * 0.003 + ph)), entry.z + 0.5);
+        } else if (entry.type === 'zombie') {
+          g.position.set(entry.x + 0.5, 1.6, entry.z + 0.5);
+          g.userData.bodyMesh.rotation.z = 0.1 * Math.sin(now * 0.002 + ph);
+        } else {
+          g.position.set(entry.x + 0.5, entry.y + 2 * Math.sin(now * 0.0015 + ph), entry.z + 0.5);
+        }
+      }
+
+      // Hostile mob damage (Classic mode; 2-second inter-hit immunity).
+      if (gameMode === 'classic' && playing && now > deathInvincibleUntil) {
+        for (const [, entry] of mobMap) {
+          const range = MOB_ATTACK_RANGES[entry.type];
+          if (!range) continue;
+          const gx = entry.group ? entry.group.position.x : entry.x + 0.5;
+          const gy = entry.group ? entry.group.position.y : entry.y;
+          const gz = entry.group ? entry.group.position.z : entry.z + 0.5;
+          const dx = camera.position.x - gx;
+          const dy = camera.position.y - gy;
+          const dz = camera.position.z - gz;
+          if (Math.sqrt(dx * dx + dy * dy + dz * dz) < range && now > lastDamagedAt + 2000) {
+            playerHp = Math.max(0, playerHp - MOB_DAMAGE_RATES[entry.type]);
+            lastDamagedAt = now;
+            flashDamage(false);
+            updateHpHud();
+            if (playerHp <= 0) { playerDie(now); break; }
+          }
+        }
+      }
+
       tickParticles(dt);
       updateTarget();
       updateAttribution();
@@ -6560,6 +6799,8 @@
       setInterval(pollPresence, 15000);
       pollPowerUps();
       setInterval(pollPowerUps, 1500);
+      pollMobs();
+      setInterval(pollMobs, 2000);
       // Re-fetch challenge every 30s to catch midnight UTC rollover and
       // progress made in other tabs.
       setInterval(async () => {
