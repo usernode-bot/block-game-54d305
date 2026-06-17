@@ -608,6 +608,85 @@ app.get('/api/leaderboard', async (req, res) => {
   }
 });
 
+// ---- Time Attack: submit a completed run ----
+// Body: { cleared, difficulty }. Keeps only the best run per user — the
+// upsert overwrites the stored row only when this run beats best_cleared.
+app.post('/api/ta-score', async (req, res) => {
+  try {
+    const cleared = Number(req.body.cleared);
+    const difficulty = Number(req.body.difficulty);
+    if (!Number.isInteger(cleared) || cleared < 0) {
+      return res.status(400).json({ error: 'cleared must be a non-negative integer' });
+    }
+    if (!Number.isInteger(difficulty) || difficulty < 1 || difficulty > 5) {
+      return res.status(400).json({ error: 'difficulty must be 1-5' });
+    }
+    // Upsert: only improve the stored best. RETURNING tells us the row that
+    // now stands; is_new_best is whether this run produced it.
+    const { rows } = await pool.query(
+      `INSERT INTO ta_scores (user_id, username, best_cleared, best_difficulty, updated_at)
+       VALUES ($1, $2, $3, $4, NOW())
+       ON CONFLICT (user_id) DO UPDATE
+         SET best_cleared = EXCLUDED.best_cleared,
+             best_difficulty = EXCLUDED.best_difficulty,
+             username = EXCLUDED.username,
+             updated_at = NOW()
+       WHERE EXCLUDED.best_cleared > ta_scores.best_cleared
+       RETURNING best_cleared`,
+      [req.user.id, req.user.username, cleared, difficulty]
+    );
+    let best_cleared, is_new_best;
+    if (rows.length) {
+      // Either the first insert or a genuine improvement applied.
+      best_cleared = Number(rows[0].best_cleared);
+      is_new_best = true;
+    } else {
+      // Conflict where the WHERE guard blocked the update — fetch standing best.
+      const cur = await pool.query(
+        `SELECT best_cleared FROM ta_scores WHERE user_id = $1`, [req.user.id]
+      );
+      best_cleared = cur.rows.length ? Number(cur.rows[0].best_cleared) : cleared;
+      is_new_best = false;
+    }
+    res.json({ ok: true, best_cleared, is_new_best });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- Time Attack leaderboard: top 10 by best run + caller's own best ----
+app.get('/api/ta-leaderboard', async (req, res) => {
+  try {
+    const topRes = await pool.query(
+      `SELECT rank() OVER (ORDER BY best_cleared DESC) AS rank,
+              user_id, username, best_cleared, best_difficulty
+       FROM ta_scores
+       ORDER BY best_cleared DESC
+       LIMIT 10`
+    );
+    const selfRes = await pool.query(
+      `SELECT rank() OVER (ORDER BY best_cleared DESC) AS rank,
+              user_id, username, best_cleared, best_difficulty
+       FROM ta_scores
+       WHERE user_id = $1`,
+      [req.user.id]
+    );
+    const toRow = (r) => ({
+      rank: Number(r.rank),
+      user_id: r.user_id,
+      username: r.username,
+      best_cleared: Number(r.best_cleared),
+      best_difficulty: Number(r.best_difficulty),
+    });
+    res.json({
+      entries: topRes.rows.map(toRow),
+      self: selfRes.rows.length ? toRow(selfRes.rows[0]) : null,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ---- Badges: current player's earned badges ----
 app.get('/api/badges', async (req, res) => {
   try {
@@ -1352,6 +1431,28 @@ async function seedTournament() {
   }
 }
 
+// Seed the Time Attack leaderboard with five obviously-fake builders so a
+// fresh staging DB (where ta_scores is created empty) shows a populated tab.
+// Negative user IDs never collide with real users; ON CONFLICT keeps it
+// idempotent across reboots.
+async function seedTaScores() {
+  const seeds = [
+    { userId: -1, username: 'Staging demo Alice',   cleared: 142, difficulty: 5 },
+    { userId: -2, username: 'Staging demo Bob',     cleared: 98,  difficulty: 4 },
+    { userId: -3, username: 'Staging demo Charlie', cleared: 61,  difficulty: 3 },
+    { userId: -4, username: 'Staging demo Dana',    cleared: 33,  difficulty: 2 },
+    { userId: -5, username: 'Staging demo Eli',     cleared: 12,  difficulty: 1 },
+  ];
+  for (const s of seeds) {
+    await pool.query(
+      `INSERT INTO ta_scores (user_id, username, best_cleared, best_difficulty, updated_at)
+       VALUES ($1, $2, $3, $4, NOW())
+       ON CONFLICT (user_id) DO NOTHING`,
+      [s.userId, s.username, s.cleared, s.difficulty]
+    );
+  }
+}
+
 async function seedStreaks() {
   // Negative user IDs so they never collide with real platform user IDs (positive integers).
   const rows = [
@@ -1521,6 +1622,20 @@ async function start() {
     )
   `);
 
+  // Time Attack high scores: one row per user holding their best single-run
+  // block count and the difficulty (1-5) it was achieved at. Public table —
+  // it holds only a username and a block count, nothing a stranger seeing
+  // every row could misuse. No foreign keys.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS ta_scores (
+      user_id         INTEGER PRIMARY KEY,
+      username        VARCHAR(255) NOT NULL,
+      best_cleared    INTEGER NOT NULL DEFAULT 0,
+      best_difficulty SMALLINT NOT NULL DEFAULT 1,
+      updated_at      TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+
   // Tracks which block types each player has ever placed. The blocks table
   // records only the current placer of each cell, so overwrites erase
   // history — this table preserves the full per-player type inventory.
@@ -1685,6 +1800,8 @@ async function start() {
     catch (err) { console.error('leaderboard seed failed', err); }
     try { await seedTournament(); }
     catch (err) { console.error('tournament seed failed', err); }
+    try { await seedTaScores(); }
+    catch (err) { console.error('ta-scores seed failed', err); }
     try { await seedStreaks(); }
     catch (err) { console.error('streak seed failed', err); }
     // Staging spectators are now surfaced via the STAGING_DEMO_USERS constant
