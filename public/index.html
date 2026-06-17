@@ -2,7 +2,7 @@
 <html lang="en" class="dark" id="html-root">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 
   <script>
   // usernode-dev-console@1
@@ -70,6 +70,7 @@
   <script type="importmap">
   { "imports": { "three": "https://unpkg.com/three@0.160.0/build/three.module.js" } }
   </script>
+  <script src="https://social-vibecoding.usernodelabs.org/usernode-bridge/v1/bridge.js"></script>
   <style>
     html, body { margin: 0; height: 100%; overflow: hidden; overscroll-behavior: none; }
     #scene { position: fixed; inset: 0; display: block; }
@@ -91,8 +92,10 @@
     }
 
     /* Touch overlay hygiene: never let look-drags scroll/zoom the page or let
-       button presses select text. */
+       button presses select text. Also prevent stray two-finger gestures outside
+       the canvas from triggering browser pan/pinch. */
     #scene { touch-action: none; }
+    #rotor { touch-action: none; }
     .touch-ctrl {
       touch-action: none;
       user-select: none;
@@ -107,6 +110,41 @@
 
     /* Hold panel swatch transition for locked/unlocked state */
     #hold-swatch { transition: opacity 0.2s; }
+
+    /* Safe-area insets for notched/home-indicator devices.
+       env() values fall back to 0px on devices without cutouts, so these
+       rules are universally safe and have no visual effect on non-notched
+       devices. viewport-fit=cover (in the meta tag) enables these values. */
+    :root {
+      --sai-bottom: env(safe-area-inset-bottom);
+    }
+
+    /* Top-right icon button cluster — override Tailwind top/right positions to
+       add the physical safe-area offset. Specificity (ID > class) wins cleanly. */
+    #help-btn       { top: calc(0.75rem + env(safe-area-inset-top));  right: calc(0.75rem + env(safe-area-inset-right)); }
+    #mute-btn       { top: calc(0.75rem + env(safe-area-inset-top));  right: calc(3.5rem  + env(safe-area-inset-right)); }
+    #turntable-btn  { top: calc(0.75rem + env(safe-area-inset-top));  right: calc(6rem    + env(safe-area-inset-right)); }
+    #badges-btn     { top: calc(0.75rem + env(safe-area-inset-top));  right: calc(6.25rem + env(safe-area-inset-right)); }
+    #leaderboard-btn{ top: calc(3.5rem  + env(safe-area-inset-top));  right: calc(0.75rem + env(safe-area-inset-right)); }
+    #friends-btn    { top: calc(6.25rem + env(safe-area-inset-top));  right: calc(0.75rem + env(safe-area-inset-right)); }
+    #build-stamp    { top: calc(9rem    + env(safe-area-inset-top));  right: calc(0.75rem + env(safe-area-inset-right)); }
+
+    /* Right-edge HUD pills — bottom is computed by JS (which reads --sai-bottom). */
+    #challenge-hud  { right: calc(0.75rem + env(safe-area-inset-right)); }
+    #streak-hud     { right: calc(0.75rem + env(safe-area-inset-right)); }
+    #chat-toggle    { right: calc(0.75rem + env(safe-area-inset-right)); }
+
+    /* Bottom/left/right-edge game HUD elements */
+    #palette        { bottom: calc(1rem + env(safe-area-inset-bottom)); }
+    #hold-panel     { bottom: calc(1rem + env(safe-area-inset-bottom)); left: calc(1rem + env(safe-area-inset-left)); }
+    #powerup-hud    { bottom: calc(6rem + env(safe-area-inset-bottom)); right: calc(1rem + env(safe-area-inset-right)); }
+    #ta-hud         { top:  calc(0.75rem + env(safe-area-inset-top));  left: calc(0.75rem + env(safe-area-inset-left)); }
+    #combo-hud      { top:  calc(0.75rem + env(safe-area-inset-top));  left: calc(0.75rem + env(safe-area-inset-left)); }
+
+    /* Touch control groups inside #touch-controls */
+    #tc-menu    { top:    calc(0.75rem + env(safe-area-inset-top));    left:   calc(0.75rem + env(safe-area-inset-left)); }
+    #tc-movepad { left:   calc(1rem    + env(safe-area-inset-left));   bottom: calc(1rem    + env(safe-area-inset-bottom)); }
+    #tc-actions { right:  calc(1rem    + env(safe-area-inset-right));  bottom: calc(1rem    + env(safe-area-inset-bottom)); }
 
     /* Touch layout: raise palette above on-screen controls and add horizontal
        scroll so all block types are reachable without overlapping buttons. */
@@ -132,6 +170,75 @@
     .touch-device #hold-panel { display: none; }
 
     #bg-canvas { position: fixed; inset: 0; pointer-events: none; }
+
+    /* ---- Accessibility: Higher contrast ----
+       Scoped to `.a11y-hc` on <html>; a no-op when the class is absent so
+       the default look is untouched. Bumps translucent HUD/menu surfaces
+       toward near-opaque, lifts dim text toward white, and adds visible
+       borders on interactive chrome. In-world (Three.js) contrast is handled
+       separately in JS via hcColor(). */
+    html.a11y-hc #overlay { background: rgba(0,0,0,0.85) !important; }
+    html.a11y-hc #controls,
+    html.a11y-hc #leaderboard,
+    html.a11y-hc #friends-panel,
+    html.a11y-hc #badges-panel,
+    html.a11y-hc #accessibility-panel,
+    html.a11y-hc #ta-gameover > div {
+      background-color: rgba(0,0,0,0.92) !important;
+      border: 1px solid rgba(255,255,255,0.55);
+    }
+    html.a11y-hc #palette,
+    html.a11y-hc #ta-hud > div,
+    html.a11y-hc #attribution,
+    html.a11y-hc #challenge-hud,
+    html.a11y-hc #streak-hud,
+    html.a11y-hc #hint,
+    html.a11y-hc #hint-fallback,
+    html.a11y-hc #powerup-hud > div,
+    html.a11y-hc #coach-bubble > div {
+      background-color: rgba(0,0,0,0.9) !important;
+    }
+    html.a11y-hc #palette { border: 1px solid rgba(255,255,255,0.45); }
+    /* Lift the dim zinc text utilities used across panels/HUD toward white. */
+    html.a11y-hc .text-zinc-300,
+    html.a11y-hc .text-zinc-400,
+    html.a11y-hc .text-zinc-500,
+    html.a11y-hc .text-white\/90,
+    html.a11y-hc .text-zinc-300\/90,
+    html.a11y-hc .text-zinc-300\/70 { color: #f4f4f5 !important; }
+    /* Sharper borders/focus on inputs and circular chrome buttons. */
+    html.a11y-hc #chat-input,
+    html.a11y-hc #friends-input { border-color: #fff !important; }
+    html.a11y-hc #help-btn,
+    html.a11y-hc #leaderboard-btn,
+    html.a11y-hc #friends-btn,
+    html.a11y-hc #coach-btn,
+    html.a11y-hc #accessibility-btn,
+    html.a11y-hc #badges-btn,
+    html.a11y-hc #mute-btn,
+    html.a11y-hc #turntable-btn,
+    html.a11y-hc #chat-toggle {
+      background-color: rgba(0,0,0,0.85) !important;
+      outline: 1px solid rgba(255,255,255,0.6);
+    }
+    /* Bolder crosshair reticle. */
+    html.a11y-hc #crosshair span {
+      background-color: #fff !important;
+      box-shadow: 0 0 0 1px rgba(0,0,0,0.9);
+    }
+
+    /* Accessibility toggle switch (used in the panel). */
+    .a11y-toggle {
+      position: relative; width: 44px; height: 24px; border-radius: 9999px;
+      background: #3f3f46; transition: background 0.15s; flex: none; cursor: pointer;
+    }
+    .a11y-toggle[aria-checked="true"] { background: #7c3aed; }
+    .a11y-toggle::after {
+      content: ''; position: absolute; top: 2px; left: 2px;
+      width: 20px; height: 20px; border-radius: 9999px; background: #fff;
+      transition: transform 0.15s;
+    }
+    .a11y-toggle[aria-checked="true"]::after { transform: translateX(20px); }
 
     /* Undo/redo buttons: disabled state */
     #undo-btn:disabled, #redo-btn:disabled,
@@ -260,62 +367,65 @@
     }
 
     #overlay h1 {
-      /* Softened to a pastel periwinkle to match the muted chrome palette. */
-      color: #8e9be0;
-      text-shadow: 0 0 18px rgba(142, 155, 224, 0.45), 0 0 36px rgba(142, 155, 224, 0.25);
+      /* Bright light title with an indigo accent glow on the dark scrim. */
+      color: #eef0ff;
+      text-shadow: 0 0 18px rgba(129, 140, 248, 0.55), 0 0 38px rgba(99, 102, 241, 0.32);
     }
 
     /* ===================================================================
-       Pastel chrome theme
+       Modern dark chrome theme
        -------------------------------------------------------------------
        Re-skins ONLY the menu / HUD chrome (panels, pills, buttons, score &
-       info overlays, menu backgrounds and borders) to soft, low-saturation
-       pastel tones. The 3D world and block/palette colors live in the
-       <canvas> + inline-styled swatches and are untouched by these rules.
+       info overlays, menu backgrounds and borders) to a clean, modern dark
+       look: dark neutral surfaces, high-contrast light text, and a SINGLE
+       indigo accent for every interactive / highlighted element. The 3D
+       world and block/palette colors live in the <canvas> + inline-styled
+       swatches and are deliberately untouched by these rules.
        All DOM text in this app is chrome, so re-mapping the neutral Tailwind
-       utility classes here is safe and keeps text readable (deep muted-ink
-       text on light pastel surfaces).
+       utility classes here is safe and keeps text readable (light text on
+       dark surfaces, white ink on the indigo accent).
        =================================================================== */
     :root {
-      /* Light pastel surfaces */
-      --pastel-panel: 246, 243, 251;   /* floating panels (opaque-ish)   */
-      --pastel-pill:  247, 244, 252;   /* small HUD pills (translucent)  */
-      --pastel-soft:  226, 221, 240;   /* inputs / secondary buttons     */
-      --pastel-scrim: 52, 47, 70;      /* full-screen modal scrim        */
-      /* Deep muted-ink text ramp (was the zinc/white ramp) */
-      --ink-1: #342940;
-      --ink-2: #4d4661;
-      --ink-3: #5e5773;
-      --ink-4: #756d88;
-      --ink-5: #8c849b;
-      --ink-6: #9c94a9;
-      /* Pastel border */
-      --pastel-border: rgba(120, 108, 150, 0.28);
-      /* Pastel accents: base / hover / active / readable ink-on-accent */
-      --acc-violet: #b8a8e8;  --acc-violet-h: #c7b9f1;  --acc-violet-a: #a89ae2;  --ink-violet: #392e5b;
-      --acc-amber:  #f5d499;  --acc-amber-h:  #fce5c3;  --acc-amber-a:  #ecc589;  --ink-amber:  #6a4d22;
-      --acc-teal:   #9ae8d9;  --acc-teal-h:   #b3f1e5;  --acc-teal-a:   #81e5d0;  --ink-teal:   #234d45;
-      --acc-rose:   #f0a8c5;  --acc-rose-h:   #f8bdd5;  --acc-rose-a:   #e89bb1;  --ink-rose:   #672c3b;
-      --acc-mint:   #a4e5c8;  --acc-mint-h:   #b5f0d8;  --acc-mint-a:   #95debc;  --ink-mint:   #224f37;
+      /* Dark neutral surfaces */
+      --surf-panel: 20, 22, 28;     /* floating panels (opaque-ish)   */
+      --surf-pill:  16, 18, 24;     /* small HUD pills (translucent)  */
+      --surf-soft:  41, 45, 56;     /* inputs / secondary buttons     */
+      --surf-soft-h: 54, 59, 72;    /* secondary button hover         */
+      --surf-scrim: 6, 8, 12;       /* full-screen modal scrim        */
+      /* High-contrast light text ramp */
+      --ink-1: #f6f7f9;
+      --ink-2: #e4e7ee;
+      --ink-3: #c6cad5;
+      --ink-4: #969cab;
+      --ink-5: #767d8d;
+      --ink-6: #616877;
+      /* Subtle light border on dark */
+      --dark-border: rgba(255, 255, 255, 0.12);
+      /* Single indigo accent: base / hover / active / ink-on-accent */
+      --acc:   #6366f1;
+      --acc-h: #818cf8;
+      --acc-a: #4f46e5;
+      --ink-acc: #ffffff;
     }
 
-    /* ---- Surfaces: floating panels (formerly dark translucent) ---- */
-    .bg-black\/70, .bg-black\/75, .bg-black\/80, .bg-black\/85,
-    .bg-zinc-900\/95, .bg-zinc-900\/80, .bg-zinc-900\/60 {
-      background-color: rgba(var(--pastel-panel), 0.95) !important;
+    /* ---- Surfaces: floating panels ---- */
+    .bg-black\/70, .bg-black\/75, .bg-black\/80, .bg-black\/85, .bg-black\/95,
+    .bg-zinc-900, .bg-zinc-950, .bg-zinc-900\/95, .bg-zinc-900\/80, .bg-zinc-900\/60 {
+      background-color: rgba(var(--surf-panel), 0.96) !important;
     }
-    /* ---- Surfaces: small HUD pills / round buttons ---- */
-    .bg-black\/40, .bg-black\/45, .bg-black\/50, .bg-black\/55 {
-      background-color: rgba(var(--pastel-pill), 0.82) !important;
+    /* ---- Surfaces: small HUD pills / round buttons (translucent) ---- */
+    .bg-black\/40, .bg-black\/45, .bg-black\/50, .bg-black\/55, .bg-black\/60,
+    .bg-zinc-800\/50 {
+      background-color: rgba(var(--surf-pill), 0.78) !important;
     }
     /* ---- Surfaces: secondary buttons, inputs, mode cards ---- */
     .bg-zinc-800, .bg-zinc-700, .bg-zinc-600, .bg-zinc-800\/80 {
-      background-color: rgb(var(--pastel-soft)) !important;
+      background-color: rgb(var(--surf-soft)) !important;
     }
-    /* ---- Full-screen modal scrims stay a soft, dimming plum ---- */
-    #overlay, #ta-gameover { background-color: rgba(var(--pastel-scrim), 0.55) !important; }
+    /* ---- Full-screen modal scrims: deep neutral dim ---- */
+    #overlay, #ta-gameover { background-color: rgba(var(--surf-scrim), 0.72) !important; }
 
-    /* ---- Text ramp: deep muted ink on the new light surfaces ---- */
+    /* ---- Text ramp: high-contrast light on dark surfaces ---- */
     .text-white, .text-zinc-100 { color: var(--ink-1) !important; }
     .text-white\/90, .text-zinc-200 { color: var(--ink-2) !important; }
     .text-zinc-300, .text-zinc-300\/90, .text-zinc-300\/70 { color: var(--ink-3) !important; }
@@ -325,65 +435,59 @@
 
     /* ---- Borders ---- */
     .border-zinc-700, .border-zinc-700\/80, .border-zinc-700\/60,
-    .border-zinc-700\/50, .border-zinc-800\/60, .border-zinc-600 {
-      border-color: var(--pastel-border) !important;
+    .border-zinc-700\/50, .border-zinc-800, .border-zinc-800\/60, .border-zinc-600 {
+      border-color: var(--dark-border) !important;
     }
 
-    /* ---- Accent buttons: pastel fill + readable dark ink ---- */
-    .bg-violet-600, .bg-violet-700, .bg-violet-700\/55, .bg-violet-500\/80 {
-      background-color: var(--acc-violet) !important; color: var(--ink-violet) !important;
+    /* ---- Accent: every interactive accent family collapses to one indigo ---- */
+    .bg-violet-500, .bg-violet-600, .bg-violet-700, .bg-violet-700\/55, .bg-violet-500\/80,
+    .bg-amber-400, .bg-amber-500, .bg-amber-600, .bg-amber-700, .bg-amber-600\/55, .bg-amber-400\/80,
+    .bg-teal-500, .bg-teal-600,
+    .bg-rose-500, .bg-rose-600, .bg-rose-600\/55, .bg-rose-500\/80,
+    .bg-emerald-500, .bg-emerald-600, .bg-emerald-600\/55, .bg-emerald-500\/80,
+    .bg-cyan-500, .bg-cyan-600,
+    .bg-blue-500, .bg-blue-600 {
+      background-color: var(--acc) !important; color: var(--ink-acc) !important;
     }
-    .bg-amber-600, .bg-amber-500, .bg-amber-600\/55, .bg-amber-400\/80 {
-      background-color: var(--acc-amber) !important; color: var(--ink-amber) !important;
-    }
-    .bg-teal-600 { background-color: var(--acc-teal) !important; color: var(--ink-teal) !important; }
-    .bg-rose-600\/55, .bg-rose-500\/80 {
-      background-color: var(--acc-rose) !important; color: var(--ink-rose) !important;
-    }
-    .bg-emerald-600\/55, .bg-emerald-500\/80 {
-      background-color: var(--acc-mint) !important; color: var(--ink-mint) !important;
-    }
-    /* Small notification dots / badges */
-    .bg-violet-500 { background-color: var(--acc-violet) !important; color: var(--ink-violet) !important; }
-    .bg-red-500 { background-color: #e6a2ae !important; }
 
-    /* ---- Accent text ---- */
-    .text-amber-400 { color: #c9882d !important; }
-    .text-violet-300 { color: #8870c5 !important; }
-    /* Status colors: darkened so they read on the light pastel panels */
-    .text-green-400 { color: #28b847 !important; }
-    .text-red-400 { color: #d84d5f !important; }
-    .bg-green-400 { background-color: #48d597 !important; }
+    /* ---- Accent text & status colors (kept distinct for meaning) ---- */
+    .text-amber-400 { color: #fbbf24 !important; }   /* gold score highlight */
+    .text-violet-300 { color: #a5b4fc !important; }  /* light accent text    */
+    .text-green-400 { color: #4ade80 !important; }
+    .text-red-400 { color: #f87171 !important; }
+    .bg-green-400 { background-color: #22c55e !important; }
+    .bg-red-500 { background-color: #ef4444 !important; }  /* notification dot */
 
     /* ---- Hover states (re-asserted so !important bases don't kill them) ---- */
     .hover\:bg-black\/70:hover, .hover\:bg-black\/85:hover {
-      background-color: rgba(var(--pastel-pill), 0.95) !important;
+      background-color: rgba(var(--surf-pill), 0.92) !important;
     }
     .hover\:bg-zinc-600:hover, .hover\:bg-zinc-800\/80:hover {
-      background-color: #d6cfe9 !important;
+      background-color: rgb(var(--surf-soft-h)) !important;
     }
-    .hover\:bg-violet-500:hover { background-color: var(--acc-violet-h) !important; }
-    .hover\:bg-amber-500:hover  { background-color: var(--acc-amber-h) !important; }
-    .hover\:bg-teal-500:hover   { background-color: var(--acc-teal-h) !important; }
+    .hover\:bg-violet-500:hover, .hover\:bg-amber-500:hover, .hover\:bg-teal-500:hover {
+      background-color: var(--acc-h) !important; color: var(--ink-acc) !important;
+    }
 
     /* ---- Active states ---- */
-    .active\:bg-black\/70:active { background-color: rgba(var(--pastel-soft), 0.95) !important; }
-    .active\:bg-violet-700:active, .active\:bg-violet-500\/80:active { background-color: var(--acc-violet-a) !important; }
-    .active\:bg-amber-700:active, .active\:bg-amber-400\/80:active { background-color: var(--acc-amber-a) !important; }
-    .active\:bg-rose-500\/80:active { background-color: var(--acc-rose-a) !important; }
-    .active\:bg-emerald-500\/80:active { background-color: var(--acc-mint-a) !important; }
+    .active\:bg-black\/70:active { background-color: rgba(var(--surf-soft), 0.95) !important; }
+    .active\:bg-violet-700:active, .active\:bg-violet-500\/80:active,
+    .active\:bg-amber-700:active, .active\:bg-amber-400\/80:active,
+    .active\:bg-rose-500\/80:active, .active\:bg-emerald-500\/80:active {
+      background-color: var(--acc-a) !important; color: var(--ink-acc) !important;
+    }
 
     /* ---- Inputs: focus border + placeholder ---- */
-    .focus\:border-violet-500:focus { border-color: #9d8fd6 !important; }
-    .placeholder-zinc-500::placeholder { color: var(--ink-5) !important; opacity: 0.8; }
+    .focus\:border-violet-500:focus { border-color: var(--acc) !important; }
+    .placeholder-zinc-500::placeholder { color: var(--ink-5) !important; opacity: 0.85; }
 
     /* ---- Hold-swatch dashed placeholder border ---- */
-    #hold-swatch { border-color: var(--pastel-border) !important; }
+    #hold-swatch { border-color: var(--dark-border) !important; }
 
-    /* Soft drop shadow tweak so light panels read against a bright sky */
+    /* Drop shadow so panels read with depth against the bright 3D world */
     #controls, #leaderboard, #friends-panel, #badges-panel, #settings-panel,
     #coach-bubble > div, #ta-gameover > div {
-      box-shadow: 0 8px 28px rgba(60, 50, 90, 0.28) !important;
+      box-shadow: 0 12px 34px rgba(0, 0, 0, 0.55) !important;
     }
 
     /* ---- Time Attack game-over card pop-in ---- */
@@ -448,14 +552,16 @@
       <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-5 lg:gap-6">
         <div class="bg-zinc-900/80 rounded-xl p-5 sm:p-6 lg:p-7 transition hover:bg-zinc-800/80" data-mode="classic">
           <canvas id="preview-classic" class="w-full rounded-lg mb-4" height="140"></canvas>
+          <div class="text-4xl mb-2">🧱</div>
           <h2 class="font-semibold text-lg sm:text-base lg:text-lg text-zinc-100 mb-2 mode-title">Classic Mode</h2>
-          <p class="text-zinc-400 text-sm sm:text-sm lg:text-sm mb-5 mode-desc">Fly around a shared 3D world. Place and break blocks with other players. No timer, no score.</p>
+          <p class="text-zinc-400 text-sm sm:text-sm lg:text-sm mb-5 mode-desc">Build and explore with other players in a shared 3D world. Place and break any block you like — no timer, no pressure.</p>
           <button id="play-classic-btn" class="w-full px-4 py-3 rounded-lg bg-violet-600 hover:bg-violet-500 font-semibold text-sm sm:text-sm lg:text-base transition hover:scale-[1.02] active:scale-[0.98] mode-btn">Play Classic</button>
         </div>
         <div class="bg-zinc-900/80 rounded-xl p-5 sm:p-6 lg:p-7 transition hover:bg-zinc-800/80" data-mode="ta">
           <canvas id="preview-ta" class="w-full rounded-lg mb-4" height="140"></canvas>
+          <div class="text-4xl mb-2">⏱️</div>
           <h2 class="font-semibold text-lg sm:text-base lg:text-lg text-zinc-100 mb-2 mode-title">Time Attack</h2>
-          <p class="text-zinc-400 text-sm sm:text-sm lg:text-sm mb-4 mode-desc">Break as many blocks as you can against the clock. Solo challenge, fresh layout every run.</p>
+          <p class="text-zinc-400 text-sm sm:text-sm lg:text-sm mb-4 mode-desc">Race the clock solo. Break as many blocks as you can — fresh arena every run, high score tracked.</p>
           <div class="flex items-center justify-center gap-2 mb-4">
             <button id="ta-tier-down" class="w-12 h-12 sm:w-10 sm:h-10 rounded bg-zinc-700 hover:bg-zinc-600 text-zinc-200 font-bold text-base leading-none transition hover:scale-110 active:scale-95">←</button>
             <span id="ta-tier-label" class="text-base sm:text-sm font-semibold text-amber-400 w-20 text-center">Easy</span>
@@ -501,13 +607,17 @@
         </div>
         <div class="bg-zinc-900/80 rounded-xl p-5 sm:p-6 lg:p-7 transition hover:bg-zinc-800/80" data-mode="spectate">
           <canvas id="preview-spectate" class="w-full rounded-lg mb-4" height="140"></canvas>
+          <div class="text-4xl mb-2">👁️</div>
           <h2 class="font-semibold text-lg sm:text-base lg:text-lg text-zinc-100 mb-2 mode-title">Watch</h2>
-          <p class="text-zinc-400 text-sm sm:text-sm lg:text-sm mb-5 mode-desc">Fly through the world as a spectator. No building required — just explore and chat.</p>
+          <p class="text-zinc-400 text-sm sm:text-sm lg:text-sm mb-5 mode-desc">Fly through the world as a spectator. See what others are building, chat freely, and join any time.</p>
           <button id="play-spectate-btn" class="w-full px-4 py-3 rounded-lg bg-teal-600 hover:bg-teal-500 font-semibold text-sm sm:text-sm lg:text-base transition hover:scale-[1.02] active:scale-[0.98] mode-btn">Watch World</button>
         </div>
       </div>
       <div id="tournament-teaser" class="hidden mt-3 rounded-xl bg-zinc-900/60 px-4 py-2.5 text-xs text-zinc-300"></div>
       <div id="status" class="mt-3 text-xs text-zinc-500 text-center"></div>
+      <div class="mt-2 text-center">
+        <button id="accessibility-link" class="text-xs text-zinc-400 hover:text-zinc-100 underline underline-offset-2 cursor-pointer transition-colors">♿ Accessibility</button>
+      </div>
       <div id="online-list" class="mt-3 text-sm text-zinc-400 text-center"></div>
       <div id="footer" class="mt-4 pt-3 border-t border-zinc-700/60 text-xs text-zinc-500 text-center">
         <p class="mb-1" id="footer-copyright">© 2026 block-game</p>
@@ -598,11 +708,11 @@
   </div>
 
   <!-- Block palette -->
-  <div id="palette" class="fixed bottom-4 left-1/2 -translate-x-1/2 z-20 flex gap-1.5 p-1.5 rounded-xl bg-black/50 backdrop-blur"></div>
+  <div id="palette" class="fixed bottom-4 left-1/2 -translate-x-1/2 z-20 flex gap-1.5 p-1.5 rounded-xl bg-black/50 backdrop-blur max-w-[calc(100vw-2rem)] overflow-x-auto"></div>
 
   <!-- Badges toggle: sits to the left of the mute button. -->
   <button id="badges-btn" title="Badges" aria-label="Toggle badges"
-          class="fixed top-3 z-30 w-12 h-12 sm:w-9 sm:h-9 rounded-full bg-black/50 hover:bg-black/70 text-zinc-100 text-lg leading-none flex items-center justify-center transition hover:scale-110 active:scale-95 cursor-pointer" style="right: 6.25rem">🏆</button>
+          class="fixed top-3 z-30 w-12 h-12 sm:w-9 sm:h-9 rounded-full bg-black/50 hover:bg-black/70 text-zinc-100 text-lg leading-none flex items-center justify-center transition hover:scale-110 active:scale-95 cursor-pointer">🏆</button>
 
   <!-- Audio mute toggle: sits to the left of the help button. -->
   <button id="mute-btn" title="Mute/unmute audio (M)" aria-label="Toggle audio"
@@ -670,16 +780,20 @@
   <button id="theme-btn" title="Daily Build Theme" aria-label="Daily Build Theme"
           class="fixed top-[10.5rem] right-3 z-30 w-9 h-9 rounded-full bg-black/50 hover:bg-black/70 text-zinc-100 text-lg leading-none flex items-center justify-center transition-colors cursor-pointer">🌟</button>
 
+  <!-- Accessibility toggle: below the coach button. Opens the a11y panel. -->
+  <button id="accessibility-btn" title="Accessibility" aria-label="Accessibility settings"
+          class="fixed top-[10.5rem] right-3 z-30 w-9 h-9 rounded-full bg-black/50 hover:bg-black/70 text-zinc-100 text-lg leading-none flex items-center justify-center transition hover:scale-110 active:scale-95 cursor-pointer">♿</button>
+
   <!-- Build/version stamp: always visible, dim, so the running build can be
        confirmed at a glance. Bump BUILD_VERSION (below) on every change.
-       Shifted down to make room for the leaderboard, friends, coach, and theme buttons above. -->
+       Shifted down to make room for the leaderboard, friends, coach, accessibility, and theme buttons above. -->
   <div id="build-stamp" class="pointer-events-none fixed top-[12.75rem] right-3 z-20 text-[11px] text-zinc-300/70 bg-black/40 rounded px-2 py-1 font-mono"></div>
 
   <!-- Mini-map: top-down 128×128 px overhead view of the 32×32 world.
        Hidden until a play mode is chosen; shown/hidden via JS. -->
   <canvas id="minimap" width="128" height="128"
           class="hidden fixed z-20 pointer-events-none"
-          style="top: 11.5rem; right: 0.75rem; border-radius: 6px; border: 1px solid rgba(255,255,255,0.15); opacity: 0.9"></canvas>
+          style="top: 13.5rem; right: 0.75rem; border-radius: 6px; border: 1px solid rgba(255,255,255,0.15); opacity: 0.9"></canvas>
 
   <!-- AI Coach bubble: persistent floating bubble in bottom-left corner. Hidden by default. -->
   <div id="coach-bubble" class="hidden fixed bottom-4 left-4 z-20 max-w-[240px]"
@@ -816,6 +930,8 @@
       <li><span class="font-semibold">Enter</span> — open / close chat</li>
       <li><span class="font-semibold">L</span> or <span class="font-semibold">🏆</span> — leaderboard</li>
       <li><span class="font-semibold">M</span> or <span class="font-semibold">🔊</span> — mute / unmute audio</li>
+      <li><span class="font-semibold">N</span> — write a hidden message (attached to next block placed)</li>
+      <li><span class="font-semibold">E</span> — reveal hidden message (when 📨 shows below crosshair)</li>
       <li><span class="font-semibold">Ctrl+Z</span> — undo last action (Classic)</li>
       <li><span class="font-semibold">Ctrl+Y</span> — redo (Classic)</li>
       <li><span class="font-semibold">Esc</span> — close panel / release / menu</li>
@@ -823,6 +939,47 @@
     </ul>
   </div>
 
+  <!-- Message compose overlay: shown when pressing N in Classic mode.
+       Positioned above the palette so it does not cover the world. -->
+  <div id="msg-compose" class="hidden fixed z-30 left-1/2 -translate-x-1/2 bg-zinc-900/95 backdrop-blur rounded-xl shadow-xl px-4 py-3 w-80 max-w-[90vw]" style="bottom:5.5rem">
+    <div class="text-xs font-semibold text-zinc-300 mb-2">📝 Hide a message in your next block</div>
+    <textarea id="msg-compose-input" maxlength="200" rows="3" placeholder="Write your secret message…"
+              class="w-full bg-zinc-800 text-zinc-100 text-sm rounded-lg px-3 py-2 border border-zinc-700 focus:border-violet-500 outline-none placeholder-zinc-500 resize-none"></textarea>
+    <div class="flex items-center justify-between mt-2">
+      <span id="msg-compose-counter" class="text-xs text-zinc-500">0 / 200</span>
+      <div class="flex gap-2">
+        <button id="msg-compose-cancel" class="px-3 py-1.5 text-xs rounded bg-zinc-700 hover:bg-zinc-600 text-zinc-200 cursor-pointer">Cancel</button>
+        <button id="msg-compose-hide" class="px-3 py-1.5 text-xs rounded bg-violet-600 hover:bg-violet-500 text-white font-semibold cursor-pointer">Hide</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Accessibility panel: two independent toggles (larger text, higher
+       contrast). Hidden by default; toggled by the ♿ button or the
+       start-screen link. Styled to match the Controls/Badges panels. -->
+  <div id="accessibility-panel" class="hidden fixed top-28 right-3 z-40 w-72 max-w-[90vw] rounded-xl bg-black/70 backdrop-blur p-4 text-sm text-zinc-200 shadow-xl">
+    <div class="flex items-center justify-between mb-3">
+      <h2 class="font-bold text-zinc-100">Accessibility</h2>
+      <button id="accessibility-close" aria-label="Close accessibility" class="text-zinc-400 hover:text-zinc-100 cursor-pointer leading-none transition-colors">✕</button>
+    </div>
+    <div class="space-y-4">
+      <div class="flex items-start justify-between gap-3">
+        <div class="flex-1">
+          <div class="font-semibold text-zinc-100">Larger text</div>
+          <p class="text-zinc-400 text-xs mt-0.5">Enlarge menus, HUD, and the block palette.</p>
+        </div>
+        <button id="toggle-large-text" role="switch" aria-checked="false" aria-label="Toggle larger text" class="a11y-toggle mt-0.5"></button>
+      </div>
+      <div class="flex items-start justify-between gap-3">
+        <div class="flex-1">
+          <div class="font-semibold text-zinc-100">Higher contrast</div>
+          <p class="text-zinc-400 text-xs mt-0.5">Bolder panels, text, outlines, and block colors.</p>
+        </div>
+        <button id="toggle-high-contrast" role="switch" aria-checked="false" aria-label="Toggle higher contrast" class="a11y-toggle mt-0.5"></button>
+      </div>
+    </div>
+    <p class="text-zinc-500 text-[11px] mt-4">Saved on this device.</p>
+  </div>
   <!-- Tutorial overlay: shown once to first-time Classic players.
        Spotlight + tooltip card walk through 5 core mechanics.
        Dismissed state stored in localStorage under blockgame-tutorial-seen. -->
@@ -845,6 +1002,13 @@
     </div>
   </div>
 
+  <!-- Write-message button: shown in Classic mode to the right of the palette.
+       Icon switches to 📨 when a message is queued for the next placement. -->
+  <button id="msg-write-btn" class="hidden fixed bottom-4 right-4 z-20 w-10 h-10 rounded-xl bg-black/50 hover:bg-black/70 text-lg flex items-center justify-center transition-colors cursor-pointer" title="Write hidden message (N)">
+    <span id="msg-write-icon">📝</span>
+  </button>
+
+
   <!-- Leaderboard overlay: top 10 builders. Hidden by default; toggled by
        pressing `l` or clicking the trophy button. -->
   <div id="leaderboard" class="hidden fixed top-28 right-3 z-30 w-full sm:w-72 max-w-[90vw] rounded-xl bg-black/70 backdrop-blur px-3 py-4 sm:p-4 text-base sm:text-sm text-zinc-200 shadow-xl">
@@ -852,6 +1016,7 @@
       <div class="flex gap-1 overflow-x-auto">
         <button id="tab-alltime" class="px-2 py-0.5 rounded text-xs font-semibold bg-zinc-700 text-zinc-100 cursor-pointer transition-colors whitespace-nowrap" data-tab="alltime">All-time</button>
         <button id="tab-tournament" class="px-2 py-0.5 rounded text-xs font-semibold text-zinc-400 hover:text-zinc-200 cursor-pointer transition-colors whitespace-nowrap" data-tab="tournament">This Week</button>
+        <button id="tab-monuments" class="px-2 py-0.5 rounded text-xs font-semibold text-zinc-400 hover:text-zinc-200 cursor-pointer transition-colors whitespace-nowrap" data-tab="monuments">Monuments</button>
         <button id="tab-ta" class="px-2 py-0.5 rounded text-xs font-semibold text-zinc-400 hover:text-zinc-200 cursor-pointer transition-colors whitespace-nowrap" data-tab="ta">Time Attack</button>
         <button id="tab-ta-60" class="px-2 py-0.5 rounded text-xs font-semibold text-zinc-400 hover:text-zinc-200 cursor-pointer transition-colors whitespace-nowrap" data-tab="ta-60">TA (60s)</button>
         <button id="tab-daily-challenge" class="px-2 py-0.5 rounded text-xs font-semibold text-zinc-400 hover:text-zinc-200 cursor-pointer transition-colors whitespace-nowrap" data-tab="daily">Daily</button>
@@ -905,10 +1070,10 @@
        once on press. Hidden until JS reveals it on a touch device. -->
   <div id="touch-controls" class="hidden absolute inset-0 z-20 pointer-events-none select-none">
     <!-- Menu / pause (Esc equivalent), top-left -->
-    <button data-act="menu" class="touch-ctrl pointer-events-auto absolute top-3 left-3 px-3 h-9 rounded-lg bg-black/45 active:bg-black/70 active:scale-95 text-zinc-100 text-sm font-semibold flex items-center justify-center">☰ Menu</button>
+    <button id="tc-menu" data-act="menu" class="touch-ctrl pointer-events-auto absolute top-3 left-3 px-3 h-9 rounded-lg bg-black/45 active:bg-black/70 active:scale-95 text-zinc-100 text-sm font-semibold flex items-center justify-center">☰ Menu</button>
 
     <!-- Move pad (forward/back/left/right), bottom-left -->
-    <div class="absolute left-4 bottom-4 grid grid-cols-3 grid-rows-3 gap-1 sm:gap-1.5 opacity-90">
+    <div id="tc-movepad" class="absolute left-4 bottom-4 grid grid-cols-3 grid-rows-3 gap-1 sm:gap-1.5 opacity-90">
       <button data-mv="f" class="touch-ctrl pointer-events-auto col-start-2 row-start-1 w-12 h-12 sm:w-14 sm:h-14 rounded-xl bg-black/40 active:bg-black/70 active:scale-95 text-xl sm:text-2xl text-zinc-100 flex items-center justify-center">▲</button>
       <button data-mv="l" class="touch-ctrl pointer-events-auto col-start-1 row-start-2 w-12 h-12 sm:w-14 sm:h-14 rounded-xl bg-black/40 active:bg-black/70 active:scale-95 text-xl sm:text-2xl text-zinc-100 flex items-center justify-center">◀</button>
       <button data-mv="r" class="touch-ctrl pointer-events-auto col-start-3 row-start-2 w-12 h-12 sm:w-14 sm:h-14 rounded-xl bg-black/40 active:bg-black/70 active:scale-95 text-xl sm:text-2xl text-zinc-100 flex items-center justify-center">▶</button>
@@ -916,7 +1081,7 @@
     </div>
 
     <!-- Fly + build cluster, bottom-right -->
-    <div class="absolute right-4 bottom-4 flex flex-col items-end gap-1 sm:gap-2">
+    <div id="tc-actions" class="absolute right-4 bottom-4 flex flex-col items-end gap-1 sm:gap-2">
       <div class="flex gap-1 sm:gap-2">
         <button data-act="hold" class="touch-ctrl pointer-events-auto w-12 h-12 sm:w-14 sm:h-14 rounded-xl bg-violet-700/55 active:bg-violet-500/80 active:scale-95 text-xs font-bold text-white flex items-center justify-center">Hold</button>
         <button data-mv="down" class="touch-ctrl pointer-events-auto w-12 h-12 sm:w-14 sm:h-14 rounded-xl bg-black/40 active:bg-black/70 active:scale-95 text-xs sm:text-sm font-semibold text-zinc-100 flex items-center justify-center">Down</button>
@@ -1034,6 +1199,7 @@
       <p id="ta-feedback-msg" class="text-zinc-500 text-sm mb-6"></p>
       <div class="flex flex-col gap-2 justify-center">
         <div class="flex flex-col sm:flex-row gap-2 sm:gap-3 justify-center">
+          <button id="ta-share-btn" class="w-full sm:w-auto px-6 py-3 rounded-lg bg-amber-600 hover:bg-amber-500 font-semibold transition hover:scale-105 active:scale-95">Share Score</button>
           <button id="ta-play-again" class="w-full sm:w-auto px-6 py-3 rounded-lg bg-amber-600 hover:bg-amber-500 font-semibold transition hover:scale-105 active:scale-95">Play Again</button>
           <button id="ta-back-menu" class="w-full sm:w-auto px-6 py-3 rounded-lg bg-zinc-700 hover:bg-zinc-600 font-semibold transition hover:scale-105 active:scale-95">Back to Menu</button>
         </div>
@@ -1051,6 +1217,7 @@
       <p id="ta-60-feedback-msg" class="text-zinc-500 text-sm mb-6"></p>
       <div class="flex flex-col gap-2 justify-center">
         <div class="flex flex-col sm:flex-row gap-2 sm:gap-3 justify-center">
+          <button id="ta-60-share-btn" class="w-full sm:w-auto px-6 py-3 rounded-lg bg-cyan-600 hover:bg-cyan-500 font-semibold transition hover:scale-105 active:scale-95">Share Score</button>
           <button id="ta-60-play-again" class="w-full sm:w-auto px-6 py-3 rounded-lg bg-cyan-600 hover:bg-cyan-500 font-semibold transition hover:scale-105 active:scale-95">Play Again</button>
           <button id="ta-60-back-menu" class="w-full sm:w-auto px-6 py-3 rounded-lg bg-zinc-700 hover:bg-zinc-600 font-semibold transition hover:scale-105 active:scale-95">Back to Menu</button>
         </div>
@@ -1068,10 +1235,37 @@
       <p id="endless-moves-survived" class="text-zinc-500 text-sm mb-6">Survived 0 move decisions</p>
       <div class="flex flex-col gap-2 justify-center">
         <div class="flex flex-col sm:flex-row gap-2 sm:gap-3 justify-center">
+          <button id="endless-share-btn" class="w-full sm:w-auto px-6 py-3 rounded-lg bg-rose-600 hover:bg-rose-500 font-semibold transition hover:scale-105 active:scale-95">Share Score</button>
           <button id="endless-play-again" class="w-full sm:w-auto px-6 py-3 rounded-lg bg-rose-600 hover:bg-rose-500 font-semibold transition hover:scale-105 active:scale-95">Play Again</button>
           <button id="endless-back-menu" class="w-full sm:w-auto px-6 py-3 rounded-lg bg-zinc-700 hover:bg-zinc-600 font-semibold transition hover:scale-105 active:scale-95">Back to Menu</button>
         </div>
         <button id="endless-share-score" class="w-full px-6 py-3 rounded-lg bg-purple-600 hover:bg-purple-500 font-semibold transition hover:scale-105 active:scale-95">Share Score 📸</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Daily Challenge game-over overlay -->
+  <div id="daily-challenge-gameover" class="hidden fixed inset-0 z-30 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+    <div id="daily-challenge-gameover-card" class="max-w-sm w-full mx-4 bg-zinc-900/95 rounded-2xl p-6 sm:p-8 text-center shadow-xl">
+      <h2 class="text-2xl font-bold mb-2">Daily Challenge Complete!</h2>
+      <div id="daily-best-banner" class="hidden mb-3 rounded-xl bg-gradient-to-r from-fuchsia-500 to-pink-500 text-zinc-900 font-bold py-2 px-3 text-sm shadow">🎉 Challenge completed!</div>
+      <p id="daily-final-score" class="text-zinc-300 text-lg mb-2">You placed 0/100 blocks</p>
+      <p id="daily-feedback-msg" class="text-zinc-500 text-sm mb-6"></p>
+      <div class="flex flex-col sm:flex-row gap-2 sm:gap-3 justify-center">
+        <button id="daily-share-btn" class="w-full sm:w-auto px-6 py-3 rounded-lg bg-fuchsia-600 hover:bg-fuchsia-500 font-semibold transition hover:scale-105 active:scale-95">Share Score</button>
+        <button id="daily-back-menu" class="w-full sm:w-auto px-6 py-3 rounded-lg bg-zinc-700 hover:bg-zinc-600 font-semibold transition hover:scale-105 active:scale-95">Back to Menu</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Share Score modal (reusable for all modes) -->
+  <div id="share-score-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+    <div class="max-w-sm w-full mx-4 bg-zinc-900/95 rounded-2xl p-6 sm:p-8 text-center shadow-xl">
+      <h2 class="text-2xl font-bold mb-4">Share Your Score</h2>
+      <div class="flex flex-col gap-3">
+        <button id="share-twitter-btn" class="w-full px-4 py-3 rounded-lg bg-blue-600 hover:bg-blue-500 font-semibold transition hover:scale-105 active:scale-95">Share to Twitter/X</button>
+        <button id="share-usernode-btn" class="w-full px-4 py-3 rounded-lg bg-fuchsia-600 hover:bg-fuchsia-500 font-semibold transition hover:scale-105 active:scale-95">Share to Usernode Feed</button>
+        <button id="share-close-btn" class="w-full px-4 py-3 rounded-lg bg-zinc-700 hover:bg-zinc-600 font-semibold transition hover:scale-105 active:scale-95">Cancel</button>
       </div>
     </div>
   </div>
@@ -1098,7 +1292,7 @@
 
     // Build identifier — bump this (to the deploying commit short SHA) on every
     // change so the top-right stamp confirms exactly which code is running.
-    const BUILD_VERSION = 'power-ups+hold-queue+achievements-badges+chat+daily-challenge+leaderboard+online-presence+block-attribution+audio-sfx+next-piece-preview+spectator-mode+weekly-tournament+friends+blocks-placed-hud+day-night-cycle+minimap+ai-coach+daily-theme-voting+natural-disasters+undo-redo-history+pastel-chrome+mobs';
+    const BUILD_VERSION = 'power-ups+hold-queue+achievements-badges+chat+daily-challenge+leaderboard+online-presence+block-attribution+audio-sfx+next-piece-preview+spectator-mode+weekly-tournament+friends+blocks-placed-hud+day-night-cycle+minimap+ai-coach+daily-theme-voting+natural-disasters+community-monuments+undo-redo-history+pastel-chrome+mobs+message-in-a-block+accessibility-panel';
 
     // Badge definitions — mirror of the server-side BADGES array, extended with
     // a `hint` field shown in the panel for unearned badges.
@@ -1729,8 +1923,11 @@
 
     // Daily Challenge HUD element — bottom position raised on touch to clear
     // the on-screen fly/build action cluster that lives at bottom-right.
+    // Incorporates safe-area-inset-bottom so the pill clears the home indicator.
+    const saBottomPx = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--sai-bottom')) || 0;
     const challengeHudEl = document.getElementById('challenge-hud');
-    challengeHudEl.style.bottom = isTouch ? '15rem' : '1rem';
+    const challengeBaseBottomPx = isTouch ? 240 : 16; // 15rem=240px, 1rem=16px
+    challengeHudEl.style.bottom = (challengeBaseBottomPx + saBottomPx) + 'px';
     const blocksPlacedHudEl = document.getElementById('blocks-placed-hud');
     blocksPlacedHudEl.style.bottom = isTouch ? '18rem' : '5.5rem';
 
@@ -1738,8 +1935,7 @@
     const streakHudEl = document.getElementById('streak-hud');
     const CHALLENGE_HUD_HEIGHT_PX = 54; // approx rendered height (px) of challenge pill
     const STREAK_GAP_PX = 6;
-    const challengeHudBottomPx = isTouch ? 240 : 16; // 15rem=240px, 1rem=16px
-    streakHudEl.style.bottom = (challengeHudBottomPx + CHALLENGE_HUD_HEIGHT_PX + STREAK_GAP_PX) + 'px';
+    streakHudEl.style.bottom = (challengeBaseBottomPx + saBottomPx + CHALLENGE_HUD_HEIGHT_PX + STREAK_GAP_PX) + 'px';
 
     // Apply touch-device layout overrides once at startup.
     if (isTouch) {
@@ -1772,6 +1968,10 @@
     let selectedType = 1;
     let unlockedTypes = new Set(); // block type IDs earned by the current user
     const key = (x, y, z) => x + ',' + y + ',' + z;
+
+    // ---- Message in a Block state ----
+    let pendingMessage = null;        // string queued for next placement, or null
+    const messageBlocks = new Set();  // "x,y,z" keys that have an unfound hidden message
 
     // ---- Power-up state ----
     const powerupMap = new Map(); // id -> { type, x, y, z, mesh }
@@ -1835,6 +2035,85 @@
       try { const v = localStorage.getItem(k); return v !== null ? JSON.parse(v) : fallback; } catch (_) { return fallback; }
     }
     function lsSet(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (_) {} }
+
+    // ---- Accessibility settings (device-local, persisted via localStorage) ----
+    let a11yLargeText = lsGet('a11y_large_text', false) === true;
+    let a11yHighContrast = lsGet('a11y_high_contrast', false) === true;
+
+    // High-contrast color transform: HSL boost (saturation up, lightness pushed
+    // away from mid-gray) so in-world blocks, swatches, particles, and minimap
+    // cells read as more vivid and easier to tell apart. Returns the input hex
+    // unchanged when high contrast is off, so call sites can wrap unconditionally.
+    function hcColor(hex) {
+      if (!a11yHighContrast || typeof hex !== 'string' || hex[0] !== '#' || hex.length < 7) return hex;
+      let r = parseInt(hex.slice(1, 3), 16) / 255;
+      let g = parseInt(hex.slice(3, 5), 16) / 255;
+      let b = parseInt(hex.slice(5, 7), 16) / 255;
+      const max = Math.max(r, g, b), min = Math.min(r, g, b);
+      let h = 0, s = 0, l = (max + min) / 2;
+      if (max !== min) {
+        const d = max - min;
+        s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+        if (max === r) h = (g - b) / d + (g < b ? 6 : 0);
+        else if (max === g) h = (b - r) / d + 2;
+        else h = (r - g) / d + 4;
+        h /= 6;
+      }
+      s = Math.min(1, s * 1.4 + 0.2);
+      l = l < 0.5 ? Math.max(0.12, l * 0.85) : Math.min(0.95, l * 0.92 + 0.08);
+      function hue2rgb(p, q, t) {
+        if (t < 0) t += 1; if (t > 1) t -= 1;
+        if (t < 1 / 6) return p + (q - p) * 6 * t;
+        if (t < 1 / 2) return q;
+        if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6;
+        return p;
+      }
+      let R, G, B;
+      if (s === 0) { R = G = B = l; }
+      else {
+        const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+        const p = 2 * l - q;
+        R = hue2rgb(p, q, h + 1 / 3); G = hue2rgb(p, q, h); B = hue2rgb(p, q, h - 1 / 3);
+      }
+      const to = (v) => ('0' + Math.round(v * 255).toString(16)).slice(-2);
+      return '#' + to(R) + to(G) + to(B);
+    }
+
+    // DOM-only apply (root font-size + the .a11y-hc class). Safe to call at any
+    // time, including before the world/PALETTE load — no flash of default style.
+    function applyA11yDom() {
+      const root = document.documentElement;
+      root.style.fontSize = a11yLargeText ? '118%' : '';
+      root.classList.toggle('a11y-hc', a11yHighContrast);
+    }
+    applyA11yDom();
+
+    // Full apply: DOM styling + re-render every in-world surface that consumes
+    // palette colors so a toggle takes effect live. Calls hoisted render
+    // functions / module consts that exist by the time this runs (boot + clicks).
+    function applyA11ySettings() {
+      applyA11yDom();
+      try {
+        if (typeof highlight !== 'undefined' && highlight && highlight.material) {
+          highlight.material.color.set(a11yHighContrast ? 0xffffff : 0x000000);
+          highlight.material.opacity = a11yHighContrast ? 0.95 : 0.6;
+        }
+      } catch (_) {}
+      // Recolor existing swatches in place (NOT buildPalette — that resets the
+      // hold queue) and rebuild the world meshes so colors update live.
+      try {
+        const wrap = document.getElementById('palette');
+        if (wrap && PALETTE && PALETTE.length) {
+          for (const btn of wrap.querySelectorAll('button[data-id]')) {
+            const p = PALETTE.find((q) => String(q.id) === btn.dataset.id);
+            if (p) btn.style.background = hcColor(p.color);
+          }
+        }
+      } catch (_) {}
+      try { updateHoldPanel(); } catch (_) {}
+      try { if (selectedType != null) selectType(selectedType); } catch (_) {}
+      try { rebuildBlockMeshes(); } catch (_) {}
+    }
 
     let taDifficulty = Math.max(1, Math.min(5, lsGet('ta_difficulty', 2)));
     let taRunBlockCount = 0;
@@ -1913,16 +2192,24 @@
     let firstBlockPlacedInTutorial = false;
 
     // ---- Three.js scaffold ----
-    const canvas = document.getElementById('scene');
-    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    const scene = new THREE.Scene();
-    scene.background = null;
-    scene.fog = new THREE.Fog('#8ec7ff', 40, 90);
+    let renderer, scene, camera;
+    try {
+      const canvas = document.getElementById('scene');
+      if (!canvas) throw new Error('Canvas element (id="scene") not found');
+      renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+      scene = new THREE.Scene();
+      scene.background = null;
+      scene.fog = new THREE.Fog('#8ec7ff', 40, 90);
 
-    const camera = new THREE.PerspectiveCamera(70, 1, 0.1, 500);
-    camera.up.set(0, 1, 0);
-    camera.position.set(DIMS.w / 2, 3.5, DIMS.d / 2 + 8);
+      camera = new THREE.PerspectiveCamera(70, 1, 0.1, 500);
+      camera.up.set(0, 1, 0);
+      camera.position.set(DIMS.w / 2, 3.5, DIMS.d / 2 + 8);
+    } catch (err) {
+      console.error('[Three.js] Initialization failed:', err.message);
+      statusEl.textContent = 'Failed to initialize 3D renderer. Your browser may not support WebGL.';
+      throw err;
+    }
 
     const ambientLight = new THREE.AmbientLight(0xffffff, 0.65);
     scene.add(ambientLight);
@@ -2122,7 +2409,7 @@
     const cube = new THREE.BoxGeometry(1, 1, 1);
     const materials = new Map();
     function materialFor(p) {
-      const opts = { color: new THREE.Color(p.color) };
+      const opts = { color: new THREE.Color(hcColor(p.color)) };
       if (p.opacity != null && p.opacity < 1) { opts.transparent = true; opts.opacity = p.opacity; opts.side = THREE.DoubleSide; }
       if (p.emissive) { opts.emissive = new THREE.Color(p.emissive); opts.emissiveIntensity = p.emissiveIntensity ?? 1; }
       if (p.material === 'standard' || p.metalness != null || p.emissive) {
@@ -2148,6 +2435,35 @@
     }
     const powerupGroup = new THREE.Group();
     scene.add(powerupGroup);
+
+    // ---- Community Monument beacons ----
+    const monumentGroup = new THREE.Group();
+    scene.add(monumentGroup);
+    const monumentOrbs = []; // animated each frame
+    let lastMonumentHash = '';
+    const monumentShaftGeom = new THREE.CylinderGeometry(0.08, 0.08, 17, 8);
+    const monumentOrbGeom = new THREE.SphereGeometry(0.35, 8, 8);
+    const monumentShaftMat = new THREE.MeshBasicMaterial({ color: '#f5c842', transparent: true, opacity: 0.45, fog: false });
+    const monumentOrbMat = new THREE.MeshBasicMaterial({ color: '#f5c842', fog: false });
+
+    function rebuildMonumentMeshes(monuments) {
+      monumentGroup.clear();
+      monumentOrbs.length = 0;
+      for (const m of monuments) {
+        const cx = m.sector_x + 2;
+        const cz = m.sector_z + 2;
+        const shaft = new THREE.Mesh(monumentShaftGeom, monumentShaftMat);
+        shaft.position.set(cx, 9.5, cz);
+        monumentGroup.add(shaft);
+        const orb = new THREE.Mesh(monumentOrbGeom, monumentOrbMat);
+        orb.userData.baseY = 18;
+        orb.userData.phase = (m.id * 2.39996) % (Math.PI * 2);
+        orb.position.set(cx, 18, cz);
+        monumentGroup.add(orb);
+        monumentOrbs.push(orb);
+      }
+      lastMonumentHash = monuments.map(m => m.id).sort().join(',');
+    }
 
     // Mob group: all creature meshes; hidden until Classic mode is entered.
     const mobGroup = new THREE.Group();
@@ -2184,7 +2500,7 @@
     function emitBlockBreak(cx, cy, cz, blockType) {
       const p = PALETTE.find((q) => q.id === blockType);
       const hexColor = p ? p.color : '#888888';
-      const baseColor = new THREE.Color(hexColor);
+      const baseColor = new THREE.Color(hcColor(hexColor));
       for (let _k = 0; _k < 14; _k++) {
         const slot = _acquireParticle();
         if (!slot) break;
@@ -2476,7 +2792,9 @@
       const toast = document.createElement('div');
       toast.className = 'flex items-center gap-3 bg-black/85 backdrop-blur rounded-xl px-4 py-2.5 text-sm text-zinc-100 shadow-xl' +
         (badge._isUnlock ? ' ring-2 ring-violet-500/60' : '') +
-        (badge._isDisaster ? ' ring-2 ring-red-500/60' : '');
+        (badge._isDisaster ? ' ring-2 ring-red-500/60' : '') +
+        (badge._isMessage ? ' ring-2 ring-violet-400/60' : '') +
+        (badge._isMonument ? ' ring-2 ring-yellow-500/60' : '');
       toast.style.cssText = 'opacity:0;transition:opacity 0.3s;';
       const iconSpan = document.createElement('span');
       iconSpan.className = 'text-2xl leading-none flex-shrink-0';
@@ -2487,7 +2805,17 @@
       nameDiv.textContent = badge.name;
       const subDiv = document.createElement('div');
       subDiv.className = 'text-zinc-400 text-xs mt-0.5';
-      subDiv.textContent = badge.flavour;
+      if (badge._isMessage) {
+        const authorLine = document.createElement('div');
+        authorLine.textContent = badge._authorLine || '';
+        const bodyLine = document.createElement('div');
+        bodyLine.className = 'text-zinc-200 italic mt-0.5';
+        bodyLine.textContent = '“' + (badge._body || '') + '”';
+        subDiv.appendChild(authorLine);
+        subDiv.appendChild(bodyLine);
+      } else {
+        subDiv.textContent = badge.flavour;
+      }
       textDiv.appendChild(nameDiv);
       textDiv.appendChild(subDiv);
       toast.appendChild(iconSpan);
@@ -2495,7 +2823,7 @@
       container.appendChild(toast);
       // Trigger opacity transition after insertion.
       requestAnimationFrame(() => { toast.style.opacity = '1'; });
-      const displayMs = toastQueue.length > 0 ? 3000 : 4000;
+      const displayMs = badge._isMessage ? 7000 : (toastQueue.length > 0 ? 3000 : 4000);
       setTimeout(() => {
         toast.style.opacity = '0';
         setTimeout(() => { toast.remove(); showNextToast(); }, 300);
@@ -2605,8 +2933,28 @@
           if (!res.ok || ac.signal.aborted) return;
           const data = await res.json();
           if (!data || !data.username) return;
-          attributionEl.textContent = 'Built by ' + data.username + ' · ' + relativeTime(data.updated_at);
+          let attrHtml = 'Built by ' + escapeHtml(data.username) + ' · ' + relativeTime(data.updated_at);
+          if (data.hasMessage) {
+            attrHtml += '<br><span style="color:#a78bfa">📨 Hidden message — press E to reveal</span>';
+            if (isTouch) {
+              attrHtml += '&nbsp;<button id="attr-reveal-btn" style="background:#7c3aed;color:white;border-radius:4px;padding:1px 8px;font-size:11px;cursor:pointer">Reveal</button>';
+            }
+          } else if (data.ownMessage) {
+            if (!data.ownMessage.found) {
+              attrHtml += '<br><span style="color:#a1a1aa">📬 Your message is hidden here</span>';
+            } else {
+              attrHtml += '<br><span style="color:#a1a1aa">📬 Found by ' + escapeHtml(data.ownMessage.found_by_username) + ' · ' + relativeTime(data.ownMessage.found_at) + '</span>';
+            }
+          }
+          attributionEl.innerHTML = attrHtml;
           attributionEl.classList.remove('hidden');
+          if (data.hasMessage && isTouch) {
+            const rb = document.getElementById('attr-reveal-btn');
+            if (rb) rb.addEventListener('touchstart', (ev) => {
+              ev.preventDefault();
+              if (target) revealMessage(target.cell.x, target.cell.y, target.cell.z);
+            }, { passive: false });
+          }
         } catch (_) { /* AbortError or network error — fine */ }
       }, 200);
     }
@@ -2648,7 +2996,7 @@
 
       // Grass base layer — every (x, z) cell starts as grass.
       const grassEntry = PALETTE.find((p) => p.name === 'Grass');
-      const grassColor = grassEntry ? grassEntry.color : '#5a8a3c';
+      const grassColor = hcColor(grassEntry ? grassEntry.color : '#5a8a3c');
       minimapCtx.fillStyle = grassColor;
       for (let x = 0; x < DIMS.w; x++) {
         for (let z = 0; z < DIMS.d; z++) {
@@ -2666,7 +3014,7 @@
             const t = source.get(key(x, y, z));
             if (t) {
               const p = PALETTE.find((q) => q.id === t);
-              if (p) { minimapCtx.fillStyle = p.color; minimapCtx.fillRect(x * SCALE, z * SCALE, SCALE, SCALE); }
+              if (p) { minimapCtx.fillStyle = hcColor(p.color); minimapCtx.fillRect(x * SCALE, z * SCALE, SCALE, SCALE); }
               break;
             }
           }
@@ -2792,6 +3140,7 @@
     function applyLocal(x, y, z, t) {
       const k = key(x, y, z);
       if (t === 0) blocks.delete(k); else blocks.set(k, t);
+      messageBlocks.delete(k); // any message at this cell is gone once overwritten/broken
       rebuildBlockMeshes();
       clearAttribution(); // label is stale after any block change; loop will re-fetch
     }
@@ -2839,6 +3188,8 @@
         if (challengePlaced >= challengeTarget) {
           challengeCompleted = true;
           fetchCoachTip('daily_complete');
+          // Show daily challenge completion modal
+          showDailyChallengeGameOver();
         }
         renderChallenge();
       }
@@ -2848,13 +3199,15 @@
         if (sessionBlocksPlaced % 25 === 0) fetchCoachTip('block_milestone');
       }
       try {
+        const _msgToSend = t !== 0 ? pendingMessage : null;
         const endpoint = currentWorldId > 0 ? `/api/worlds/${currentWorldId}/blocks` : '/api/block';
         const res = await fetch(endpoint, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', ...headers },
-          body: JSON.stringify({ x, y, z, block_type: t }),
+          body: JSON.stringify({ x, y, z, block_type: t, ...(_msgToSend ? { message: _msgToSend } : {}) }),
         });
         if (res.ok) {
+          if (_msgToSend) { pendingMessage = null; updateMsgWriteBtn(); }
           const data = await res.json();
           // Check combo tier-up before updateComboHud mutates lastComboMultiplier.
           const newMult = data.combo_multiplier || 1;
@@ -2887,6 +3240,11 @@
               showUnlockToast(ut);
             }
             buildPalette(); // re-render palette so the newly unlocked swatch activates
+          }
+          if (data.newly_crowned_monuments && data.newly_crowned_monuments.length) {
+            for (const m of data.newly_crowned_monuments) {
+              showBadgeToast({ icon: '🏛️', name: m.name, flavour: 'Community monument crowned!', _isMonument: true });
+            }
           }
           if (data.challenge) syncChallenge(data.challenge);
           if (t !== 0) {
@@ -3882,6 +4240,40 @@
       badgesPanelEl.classList.add('hidden');
     });
 
+    // ---- Accessibility panel: open/close + the two toggles ----
+    const a11yPanelEl = document.getElementById('accessibility-panel');
+    const largeTextToggleEl = document.getElementById('toggle-large-text');
+    const highContrastToggleEl = document.getElementById('toggle-high-contrast');
+    function syncA11yToggles() {
+      largeTextToggleEl.setAttribute('aria-checked', String(a11yLargeText));
+      highContrastToggleEl.setAttribute('aria-checked', String(a11yHighContrast));
+    }
+    function openA11yPanel() {
+      syncA11yToggles();
+      a11yPanelEl.classList.remove('hidden');
+    }
+    function closeA11yPanel() { a11yPanelEl.classList.add('hidden'); }
+    function toggleA11yPanel() {
+      if (a11yPanelEl.classList.contains('hidden')) openA11yPanel();
+      else closeA11yPanel();
+    }
+    document.getElementById('accessibility-btn').addEventListener('click', toggleA11yPanel);
+    document.getElementById('accessibility-link').addEventListener('click', openA11yPanel);
+    document.getElementById('accessibility-close').addEventListener('click', closeA11yPanel);
+    largeTextToggleEl.addEventListener('click', () => {
+      a11yLargeText = !a11yLargeText;
+      lsSet('a11y_large_text', a11yLargeText);
+      syncA11yToggles();
+      applyA11ySettings();
+    });
+    highContrastToggleEl.addEventListener('click', () => {
+      a11yHighContrast = !a11yHighContrast;
+      lsSet('a11y_high_contrast', a11yHighContrast);
+      syncA11yToggles();
+      applyA11ySettings();
+    });
+    syncA11yToggles();
+
     // Reusable temporaries + one-shot roll diagnostic state for applyLook().
     const _lookFwd = new THREE.Vector3();
     const _lookTarget = new THREE.Vector3();
@@ -4338,6 +4730,13 @@
       updateTouchControlsVisibility();
     }
 
+    function showDailyChallengeGameOver() {
+      document.getElementById('daily-final-score').textContent = 'You placed ' + challengePlaced + '/' + challengeTarget + ' blocks';
+      document.getElementById('daily-feedback-msg').textContent = 'Great job completing today\'s challenge!';
+      document.getElementById('daily-best-banner').classList.remove('hidden');
+      document.getElementById('daily-challenge-gameover').classList.remove('hidden');
+    }
+
     // ---- Mode entry ----
 
     // Called once play is actually entered (lock acquired or drag/touch started).
@@ -4400,6 +4799,7 @@
         // Immediately ping presence as a spectator so the online list updates fast.
         heartbeat();
       }
+      updateMsgWriteBtn();
     }
 
     function startMode(mode) {
@@ -4515,6 +4915,7 @@
 
       document.getElementById('ta-hud').classList.add('hidden');
       document.getElementById('ta-gameover').classList.add('hidden');
+      document.getElementById('daily-challenge-gameover').classList.add('hidden');
       document.getElementById('learn-hints').innerHTML = '';
       document.getElementById('palette').classList.remove('hidden');
       document.getElementById('hold-panel').classList.remove('hidden');
@@ -4533,6 +4934,8 @@
       coachBubbleEl.classList.add('hidden');
       coachBubbleEl.style.opacity = '0';
       coachBtnEl.classList.remove('hidden');
+      closeMsgCompose();
+      updateMsgWriteBtn();
       overlayEl.style.display = 'flex';
       energyDisplayEl.classList.add('hidden');
       refreshControlCopy();
@@ -4681,6 +5084,98 @@
       exitToMenu();
     });
 
+    document.getElementById('daily-back-menu').addEventListener('click', () => {
+      document.getElementById('daily-challenge-gameover').classList.add('hidden');
+      exitToMenu();
+    });
+
+    // ---- Share Score functionality ----
+    let currentShareData = null;
+
+    function openShareMenu(mode, scoreData) {
+      currentShareData = { mode, scoreData };
+      document.getElementById('share-score-modal').classList.remove('hidden');
+    }
+
+    function closeShareMenu() {
+      document.getElementById('share-score-modal').classList.add('hidden');
+      currentShareData = null;
+    }
+
+    async function shareScore(platform) {
+      if (!currentShareData) return;
+
+      const { mode, scoreData } = currentShareData;
+      closeShareMenu();
+
+      try {
+        const res = await fetch('/api/share-score', {
+          method: 'POST',
+          headers: Object.assign({ 'content-type': 'application/json' }, headers),
+          body: JSON.stringify({ mode, score_data: scoreData }),
+        });
+
+        if (!res.ok) {
+          alert('Failed to generate share message');
+          return;
+        }
+
+        const data = await res.json();
+
+        if (platform === 'twitter') {
+          window.open(data.twitter_url, '_blank', 'width=550,height=420');
+        } else if (platform === 'usernode') {
+          if (typeof usernode !== 'undefined' && usernode.feed && usernode.feed.post) {
+            try {
+              await usernode.feed.post({ body: data.message });
+              alert('Score shared to Usernode feed!');
+            } catch (err) {
+              alert('Failed to post to Usernode feed: ' + (err.message || 'Unknown error'));
+            }
+          } else {
+            alert('Usernode feed is not available. You must be logged into Usernode to share.');
+          }
+        }
+      } catch (err) {
+        alert('Error sharing score: ' + (err.message || 'Unknown error'));
+      }
+    }
+
+    document.getElementById('ta-share-btn').addEventListener('click', () => {
+      openShareMenu('timeattack', {
+        blocks_cleared: parseInt(document.getElementById('ta-final-score').textContent.match(/\d+/) || 0),
+        difficulty_level: taDifficulty || 1
+      });
+    });
+
+    document.getElementById('ta-60-share-btn').addEventListener('click', () => {
+      openShareMenu('time-attack-60', {
+        blocks_cleared: parseInt(document.getElementById('ta-60-final-score').textContent.match(/\d+/) || 0)
+      });
+    });
+
+    document.getElementById('endless-share-btn').addEventListener('click', () => {
+      openShareMenu('endless', {
+        blocks_placed: parseInt(document.getElementById('endless-final-placed').textContent.match(/\d+/) || 0),
+        moves_survived: parseInt(document.getElementById('endless-moves-survived').textContent.match(/\d+/) || 0)
+      });
+    });
+
+    document.getElementById('daily-share-btn').addEventListener('click', () => {
+      const scoreText = document.getElementById('daily-final-score').textContent;
+      const matches = scoreText.match(/(\d+)\/(\d+)/);
+      const placed = matches ? parseInt(matches[1]) : 0;
+      const target = matches ? parseInt(matches[2]) : 0;
+      openShareMenu('daily-challenge', {
+        blocks_placed: placed,
+        target_blocks: target
+      });
+    });
+
+    document.getElementById('share-twitter-btn').addEventListener('click', () => shareScore('twitter'));
+    document.getElementById('share-usernode-btn').addEventListener('click', () => shareScore('usernode'));
+    document.getElementById('share-close-btn').addEventListener('click', closeShareMenu);
+
     canvas.addEventListener('click', () => {
       if (isTouch) return;
       if (!locked && !playing) tryPointerLock();
@@ -4754,6 +5249,13 @@
         if (e.key === 'Escape') { e.preventDefault(); closeFriends(); }
         return;
       }
+      // While the message compose textarea is focused, handle Escape/Enter only.
+      const msgComposeInputEl = document.getElementById('msg-compose-input');
+      if (msgComposeInputEl && document.activeElement === msgComposeInputEl) {
+        if (e.key === 'Escape') { e.preventDefault(); closeMsgCompose(); }
+        else if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); confirmMsgCompose(); }
+        return;
+      }
       // Escape closes the chat drawer if it is open (before the existing
       // Escape handler that would otherwise return to the overlay).
       if (e.key === 'Escape' && chatOpen) { e.preventDefault(); closeChat(); return; }
@@ -4781,6 +5283,17 @@
         lastRapidPlace = performance.now();
       }
       if (e.code === 'KeyG' && playing && gameMode !== 'spectate') breakBlock();
+      // E: reveal the hidden message in the targeted block (Classic mode only)
+      if (e.code === 'KeyE' && playing && gameMode === 'classic' && target) {
+        const c = target.cell;
+        if (messageBlocks.has(key(c.x, c.y, c.z))) revealMessage(c.x, c.y, c.z);
+      }
+      // N: open / close the message compose overlay (Classic mode only)
+      if (e.code === 'KeyN' && playing && gameMode === 'classic') {
+        e.preventDefault();
+        const overlay = document.getElementById('msg-compose');
+        if (overlay.classList.contains('hidden')) openMsgCompose(); else closeMsgCompose();
+      }
       // Ctrl+Z = undo, Ctrl+Y / Ctrl+Shift+Z = redo (Classic mode only).
       if (e.ctrlKey && e.code === 'KeyZ' && gameMode === 'classic') {
         e.preventDefault();
@@ -4924,6 +5437,7 @@
         bindTap(el, () => {
           if (act === 'break' && playing && gameMode !== 'spectate') breakBlock();
           else if (act === 'hold' && playing && gameMode !== 'spectate') holdBlock();
+          else if (act === 'msgcompose' && playing && gameMode === 'classic') openMsgCompose();
           else if (act === 'undo' && playing && gameMode === 'classic') undoLastMove();
           else if (act === 'stamp') toggleStampMode();
           else if (act === 'menu') {
@@ -4954,6 +5468,8 @@
         '<li><span class="font-semibold">☰ Menu</span> — back to the start screen</li>',
         '<li><span class="font-semibold">Power-ups</span> — collect glowing cubes for Speed, Jump, or Rapid Place (hold Add)</li>',
         '<li><span class="font-semibold">🔊 / 🔇</span> — tap to mute / unmute audio</li>',
+        '<li><span class="font-semibold">📝</span> — tap the write button to hide a message in your next block</li>',
+        '<li><span class="font-semibold">📨</span> — tap Reveal in the attribution label to discover a hidden message</li>',
       ].join('');
       const classicBtn = document.getElementById('play-classic-btn');
       if (classicBtn) classicBtn.textContent = 'Tap to play';
@@ -5114,6 +5630,64 @@
 
     function escapeHtml(s) {
       return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+
+    // ---- Message in a Block ----
+
+    function updateMsgWriteBtn() {
+      const btn = document.getElementById('msg-write-btn');
+      if (!btn) return;
+      btn.classList.toggle('hidden', !(playing && gameMode === 'classic'));
+      const icon = document.getElementById('msg-write-icon');
+      if (icon) icon.textContent = pendingMessage ? '📨' : '📝';
+      btn.title = pendingMessage ? 'Message queued for next placement (N to change)' : 'Write hidden message (N)';
+    }
+
+    function openMsgCompose() {
+      if (gameMode !== 'classic' || !playing) return;
+      const overlay = document.getElementById('msg-compose');
+      overlay.classList.remove('hidden');
+      const inp = document.getElementById('msg-compose-input');
+      inp.value = pendingMessage || '';
+      document.getElementById('msg-compose-counter').textContent = inp.value.length + ' / 200';
+      inp.focus();
+    }
+
+    function closeMsgCompose() {
+      document.getElementById('msg-compose').classList.add('hidden');
+    }
+
+    function confirmMsgCompose() {
+      const val = document.getElementById('msg-compose-input').value.trim();
+      pendingMessage = val || null;
+      updateMsgWriteBtn();
+      closeMsgCompose();
+    }
+
+    async function revealMessage(x, y, z) {
+      try {
+        const res = await fetch('/api/block/' + x + '/' + y + '/' + z + '/reveal', {
+          method: 'POST',
+          headers,
+        });
+        if (res.ok) {
+          const data = await res.json();
+          messageBlocks.delete(key(x, y, z));
+          clearAttribution();
+          toastQueue.push({
+            icon: '📨',
+            name: 'Message found!',
+            _isMessage: true,
+            _authorLine: 'Hidden by ' + data.author_username + ' · ' + relativeTime(data.hidden_at),
+            _body: data.body,
+          });
+          if (!toastShowing) showNextToast();
+        } else if (res.status === 404) {
+          messageBlocks.delete(key(x, y, z));
+          clearAttribution();
+          showBadgeToast({ icon: '📨', name: 'Just missed it!', flavour: 'Another player found this message first.' });
+        }
+      } catch (_) { /* transient */ }
     }
 
     // ---- Share Score: image generation and download ----
@@ -5329,7 +5903,7 @@
 
     function setLeaderboardTab(tab) {
       leaderboardTab = tab;
-      const tabs = { alltime: 'tab-alltime', tournament: 'tab-tournament', ta: 'tab-ta', 'ta-60': 'tab-ta-60', 'daily-challenge': 'tab-daily-challenge', endless: 'tab-endless', puzzle: 'tab-puzzle' };
+      const tabs = { alltime: 'tab-alltime', tournament: 'tab-tournament', monuments: 'tab-monuments', ta: 'tab-ta', 'ta-60': 'tab-ta-60', 'daily-challenge': 'tab-daily-challenge', endless: 'tab-endless', puzzle: 'tab-puzzle' };
       for (const [key2, id] of Object.entries(tabs)) {
         const el = document.getElementById(id);
         if (!el) continue;
@@ -5507,6 +6081,28 @@
       } catch (_) { /* non-fatal */ }
     }
 
+    function renderMonuments({ monuments }) {
+      if (!monuments || !monuments.length) {
+        leaderboardContentEl.innerHTML = '<p class="py-1 text-center text-zinc-400">No monuments yet — build together to create one!</p>';
+        return;
+      }
+      leaderboardContentEl.innerHTML =
+        '<table class="w-full text-xs">' +
+        '<thead><tr class="text-zinc-500 uppercase border-b border-zinc-700">' +
+        '<th class="text-left pb-1 w-6">#</th>' +
+        '<th class="text-left pb-1 pl-2">Monument</th>' +
+        '<th class="text-right pb-1">Builders</th>' +
+        '<th class="text-right pb-1 pl-2">Blocks</th></tr></thead><tbody>' +
+        monuments.map((m, i) =>
+          '<tr class="border-b border-zinc-800/60 last:border-0">' +
+          '<td class="py-1 text-zinc-500">' + (i + 1) + '</td>' +
+          '<td class="py-1 pl-2 max-w-[120px] truncate">' + escapeHtml(m.name) + '</td>' +
+          '<td class="py-1 text-right font-mono text-zinc-100">' + m.contributor_count + '</td>' +
+          '<td class="py-1 text-right font-mono text-zinc-100 pl-2">' + m.block_count + '</td></tr>'
+        ).join('') +
+        '</tbody></table>';
+    }
+
     async function fetchLeaderboard() {
       clearTimeout(leaderboardTimer);
       leaderboardTimer = null;
@@ -5517,6 +6113,14 @@
           renderTournament(await res.json());
         } catch (_) {
           leaderboardContentEl.innerHTML = '<p class="py-1 text-zinc-500">Couldn\'t load tournament.</p>';
+        }
+      } else if (leaderboardTab === 'monuments') {
+        try {
+          const res = await fetch('/api/monuments', { headers });
+          if (!res.ok) throw new Error('fetch failed');
+          renderMonuments(await res.json());
+        } catch (_) {
+          leaderboardContentEl.innerHTML = '<p class="py-1 text-zinc-500">Couldn\'t load monuments.</p>';
         }
       } else if (leaderboardTab === 'ta') {
         try {
@@ -5735,6 +6339,7 @@
     document.getElementById('profile-close').addEventListener('click', closeProfile);
     document.getElementById('tab-alltime').addEventListener('click', () => setLeaderboardTab('alltime'));
     document.getElementById('tab-tournament').addEventListener('click', () => setLeaderboardTab('tournament'));
+    document.getElementById('tab-monuments').addEventListener('click', () => setLeaderboardTab('monuments'));
     document.getElementById('tab-ta').addEventListener('click', () => setLeaderboardTab('ta'));
     document.getElementById('tab-ta-60').addEventListener('click', () => setLeaderboardTab('ta-60'));
     document.getElementById('tab-daily-challenge').addEventListener('click', () => setLeaderboardTab('daily-challenge'));
@@ -6407,7 +7012,7 @@
       // Sync ghost color/opacity to the newly selected block type.
       const p = PALETTE.find((q) => q.id === id);
       if (p) {
-        previewMaterial.color.set(p.color);
+        previewMaterial.color.set(hcColor(p.color));
         // Semi-transparent blocks (Glass) would nearly vanish at full ghost
         // opacity, so scale down proportionally and cap at 0.38.
         previewMaterial.opacity = Math.min(0.38, (p.opacity ?? 1) * 0.55);
@@ -6424,7 +7029,7 @@
           ? p.name + ' (place ' + p.unlockAt + ' blocks to unlock)'
           : p.name + (i < 9 ? ' (' + (i + 1) + ')' : '');
         btn.className = 'relative w-10 h-10 rounded-md ring-offset-1 ring-offset-black/0 transition';
-        btn.style.background = p.color;
+        btn.style.background = hcColor(p.color);
         if (isLocked) {
           btn.style.opacity = '0.35';
           const lock = document.createElement('span');
@@ -6481,7 +7086,7 @@
         swatchEl.className = 'w-10 h-10 rounded-md border-2 border-dashed border-zinc-600 flex items-center justify-center';
         swatchEl.innerHTML = '<span class="text-zinc-600 text-sm font-bold">–</span>';
       } else {
-        swatchEl.style.background = p.color;
+        swatchEl.style.background = hcColor(p.color);
         swatchEl.style.opacity = holdLocked ? '0.4' : '1';
         swatchEl.className = 'w-10 h-10 rounded-md';
         swatchEl.innerHTML = '';
@@ -6518,6 +7123,16 @@
       body.textContent = ' ' + m.body;
       row.appendChild(name);
       row.appendChild(body);
+      // Muted local HH:MM timestamp, derived from the stored created_at.
+      if (m.created_at) {
+        const d = new Date(m.created_at);
+        if (!isNaN(d)) {
+          const time = document.createElement('span');
+          time.className = 'text-zinc-500 text-[10px] ml-1.5 align-baseline';
+          time.textContent = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+          row.appendChild(time);
+        }
+      }
       chatMessagesEl.appendChild(row);
       // Auto-scroll to latest when the drawer is open.
       if (chatOpen) chatMessagesEl.scrollTop = chatMessagesEl.scrollHeight;
@@ -6597,46 +7212,76 @@
       // Escape is handled by the global keydown listener above.
     });
 
+    // ---- Message compose overlay wiring ----
+    document.getElementById('msg-compose-cancel').addEventListener('click', closeMsgCompose);
+    document.getElementById('msg-compose-hide').addEventListener('click', confirmMsgCompose);
+    document.getElementById('msg-compose-input').addEventListener('input', (e) => {
+      document.getElementById('msg-compose-counter').textContent = e.target.value.length + ' / 200';
+    });
+    document.getElementById('msg-write-btn').addEventListener('click', () => {
+      const overlay = document.getElementById('msg-compose');
+      if (overlay.classList.contains('hidden')) openMsgCompose(); else closeMsgCompose();
+    });
+
     // ---- Server sync ----
     async function loadWorld() {
-      const res = await fetch('/api/world', { headers });
-      if (!res.ok) {
-        statusEl.textContent = res.status === 401 ? 'Open this app inside Usernode to play.' : 'Failed to load world.';
+      try {
+        const res = await fetch('/api/world', { headers });
+        if (!res.ok) {
+          if (res.status === 401) {
+            statusEl.textContent = 'Open this app inside Usernode to play.';
+          } else if (res.status === 503) {
+            statusEl.textContent = 'Server is initializing. Please wait...';
+          } else {
+            const data = await res.json().catch(() => ({}));
+            statusEl.textContent = data.error || 'Failed to load world. Please refresh the page.';
+          }
+          return false;
+        }
+        const data = await res.json();
+        DIMS = data.dims;
+        PALETTE = data.palette;
+        cursor = data.cursor || 0;
+        eventsCursor = data.maxDisasterId || 0;
+        unlockedTypes = new Set(data.unlockedTypes || []);
+        isStaging = !!data.isStaging;
+        selectedType = PALETTE[0] ? PALETTE[0].id : 1;
+        blocks.clear();
+        messageBlocks.clear();
+        for (const b of data.blocks) {
+          blocks.set(key(b.x, b.y, b.z), b.t);
+          if (b.m) messageBlocks.add(key(b.x, b.y, b.z));
+        }
+        buildGround();
+        buildGroundGrid();
+        buildPalette();
+        rebuildBlockMeshes();
+        rebuildMonumentMeshes(data.monuments || []);
+        applyA11ySettings(); // reflect any saved accessibility prefs on the live world
+        spawnCamera();
+        // Pre-populate the undo stack in staging so the history panel has visible content.
+        if (isStaging) {
+          const now = Date.now();
+          const demoEntries = [
+            { x: 16, y: 1, z: 13, from: 0, to: 6 },
+            { x: 14, y: 1, z: 14, from: 0, to: 3 },
+            { x: 18, y: 2, z: 16, from: 0, to: 8 },
+            { x: 16, y: 3, z: 14, from: 0, to: 3 },
+            { x: 16, y: 4, z: 16, from: 0, to: 4 },
+          ];
+          for (let i = 0; i < demoEntries.length; i++) {
+            const e = demoEntries[i];
+            const p = PALETTE.find((q) => q.id === e.to);
+            undoStack.push({ ...e, blockName: p ? p.name : 'Block', ts: now - (demoEntries.length - i) * 30000 });
+          }
+          renderHistoryPanel();
+        }
+        return true;
+      } catch (err) {
+        statusEl.textContent = 'Network error loading world. Please check your connection and refresh.';
+        console.error('[loadWorld] fetch error:', err.message);
         return false;
       }
-      const data = await res.json();
-      DIMS = data.dims;
-      PALETTE = data.palette;
-      cursor = data.cursor || 0;
-      eventsCursor = data.maxDisasterId || 0;
-      unlockedTypes = new Set(data.unlockedTypes || []);
-      isStaging = !!data.isStaging;
-      selectedType = PALETTE[0] ? PALETTE[0].id : 1;
-      blocks.clear();
-      for (const b of data.blocks) blocks.set(key(b.x, b.y, b.z), b.t);
-      buildGround();
-      buildGroundGrid();
-      buildPalette();
-      rebuildBlockMeshes();
-      spawnCamera();
-      // Pre-populate the undo stack in staging so the history panel has visible content.
-      if (isStaging) {
-        const now = Date.now();
-        const demoEntries = [
-          { x: 16, y: 1, z: 13, from: 0, to: 6 },
-          { x: 14, y: 1, z: 14, from: 0, to: 3 },
-          { x: 18, y: 2, z: 16, from: 0, to: 8 },
-          { x: 16, y: 3, z: 14, from: 0, to: 3 },
-          { x: 16, y: 4, z: 16, from: 0, to: 4 },
-        ];
-        for (let i = 0; i < demoEntries.length; i++) {
-          const e = demoEntries[i];
-          const p = PALETTE.find((q) => q.id === e.to);
-          undoStack.push({ ...e, blockName: p ? p.name : 'Block', ts: now - (demoEntries.length - i) * 30000 });
-        }
-        renderHistoryPanel();
-      }
-      return true;
     }
 
     async function heartbeat() {
@@ -6754,6 +7399,7 @@
             for (const ch of changes) {
               const k = key(ch.x, ch.y, ch.z);
               if (ch.t === 0) blocks.delete(k); else blocks.set(k, ch.t);
+              if (ch.m) messageBlocks.add(k); else messageBlocks.delete(k);
             }
             rebuildBlockMeshes();
           }
@@ -6763,6 +7409,10 @@
             for (const ev of events) {
               if (gameMode !== 'learn' && gameMode !== 'tutorial') handleDisasterEvent(ev);
             }
+          }
+          if (data.monuments) {
+            const newHash = data.monuments.map(m => m.id).sort().join(',');
+            if (newHash !== lastMonumentHash) rebuildMonumentMeshes(data.monuments);
           }
         }
       } catch (e) { /* transient; next tick retries */ }
@@ -6796,6 +7446,7 @@
     function resize() {
       const w = forceRotated ? window.innerHeight : window.innerWidth;
       const h = forceRotated ? window.innerWidth : window.innerHeight;
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
       renderer.setSize(w, h);
       camera.aspect = w / h;
       camera.updateProjectionMatrix();
@@ -6889,6 +7540,11 @@
             + Math.sin(now * 0.002 + pu.mesh.userData.phase) * 0.12;
           pu.mesh.rotation.y += dt;
         }
+      }
+
+      // Animate monument orbs — gentle slow bob
+      for (const orb of monumentOrbs) {
+        orb.position.y = orb.userData.baseY + Math.sin(now * 0.0015 + orb.userData.phase) * 0.2;
       }
 
       // Animate mob meshes (position + per-type motion).
@@ -7083,6 +7739,26 @@
 
     (async function init() {
       updateOrientation();
+
+      // Register a platform invariant check to catch canvas pixel-dimension
+      // mismatches after orientation changes or DPR shifts. Accounts for the
+      // swapped w/h when the rotor is force-rotated to landscape.
+      if (window.usernode && window.usernode.invariants) {
+        window.usernode.invariants.register('canvas-pixel-dims', function () {
+          const c = document.getElementById('scene');
+          if (!c) return true;
+          const w = forceRotated ? window.innerHeight : window.innerWidth;
+          const h = forceRotated ? window.innerWidth : window.innerHeight;
+          const dpr = Math.min(window.devicePixelRatio, 2);
+          const expW = Math.round(w * dpr);
+          const expH = Math.round(h * dpr);
+          if (c.width !== expW || c.height !== expH) {
+            return 'canvas ' + c.width + 'x' + c.height + ' != expected ' + expW + 'x' + expH;
+          }
+          return true;
+        });
+      }
+
       refreshControlCopy();
       // Initialize audio system and start menu background music. The
       // AudioContext is created here, but browser autoplay policy keeps it
