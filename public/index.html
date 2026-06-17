@@ -252,7 +252,7 @@
       --pastel-soft:  226, 221, 240;   /* inputs / secondary buttons     */
       --pastel-scrim: 52, 47, 70;      /* full-screen modal scrim        */
       /* Deep muted-ink text ramp (was the zinc/white ramp) */
-      --ink-1: #3f3850;
+      --ink-1: #342940;
       --ink-2: #4d4661;
       --ink-3: #5e5773;
       --ink-4: #756d88;
@@ -261,11 +261,11 @@
       /* Pastel border */
       --pastel-border: rgba(120, 108, 150, 0.28);
       /* Pastel accents: base / hover / active / readable ink-on-accent */
-      --acc-violet: #c5b7ea;  --acc-violet-h: #d2c6f1;  --acc-violet-a: #b3a1e2;  --ink-violet: #392e5b;
-      --acc-amber:  #eed2a8;  --acc-amber-h:  #f5e1c3;  --acc-amber-a:  #e6c189;  --ink-amber:  #6a4d22;
-      --acc-teal:   #abdcce;  --acc-teal-h:   #c2e5db;  --acc-teal-a:   #95d2c0;  --ink-teal:   #234d45;
-      --acc-rose:   #ebb8c3;  --acc-rose-h:   #f1cdd5;  --acc-rose-a:   #e3a2b1;  --ink-rose:   #672c3b;
-      --acc-mint:   #b2ddc0;  --acc-mint-h:   #c7e6d1;  --acc-mint-a:   #9cd2ae;  --ink-mint:   #224f37;
+      --acc-violet: #b8a8e8;  --acc-violet-h: #c7b9f1;  --acc-violet-a: #a89ae2;  --ink-violet: #392e5b;
+      --acc-amber:  #f5d499;  --acc-amber-h:  #fce5c3;  --acc-amber-a:  #ecc589;  --ink-amber:  #6a4d22;
+      --acc-teal:   #9ae8d9;  --acc-teal-h:   #b3f1e5;  --acc-teal-a:   #81e5d0;  --ink-teal:   #234d45;
+      --acc-rose:   #f0a8c5;  --acc-rose-h:   #f8bdd5;  --acc-rose-a:   #e89bb1;  --ink-rose:   #672c3b;
+      --acc-mint:   #a4e5c8;  --acc-mint-h:   #b5f0d8;  --acc-mint-a:   #95debc;  --ink-mint:   #224f37;
     }
 
     /* ---- Surfaces: floating panels (formerly dark translucent) ---- */
@@ -317,12 +317,12 @@
     .bg-red-500 { background-color: #e6a2ae !important; }
 
     /* ---- Accent text ---- */
-    .text-amber-400 { color: #b1853a !important; }
-    .text-violet-300 { color: #7b6caf !important; }
+    .text-amber-400 { color: #c9882d !important; }
+    .text-violet-300 { color: #8870c5 !important; }
     /* Status colors: darkened so they read on the light pastel panels */
-    .text-green-400 { color: #3a9d5d !important; }
-    .text-red-400 { color: #c75c6b !important; }
-    .bg-green-400 { background-color: #5cbf82 !important; }
+    .text-green-400 { color: #28b847 !important; }
+    .text-red-400 { color: #d84d5f !important; }
+    .bg-green-400 { background-color: #48d597 !important; }
 
     /* ---- Hover states (re-asserted so !important bases don't kill them) ---- */
     .hover\:bg-black\/70:hover, .hover\:bg-black\/85:hover {
@@ -375,8 +375,8 @@
       position: absolute;
       font-weight: 800;
       font-size: 1.4rem;
-      color: #fbbf24;
-      text-shadow: 0 1px 3px rgba(0,0,0,0.7), 0 0 8px rgba(251,191,36,0.5);
+      color: #ffb700;
+      text-shadow: 0 1px 3px rgba(0,0,0,0.7), 0 0 8px rgba(255,183,0,0.5);
       white-space: nowrap;
       will-change: transform, opacity;
     }
@@ -1267,10 +1267,10 @@
 
     // Sky color keyframes: [midnight, dawn, noon, dusk]
     const SKY_KEYS = [
-      { zenith: new THREE.Color('#050a1a'), horizon: new THREE.Color('#0a1230'), fog: new THREE.Color('#0a1230'), ambient: 0.30, sunInt: 0.0, sunColor: new THREE.Color('#b0c8ff') },
-      { zenith: new THREE.Color('#1a2a6c'), horizon: new THREE.Color('#ff7043'), fog: new THREE.Color('#d46b38'), ambient: 0.50, sunInt: 0.5, sunColor: new THREE.Color('#ffb070') },
-      { zenith: new THREE.Color('#5ab4f5'), horizon: new THREE.Color('#8ec7ff'), fog: new THREE.Color('#8ec7ff'), ambient: 0.65, sunInt: 0.9, sunColor: new THREE.Color('#fff8e0') },
-      { zenith: new THREE.Color('#1a2a6c'), horizon: new THREE.Color('#ff5722'), fog: new THREE.Color('#c04020'), ambient: 0.50, sunInt: 0.5, sunColor: new THREE.Color('#ff9040') },
+      { zenith: new THREE.Color('#05101f'), horizon: new THREE.Color('#0a1230'), fog: new THREE.Color('#0a1230'), ambient: 0.30, sunInt: 0.0, sunColor: new THREE.Color('#b0c8ff') },
+      { zenith: new THREE.Color('#1a2a6c'), horizon: new THREE.Color('#ff5722'), fog: new THREE.Color('#d85f1f'), ambient: 0.50, sunInt: 0.5, sunColor: new THREE.Color('#ffb070') },
+      { zenith: new THREE.Color('#4ab8ff'), horizon: new THREE.Color('#7dd9ff'), fog: new THREE.Color('#7dd9ff'), ambient: 0.65, sunInt: 0.9, sunColor: new THREE.Color('#fffaeb') },
+      { zenith: new THREE.Color('#1a2a6c'), horizon: new THREE.Color('#ff4500'), fog: new THREE.Color('#b83a0a'), ambient: 0.50, sunInt: 0.5, sunColor: new THREE.Color('#ff9040') },
     ];
 
     function skyColors(phase) {
@@ -1297,8 +1297,8 @@
       depthWrite: false,
       side: THREE.BackSide,
       uniforms: {
-        uZenith:  { value: new THREE.Color('#5ab4f5') },
-        uHorizon: { value: new THREE.Color('#8ec7ff') },
+        uZenith:  { value: new THREE.Color('#4ab8ff') },
+        uHorizon: { value: new THREE.Color('#7dd9ff') },
       },
       vertexShader: `
         varying float vY;
@@ -1468,9 +1468,9 @@
     // ---- Power-up geometry, materials, and scene group ----
     const powerupGeom = new THREE.BoxGeometry(0.5, 0.5, 0.5);
     const POWERUP_DEFS = {
-      speed_boost: { color: '#FFD700', label: 'Speed Boost' },
-      super_jump:  { color: '#22d3ee', label: 'Super Jump'  },
-      rapid_place: { color: '#fb923c', label: 'Rapid Place' },
+      speed_boost: { color: '#FFC700', label: 'Speed Boost' },
+      super_jump:  { color: '#00E5FF', label: 'Super Jump'  },
+      rapid_place: { color: '#FF8C00', label: 'Rapid Place' },
     };
     const powerupMats = {};
     for (const [type, def] of Object.entries(POWERUP_DEFS)) {
@@ -1568,7 +1568,7 @@
       for (let _k = 0; _k < 3; _k++) {
         const slot = _acquireParticle();
         if (!slot) break;
-        slot.mesh.material.color.set(0x9a8070);
+        slot.mesh.material.color.set(0x8b6f47);
         slot.mesh.material.opacity = 0.7;
         slot.startOpacity = 0.7;
         slot.vx = (Math.random() - 0.5) * 0.6;
@@ -1672,7 +1672,7 @@
     function buildGroundGrid() {
       if (groundGrid) { scene.remove(groundGrid); groundGrid = null; }
       const SIZE = 400;
-      const grid = new THREE.GridHelper(SIZE, SIZE, 0x6b7a8d, 0x44505f);
+      const grid = new THREE.GridHelper(SIZE, SIZE, 0x7c8fa3, 0x44505f);
       grid.position.set(DIMS.w / 2, -0.01, DIMS.d / 2);
       grid.material.transparent = true;
       grid.material.opacity = 0.35;
@@ -1865,7 +1865,7 @@
     function showDisasterFlash(type) {
       const el = document.getElementById('disaster-flash');
       if (!el) return;
-      const colors = { earthquake: 'rgba(255,220,50,0.35)', eruption: 'rgba(255,100,0,0.4)', meteor: 'rgba(255,255,255,0.5)' };
+      const colors = { earthquake: 'rgba(255,200,20,0.4)', eruption: 'rgba(255,70,0,0.45)', meteor: 'rgba(255,240,200,0.5)' };
       el.style.background = colors[type] || 'rgba(255,255,255,0.4)';
       el.classList.remove('hidden');
       el.style.opacity = '1';
@@ -4523,7 +4523,7 @@
     (function () {
       var c = canvases[0];
       var ctx = ctxs[0];
-      var COLORS = ['#4a8a2d','#6b4828','#6e6e73','#857d32','#306f27','#aca26b','#7a3a2f'];
+      var COLORS = ['#3dd847','#b8643e','#a8aeb8','#d4944f','#2ac142','#fce67f','#f04a38'];
       var BLOCK = 14;
       var grid = null;
       var frame = 0;
@@ -4589,7 +4589,7 @@
     (function () {
       var c = canvases[1];
       var ctx = ctxs[1];
-      var TA_COLORS = ['#a42e2e','#2e55a3','#b19a2d','#7a3a2f','#aca26b','#6e6e73'];
+      var TA_COLORS = ['#d12121','#1e5fc0','#d4a817','#b8643e','#c4a872','#a8aeb8'];
       var blocks = [];
       var score = 0;
       var frame = 0;
@@ -4685,7 +4685,7 @@
     (function () {
       var c = canvases[2];
       var ctx = ctxs[2];
-      var ENDLESS_COLORS = ['#c0a872','#a98b5f','#92754d','#7a5f3b','#8a7050'];
+      var ENDLESS_COLORS = ['#d4b860','#b89a5f','#a8764d','#9a6b48','#b8825f'];
       var blocks = [];
       var frame = 0;
       var BSIZE = 14;
@@ -4745,7 +4745,7 @@
     (function () {
       var c = canvases[3];
       var ctx = ctxs[3];
-      var LEARN_COLORS = ['#a8e6a8','#b8d4c8','#c4a9d4','#d9e5a0','#f0d9a0','#e0c9b0'];
+      var LEARN_COLORS = ['#90e890','#a8dcc8','#d4a8e8','#d9f090','#ffe880','#f0d9b8'];
       var grid = null;
       var frame = 0;
       var BLOCK = 18;
@@ -4812,8 +4812,8 @@
     (function () {
       var c = canvases[4];
       var ctx = ctxs[4];
-      var FAR_COLORS  = ['#306f27','#4a8a2d','#6b4828','#6e6e73','#4a8a2d','#306f27','#6b4828'];
-      var NEAR_COLORS = ['#4a8a2d','#6b4828','#4a8a2d','#6e6e73','#4a8a2d','#6b4828','#4a8a2d'];
+      var FAR_COLORS  = ['#2ac142','#3dd847','#b8643e','#a8aeb8','#3dd847','#2ac142','#b8643e'];
+      var NEAR_COLORS = ['#3dd847','#b8643e','#3dd847','#a8aeb8','#3dd847','#b8643e','#3dd847'];
       var BW = 18; // block width in the parallax strips
       var farOff = 0, nearOff = 0;
 
@@ -4877,7 +4877,7 @@
   (function () {
     var bgCanvas = document.getElementById('bg-canvas');
     var ctx = bgCanvas.getContext('2d');
-    var COLORS = ['#4a8a2d','#6e6e73','#aca26b','#7a3a2f','#2e55a3','#c09b35'];
+    var COLORS = ['#3dd847','#a8aeb8','#d4b860','#b8643e','#1e5fc0','#ffb800'];
     var particles = [];
 
     function rand(min, max) { return min + Math.random() * (max - min); }
