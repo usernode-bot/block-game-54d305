@@ -2077,7 +2077,17 @@ app.post('/api/coach/tip', async (req, res) => {
       const body = await resp.json().catch(() => ({}));
       if (body.code === 'grant_required') return res.status(403).json({ error: 'grant_required' });
     }
-    if (resp.status === 429) return res.status(429).json({ error: 'unavailable' });
+    if (resp.status === 429) {
+      let body = {};
+      try {
+        body = await resp.json();
+      } catch (e) {
+        console.warn('coach tip 429 response body invalid JSON', e.message);
+      }
+      console.error('coach tip 429 rate limit', { code: body.code, type: body.type, spent: body.spent, limit: body.limit });
+      const budgetType = body.code === 'app_cap_exceeded' ? 'daily' : (body.code === 'budget_exceeded' ? 'system' : undefined);
+      return res.status(429).json({ error: 'unavailable', budgetType, retryAfter: resp.headers.get('Retry-After') });
+    }
     if (!resp.ok) return res.status(500).json({ error: 'unavailable' });
 
     const llmData = await resp.json();

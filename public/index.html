@@ -5239,9 +5239,9 @@
       }, 8000);
     }
 
-    function showCoachUnavailable() {
+    function showCoachUnavailable(message) {
       const prev = coachTipTextEl.textContent;
-      coachTipTextEl.textContent = 'Coach is resting — try again later.';
+      coachTipTextEl.textContent = message || 'Coach is resting — try again later.';
       coachBubbleEl.classList.remove('hidden');
       void coachBubbleEl.offsetWidth;
       coachBubbleEl.style.opacity = '1';
@@ -5299,6 +5299,16 @@
               }
             } catch (_) { /* bridge unavailable */ }
           }
+          return;
+        }
+        if (res.status === 429) {
+          let errorMsg = 'Coach is resting — try again later.';
+          if (data.budgetType === 'daily') {
+            errorMsg = 'You've used your daily AI coach budget. Resets at midnight UTC.';
+          } else if (data.budgetType === 'system') {
+            errorMsg = 'The AI service is temporarily unavailable.';
+          }
+          if (trigger === 'player_asked') showCoachUnavailable(errorMsg);
           return;
         }
         if (!res.ok || !data.tip) {
