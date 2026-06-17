@@ -2337,7 +2337,7 @@
     function handleDisasterEvent(event) {
       showDisasterToast(event);
       startCameraShake(event.type);
-      Audio.playDisasterSound(event.type);
+      audio.playDisasterSound(event.type);
       showDisasterFlash(event.type);
     }
 
@@ -5738,8 +5738,24 @@
     (async function init() {
       updateOrientation();
       refreshControlCopy();
-      // Initialize audio system and start menu background music
+      // Initialize audio system and start menu background music. The
+      // AudioContext is created here, but browser autoplay policy keeps it
+      // suspended until the player's first gesture — so also wire one-shot
+      // listeners that re-run the (idempotent) init on first interaction,
+      // which actually resumes the context and makes the menu music audible.
       audio.init();
+      let audioGestureDone = false;
+      const resumeAudioOnGesture = () => {
+        if (audioGestureDone) return;
+        audioGestureDone = true;
+        audio.init();
+        document.removeEventListener('pointerdown', resumeAudioOnGesture);
+        document.removeEventListener('keydown', resumeAudioOnGesture);
+        document.removeEventListener('touchstart', resumeAudioOnGesture);
+      };
+      document.addEventListener('pointerdown', resumeAudioOnGesture);
+      document.addEventListener('keydown', resumeAudioOnGesture);
+      document.addEventListener('touchstart', resumeAudioOnGesture);
       const ok = await loadWorld();
       if (!ok) return;
       // Fetch earned badges so the panel renders correctly from the first open.
