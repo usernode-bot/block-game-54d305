@@ -621,6 +621,7 @@
         </div>
       </div>
       <div id="tournament-teaser" class="hidden mt-3 rounded-xl bg-zinc-900/60 px-4 py-2.5 text-xs text-zinc-300"></div>
+      <div id="prompt-teaser" class="hidden mt-2 rounded-xl bg-zinc-900/60 px-4 py-2.5 text-xs text-zinc-300"></div>
       <div id="status" class="mt-3 text-xs text-zinc-500 text-center"></div>
       <div class="mt-2 text-center">
         <button id="accessibility-link" class="text-xs text-zinc-400 hover:text-zinc-100 underline underline-offset-2 cursor-pointer transition-colors">♿ Accessibility</button>
@@ -630,6 +631,34 @@
         <p class="mb-1" id="footer-copyright">© 2026 block-game</p>
         <p id="footer-credit">Built with Three.js and Tailwind CSS</p>
       </div>
+    </div>
+  </div>
+
+  <!-- Energy display: shown in top-left while playing -->
+  <div id="energy-display" class="hidden fixed top-3 left-3 z-20 bg-black/50 backdrop-blur rounded-lg px-4 py-2 text-sm text-zinc-200">
+    <div class="font-semibold text-violet-300 mb-1">🎫 Tickets</div>
+    <div id="energy-status" class="text-xs text-zinc-300"></div>
+    <div id="energy-countdown" class="text-xs text-zinc-500 mt-1"></div>
+  </div>
+
+  <!-- Energy spend modal: shown when user has no tickets left -->
+  <div id="energy-modal" class="hidden fixed inset-0 z-40 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+    <div class="bg-zinc-900/95 rounded-xl p-6 max-w-sm w-full mx-4 text-center">
+      <h2 class="text-xl font-bold text-zinc-100 mb-2">No Tickets Remaining</h2>
+      <p class="text-sm text-zinc-400 mb-4">You've used all 5 daily tickets. Burn points to play more, or check back tomorrow.</p>
+
+      <div id="energy-countdown-modal" class="text-xs text-zinc-500 mb-4"></div>
+
+      <div class="space-y-2 mb-4">
+        <button id="burn-points-btn" class="w-full px-4 py-3 rounded-lg bg-amber-600 hover:bg-amber-500 font-semibold text-sm transition hover:scale-[1.02] active:scale-[0.98] text-white">
+          🔥 Burn <span id="points-cost">100</span> Points for 1 Play
+        </button>
+        <div id="points-availability" class="text-xs text-zinc-500">Points available: <span id="points-available">0</span></div>
+      </div>
+
+      <button id="energy-modal-close" class="w-full px-4 py-2 rounded-lg bg-zinc-700 hover:bg-zinc-600 font-semibold text-sm transition text-zinc-100">
+        Close
+      </button>
     </div>
   </div>
 
@@ -687,11 +716,15 @@
   </div>
 
   <!-- Block palette -->
-  <div id="palette" class="fixed bottom-4 left-1/2 -translate-x-1/2 z-20 flex gap-1.5 p-1.5 rounded-xl bg-black/50 backdrop-blur"></div>
+  <div id="palette" class="fixed bottom-4 left-1/2 -translate-x-1/2 z-20 flex gap-1.5 p-1.5 rounded-xl bg-black/50 backdrop-blur max-w-[calc(100vw-2rem)] overflow-x-auto"></div>
 
   <!-- Badges toggle: sits to the left of the mute button. -->
   <button id="badges-btn" title="Badges" aria-label="Toggle badges"
           class="fixed top-3 z-30 w-12 h-12 sm:w-9 sm:h-9 rounded-full bg-black/50 hover:bg-black/70 text-zinc-100 text-lg leading-none flex items-center justify-center transition hover:scale-110 active:scale-95 cursor-pointer">🏆</button>
+
+  <!-- Pet companion toggle: sits to the left of the badges button. -->
+  <button id="pet-btn" title="Pet Companions" aria-label="Toggle pet companions"
+          class="fixed top-3 z-30 w-9 h-9 rounded-full bg-black/50 hover:bg-black/70 text-zinc-100 text-lg leading-none flex items-center justify-center transition-colors cursor-pointer" style="right: 9.5rem">🐾</button>
 
   <!-- Audio mute toggle: sits to the left of the help button. -->
   <button id="mute-btn" title="Mute/unmute audio (M)" aria-label="Toggle audio"
@@ -815,6 +848,13 @@
           <span id="settings-sound-knob" class="absolute top-0.5 left-0.5 w-6 h-6 rounded-full bg-white shadow transition-transform" style="transform: translateX(20px)"></span>
         </button>
       </div>
+      <!-- Music volume slider -->
+      <div class="text-zinc-300 pt-3 border-t border-zinc-700">
+        <div class="font-semibold text-zinc-100 mb-2" id="settings-music-volume-label">Music Volume</div>
+        <input type="range" id="settings-music-volume" min="0" max="100" value="70" aria-label="Music volume"
+               class="w-full h-2 bg-zinc-700 rounded-lg appearance-none cursor-pointer accent-emerald-600" />
+        <div class="text-xs text-zinc-400 mt-1">Reggae background music level</div>
+      </div>
       <!-- Language toggle -->
       <div class="flex items-center justify-between gap-3">
         <div>
@@ -867,8 +907,21 @@
     </div>
   </div>
 
+  <!-- Pet companions panel: equip / unequip pixel pet. Hidden by default. -->
+  <div id="pet-panel" class="hidden fixed top-16 z-30 w-80 max-w-[90vw] rounded-xl bg-black/70 backdrop-blur p-4 text-sm text-zinc-200 shadow-xl" style="right: 3rem">
+    <div class="flex items-center justify-between mb-3">
+      <h2 class="font-bold text-zinc-100">Pet Companions</h2>
+      <button id="pet-close" aria-label="Close pets" class="text-zinc-400 hover:text-zinc-100 cursor-pointer leading-none">✕</button>
+    </div>
+    <div id="pet-grid" class="grid grid-cols-3 gap-2"></div>
+    <p id="pet-hint" class="mt-3 text-xs text-zinc-400 text-center">Place more blocks to unlock companions!</p>
+  </div>
+
   <!-- Badge toast container: toasts stack above the palette, bottom-centre. -->
   <div id="badge-toasts" class="pointer-events-none fixed left-1/2 -translate-x-1/2 z-40 flex flex-col-reverse items-center gap-2" style="bottom: 5.5rem"></div>
+
+  <!-- Daily Prompt HUD: compact pill above the streak HUD. Bottom set by JS. -->
+  <div id="prompt-hud" class="hidden pointer-events-none fixed right-3 z-20 w-36 rounded-lg bg-black/55 px-2 py-1.5 text-xs text-white/90"></div>
 
   <!-- Login Streak HUD: compact pill above the daily challenge bar. Bottom set by JS. -->
   <div id="streak-hud" class="hidden pointer-events-none fixed right-3 z-20 rounded-lg bg-black/55 px-2 py-1.5 text-xs text-white/90 font-semibold whitespace-nowrap"></div>
@@ -909,11 +962,28 @@
       <li><span class="font-semibold">Enter</span> — open / close chat</li>
       <li><span class="font-semibold">L</span> or <span class="font-semibold">🏆</span> — leaderboard</li>
       <li><span class="font-semibold">M</span> or <span class="font-semibold">🔊</span> — mute / unmute audio</li>
+      <li><span class="font-semibold">N</span> — write a hidden message (attached to next block placed)</li>
+      <li><span class="font-semibold">E</span> — reveal hidden message (when 📨 shows below crosshair)</li>
       <li><span class="font-semibold">Ctrl+Z</span> — undo last action (Classic)</li>
       <li><span class="font-semibold">Ctrl+Y</span> — redo (Classic)</li>
       <li><span class="font-semibold">Esc</span> — close panel / release / menu</li>
       <li><span class="font-semibold">Power-ups</span> — collect glowing cubes for Speed, Jump, or Rapid Place (hold F/Add)</li>
     </ul>
+  </div>
+
+  <!-- Message compose overlay: shown when pressing N in Classic mode.
+       Positioned above the palette so it does not cover the world. -->
+  <div id="msg-compose" class="hidden fixed z-30 left-1/2 -translate-x-1/2 bg-zinc-900/95 backdrop-blur rounded-xl shadow-xl px-4 py-3 w-80 max-w-[90vw]" style="bottom:5.5rem">
+    <div class="text-xs font-semibold text-zinc-300 mb-2">📝 Hide a message in your next block</div>
+    <textarea id="msg-compose-input" maxlength="200" rows="3" placeholder="Write your secret message…"
+              class="w-full bg-zinc-800 text-zinc-100 text-sm rounded-lg px-3 py-2 border border-zinc-700 focus:border-violet-500 outline-none placeholder-zinc-500 resize-none"></textarea>
+    <div class="flex items-center justify-between mt-2">
+      <span id="msg-compose-counter" class="text-xs text-zinc-500">0 / 200</span>
+      <div class="flex gap-2">
+        <button id="msg-compose-cancel" class="px-3 py-1.5 text-xs rounded bg-zinc-700 hover:bg-zinc-600 text-zinc-200 cursor-pointer">Cancel</button>
+        <button id="msg-compose-hide" class="px-3 py-1.5 text-xs rounded bg-violet-600 hover:bg-violet-500 text-white font-semibold cursor-pointer">Hide</button>
+      </div>
+    </div>
   </div>
 
   <!-- Accessibility panel: two independent toggles (larger text, higher
@@ -942,7 +1012,6 @@
     </div>
     <p class="text-zinc-500 text-[11px] mt-4">Saved on this device.</p>
   </div>
-
   <!-- Tutorial overlay: shown once to first-time Classic players.
        Spotlight + tooltip card walk through 5 core mechanics.
        Dismissed state stored in localStorage under blockgame-tutorial-seen. -->
@@ -965,6 +1034,13 @@
     </div>
   </div>
 
+  <!-- Write-message button: shown in Classic mode to the right of the palette.
+       Icon switches to 📨 when a message is queued for the next placement. -->
+  <button id="msg-write-btn" class="hidden fixed bottom-4 right-4 z-20 w-10 h-10 rounded-xl bg-black/50 hover:bg-black/70 text-lg flex items-center justify-center transition-colors cursor-pointer" title="Write hidden message (N)">
+    <span id="msg-write-icon">📝</span>
+  </button>
+
+
   <!-- Leaderboard overlay: top 10 builders. Hidden by default; toggled by
        pressing `l` or clicking the trophy button. -->
   <div id="leaderboard" class="hidden fixed top-28 right-3 z-30 w-full sm:w-72 max-w-[90vw] rounded-xl bg-black/70 backdrop-blur px-3 py-4 sm:p-4 text-base sm:text-sm text-zinc-200 shadow-xl">
@@ -978,6 +1054,7 @@
         <button id="tab-daily-challenge" class="px-2 py-0.5 rounded text-xs font-semibold text-zinc-400 hover:text-zinc-200 cursor-pointer transition-colors whitespace-nowrap" data-tab="daily">Daily</button>
         <button id="tab-endless" class="px-2 py-0.5 rounded text-xs font-semibold text-zinc-400 hover:text-zinc-200 cursor-pointer transition-colors whitespace-nowrap" data-tab="endless">Endless</button>
         <button id="tab-puzzle" class="px-2 py-0.5 rounded text-xs font-semibold text-zinc-400 hover:text-zinc-200 cursor-pointer transition-colors whitespace-nowrap" data-tab="puzzle">Puzzle</button>
+        <button id="tab-prompt" class="px-2 py-0.5 rounded text-xs font-semibold text-zinc-400 hover:text-zinc-200 cursor-pointer transition-colors whitespace-nowrap" data-tab="prompt">Prompt</button>
       </div>
       <button id="leaderboard-close" aria-label="Close leaderboard" class="text-zinc-400 hover:text-zinc-100 cursor-pointer leading-none transition-colors">✕</button>
     </div>
@@ -1337,7 +1414,7 @@
 
     // Build identifier — bump this (to the deploying commit short SHA) on every
     // change so the top-right stamp confirms exactly which code is running.
-    const BUILD_VERSION = 'power-ups+hold-queue+achievements-badges+chat+daily-challenge+leaderboard+online-presence+block-attribution+audio-sfx+next-piece-preview+spectator-mode+weekly-tournament+friends+blocks-placed-hud+day-night-cycle+minimap+ai-coach+daily-theme-voting+natural-disasters+community-monuments+undo-redo-history+pastel-chrome+mobs+accessibility-panel+versus-mode';
+    const BUILD_VERSION = 'power-ups+hold-queue+achievements-badges+chat+daily-challenge+leaderboard+online-presence+block-attribution+audio-sfx+next-piece-preview+spectator-mode+weekly-tournament+friends+blocks-placed-hud+day-night-cycle+minimap+ai-coach+daily-theme-voting+natural-disasters+community-monuments+undo-redo-history+pastel-chrome+mobs+message-in-a-block+accessibility-panel+pixel-pets+versus-mode';
 
     // Badge definitions — mirror of the server-side BADGES array, extended with
     // a `hint` field shown in the panel for unearned badges.
@@ -1355,9 +1432,8 @@
       { id: 'crystal_placer',  name: 'Crystal Placer',  icon: '💎', flavour: 'Placed a Crystal Block!',        hint: 'Place a Crystal Block (unlock by placing 50 blocks first)' },
       { id: 'streak_3',        name: 'Hot Start',       icon: '🔥', flavour: 'Logged in 3 days in a row!',     hint: 'Log in 3 days in a row' },
       { id: 'streak_7',        name: 'Week Warrior',    icon: '🗓️', flavour: 'A full week of building!',       hint: 'Log in 7 days in a row' },
-      { id: 'streak_14',       name: 'Fortnight Pro',   icon: '🏆', flavour: 'Two weeks of daily play!',       hint: 'Log in 14 days in a row' },
-      { id: 'streak_30',       name: 'Monthly Master',  icon: '👑', flavour: 'A full month on the block!',     hint: 'Log in 30 days in a row' },
-      { id: 'theme_winner',   name: 'Theme Champion',  icon: '🥇', flavour: 'First place in the daily build theme vote!', hint: 'Win the daily build theme vote' },
+      { id: 'theme_winner',    name: 'Theme Champion',  icon: '🥇', flavour: 'First place in the daily build theme vote!', hint: 'Win the daily build theme vote' },
+      { id: 'daily_devotee',   name: 'Daily Devotee',   icon: '🌟', flavour: 'Completed the daily challenge 7 days in a row!', hint: 'Complete the daily challenge 7 days in a row' },
     ];
 
     // Touch capability: drives (a) the on-screen control overlay, (b) skipping
@@ -1628,6 +1704,7 @@
         if (ctx.state === 'suspended') ctx.resume();
         playJoin();
         startMusic();
+        loadReggae();
       }
 
       function playLineClear() {
@@ -1641,7 +1718,78 @@
         });
       }
 
-      return { init, playPlace, playBreak, playDisasterSound, playGameOver, playFanfare, toggleMute, isMuted, playLineClear, stopMusic };
+      // Reggae background music playback
+      let reggaeBuffer = null;
+      let reggaeSource = null;
+      let reggaeGain = null;
+      let reggaeVolume = parseFloat(localStorage.getItem('blockgame-reggae-volume') || '0.7');
+      let reggaePlaying = false;
+
+      async function loadReggae() {
+        if (reggaeBuffer) return; // Already loaded
+        try {
+          const response = await fetch('/music/reggae.wav');
+          if (!response.ok) {
+            console.warn('Reggae audio file not found');
+            return;
+          }
+          const arrayBuffer = await response.arrayBuffer();
+          reggaeBuffer = await ctx.decodeAudioData(arrayBuffer);
+        } catch (e) {
+          console.warn('Failed to load reggae music:', e);
+        }
+      }
+
+      function startReggae() {
+        if (!ctx || !reggaeBuffer || reggaePlaying) return;
+        reggaePlaying = true;
+
+        if (!reggaeGain) {
+          reggaeGain = ctx.createGain();
+          reggaeGain.connect(masterGain);
+        }
+
+        reggaeGain.gain.setValueAtTime(muted ? 0 : reggaeVolume * 0.7, ctx.currentTime);
+
+        reggaeSource = ctx.createBufferSource();
+        reggaeSource.buffer = reggaeBuffer;
+        reggaeSource.loop = true;
+        reggaeSource.connect(reggaeGain);
+        reggaeSource.start(ctx.currentTime);
+      }
+
+      function stopReggae() {
+        if (reggaeSource) {
+          try {
+            reggaeSource.stop(ctx.currentTime);
+          } catch (_) {}
+          reggaeSource = null;
+        }
+        reggaePlaying = false;
+      }
+
+      function setReggaeVolume(level) {
+        reggaeVolume = Math.max(0, Math.min(1, level));
+        localStorage.setItem('blockgame-reggae-volume', String(reggaeVolume));
+        if (reggaeGain && ctx) {
+          reggaeGain.gain.setValueAtTime(muted ? 0 : reggaeVolume * 0.7, ctx.currentTime);
+        }
+      }
+
+      function syncReggaeMute() {
+        if (reggaeGain && ctx) {
+          reggaeGain.gain.setValueAtTime(muted ? 0 : reggaeVolume * 0.7, ctx.currentTime);
+        }
+      }
+
+      // Override toggleMute to also sync reggae
+      const originalToggleMute = toggleMute;
+      function toggleMuteWithReggae() {
+        originalToggleMute();
+        syncReggaeMute();
+      }
+
+      return { init, playPlace, playBreak, playDisasterSound, playGameOver, playFanfare, toggleMute: toggleMuteWithReggae, isMuted, playLineClear, stopMusic, startReggae, stopReggae, setReggaeVolume, loadReggae };
     })();
 
     // ---- Language system ----
@@ -1982,6 +2130,11 @@
     const STREAK_GAP_PX = 6;
     streakHudEl.style.bottom = (challengeBaseBottomPx + saBottomPx + CHALLENGE_HUD_HEIGHT_PX + STREAK_GAP_PX) + 'px';
 
+    // Prompt HUD pill sits above the streak HUD.
+    const promptHudEl = document.getElementById('prompt-hud');
+    const STREAK_HUD_HEIGHT_PX = 28; // approx rendered height (px) of streak pill
+    promptHudEl.style.bottom = (challengeHudBottomPx + CHALLENGE_HUD_HEIGHT_PX + STREAK_GAP_PX + STREAK_HUD_HEIGHT_PX + STREAK_GAP_PX) + 'px';
+
     // Apply touch-device layout overrides once at startup.
     if (isTouch) {
       document.body.classList.add('touch-device');
@@ -2013,6 +2166,10 @@
     let selectedType = 1;
     let unlockedTypes = new Set(); // block type IDs earned by the current user
     const key = (x, y, z) => x + ',' + y + ',' + z;
+
+    // ---- Message in a Block state ----
+    let pendingMessage = null;        // string queued for next placement, or null
+    const messageBlocks = new Set();  // "x,y,z" keys that have an unfound hidden message
 
     // ---- Power-up state ----
     const powerupMap = new Map(); // id -> { type, x, y, z, mesh }
@@ -2182,6 +2339,13 @@
     // ---- Blocks placed (lifetime) ----
     let myBlocksPlaced = 0;
 
+    // ---- Pet companion state ----
+    let petTypes = [];              // full PET_TYPES array from /api/world
+    let unlockedPets = new Set();   // pet ids the player has earned
+    let activePet = null;           // currently equipped pet id, or null
+    let petMesh = null;             // THREE.Group for the active pet, added to scene
+    let petPanelOpen = false;
+
     // ---- Game mode state ----
     let gameMode = null;           // null | 'classic' | 'timeattack' | 'endless' | 'learn' | 'tutorial' | 'time-attack-60'
     const taBlocks = new Map();    // TA layout: client-only, never written to server
@@ -2254,16 +2418,24 @@
     } catch (_) {}
 
     // ---- Three.js scaffold ----
-    const canvas = document.getElementById('scene');
-    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    const scene = new THREE.Scene();
-    scene.background = null;
-    scene.fog = new THREE.Fog('#8ec7ff', 40, 90);
+    let renderer, scene, camera;
+    try {
+      const canvas = document.getElementById('scene');
+      if (!canvas) throw new Error('Canvas element (id="scene") not found');
+      renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+      scene = new THREE.Scene();
+      scene.background = null;
+      scene.fog = new THREE.Fog('#8ec7ff', 40, 90);
 
-    const camera = new THREE.PerspectiveCamera(70, 1, 0.1, 500);
-    camera.up.set(0, 1, 0);
-    camera.position.set(DIMS.w / 2, 3.5, DIMS.d / 2 + 8);
+      camera = new THREE.PerspectiveCamera(70, 1, 0.1, 500);
+      camera.up.set(0, 1, 0);
+      camera.position.set(DIMS.w / 2, 3.5, DIMS.d / 2 + 8);
+    } catch (err) {
+      console.error('[Three.js] Initialization failed:', err.message);
+      statusEl.textContent = 'Failed to initialize 3D renderer. Your browser may not support WebGL.';
+      throw err;
+    }
 
     const ambientLight = new THREE.AmbientLight(0xffffff, 0.65);
     scene.add(ambientLight);
@@ -2848,6 +3020,7 @@
       toast.className = 'flex items-center gap-3 bg-black/85 backdrop-blur rounded-xl px-4 py-2.5 text-sm text-zinc-100 shadow-xl' +
         (badge._isUnlock ? ' ring-2 ring-violet-500/60' : '') +
         (badge._isDisaster ? ' ring-2 ring-red-500/60' : '') +
+        (badge._isMessage ? ' ring-2 ring-violet-400/60' : '') +
         (badge._isMonument ? ' ring-2 ring-yellow-500/60' : '');
       toast.style.cssText = 'opacity:0;transition:opacity 0.3s;';
       const iconSpan = document.createElement('span');
@@ -2859,7 +3032,17 @@
       nameDiv.textContent = badge.name;
       const subDiv = document.createElement('div');
       subDiv.className = 'text-zinc-400 text-xs mt-0.5';
-      subDiv.textContent = badge.flavour;
+      if (badge._isMessage) {
+        const authorLine = document.createElement('div');
+        authorLine.textContent = badge._authorLine || '';
+        const bodyLine = document.createElement('div');
+        bodyLine.className = 'text-zinc-200 italic mt-0.5';
+        bodyLine.textContent = '“' + (badge._body || '') + '”';
+        subDiv.appendChild(authorLine);
+        subDiv.appendChild(bodyLine);
+      } else {
+        subDiv.textContent = badge.flavour;
+      }
       textDiv.appendChild(nameDiv);
       textDiv.appendChild(subDiv);
       toast.appendChild(iconSpan);
@@ -2867,7 +3050,7 @@
       container.appendChild(toast);
       // Trigger opacity transition after insertion.
       requestAnimationFrame(() => { toast.style.opacity = '1'; });
-      const displayMs = toastQueue.length > 0 ? 3000 : 4000;
+      const displayMs = badge._isMessage ? 7000 : (toastQueue.length > 0 ? 3000 : 4000);
       setTimeout(() => {
         toast.style.opacity = '0';
         setTimeout(() => { toast.remove(); showNextToast(); }, 300);
@@ -2882,6 +3065,72 @@
     function showUnlockToast(item) {
       toastQueue.push({ icon: item.icon, name: item.name, flavour: item.description, _isUnlock: true });
       if (!toastShowing) showNextToast();
+    }
+
+    // ---- Pixel pet mesh builder ----
+    function buildPetMesh(petDef) {
+      const g = new THREE.Group();
+      const c = new THREE.Color(petDef.color || '#e8a857');
+      const op = petDef.opacity !== undefined ? petDef.opacity : 1.0;
+      const transparent = op < 1;
+
+      function box(w, h, d, col, alpha) {
+        const mat = (alpha !== undefined && alpha < 1)
+          ? new THREE.MeshLambertMaterial({ color: new THREE.Color(col || c), transparent: true, opacity: alpha })
+          : new THREE.MeshLambertMaterial({ color: col ? new THREE.Color(col) : c });
+        return new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
+      }
+
+      const body = box(0.40, 0.30, 0.22, null, op);
+      body.position.set(0, 0, 0);
+      g.add(body);
+
+      const head = box(0.26, 0.26, 0.26, null, op);
+      head.position.set(0, 0.30, 0);
+      g.add(head);
+
+      if (petDef.id === 'cat') {
+        const earL = box(0.08, 0.13, 0.05, null, op); earL.position.set(-0.08, 0.30 + 0.19, 0); g.add(earL);
+        const earR = box(0.08, 0.13, 0.05, null, op); earR.position.set( 0.08, 0.30 + 0.19, 0); g.add(earR);
+      } else if (petDef.id === 'dog') {
+        const earL = box(0.10, 0.06, 0.18, null, op); earL.position.set(-0.19, 0.30 - 0.04, 0); g.add(earL);
+        const earR = box(0.10, 0.06, 0.18, null, op); earR.position.set( 0.19, 0.30 - 0.04, 0); g.add(earR);
+      } else if (petDef.id === 'ghost') {
+        body.scale.y = 1.5;
+        body.position.y = 0.08;
+        head.scale.y = 0.9;
+        const eyeL = box(0.06, 0.06, 0.04, '#1a1a2e', 1); eyeL.position.set(-0.07, 0.30, 0.13); g.add(eyeL);
+        const eyeR = box(0.06, 0.06, 0.04, '#1a1a2e', 1); eyeR.position.set( 0.07, 0.30, 0.13); g.add(eyeR);
+      } else if (petDef.id === 'dragon') {
+        const wingL = box(0.18, 0.08, 0.04, null, op); wingL.position.set(-0.31, 0.06, 0); g.add(wingL);
+        const wingR = box(0.18, 0.08, 0.04, null, op); wingR.position.set( 0.31, 0.06, 0); g.add(wingR);
+        const horn  = box(0.05, 0.10, 0.05, null, op); horn.position.set( 0, 0.30 + 0.18, 0); g.add(horn);
+      } else if (petDef.id === 'robot') {
+        head.material = new THREE.MeshStandardMaterial({ color: c, metalness: 0.6, roughness: 0.25, transparent, opacity: op });
+        const antenna = new THREE.Mesh(
+          new THREE.BoxGeometry(0.04, 0.10, 0.04),
+          new THREE.MeshStandardMaterial({ color: c, metalness: 0.6, roughness: 0.25 })
+        );
+        antenna.position.set(0, 0.30 + 0.18, 0);
+        g.add(antenna);
+        const eyeL = box(0.06, 0.04, 0.04, '#00ffcc', 1); eyeL.position.set(-0.06, 0.30, 0.13); g.add(eyeL);
+        const eyeR = box(0.06, 0.04, 0.04, '#00ffcc', 1); eyeR.position.set( 0.06, 0.30, 0.13); g.add(eyeR);
+      }
+
+      return g;
+    }
+
+    // ---- Pet tick: bob + trail behind camera. Called every RAF from loop(). ----
+    const _petTarget = new THREE.Vector3();
+    function tickPet(now) {
+      if (!petMesh) return;
+      const offsetX = -Math.sin(yaw) * 1.2;
+      const offsetZ = -Math.cos(yaw) * 1.2;
+      const baseY   = Math.max(0.55, camera.position.y - 1.1);
+      const bobY    = baseY + Math.sin(now * 0.003) * 0.08;
+      _petTarget.set(camera.position.x + offsetX, bobY, camera.position.z + offsetZ);
+      petMesh.position.lerp(_petTarget, 0.10);
+      petMesh.rotation.y = yaw;
     }
 
     function showLineClearToast(points) {
@@ -2977,8 +3226,28 @@
           if (!res.ok || ac.signal.aborted) return;
           const data = await res.json();
           if (!data || !data.username) return;
-          attributionEl.textContent = 'Built by ' + data.username + ' · ' + relativeTime(data.updated_at);
+          let attrHtml = 'Built by ' + escapeHtml(data.username) + ' · ' + relativeTime(data.updated_at);
+          if (data.hasMessage) {
+            attrHtml += '<br><span style="color:#a78bfa">📨 Hidden message — press E to reveal</span>';
+            if (isTouch) {
+              attrHtml += '&nbsp;<button id="attr-reveal-btn" style="background:#7c3aed;color:white;border-radius:4px;padding:1px 8px;font-size:11px;cursor:pointer">Reveal</button>';
+            }
+          } else if (data.ownMessage) {
+            if (!data.ownMessage.found) {
+              attrHtml += '<br><span style="color:#a1a1aa">📬 Your message is hidden here</span>';
+            } else {
+              attrHtml += '<br><span style="color:#a1a1aa">📬 Found by ' + escapeHtml(data.ownMessage.found_by_username) + ' · ' + relativeTime(data.ownMessage.found_at) + '</span>';
+            }
+          }
+          attributionEl.innerHTML = attrHtml;
           attributionEl.classList.remove('hidden');
+          if (data.hasMessage && isTouch) {
+            const rb = document.getElementById('attr-reveal-btn');
+            if (rb) rb.addEventListener('touchstart', (ev) => {
+              ev.preventDefault();
+              if (target) revealMessage(target.cell.x, target.cell.y, target.cell.z);
+            }, { passive: false });
+          }
         } catch (_) { /* AbortError or network error — fine */ }
       }, 200);
     }
@@ -3165,6 +3434,7 @@
     function applyLocal(x, y, z, t) {
       const k = key(x, y, z);
       if (t === 0) blocks.delete(k); else blocks.set(k, t);
+      messageBlocks.delete(k); // any message at this cell is gone once overwritten/broken
       rebuildBlockMeshes();
       clearAttribution(); // label is stale after any block change; loop will re-fetch
     }
@@ -3223,13 +3493,15 @@
         if (sessionBlocksPlaced % 25 === 0) fetchCoachTip('block_milestone');
       }
       try {
+        const _msgToSend = t !== 0 ? pendingMessage : null;
         const endpoint = currentWorldId > 0 ? `/api/worlds/${currentWorldId}/blocks` : '/api/block';
         const res = await fetch(endpoint, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', ...headers },
-          body: JSON.stringify({ x, y, z, block_type: t }),
+          body: JSON.stringify({ x, y, z, block_type: t, ...(_msgToSend ? { message: _msgToSend } : {}) }),
         });
         if (res.ok) {
+          if (_msgToSend) { pendingMessage = null; updateMsgWriteBtn(); }
           const data = await res.json();
           // Check combo tier-up before updateComboHud mutates lastComboMultiplier.
           const newMult = data.combo_multiplier || 1;
@@ -3262,6 +3534,13 @@
               showUnlockToast(ut);
             }
             buildPalette(); // re-render palette so the newly unlocked swatch activates
+          }
+          if (data.newly_unlocked_pets && data.newly_unlocked_pets.length) {
+            for (const pet of data.newly_unlocked_pets) {
+              unlockedPets.add(pet.id);
+              showUnlockToast({ icon: pet.icon, name: pet.name, description: `${pet.name} companion unlocked! Equip it from the 🐾 menu.` });
+            }
+            if (petPanelOpen) renderPetPanel();
           }
           if (data.newly_crowned_monuments && data.newly_crowned_monuments.length) {
             for (const m of data.newly_crowned_monuments) {
@@ -3527,6 +3806,7 @@
       resetMove();
       canvas.style.cursor = '';
       if (locked) { try { document.exitPointerLock(); } catch (_) {} }
+      audio.stopReggae();
 
       tutorialBlocks.clear();
       tutorialStep = 0;
@@ -4126,6 +4406,86 @@
     const chatBadgeEl = document.getElementById('chat-badge');
     const chatToggleEl = document.getElementById('chat-toggle');
 
+    // ---- Energy system state and DOM refs ----
+    let energyStatus = null; // cached energy status from API
+    let energyUpdateTimer = null;
+    const energyDisplayEl = document.getElementById('energy-display');
+    const energyStatusEl = document.getElementById('energy-status');
+    const energyCountdownEl = document.getElementById('energy-countdown');
+    const energyModalEl = document.getElementById('energy-modal');
+    const burnPointsBtn = document.getElementById('burn-points-btn');
+    const energyModalCloseBtn = document.getElementById('energy-modal-close');
+    const pointsCostEl = document.getElementById('points-cost');
+    const pointsAvailableEl = document.getElementById('points-available');
+    const energyCountdownModalEl = document.getElementById('energy-countdown-modal');
+
+    // Helper: fetch and update energy status from API
+    async function fetchEnergyStatus() {
+      try {
+        const resp = await fetch('/api/energy/status', { headers });
+        if (resp.ok) {
+          energyStatus = await resp.json();
+          updateEnergyDisplay();
+        }
+      } catch (err) { console.error('energy status fetch failed', err); }
+    }
+
+    // Helper: update energy display in the HUD
+    function updateEnergyDisplay() {
+      if (!energyStatus) return;
+      const { tickets_remaining, tickets_limit, points_available, cost_per_ticket_points, next_reset_utc, seconds_until_reset } = energyStatus;
+      if (playing) {
+        energyStatusEl.textContent = `${tickets_remaining}/${tickets_limit} remaining`;
+        if (tickets_remaining === 0) {
+          const resetHours = Math.floor(seconds_until_reset / 3600);
+          const resetMins = Math.floor((seconds_until_reset % 3600) / 60);
+          energyCountdownEl.textContent = `Reset in ${resetHours}h ${resetMins}m`;
+        } else {
+          energyCountdownEl.textContent = '';
+        }
+      }
+      // Update modal info
+      pointsCostEl.textContent = cost_per_ticket_points;
+      pointsAvailableEl.textContent = points_available;
+      const resetHours = Math.floor(seconds_until_reset / 3600);
+      const resetMins = Math.floor((seconds_until_reset % 3600) / 60);
+      energyCountdownModalEl.textContent = `Reset in ${resetHours}h ${resetMins}m`;
+    }
+
+    // Helper: attempt to start a game with energy check
+    async function tryStartGameWithEnergy(mode) {
+      if (!energyStatus) await fetchEnergyStatus();
+      const { tickets_remaining } = energyStatus;
+      if (tickets_remaining > 0) {
+        // User has free tickets; consume one and start game
+        try {
+          const resp = await fetch('/api/energy/start-game', {
+            method: 'POST',
+            headers: { ...headers, 'content-type': 'application/json' },
+            body: JSON.stringify({ mode, spend_type: 'free' }),
+          });
+          if (resp.ok) {
+            const result = await resp.json();
+            if (result.ok) {
+              energyStatus.tickets_remaining = result.tickets_remaining;
+              startMode(mode);
+            }
+          }
+        } catch (err) { console.error('energy start-game failed', err); }
+      } else {
+        // User is out of tickets; show modal to burn points or wait
+        showEnergyModal();
+      }
+    }
+
+    function showEnergyModal() {
+      energyModalEl.classList.remove('hidden');
+    }
+
+    function hideEnergyModal() {
+      energyModalEl.classList.add('hidden');
+    }
+
     // Mute button + Settings sound toggle share one stored preference. This
     // helper repaints both UIs from the audio engine's current muted state.
     const muteBtnEl = document.getElementById('mute-btn');
@@ -4160,6 +4520,9 @@
     });
     document.getElementById('settings-close').addEventListener('click', closeSettings);
     document.getElementById('settings-sound-toggle').addEventListener('click', toggleSound);
+    document.getElementById('settings-music-volume').addEventListener('input', (e) => {
+      audio.setReggaeVolume(e.target.value / 100);
+    });
     document.getElementById('settings-diff-down').addEventListener('click', () => {
       if (taDifficulty > 1) { taDifficulty--; lsSet('ta_difficulty', taDifficulty); updateTaTierPicker(); }
     });
@@ -4193,6 +4556,79 @@
     document.getElementById('badges-close').addEventListener('click', () => {
       badgesOpen = false;
       badgesPanelEl.classList.add('hidden');
+    });
+
+    // ---- Pet panel ----
+    const petBtnEl    = document.getElementById('pet-btn');
+    const petPanelEl  = document.getElementById('pet-panel');
+    const petGridEl   = document.getElementById('pet-grid');
+    const petHintEl   = document.getElementById('pet-hint');
+
+    function equipPetMesh(petId) {
+      if (petMesh) { scene.remove(petMesh); petMesh = null; }
+      if (!petId) return;
+      const def = petTypes.find((p) => p.id === petId);
+      if (!def) return;
+      petMesh = buildPetMesh(def);
+      petMesh.position.copy(camera.position);
+      scene.add(petMesh);
+    }
+
+    function renderPetPanel() {
+      petGridEl.innerHTML = '';
+      const totalUnlocked = petTypes.filter((p) => unlockedPets.has(p.id)).length;
+      petHintEl.classList.toggle('hidden', totalUnlocked > 0);
+
+      // None option
+      const noneCard = document.createElement('button');
+      noneCard.className = 'flex flex-col items-center gap-1 p-2 rounded-lg cursor-pointer transition-colors ' +
+        (!activePet ? 'bg-violet-700/80 ring-1 ring-violet-400' : 'bg-zinc-800/80 hover:bg-zinc-700/80');
+      noneCard.innerHTML = '<span class="text-2xl leading-none">🚫</span><span class="text-xs text-zinc-300">None</span>';
+      noneCard.addEventListener('click', async () => {
+        activePet = null;
+        equipPetMesh(null);
+        renderPetPanel();
+        await fetch('/api/pet/equip', { method: 'POST', headers: { 'Content-Type': 'application/json', ...headers }, body: JSON.stringify({ pet_id: null }) });
+      });
+      petGridEl.appendChild(noneCard);
+
+      for (const pet of petTypes) {
+        const unlocked = unlockedPets.has(pet.id);
+        const isActive = activePet === pet.id;
+        const card = document.createElement('button');
+        card.disabled = !unlocked;
+        card.className = 'flex flex-col items-center gap-1 p-2 rounded-lg transition-colors ' +
+          (isActive ? 'bg-violet-700/80 ring-1 ring-violet-400 cursor-pointer' :
+            unlocked ? 'bg-zinc-800/80 hover:bg-zinc-700/80 cursor-pointer' :
+            'bg-zinc-800/30 opacity-50 cursor-not-allowed');
+        const lockIcon = unlocked ? '' : '<span class="text-[9px] text-zinc-500 leading-none">🔒 ' + pet.unlockAt + '</span>';
+        card.innerHTML = '<span class="text-2xl leading-none">' + pet.icon + '</span>' +
+          '<span class="text-xs text-zinc-300">' + pet.name + '</span>' +
+          (unlocked ? '' : lockIcon);
+        if (unlocked) {
+          card.addEventListener('click', async () => {
+            activePet = pet.id;
+            equipPetMesh(pet.id);
+            renderPetPanel();
+            await fetch('/api/pet/equip', { method: 'POST', headers: { 'Content-Type': 'application/json', ...headers }, body: JSON.stringify({ pet_id: pet.id }) });
+          });
+        }
+        petGridEl.appendChild(card);
+      }
+    }
+
+    petBtnEl.addEventListener('click', () => {
+      petPanelOpen = !petPanelOpen;
+      if (petPanelOpen) {
+        renderPetPanel();
+        petPanelEl.classList.remove('hidden');
+      } else {
+        petPanelEl.classList.add('hidden');
+      }
+    });
+    document.getElementById('pet-close').addEventListener('click', () => {
+      petPanelOpen = false;
+      petPanelEl.classList.add('hidden');
     });
 
     // ---- Accessibility panel: open/close + the two toggles ----
@@ -4385,6 +4821,7 @@
       resetMove();
       canvas.style.cursor = '';
       if (locked) { try { document.exitPointerLock(); } catch (_) {} }
+      audio.stopReggae();
       clearScorePops();
 
       // Capture what the run was actually played at BEFORE the auto-adjust
@@ -4530,6 +4967,7 @@
       resetMove();
       canvas.style.cursor = '';
       if (locked) { try { document.exitPointerLock(); } catch (_) {} }
+      audio.stopReggae();
       clearScorePops();
 
       const clearedThisRun = ta60Score;
@@ -4638,6 +5076,7 @@
       resetMove();
       canvas.style.cursor = '';
       if (locked) { try { document.exitPointerLock(); } catch (_) {} }
+      audio.stopReggae();
 
       const placedThisRun = endlessBlocksPlaced;
       const movesSurvived = endlessMovesStarted;
@@ -4678,6 +5117,7 @@
       resetMove();
       canvas.style.cursor = '';
       if (locked) { try { document.exitPointerLock(); } catch (_) {} }
+      audio.stopReggae();
 
       learnBlocks.clear();
       document.getElementById('learn-hints').innerHTML = '';
@@ -4966,6 +5406,7 @@
     // of whether play was entered via pointer lock, drag fallback, or touch.
     function onPlayEntered() {
       refreshUndoButton();
+      audio.startReggae();
       if (pendingTaInit) {
         pendingTaInit = false;
         initTimeAttack();
@@ -5019,12 +5460,14 @@
         document.getElementById('history-panel').classList.add('hidden');
         challengeHudEl.classList.add('hidden');
         document.getElementById('crosshair').style.opacity = '0.3';
-        // Hide coach in spectate mode — player isn't building.
+        // Hide coach and prompt HUD in spectate mode — player isn't building.
         coachBtnEl.classList.add('hidden');
         coachBubbleEl.classList.add('hidden');
+        promptHudEl.classList.add('hidden');
         // Immediately ping presence as a spectator so the online list updates fast.
         heartbeat();
       }
+      updateMsgWriteBtn();
     }
 
     function startMode(mode) {
@@ -5042,6 +5485,8 @@
       }
       refreshUndoButton();
       tryPointerLock();
+      // Show energy display while playing
+      energyDisplayEl.classList.remove('hidden');
     }
 
     // ---- Control scheme helpers ----
@@ -5142,6 +5587,7 @@
       dragMode = false;
       resetMove();
       canvas.style.cursor = '';
+      audio.stopReggae();
       pauseOverlayEl.classList.add('hidden');
       canvas.style.pointerEvents = 'auto';
       refreshUndoButton();
@@ -5175,7 +5621,10 @@
       coachBubbleEl.classList.add('hidden');
       coachBubbleEl.style.opacity = '0';
       coachBtnEl.classList.remove('hidden');
+      closeMsgCompose();
+      updateMsgWriteBtn();
       overlayEl.style.display = 'flex';
+      energyDisplayEl.classList.add('hidden');
       refreshControlCopy();
       updateTouchControlsVisibility();
     }
@@ -5253,16 +5702,44 @@
     });
     document.addEventListener('pointerlockerror', onLockFail);
 
-    document.getElementById('play-classic-btn').addEventListener('click', () => { audio.init(); startMode('classic'); });
-    document.getElementById('play-ta-btn').addEventListener('click', () => { audio.init(); startMode('timeattack'); });
-    document.getElementById('play-ta-60-btn').addEventListener('click', () => { audio.init(); startMode('time-attack-60'); });
-    document.getElementById('play-daily-challenge-btn').addEventListener('click', () => { audio.init(); startMode('daily-challenge'); });
-    document.getElementById('play-endless-btn').addEventListener('click', () => { audio.init(); startMode('endless'); });
-    document.getElementById('play-puzzle-btn').addEventListener('click', () => { audio.init(); startMode('puzzle'); });
-    document.getElementById('play-tutorial-btn').addEventListener('click', () => { audio.init(); startMode('tutorial'); });
-    document.getElementById('play-learn-btn').addEventListener('click', () => { audio.init(); startMode('learn'); });
+    document.getElementById('play-classic-btn').addEventListener('click', () => { audio.init(); tryStartGameWithEnergy('classic'); });
+    document.getElementById('play-ta-btn').addEventListener('click', () => { audio.init(); tryStartGameWithEnergy('timeattack'); });
+    document.getElementById('play-ta-60-btn').addEventListener('click', () => { audio.init(); tryStartGameWithEnergy('time-attack-60'); });
+    document.getElementById('play-daily-challenge-btn').addEventListener('click', () => { audio.init(); tryStartGameWithEnergy('daily-challenge'); });
+    document.getElementById('play-endless-btn').addEventListener('click', () => { audio.init(); tryStartGameWithEnergy('endless'); });
+    document.getElementById('play-puzzle-btn').addEventListener('click', () => { audio.init(); tryStartGameWithEnergy('puzzle'); });
+    document.getElementById('play-tutorial-btn').addEventListener('click', () => { audio.init(); tryStartGameWithEnergy('tutorial'); });
+    document.getElementById('play-learn-btn').addEventListener('click', () => { audio.init(); tryStartGameWithEnergy('learn'); });
     document.getElementById('play-spectate-btn').addEventListener('click', () => { audio.init(); startMode('spectate'); });
     document.getElementById('play-versus-btn').addEventListener('click', () => { audio.init(); startMode('versus'); });
+
+    // Energy modal handlers
+    burnPointsBtn.addEventListener('click', async () => {
+      if (!energyStatus) return;
+      const { cost_per_ticket_points, points_available } = energyStatus;
+      if (points_available < cost_per_ticket_points) {
+        alert('Not enough points to buy a ticket');
+        return;
+      }
+      try {
+        const resp = await fetch('/api/energy/burn-points', {
+          method: 'POST',
+          headers: { ...headers, 'content-type': 'application/json' },
+          body: JSON.stringify({ points: cost_per_ticket_points }),
+        });
+        if (resp.ok) {
+          const result = await resp.json();
+          if (result.ok) {
+            energyStatus.tickets_remaining = result.tickets_remaining;
+            energyStatus.points_available = result.points_available;
+            updateEnergyDisplay();
+            hideEnergyModal();
+            startMode(gameMode || 'classic');
+          }
+        }
+      } catch (err) { console.error('burn points failed', err); }
+    });
+    energyModalCloseBtn.addEventListener('click', hideEnergyModal);
 
     document.getElementById('ta-tier-down').addEventListener('click', () => {
       if (taDifficulty > 1) { taDifficulty--; lsSet('ta_difficulty', taDifficulty); updateTaTierPicker(); }
@@ -5577,6 +6054,13 @@
         if (e.key === 'Escape') { e.preventDefault(); closeFriends(); }
         return;
       }
+      // While the message compose textarea is focused, handle Escape/Enter only.
+      const msgComposeInputEl = document.getElementById('msg-compose-input');
+      if (msgComposeInputEl && document.activeElement === msgComposeInputEl) {
+        if (e.key === 'Escape') { e.preventDefault(); closeMsgCompose(); }
+        else if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); confirmMsgCompose(); }
+        return;
+      }
       // Escape closes the chat drawer if it is open (before the existing
       // Escape handler that would otherwise return to the overlay).
       if (e.key === 'Escape' && chatOpen) { e.preventDefault(); closeChat(); return; }
@@ -5604,6 +6088,17 @@
         lastRapidPlace = performance.now();
       }
       if (e.code === 'KeyG' && playing && gameMode !== 'spectate') breakBlock();
+      // E: reveal the hidden message in the targeted block (Classic mode only)
+      if (e.code === 'KeyE' && playing && gameMode === 'classic' && target) {
+        const c = target.cell;
+        if (messageBlocks.has(key(c.x, c.y, c.z))) revealMessage(c.x, c.y, c.z);
+      }
+      // N: open / close the message compose overlay (Classic mode only)
+      if (e.code === 'KeyN' && playing && gameMode === 'classic') {
+        e.preventDefault();
+        const overlay = document.getElementById('msg-compose');
+        if (overlay.classList.contains('hidden')) openMsgCompose(); else closeMsgCompose();
+      }
       // Ctrl+Z = undo, Ctrl+Y / Ctrl+Shift+Z = redo (Classic mode only).
       if (e.ctrlKey && e.code === 'KeyZ' && gameMode === 'classic') {
         e.preventDefault();
@@ -5637,6 +6132,9 @@
           closeLeaderboard();
         } else if (!friendsPanelEl.classList.contains('hidden')) {
           closeFriends();
+        } else if (petPanelOpen) {
+          petPanelOpen = false;
+          petPanelEl.classList.add('hidden');
         } else if (!themePanelEl.classList.contains('hidden')) {
           closeThemePanel();
         } else if (dragMode && playing) {
@@ -5648,6 +6146,7 @@
             hideComboHud();
             canvas.style.cursor = '';
             hideMinimap();
+            audio.stopReggae();
             overlayEl.style.display = 'flex';
             refreshControlCopy();
           }
@@ -5747,6 +6246,7 @@
         bindTap(el, () => {
           if (act === 'break' && playing && gameMode !== 'spectate') breakBlock();
           else if (act === 'hold' && playing && gameMode !== 'spectate') holdBlock();
+          else if (act === 'msgcompose' && playing && gameMode === 'classic') openMsgCompose();
           else if (act === 'undo' && playing && gameMode === 'classic') undoLastMove();
           else if (act === 'stamp') toggleStampMode();
           else if (act === 'menu') {
@@ -5777,6 +6277,8 @@
         '<li><span class="font-semibold">☰ Menu</span> — back to the start screen</li>',
         '<li><span class="font-semibold">Power-ups</span> — collect glowing cubes for Speed, Jump, or Rapid Place (hold Add)</li>',
         '<li><span class="font-semibold">🔊 / 🔇</span> — tap to mute / unmute audio</li>',
+        '<li><span class="font-semibold">📝</span> — tap the write button to hide a message in your next block</li>',
+        '<li><span class="font-semibold">📨</span> — tap Reveal in the attribution label to discover a hidden message</li>',
       ].join('');
       const classicBtn = document.getElementById('play-classic-btn');
       if (classicBtn) classicBtn.textContent = 'Tap to play';
@@ -5852,7 +6354,10 @@
     const leaderboardEl = document.getElementById('leaderboard');
     const leaderboardContentEl = document.getElementById('leaderboard-content');
     let leaderboardTimer = null;
-    let leaderboardTab = 'alltime'; // 'alltime' | 'tournament' | 'ta' | 'ta-60' | 'endless'
+    let leaderboardTab = 'alltime'; // 'alltime' | 'tournament' | 'ta' | 'ta-60' | 'daily-challenge' | 'endless' | 'puzzle' | 'prompt'
+    let promptCache = null;
+    let promptCacheTime = 0;
+    let currentPromptText = null;
 
     function closeLeaderboard() {
       leaderboardEl.classList.add('hidden');
@@ -5937,6 +6442,64 @@
 
     function escapeHtml(s) {
       return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+
+    // ---- Message in a Block ----
+
+    function updateMsgWriteBtn() {
+      const btn = document.getElementById('msg-write-btn');
+      if (!btn) return;
+      btn.classList.toggle('hidden', !(playing && gameMode === 'classic'));
+      const icon = document.getElementById('msg-write-icon');
+      if (icon) icon.textContent = pendingMessage ? '📨' : '📝';
+      btn.title = pendingMessage ? 'Message queued for next placement (N to change)' : 'Write hidden message (N)';
+    }
+
+    function openMsgCompose() {
+      if (gameMode !== 'classic' || !playing) return;
+      const overlay = document.getElementById('msg-compose');
+      overlay.classList.remove('hidden');
+      const inp = document.getElementById('msg-compose-input');
+      inp.value = pendingMessage || '';
+      document.getElementById('msg-compose-counter').textContent = inp.value.length + ' / 200';
+      inp.focus();
+    }
+
+    function closeMsgCompose() {
+      document.getElementById('msg-compose').classList.add('hidden');
+    }
+
+    function confirmMsgCompose() {
+      const val = document.getElementById('msg-compose-input').value.trim();
+      pendingMessage = val || null;
+      updateMsgWriteBtn();
+      closeMsgCompose();
+    }
+
+    async function revealMessage(x, y, z) {
+      try {
+        const res = await fetch('/api/block/' + x + '/' + y + '/' + z + '/reveal', {
+          method: 'POST',
+          headers,
+        });
+        if (res.ok) {
+          const data = await res.json();
+          messageBlocks.delete(key(x, y, z));
+          clearAttribution();
+          toastQueue.push({
+            icon: '📨',
+            name: 'Message found!',
+            _isMessage: true,
+            _authorLine: 'Hidden by ' + data.author_username + ' · ' + relativeTime(data.hidden_at),
+            _body: data.body,
+          });
+          if (!toastShowing) showNextToast();
+        } else if (res.status === 404) {
+          messageBlocks.delete(key(x, y, z));
+          clearAttribution();
+          showBadgeToast({ icon: '📨', name: 'Just missed it!', flavour: 'Another player found this message first.' });
+        }
+      } catch (_) { /* transient */ }
     }
 
     // ---- Share Score: image generation and download ----
@@ -6152,7 +6715,7 @@
 
     function setLeaderboardTab(tab) {
       leaderboardTab = tab;
-      const tabs = { alltime: 'tab-alltime', tournament: 'tab-tournament', monuments: 'tab-monuments', ta: 'tab-ta', 'ta-60': 'tab-ta-60', 'daily-challenge': 'tab-daily-challenge', endless: 'tab-endless', puzzle: 'tab-puzzle' };
+      const tabs = { alltime: 'tab-alltime', tournament: 'tab-tournament', monuments: 'tab-monuments', ta: 'tab-ta', 'ta-60': 'tab-ta-60', 'daily-challenge': 'tab-daily-challenge', endless: 'tab-endless', puzzle: 'tab-puzzle', prompt: 'tab-prompt' };
       for (const [key2, id] of Object.entries(tabs)) {
         const el = document.getElementById(id);
         if (!el) continue;
@@ -6330,6 +6893,94 @@
       } catch (_) { /* non-fatal */ }
     }
 
+    function syncPromptHud() {
+      if (!currentPromptText) return;
+      promptHudEl.innerHTML = '<div class="text-zinc-400 text-[10px] uppercase tracking-wide">Today\'s prompt</div>' +
+        '<div class="font-semibold leading-snug mt-0.5">' + escapeHtml(currentPromptText) + '</div>';
+      promptHudEl.classList.remove('hidden');
+    }
+
+    function renderPromptTab(data) {
+      currentPromptText = data.prompt;
+      syncPromptHud();
+      let html = '<div class="text-zinc-400 text-xs mb-2">Today\'s prompt: <span class="text-zinc-100 font-semibold">' + escapeHtml(data.prompt) + '</span></div>';
+
+      if (data.yesterday_winner) {
+        html += '<div class="mb-3 px-2 py-1.5 rounded-lg bg-zinc-800/70 text-xs">' +
+          '<span class="text-zinc-500">Yesterday\'s winner: </span>' +
+          '<span class="text-amber-300 font-semibold">' + escapeHtml(data.yesterday_winner.username) + '</span>' +
+          ' <span class="text-zinc-500">(' + data.yesterday_winner.vote_count + ' vote' + (data.yesterday_winner.vote_count !== 1 ? 's' : '') + ')</span>' +
+          '</div>';
+      }
+
+      if (!data.eligible_builders.length) {
+        html += '<p class="py-1 text-center text-zinc-400 text-xs">No builders yet — be the first!</p>';
+      } else {
+        html += '<div class="text-zinc-500 text-[10px] uppercase tracking-wide mb-1">Vote for best builder</div>';
+        html += data.eligible_builders.map(b => {
+          const isVoted = data.my_vote && data.my_vote.voted_for_user_id === b.user_id;
+          const btnHtml = b.is_self
+            ? ''
+            : isVoted
+              ? '<span class="ml-auto text-xs text-emerald-400">✓ Voted</span>'
+              : '<button onclick="castPromptVote(' + b.user_id + ', \'' + escapeHtml(b.username).replace(/'/g, '&#39;') + '\')" ' +
+                'class="ml-auto text-xs px-2 py-0.5 rounded bg-violet-700 hover:bg-violet-600 text-white cursor-pointer">Vote</button>';
+          return '<div class="flex items-center gap-1 py-1 border-b border-zinc-800/60 last:border-0' + (isVoted ? ' bg-zinc-800/40 rounded px-1' : '') + '">' +
+            '<span class="flex-1 truncate text-xs text-zinc-200">' + escapeHtml(b.username) + (b.is_self ? ' <span class="text-zinc-500">(you)</span>' : '') + '</span>' +
+            '<span class="text-zinc-500 text-xs font-mono">' + b.vote_count + '</span>' +
+            btnHtml +
+            '</div>';
+        }).join('');
+      }
+      leaderboardContentEl.innerHTML = html;
+    }
+
+    async function castPromptVote(userId, username) {
+      try {
+        const res = await fetch('/api/prompt/vote', {
+          method: 'POST',
+          headers: { ...headers, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ voted_for_user_id: userId, voted_for_username: username }),
+        });
+        if (!res.ok) return;
+        promptCache = null;
+        promptCacheTime = 0;
+        await fetchPromptTab();
+      } catch (_) { /* non-fatal */ }
+    }
+
+    async function fetchPromptTab() {
+      try {
+        const now = Date.now();
+        if (!promptCache || now - promptCacheTime > 30000) {
+          const res = await fetch('/api/prompt/today', { headers });
+          if (!res.ok) throw new Error('fetch failed');
+          promptCache = await res.json();
+          promptCacheTime = now;
+        }
+        renderPromptTab(promptCache);
+      } catch (_) {
+        leaderboardContentEl.innerHTML = '<p class="py-1 text-zinc-500">Couldn\'t load prompt.</p>';
+      }
+    }
+
+    async function loadPromptTeaser() {
+      const teaserEl = document.getElementById('prompt-teaser');
+      if (!teaserEl) return;
+      try {
+        const res = await fetch('/api/prompt/today', { headers });
+        if (!res.ok) return;
+        const data = await res.json();
+        promptCache = data;
+        promptCacheTime = Date.now();
+        currentPromptText = data.prompt;
+        teaserEl.innerHTML = '<span class="text-zinc-400">Today\'s prompt: </span>' +
+          '<span class="text-zinc-100 font-semibold">' + escapeHtml(data.prompt) + '</span>';
+        teaserEl.classList.remove('hidden');
+        syncPromptHud();
+      } catch (_) { /* non-fatal */ }
+    }
+
     function renderMonuments({ monuments }) {
       if (!monuments || !monuments.length) {
         leaderboardContentEl.innerHTML = '<p class="py-1 text-center text-zinc-400">No monuments yet — build together to create one!</p>';
@@ -6355,7 +7006,9 @@
     async function fetchLeaderboard() {
       clearTimeout(leaderboardTimer);
       leaderboardTimer = null;
-      if (leaderboardTab === 'tournament') {
+      if (leaderboardTab === 'prompt') {
+        await fetchPromptTab();
+      } else if (leaderboardTab === 'tournament') {
         try {
           const res = await fetch('/api/tournament', { headers });
           if (!res.ok) throw new Error('fetch failed');
@@ -6589,6 +7242,7 @@
     document.getElementById('tab-alltime').addEventListener('click', () => setLeaderboardTab('alltime'));
     document.getElementById('tab-tournament').addEventListener('click', () => setLeaderboardTab('tournament'));
     document.getElementById('tab-monuments').addEventListener('click', () => setLeaderboardTab('monuments'));
+    document.getElementById('tab-prompt').addEventListener('click', () => setLeaderboardTab('prompt'));
     document.getElementById('tab-ta').addEventListener('click', () => setLeaderboardTab('ta'));
     document.getElementById('tab-ta-60').addEventListener('click', () => setLeaderboardTab('ta-60'));
     document.getElementById('tab-daily-challenge').addEventListener('click', () => setLeaderboardTab('daily-challenge'));
@@ -7461,48 +8115,80 @@
       // Escape is handled by the global keydown listener above.
     });
 
+    // ---- Message compose overlay wiring ----
+    document.getElementById('msg-compose-cancel').addEventListener('click', closeMsgCompose);
+    document.getElementById('msg-compose-hide').addEventListener('click', confirmMsgCompose);
+    document.getElementById('msg-compose-input').addEventListener('input', (e) => {
+      document.getElementById('msg-compose-counter').textContent = e.target.value.length + ' / 200';
+    });
+    document.getElementById('msg-write-btn').addEventListener('click', () => {
+      const overlay = document.getElementById('msg-compose');
+      if (overlay.classList.contains('hidden')) openMsgCompose(); else closeMsgCompose();
+    });
+
     // ---- Server sync ----
     async function loadWorld() {
-      const res = await fetch('/api/world', { headers });
-      if (!res.ok) {
-        statusEl.textContent = res.status === 401 ? 'Open this app inside Usernode to play.' : 'Failed to load world.';
+      try {
+        const res = await fetch('/api/world', { headers });
+        if (!res.ok) {
+          if (res.status === 401) {
+            statusEl.textContent = 'Open this app inside Usernode to play.';
+          } else if (res.status === 503) {
+            statusEl.textContent = 'Server is initializing. Please wait...';
+          } else {
+            const data = await res.json().catch(() => ({}));
+            statusEl.textContent = data.error || 'Failed to load world. Please refresh the page.';
+          }
+          return false;
+        }
+        const data = await res.json();
+        DIMS = data.dims;
+        PALETTE = data.palette;
+        cursor = data.cursor || 0;
+        eventsCursor = data.maxDisasterId || 0;
+        unlockedTypes = new Set(data.unlockedTypes || []);
+        isStaging = !!data.isStaging;
+        selectedType = PALETTE[0] ? PALETTE[0].id : 1;
+        blocks.clear();
+        messageBlocks.clear();
+        for (const b of data.blocks) {
+          blocks.set(key(b.x, b.y, b.z), b.t);
+          if (b.m) messageBlocks.add(key(b.x, b.y, b.z));
+        }
+        petTypes = data.petTypes || [];
+        unlockedPets = new Set(data.unlockedPets || []);
+        activePet = data.activePet || null;
+        equipPetMesh(activePet);
+        buildGround();
+        buildGroundGrid();
+        buildPalette();
+        rebuildBlockMeshes();
+        rebuildMonumentMeshes(data.monuments || []);
+        applyA11ySettings(); // reflect any saved accessibility prefs on the live world
+        spawnCamera();
+        // Pre-populate the undo stack in staging so the history panel has visible content.
+        if (isStaging) {
+          const now = Date.now();
+          const demoEntries = [
+            { x: 16, y: 1, z: 13, from: 0, to: 6 },
+            { x: 14, y: 1, z: 14, from: 0, to: 3 },
+            { x: 18, y: 2, z: 16, from: 0, to: 8 },
+            { x: 16, y: 3, z: 14, from: 0, to: 3 },
+            { x: 16, y: 4, z: 16, from: 0, to: 4 },
+          ];
+          for (let i = 0; i < demoEntries.length; i++) {
+            const e = demoEntries[i];
+            const p = PALETTE.find((q) => q.id === e.to);
+            undoStack.push({ ...e, blockName: p ? p.name : 'Block', ts: now - (demoEntries.length - i) * 30000 });
+          }
+          renderHistoryPanel();
+        }
+        return true;
+      } catch (err) {
+        statusEl.textContent = 'Network error loading world. Please check your connection and refresh.';
+        console.error('[loadWorld] fetch error:', err.message);
         return false;
       }
-      const data = await res.json();
-      DIMS = data.dims;
-      PALETTE = data.palette;
-      cursor = data.cursor || 0;
-      eventsCursor = data.maxDisasterId || 0;
-      unlockedTypes = new Set(data.unlockedTypes || []);
-      isStaging = !!data.isStaging;
-      selectedType = PALETTE[0] ? PALETTE[0].id : 1;
-      blocks.clear();
-      for (const b of data.blocks) blocks.set(key(b.x, b.y, b.z), b.t);
-      buildGround();
-      buildGroundGrid();
-      buildPalette();
-      rebuildBlockMeshes();
-      rebuildMonumentMeshes(data.monuments || []);
-      applyA11ySettings(); // reflect any saved accessibility prefs on the live world
-      spawnCamera();
-      // Pre-populate the undo stack in staging so the history panel has visible content.
-      if (isStaging) {
-        const now = Date.now();
-        const demoEntries = [
-          { x: 16, y: 1, z: 13, from: 0, to: 6 },
-          { x: 14, y: 1, z: 14, from: 0, to: 3 },
-          { x: 18, y: 2, z: 16, from: 0, to: 8 },
-          { x: 16, y: 3, z: 14, from: 0, to: 3 },
-          { x: 16, y: 4, z: 16, from: 0, to: 4 },
-        ];
-        for (let i = 0; i < demoEntries.length; i++) {
-          const e = demoEntries[i];
-          const p = PALETTE.find((q) => q.id === e.to);
-          undoStack.push({ ...e, blockName: p ? p.name : 'Block', ts: now - (demoEntries.length - i) * 30000 });
-        }
-        renderHistoryPanel();
-      }
-      return true;
     }
 
     async function heartbeat() {
@@ -7565,16 +8251,20 @@
           } else if (!isSelf && !friendsCache) {
             statusHtml = '<button class="ol-add-btn text-xs ml-1 px-1.5 py-0.5 rounded bg-zinc-700 hover:bg-zinc-600 text-zinc-200 cursor-pointer" data-username="' + safe + '">+ Add</button>';
           }
+          const petIcon = u.active_pet
+            ? (petTypes.find((p) => p.id === u.active_pet) || {}).icon || ''
+            : '';
+          const petHtml = petIcon ? '<span class="text-xs shrink-0 leading-none" title="' + u.active_pet + ' companion">' + petIcon + '</span>' : '';
           if (isSpectator) {
             return '<div class="flex items-center gap-1.5 py-0.5">' +
               '<span class="text-xs shrink-0 leading-none" title="Spectating">👁</span>' +
               '<span class="text-zinc-500">' + safe + '</span>' +
-              statusHtml + '</div>';
+              petHtml + statusHtml + '</div>';
           }
           return '<div class="flex items-center gap-1.5 py-0.5">' +
             '<span class="inline-block w-2 h-2 rounded-full bg-green-400 shrink-0"></span>' +
             '<span>' + safe + '</span>' +
-            statusHtml + '</div>';
+            petHtml + statusHtml + '</div>';
         };
         let html = '<div class="mb-1 text-zinc-500 text-xs font-semibold uppercase tracking-wide">Online now</div>';
         for (const u of builders) html += makeRow(u, false);
@@ -7620,6 +8310,7 @@
             for (const ch of changes) {
               const k = key(ch.x, ch.y, ch.z);
               if (ch.t === 0) blocks.delete(k); else blocks.set(k, ch.t);
+              if (ch.m) messageBlocks.add(k); else messageBlocks.delete(k);
             }
             rebuildBlockMeshes();
           }
@@ -7804,6 +8495,7 @@
       }
 
       tickParticles(dt);
+      tickPet(now);
       updateTarget();
       updateAttribution();
       // Animate Crystal block emissive glow: gentle 0.2→0.4 pulse (~7.9s period).
@@ -7824,6 +8516,17 @@
 
     // Fade the controls hint after a few seconds.
     setTimeout(() => { hintEl.style.opacity = '0'; hintFallbackEl.style.opacity = '0'; }, 6000);
+
+    // ---- Energy system initialization ----
+    // Fetch initial energy status and set up periodic update
+    fetchEnergyStatus();
+    setInterval(async () => {
+      if (playing) {
+        energyStatus && energyStatus.seconds_until_reset > 0
+          ? energyStatus.seconds_until_reset--
+          : await fetchEnergyStatus();
+      }
+    }, 1000);
 
     // ---- First-time tutorial overlay ----
     // Steps walk new Classic-mode players through 5 core mechanics.
@@ -8012,6 +8715,7 @@
       } catch (_) {}
 
       loadTournamentTeaser();
+      loadPromptTeaser();
 
       // Load login streak so the HUD shows immediately without waiting for heartbeat.
       try {
