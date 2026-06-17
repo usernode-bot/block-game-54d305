@@ -3055,6 +3055,33 @@
       }
     }
 
+    function emitBombExplosion(cx, cy, cz) {
+      if (reducedMotion) return;
+      const bombColors = [0x3d3a52, 0xe8500a, 0xff7700, 0x2a2840, 0xffd080, 0xff4400];
+      for (let _k = 0; _k < 30; _k++) {
+        const slot = _acquireParticle();
+        if (!slot) break;
+        const speed = 4 + Math.random() * 4;
+        const theta = Math.random() * Math.PI * 2;
+        const phi = Math.acos(2 * Math.random() - 1);
+        const colorIdx = Math.floor(Math.random() * bombColors.length);
+        slot.mesh.material.color.setHex(bombColors[colorIdx]);
+        slot.mesh.material.opacity = 1;
+        slot.startOpacity = 1;
+        slot.vx = Math.sin(phi) * Math.cos(theta) * speed;
+        slot.vy = Math.sin(phi) * Math.sin(theta) * speed + 2;
+        slot.vz = Math.cos(phi) * speed;
+        slot.gravity = 5;
+        slot.age = 0;
+        slot.maxAge = 0.7 + Math.random() * 0.2;
+        const scale = 0.5 + Math.random() * 0.7;
+        slot.mesh.scale.setScalar(scale);
+        slot.mesh.position.set(cx + (Math.random() - 0.5) * 0.5, cy + (Math.random() - 0.5) * 0.5, cz + (Math.random() - 0.5) * 0.5);
+        slot.mesh.visible = true;
+        slot.active = true;
+      }
+    }
+
     function tickParticles(dt) {
       for (let _j = 0; _j < PARTICLE_POOL_SIZE; _j++) {
         const slot = particlePool[_j];
@@ -3876,6 +3903,18 @@
               const yLevel = data.lines_cleared_at ? data.lines_cleared_at[0] : 12;
               emitLineClearExplosion(yLevel, clearedRows);
             }
+          }
+          if (data.bomb_explosions && data.bomb_explosions.length) {
+            const totalBonus = data.bomb_explosions.reduce((s, e) => s + (e.bonus_points || 0), 0);
+            if (totalBonus > 0) {
+              sessionScore += totalBonus;
+              updateScoreHud();
+            }
+            for (const entry of data.bomb_explosions) {
+              emitBombExplosion(entry.x + 0.5, entry.y + 0.5, entry.z + 0.5);
+            }
+            const bombLabel = data.bomb_explosions.length > 1 ? `Boom! x${data.bomb_explosions.length}` : 'Boom!';
+            showBadgeToast({ icon: '💣', name: bombLabel, flavour: totalBonus > 0 ? `+${totalBonus} bonus points` : 'Bombs detonated!' });
           }
           if (data.seq && data.seq > cursor) cursor = data.seq;
           if (data.newly_earned_badges && data.newly_earned_badges.length) {
