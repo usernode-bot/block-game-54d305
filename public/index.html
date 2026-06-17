@@ -108,6 +108,29 @@
     /* Hold panel swatch transition for locked/unlocked state */
     #hold-swatch { transition: opacity 0.2s; }
 
+    /* Touch layout: raise palette above on-screen controls and add horizontal
+       scroll so all block types are reachable without overlapping buttons. */
+    #palette.touch-playing {
+      bottom: 11rem;
+      max-width: calc(100% - 3rem);
+      overflow-x: auto;
+      scroll-snap-type: x mandatory;
+      -webkit-overflow-scrolling: touch;
+    }
+    #palette.touch-playing > button {
+      flex-shrink: 0;
+      scroll-snap-align: start;
+    }
+    /* Enlarge HUD icon buttons to the 44px minimum recommended touch target. */
+    .touch-device #badges-btn,
+    .touch-device #mute-btn,
+    .touch-device #turntable-btn,
+    .touch-device #help-btn,
+    .touch-device #leaderboard-btn { width: 2.75rem; height: 2.75rem; }
+    /* Hide the hold-panel on touch — held block state is shown on the Hold
+       button background instead (see updateHoldPanel). */
+    .touch-device #hold-panel { display: none; }
+
     #bg-canvas { position: fixed; inset: 0; pointer-events: none; }
 
     /* Undo/redo buttons: disabled state */
@@ -1718,16 +1741,29 @@
     // Daily Challenge HUD element — bottom position raised on touch to clear
     // the on-screen fly/build action cluster that lives at bottom-right.
     const challengeHudEl = document.getElementById('challenge-hud');
-    challengeHudEl.style.bottom = isTouch ? '10rem' : '1rem';
+    challengeHudEl.style.bottom = isTouch ? '15rem' : '1rem';
     const blocksPlacedHudEl = document.getElementById('blocks-placed-hud');
-    blocksPlacedHudEl.style.bottom = isTouch ? '13rem' : '5.5rem';
+    blocksPlacedHudEl.style.bottom = isTouch ? '18rem' : '5.5rem';
 
     // Streak HUD pill sits above the challenge HUD.
     const streakHudEl = document.getElementById('streak-hud');
     const CHALLENGE_HUD_HEIGHT_PX = 54; // approx rendered height (px) of challenge pill
     const STREAK_GAP_PX = 6;
-    const challengeHudBottomPx = isTouch ? 160 : 16; // 10rem=160px, 1rem=16px
+    const challengeHudBottomPx = isTouch ? 240 : 16; // 15rem=240px, 1rem=16px
     streakHudEl.style.bottom = (challengeHudBottomPx + CHALLENGE_HUD_HEIGHT_PX + STREAK_GAP_PX) + 'px';
+
+    // Apply touch-device layout overrides once at startup.
+    if (isTouch) {
+      document.body.classList.add('touch-device');
+      // Raise the powerup buff HUD above the on-screen action cluster + palette.
+      document.getElementById('powerup-hud').style.bottom = '14rem';
+      // Raise badge toast container above the action cluster.
+      document.getElementById('badge-toasts').style.bottom = '14rem';
+      // Move chat toggle to the top-right area to avoid the crowded bottom strip.
+      const chatToggleEl = document.getElementById('chat-toggle');
+      chatToggleEl.style.bottom = 'auto';
+      chatToggleEl.style.top = '11rem';
+    }
 
     function updateStreakHud(current) {
       if (current <= 0) return;
@@ -4443,6 +4479,7 @@
 
     function updateTouchControlsVisibility() {
       touchControlsEl.classList.toggle('hidden', !(isTouch && playing));
+      document.getElementById('palette').classList.toggle('touch-playing', !!(isTouch && playing));
     }
 
     function tryPointerLock() {
@@ -6499,9 +6536,18 @@
 
     // ---- Hold queue ----
     function updateHoldPanel() {
+      const p = heldType !== null ? PALETTE.find((q) => q.id === heldType) : null;
+      // On touch the #hold-panel is hidden; reflect hold state on the Hold button instead.
+      if (isTouch) {
+        const holdBtnEl = touchControlsEl.querySelector('[data-act="hold"]');
+        if (holdBtnEl) {
+          holdBtnEl.style.background = p ? p.color : '';
+          holdBtnEl.style.opacity = (p && holdLocked) ? '0.5' : '';
+        }
+        return;
+      }
       const swatchEl = document.getElementById('hold-swatch');
       if (!swatchEl) return;
-      const p = heldType !== null ? PALETTE.find((q) => q.id === heldType) : null;
       if (!p) {
         swatchEl.style.background = '';
         swatchEl.style.opacity = '';
