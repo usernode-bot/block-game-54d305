@@ -110,6 +110,14 @@
 
     #bg-canvas { position: fixed; inset: 0; pointer-events: none; }
 
+    /* Undo/redo buttons: disabled state */
+    #undo-btn:disabled, #redo-btn:disabled,
+    #history-undo-btn:disabled, #history-redo-btn:disabled {
+      opacity: 0.3;
+      cursor: default;
+      pointer-events: none;
+    }
+
     /* Mobile-first responsive adjustments for small screens */
     @media (max-width: 359px) {
       /* Ultra-small phone adjustments */
@@ -450,6 +458,12 @@
           <p class="text-zinc-400 text-sm sm:text-sm lg:text-sm mb-5 mode-desc">Build forever on an endless grid. No timer, no score multiplier—just how long until you run out of valid moves?</p>
           <button id="play-endless-btn" class="w-full px-4 py-3 rounded-lg bg-rose-600 hover:bg-rose-500 font-semibold text-sm sm:text-sm lg:text-base transition hover:scale-[1.02] active:scale-[0.98] mode-btn">Play Endless</button>
         </div>
+        <div class="bg-zinc-900/80 rounded-xl p-5 sm:p-6 lg:p-7 transition hover:bg-zinc-800/80" data-mode="puzzle">
+          <canvas id="preview-puzzle" class="w-full rounded-lg mb-4" height="140"></canvas>
+          <h2 class="font-semibold text-lg sm:text-base lg:text-lg text-zinc-100 mb-2 mode-title">🧩 Puzzle Mode</h2>
+          <p class="text-zinc-400 text-sm sm:text-sm lg:text-sm mb-5 mode-desc">Clear a fixed set of blocks level by level. Solve increasingly difficult puzzles.</p>
+          <button id="play-puzzle-btn" class="w-full px-4 py-3 rounded-lg bg-indigo-600 hover:bg-indigo-500 font-semibold text-sm sm:text-sm lg:text-base transition hover:scale-[1.02] active:scale-[0.98] mode-btn">Play Puzzle</button>
+        </div>
         <div class="bg-zinc-900/80 rounded-xl p-5 sm:p-6 lg:p-7 transition hover:bg-zinc-800/80" data-mode="tutorial">
           <canvas id="preview-tutorial" class="w-full rounded-lg mb-4" height="140"></canvas>
           <h2 class="font-semibold text-lg sm:text-base lg:text-lg text-zinc-100 mb-2 mode-title">Tutorial</h2>
@@ -503,6 +517,33 @@
     <div id="hold-swatch" class="w-10 h-10 rounded-md border-2 border-dashed border-zinc-600 flex items-center justify-center">
       <span class="text-zinc-600 text-sm font-bold">–</span>
     </div>
+  </div>
+
+  <!-- Undo/Redo/History HUD: shown in Classic mode only -->
+  <div id="undo-redo-hud" class="hidden fixed z-20 flex items-center gap-1" style="bottom: 1rem; left: 4.5rem">
+    <button id="undo-btn" title="Undo (Ctrl+Z)"
+            class="w-9 h-9 rounded-lg bg-black/50 hover:bg-black/70 text-zinc-100 text-base leading-none flex items-center justify-center transition hover:scale-110 active:scale-95 cursor-pointer">↩</button>
+    <button id="redo-btn" title="Redo (Ctrl+Y)"
+            class="w-9 h-9 rounded-lg bg-black/50 hover:bg-black/70 text-zinc-100 text-base leading-none flex items-center justify-center transition hover:scale-110 active:scale-95 cursor-pointer">↪</button>
+    <button id="history-btn" title="Build History"
+            class="w-9 h-9 rounded-lg bg-black/50 hover:bg-black/70 text-zinc-100 text-base leading-none flex items-center justify-center transition hover:scale-110 active:scale-95 cursor-pointer">🕐</button>
+  </div>
+
+  <!-- History panel: recent block placements/breaks -->
+  <div id="history-panel" class="hidden fixed z-30 rounded-xl bg-black/75 backdrop-blur-sm p-3 text-sm text-zinc-200 shadow-xl" style="bottom: 5.5rem; left: 1rem; width: 264px">
+    <div class="flex items-center justify-between mb-2">
+      <span class="font-bold text-xs text-zinc-100 uppercase tracking-wide">Recent Actions</span>
+      <div class="flex items-center gap-1.5">
+        <button id="history-undo-btn" title="Undo"
+                class="w-7 h-7 rounded bg-zinc-700 hover:bg-zinc-600 text-zinc-100 text-sm flex items-center justify-center cursor-pointer transition hover:scale-110 active:scale-95">↩</button>
+        <button id="history-redo-btn" title="Redo"
+                class="w-7 h-7 rounded bg-zinc-700 hover:bg-zinc-600 text-zinc-100 text-sm flex items-center justify-center cursor-pointer transition hover:scale-110 active:scale-95">↪</button>
+        <button id="history-close" aria-label="Close history"
+                class="text-zinc-400 hover:text-zinc-100 cursor-pointer leading-none transition-colors ml-1">✕</button>
+      </div>
+    </div>
+    <ul id="history-list" class="space-y-0.5 max-h-48 overflow-y-auto"></ul>
+    <p id="history-empty" class="text-zinc-500 text-xs text-center py-2">No actions yet — place or break a block.</p>
   </div>
 
   <!-- Block palette -->
@@ -707,6 +748,8 @@
       <li><span class="font-semibold">Enter</span> — open / close chat</li>
       <li><span class="font-semibold">L</span> or <span class="font-semibold">🏆</span> — leaderboard</li>
       <li><span class="font-semibold">M</span> or <span class="font-semibold">🔊</span> — mute / unmute audio</li>
+      <li><span class="font-semibold">Ctrl+Z</span> — undo last action (Classic)</li>
+      <li><span class="font-semibold">Ctrl+Y</span> — redo (Classic)</li>
       <li><span class="font-semibold">Esc</span> — close panel / release / menu</li>
       <li><span class="font-semibold">Power-ups</span> — collect glowing cubes for Speed, Jump, or Rapid Place (hold F/Add)</li>
     </ul>
@@ -723,6 +766,7 @@
         <button id="tab-ta-60" class="px-2 py-0.5 rounded text-xs font-semibold text-zinc-400 hover:text-zinc-200 cursor-pointer transition-colors whitespace-nowrap" data-tab="ta-60">TA (60s)</button>
         <button id="tab-daily-challenge" class="px-2 py-0.5 rounded text-xs font-semibold text-zinc-400 hover:text-zinc-200 cursor-pointer transition-colors whitespace-nowrap" data-tab="daily">Daily</button>
         <button id="tab-endless" class="px-2 py-0.5 rounded text-xs font-semibold text-zinc-400 hover:text-zinc-200 cursor-pointer transition-colors whitespace-nowrap" data-tab="endless">Endless</button>
+        <button id="tab-puzzle" class="px-2 py-0.5 rounded text-xs font-semibold text-zinc-400 hover:text-zinc-200 cursor-pointer transition-colors whitespace-nowrap" data-tab="puzzle">Puzzle</button>
       </div>
       <button id="leaderboard-close" aria-label="Close leaderboard" class="text-zinc-400 hover:text-zinc-100 cursor-pointer leading-none transition-colors">✕</button>
     </div>
@@ -954,7 +998,7 @@
 
     // Build identifier — bump this (to the deploying commit short SHA) on every
     // change so the top-right stamp confirms exactly which code is running.
-    const BUILD_VERSION = 'power-ups+hold-queue+achievements-badges+chat+daily-challenge+leaderboard+online-presence+block-attribution+audio-sfx+next-piece-preview+spectator-mode+weekly-tournament+friends+day-night-cycle+minimap+ai-coach+natural-disasters+undo-stack+pastel-chrome';
+    const BUILD_VERSION = 'power-ups+hold-queue+achievements-badges+chat+daily-challenge+leaderboard+online-presence+block-attribution+audio-sfx+next-piece-preview+spectator-mode+weekly-tournament+friends+day-night-cycle+minimap+ai-coach+natural-disasters+undo-redo-history+pastel-chrome';
 
     // Badge definitions — mirror of the server-side BADGES array, extended with
     // a `hint` field shown in the panel for unearned badges.
@@ -1289,6 +1333,10 @@
         mode_endless_desc: 'Build forever on an endless grid. No timer, no score multiplier—just how long until you run out of valid moves?',
         mode_endless_btn: 'Play Endless',
 
+        mode_puzzle_title: '🧩 Puzzle Mode',
+        mode_puzzle_desc: 'Clear a fixed set of blocks level by level. Solve increasingly difficult puzzles.',
+        mode_puzzle_btn: 'Play Puzzle',
+
         mode_tutorial_title: 'Tutorial',
         mode_tutorial_desc: 'Learn the basics step-by-step: place blocks, break them, earn points, and clear lines.',
         mode_tutorial_btn: '📚 Start Tutorial',
@@ -1348,6 +1396,7 @@
         tab_ta_60: 'TA (60s)',
         tab_daily: 'Daily',
         tab_endless: 'Endless',
+        tab_puzzle: 'Puzzle',
       },
       id: {
         // Header and subtitle
@@ -1375,6 +1424,10 @@
         mode_endless_title: 'Mode Tak Terbatas',
         mode_endless_desc: 'Bangun selamanya di grid tak terbatas. Tidak ada waktu, tidak ada pengganda poin—seberapa lama sampai Anda kehabisan gerakan yang valid?',
         mode_endless_btn: 'Mainkan Tak Terbatas',
+
+        mode_puzzle_title: '🧩 Mode Puzzle',
+        mode_puzzle_desc: 'Hapus satu set blok tetap tingkat demi tingkat. Pecahkan puzzle yang semakin sulit.',
+        mode_puzzle_btn: 'Mainkan Puzzle',
 
         mode_tutorial_title: 'Tutorial',
         mode_tutorial_desc: 'Pelajari dasar-dasarnya langkah demi langkah: tempatkan blok, hancurkan, dapatkan poin, dan hapus baris.',
@@ -1435,6 +1488,7 @@
         tab_ta_60: 'ST (60d)',
         tab_daily: 'Harian',
         tab_endless: 'Tak Terbatas',
+        tab_puzzle: 'Puzzle',
       }
     };
 
@@ -1540,6 +1594,7 @@
         'tab-ta-60': 'tab_ta_60',
         'tab-daily-challenge': 'tab_daily',
         'tab-endless': 'tab_endless',
+        'tab-puzzle': 'tab_puzzle',
       };
       for (const [id, key] of Object.entries(tabConfigs)) {
         const el = document.getElementById(id);
@@ -1611,6 +1666,12 @@
     // ---- Hold queue state ----
     let heldType = null;    // block type ID currently in the hold slot, or null
     let holdLocked = false; // true after a hold swap; cleared on next block placement
+
+    // ---- Undo/Redo history ----
+    const UNDO_LIMIT = 20;
+    const undoStack = []; // { x, y, z, from, to, blockName, ts }
+    const redoStack = [];
+    let isStaging = false;
 
     // ---- Badge state ----
     const earnedBadges = new Map(); // badge_id -> { earned_at }
@@ -1701,6 +1762,14 @@
     let endlessBlocksPlaced = 0;         // blocks placed in current run
     let endlessMovesStarted = 0;         // moves made in this run
     let pendingEndlessInit = false;      // true while waiting for play-entry to fire initEndlessMode
+
+    // ---- Puzzle Mode state ----
+    const puzzleBlocks = new Map();      // Puzzle session: key = 'x,y,z', value = block_type
+    let puzzleLevel = 1;                 // current puzzle level
+    let puzzleTarget = 10;               // blocks to clear this level
+    let puzzleCleared = 0;               // blocks cleared so far
+    let puzzleStartTime = null;          // when the level started
+    let pendingPuzzleInit = false;       // true while waiting for play-entry to fire initPuzzleMode
 
     // ---- Learn Mode state ----
     const learnBlocks = new Map();       // Learn session: key = 'x,y,z', value = block_type
@@ -3089,6 +3158,7 @@
       audio.playPlace();
       emitBlockPlace(x + 0.5, y + 0.5, z + 0.5);
       sendEdit(x, y, z, selectedType, prevType);
+      pushHistory(x, y, z, prevType, selectedType);
       // Unlock hold after each successful placement (Tetris lock rule)
       holdLocked = false;
       updateHoldPanel();
@@ -3225,6 +3295,78 @@
       audio.playBreak();
       emitBlockBreak(x + 0.5, y + 0.5, z + 0.5, brokenType);
       sendEdit(x, y, z, 0, brokenType);
+      pushHistory(x, y, z, brokenType, 0);
+    }
+
+    // ---- Undo/Redo history functions ----
+
+    function timeAgo(ts) {
+      const s = Math.floor((Date.now() - ts) / 1000);
+      if (s < 2) return 'just now';
+      if (s < 60) return s + 's ago';
+      const m = Math.floor(s / 60);
+      if (m < 60) return m + 'm ago';
+      return Math.floor(m / 60) + 'h ago';
+    }
+
+    function renderHistoryPanel() {
+      const listEl = document.getElementById('history-list');
+      const emptyEl = document.getElementById('history-empty');
+      if (!listEl || !emptyEl) return;
+      const undoDisabled = undoStack.length === 0;
+      const redoDisabled = redoStack.length === 0;
+      for (const id of ['undo-btn', 'redo-btn', 'history-undo-btn', 'history-redo-btn']) {
+        const btn = document.getElementById(id);
+        if (!btn) continue;
+        const isUndo = id === 'undo-btn' || id === 'history-undo-btn';
+        btn.disabled = isUndo ? undoDisabled : redoDisabled;
+      }
+      if (undoStack.length === 0) {
+        listEl.innerHTML = '';
+        emptyEl.classList.remove('hidden');
+        return;
+      }
+      emptyEl.classList.add('hidden');
+      const items = [...undoStack].reverse();
+      listEl.innerHTML = items.map((entry, i) => {
+        const relevantType = entry.to !== 0 ? entry.to : entry.from;
+        const p = PALETTE.find((q) => q.id === relevantType);
+        const color = p ? p.color : '#888888';
+        const name = entry.blockName || (p ? p.name : 'Block');
+        const action = entry.to !== 0 ? 'Placed' : 'Broke';
+        const ago = timeAgo(entry.ts);
+        const isActive = i === 0;
+        return '<li class="flex items-center gap-2 rounded px-1.5 py-1 text-xs' + (isActive ? ' bg-white/10' : '') + '">' +
+          '<span class="w-4 h-4 rounded-sm shrink-0" style="background:' + color + '"></span>' +
+          '<span class="flex-1 text-zinc-200 truncate">' + action + ' <span style="font-weight:600">' + name + '</span></span>' +
+          '<span class="text-zinc-500 whitespace-nowrap shrink-0">' + ago + '</span>' +
+          '</li>';
+      }).join('');
+    }
+
+    function pushHistory(x, y, z, from, to) {
+      const relevantType = to !== 0 ? to : from;
+      const p = PALETTE.find((q) => q.id === relevantType);
+      undoStack.push({ x, y, z, from, to, blockName: p ? p.name : 'Block', ts: Date.now() });
+      redoStack.length = 0;
+      if (undoStack.length > UNDO_LIMIT) undoStack.shift();
+      renderHistoryPanel();
+    }
+
+    function undo() {
+      if (undoStack.length === 0 || gameMode !== 'classic') return;
+      const entry = undoStack.pop();
+      redoStack.push(entry);
+      sendEdit(entry.x, entry.y, entry.z, entry.from);
+      renderHistoryPanel();
+    }
+
+    function redo() {
+      if (redoStack.length === 0 || gameMode !== 'classic') return;
+      const entry = redoStack.pop();
+      undoStack.push(entry);
+      sendEdit(entry.x, entry.y, entry.z, entry.to);
+      renderHistoryPanel();
     }
 
     // ---- Pointer-lock fly camera ----
@@ -3833,11 +3975,14 @@
         updateScoreHud();
         if (!pollHandle) pollHandle = setInterval(poll, 1500);
         coachBtnEl.classList.remove('hidden');
+        document.getElementById('undo-redo-hud').classList.remove('hidden');
         setTimeout(() => fetchCoachTip('mode_start'), 3000);
       } else if (gameMode === 'spectate') {
         if (!pollHandle) pollHandle = setInterval(poll, 1500);
         document.getElementById('palette').classList.add('hidden');
         document.getElementById('hold-panel').classList.add('hidden');
+        document.getElementById('undo-redo-hud').classList.add('hidden');
+        document.getElementById('history-panel').classList.add('hidden');
         challengeHudEl.classList.add('hidden');
         document.getElementById('crosshair').style.opacity = '0.3';
         // Hide coach in spectate mode — player isn't building.
@@ -3853,6 +3998,7 @@
       if (mode === 'timeattack') pendingTaInit = true;
       if (mode === 'time-attack-60') pendingTa60Init = true;
       if (mode === 'endless') pendingEndlessInit = true;
+      if (mode === 'puzzle') pendingPuzzleInit = true;
       if (mode === 'learn') pendingLearnInit = true;
       if (mode === 'tutorial') pendingTutorialInit = true;
       refreshUndoButton();
@@ -3961,6 +4107,8 @@
       document.getElementById('learn-hints').innerHTML = '';
       document.getElementById('palette').classList.remove('hidden');
       document.getElementById('hold-panel').classList.remove('hidden');
+      document.getElementById('undo-redo-hud').classList.add('hidden');
+      document.getElementById('history-panel').classList.add('hidden');
       document.getElementById('crosshair').style.opacity = '';
       hideComboHud();
       hideScoreHud();
@@ -4049,6 +4197,7 @@
     document.getElementById('play-ta-60-btn').addEventListener('click', () => { audio.init(); startMode('time-attack-60'); });
     document.getElementById('play-daily-challenge-btn').addEventListener('click', () => { audio.init(); startMode('daily-challenge'); });
     document.getElementById('play-endless-btn').addEventListener('click', () => { audio.init(); startMode('endless'); });
+    document.getElementById('play-puzzle-btn').addEventListener('click', () => { audio.init(); startMode('puzzle'); });
     document.getElementById('play-tutorial-btn').addEventListener('click', () => { audio.init(); startMode('tutorial'); });
     document.getElementById('play-learn-btn').addEventListener('click', () => { audio.init(); startMode('learn'); });
     document.getElementById('play-spectate-btn').addEventListener('click', () => { audio.init(); startMode('spectate'); });
@@ -4188,6 +4337,15 @@
         lastRapidPlace = performance.now();
       }
       if (e.code === 'KeyG' && playing && gameMode !== 'spectate') breakBlock();
+      // Ctrl+Z = undo, Ctrl+Y / Ctrl+Shift+Z = redo (Classic mode only).
+      if (e.ctrlKey && e.code === 'KeyZ' && gameMode === 'classic') {
+        e.preventDefault();
+        if (e.shiftKey) redo(); else undo();
+      }
+      if (e.ctrlKey && e.code === 'KeyY' && gameMode === 'classic') {
+        e.preventDefault();
+        redo();
+      }
       // H is context-aware: triggers hold/swap while playing, toggles the
       // controls overlay when the menu/overlay is up.
       if (e.code === 'KeyH') {
@@ -4725,7 +4883,7 @@
 
     function setLeaderboardTab(tab) {
       leaderboardTab = tab;
-      const tabs = { alltime: 'tab-alltime', tournament: 'tab-tournament', ta: 'tab-ta', 'ta-60': 'tab-ta-60', 'daily-challenge': 'tab-daily-challenge', endless: 'tab-endless' };
+      const tabs = { alltime: 'tab-alltime', tournament: 'tab-tournament', ta: 'tab-ta', 'ta-60': 'tab-ta-60', 'daily-challenge': 'tab-daily-challenge', endless: 'tab-endless', puzzle: 'tab-puzzle' };
       for (const [key2, id] of Object.entries(tabs)) {
         const el = document.getElementById(id);
         if (!el) continue;
@@ -4946,6 +5104,14 @@
         } catch (_) {
           leaderboardContentEl.innerHTML = '<p class="py-1 text-zinc-500">Couldn\'t load Endless scores.</p>';
         }
+      } else if (leaderboardTab === 'puzzle') {
+        try {
+          const res = await fetch('/api/puzzle-leaderboard', { headers });
+          if (!res.ok) throw new Error('fetch failed');
+          renderPuzzleLeaderboard(await res.json());
+        } catch (_) {
+          leaderboardContentEl.innerHTML = '<p class="py-1 text-zinc-500">Couldn\'t load Puzzle scores.</p>';
+        }
       } else {
         try {
           const res = await fetch('/api/leaderboard', { headers });
@@ -5074,6 +5240,44 @@
         btn.addEventListener('click', () => showProfile(btn.textContent));
       }
     }
+
+    function renderPuzzleLeaderboard(data) {
+      const medals = ['🥇', '🥈', '🥉'];
+      if (!data.entries.length) {
+        leaderboardContentEl.innerHTML =
+          '<p class="py-1 text-center text-zinc-400">No scores yet — solve some puzzles!</p>';
+        return;
+      }
+      let html = '<table class="w-full text-xs">' +
+        '<thead><tr class="text-zinc-500 uppercase border-b border-zinc-700">' +
+        '<th class="text-left pb-1 w-8">#</th>' +
+        '<th class="text-left pb-1 pl-2">Player</th>' +
+        '<th class="text-right pb-1">Level</th>' +
+        '<th class="text-right pb-1 pl-1">Blocks</th></tr></thead><tbody>' +
+        data.entries.map(e =>
+          '<tr class="border-b border-zinc-800/60 last:border-0">' +
+          '<td class="py-1">' + (medals[e.rank - 1] || e.rank) + '</td>' +
+          '<td class="py-1 pl-2 max-w-[130px] truncate"><button class="text-violet-400 hover:text-violet-300 hover:underline cursor-pointer" data-profile-btn>' + escapeHtml(e.username) + '</button></td>' +
+          '<td class="py-1 text-right font-mono text-zinc-100">' + e.highest_level + '</td>' +
+          '<td class="py-1 text-right pl-1 text-indigo-400">' + e.total_blocks_cleared_best_session + '</td></tr>'
+        ).join('') +
+        '</tbody></table>';
+      if (data.self && !data.entries.find(e => e.user_id === data.self.user_id)) {
+        html += '<div class="mt-2 pt-2 border-t border-zinc-700 text-xs">' +
+          '<table class="w-full"><tbody><tr class="text-indigo-300">' +
+          '<td class="w-8">' + (medals[data.self.rank - 1] || data.self.rank) + '</td>' +
+          '<td class="pl-2 max-w-[110px] truncate"><button class="text-indigo-300 hover:text-indigo-200 hover:underline cursor-pointer" data-profile-btn>' + escapeHtml(data.self.username) + '</button> (you)</td>' +
+          '<td class="text-right font-mono">' + data.self.highest_level + '</td>' +
+          '<td class="text-right pl-1 text-indigo-300">' + data.self.total_blocks_cleared_best_session + '</td>' +
+          '</tr></tbody></table></div>';
+      }
+      leaderboardContentEl.innerHTML = html;
+      // Attach click handlers to profile buttons
+      for (const btn of leaderboardContentEl.querySelectorAll('[data-profile-btn]')) {
+        btn.addEventListener('click', () => showProfile(btn.textContent));
+      }
+    }
+
     document.getElementById('leaderboard-btn').addEventListener('click', toggleLeaderboard);
     document.getElementById('leaderboard-close').addEventListener('click', closeLeaderboard);
     document.getElementById('profile-close').addEventListener('click', closeProfile);
@@ -5083,6 +5287,7 @@
     document.getElementById('tab-ta-60').addEventListener('click', () => setLeaderboardTab('ta-60'));
     document.getElementById('tab-daily-challenge').addEventListener('click', () => setLeaderboardTab('daily-challenge'));
     document.getElementById('tab-endless').addEventListener('click', () => setLeaderboardTab('endless'));
+    document.getElementById('tab-puzzle').addEventListener('click', () => setLeaderboardTab('puzzle'));
 
     // Close profile on ESC key
     document.addEventListener('keydown', (e) => {
@@ -5352,6 +5557,18 @@
         coachFetching = false;
       }
     }
+
+    // ---- Undo/Redo/History button wiring ----
+    document.getElementById('undo-btn').addEventListener('click', undo);
+    document.getElementById('redo-btn').addEventListener('click', redo);
+    document.getElementById('history-undo-btn').addEventListener('click', undo);
+    document.getElementById('history-redo-btn').addEventListener('click', redo);
+    document.getElementById('history-btn').addEventListener('click', () => {
+      document.getElementById('history-panel').classList.toggle('hidden');
+    });
+    document.getElementById('history-close').addEventListener('click', () => {
+      document.getElementById('history-panel').classList.add('hidden');
+    });
 
     coachBtnEl.addEventListener('click', () => fetchCoachTip('player_asked'));
     document.getElementById('coach-dismiss').addEventListener('click', () => {
@@ -5737,6 +5954,7 @@
       cursor = data.cursor || 0;
       eventsCursor = data.maxDisasterId || 0;
       unlockedTypes = new Set(data.unlockedTypes || []);
+      isStaging = !!data.isStaging;
       selectedType = PALETTE[0] ? PALETTE[0].id : 1;
       blocks.clear();
       for (const b of data.blocks) blocks.set(key(b.x, b.y, b.z), b.t);
@@ -5745,6 +5963,23 @@
       buildPalette();
       rebuildBlockMeshes();
       spawnCamera();
+      // Pre-populate the undo stack in staging so the history panel has visible content.
+      if (isStaging) {
+        const now = Date.now();
+        const demoEntries = [
+          { x: 16, y: 1, z: 13, from: 0, to: 6 },
+          { x: 14, y: 1, z: 14, from: 0, to: 3 },
+          { x: 18, y: 2, z: 16, from: 0, to: 8 },
+          { x: 16, y: 3, z: 14, from: 0, to: 3 },
+          { x: 16, y: 4, z: 16, from: 0, to: 4 },
+        ];
+        for (let i = 0; i < demoEntries.length; i++) {
+          const e = demoEntries[i];
+          const p = PALETTE.find((q) => q.id === e.to);
+          undoStack.push({ ...e, blockName: p ? p.name : 'Block', ts: now - (demoEntries.length - i) * 30000 });
+        }
+        renderHistoryPanel();
+      }
       return true;
     }
 

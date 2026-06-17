@@ -203,6 +203,7 @@ app.get('/api/world', async (req, res) => {
       cursor: Number(cur.rows[0].cursor),
       maxDisasterId: Number(maxDisasterRes.rows[0].max_disaster_id),
       unlockedTypes,
+      isStaging: IS_STAGING,
       tutorial_completed,
     });
   } catch (err) {
@@ -1026,6 +1027,156 @@ app.get('/api/endless-leaderboard', async (req, res) => {
   }
 });
 
+// ---- Puzzle Mode: get level definition ----
+app.post('/api/puzzle-level/:levelNumber', async (req, res) => {
+  try {
+    const levelNumber = Number(req.params.levelNumber);
+    if (!Number.isInteger(levelNumber) || levelNumber < 1) {
+      return res.status(400).json({ error: 'level_number must be a positive integer' });
+    }
+
+    // Fetch or generate the level
+    let levelRes = await pool.query(
+      `SELECT level_number, block_snapshot, target_blocks_to_clear
+       FROM puzzle_level_definitions
+       WHERE level_number = $1`,
+      [levelNumber]
+    );
+
+    // If level doesn't exist in DB, generate it on the fly
+    if (!levelRes.rows.length) {
+      const blocks = generatePuzzleBlocks(levelNumber);
+      const target = 10 + Math.min(levelNumber * 5, 100); // Target scales with level, capped at 110
+      return res.json({
+        level_number: levelNumber,
+        block_snapshot: blocks,
+        target_blocks_to_clear: target,
+      });
+    }
+
+    const row = levelRes.rows[0];
+    res.json({
+      level_number: Number(row.level_number),
+      block_snapshot: row.block_snapshot,
+      target_blocks_to_clear: Number(row.target_blocks_to_clear),
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- Puzzle Mode: place/break a block ----
+app.post('/api/puzzle-block', async (req, res) => {
+  try {
+    const x = Number(req.body.x);
+    const y = Number(req.body.y);
+    const z = Number(req.body.z);
+    const t = Number(req.body.block_type);
+
+    // Strict validation (same as /api/block)
+    const intIn = (v, lo, hi) => Number.isInteger(v) && v >= lo && v <= hi;
+    if (!intIn(x, 0, DIMS.w - 1) || !intIn(z, 0, DIMS.d - 1)) {
+      return res.status(400).json({ error: 'coordinate out of bounds' });
+    }
+    if (!intIn(y, 1, DIMS.h - 1)) {
+      return res.status(400).json({ error: 'y out of buildable range' });
+    }
+    if (t !== 0 && !VALID_TYPES.has(t)) {
+      return res.status(400).json({ error: 'unknown block_type' });
+    }
+
+    // For puzzle mode, we don't validate against the puzzle-specific blocks—
+    // that's handled client-side. This just validates the request is well-formed.
+    // The response doesn't impact global scoring or presence.
+
+    res.json({ ok: true, x, y, z, block_type: t });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- Puzzle Mode: submit a completed level ----
+app.post('/api/puzzle-score', async (req, res) => {
+  try {
+    const levelNumber = Number(req.body.level_number);
+    const blocksCleared = Number(req.body.blocks_cleared_session);
+    const timeMs = Number(req.body.time_ms);
+
+    if (!Number.isInteger(levelNumber) || levelNumber < 1) {
+      return res.status(400).json({ error: 'level_number must be a positive integer' });
+    }
+    if (!Number.isInteger(blocksCleared) || blocksCleared < 0) {
+      return res.status(400).json({ error: 'blocks_cleared_session must be non-negative' });
+    }
+    if (!Number.isInteger(timeMs) || timeMs < 0) {
+      return res.status(400).json({ error: 'time_ms must be non-negative' });
+    }
+
+    // Upsert puzzle score: only update if this level is higher than current
+    const { rows } = await pool.query(
+      `INSERT INTO puzzle_scores (user_id, username, highest_level, total_blocks_cleared_best_session, updated_at)
+       VALUES ($1, $2, $3, $4, NOW())
+       ON CONFLICT (user_id) DO UPDATE
+         SET highest_level = GREATEST(puzzle_scores.highest_level, EXCLUDED.highest_level),
+             total_blocks_cleared_best_session = CASE
+               WHEN EXCLUDED.highest_level > puzzle_scores.highest_level
+               THEN EXCLUDED.total_blocks_cleared_best_session
+               ELSE puzzle_scores.total_blocks_cleared_best_session
+             END,
+             username = EXCLUDED.username,
+             updated_at = NOW()
+       RETURNING highest_level, total_blocks_cleared_best_session`,
+      [req.user.id, req.user.username, levelNumber, blocksCleared]
+    );
+
+    const isNewBest = rows[0].highest_level === levelNumber;
+    res.json({
+      ok: true,
+      highest_level: Number(rows[0].highest_level),
+      total_blocks_cleared_best_session: Number(rows[0].total_blocks_cleared_best_session),
+      is_new_best: isNewBest,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- Puzzle Mode leaderboard: top 10 by highest level + caller's own rank ----
+app.get('/api/puzzle-leaderboard', async (req, res) => {
+  try {
+    const topRes = await pool.query(
+      `SELECT rank() OVER (ORDER BY highest_level DESC, total_blocks_cleared_best_session DESC) AS rank,
+              user_id, username, highest_level, total_blocks_cleared_best_session
+       FROM puzzle_scores
+       ORDER BY highest_level DESC, total_blocks_cleared_best_session DESC
+       LIMIT 10`
+    );
+
+    const selfRes = await pool.query(
+      `SELECT rank() OVER (ORDER BY highest_level DESC, total_blocks_cleared_best_session DESC) AS rank,
+              user_id, username, highest_level, total_blocks_cleared_best_session
+       FROM puzzle_scores
+       WHERE user_id = $1`,
+      [req.user.id]
+    );
+
+    const toRow = (r) => ({
+      rank: Number(r.rank),
+      user_id: r.user_id,
+      username: r.username,
+      highest_level: Number(r.highest_level),
+      total_blocks_cleared_best_session: Number(r.total_blocks_cleared_best_session),
+    });
+
+    res.json({
+      entries: topRes.rows.map(toRow),
+      self: selfRes.rows.length ? toRow(selfRes.rows[0]) : null,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ---- Badges: current player's earned badges ----
 app.get('/api/badges', async (req, res) => {
   try {
@@ -1070,12 +1221,19 @@ app.get('/api/profile/:username', async (req, res) => {
       [username]
     );
 
+    // Fetch Puzzle stats
+    const puzzleRes = await pool.query(
+      `SELECT user_id, username, highest_level, total_blocks_cleared_best_session FROM puzzle_scores WHERE LOWER(username) = $1`,
+      [username]
+    );
+
     // Get user_id from any available result, or return 404
     let userId = null;
     if (classicRes.rows.length) userId = classicRes.rows[0].user_id;
     else if (taRes.rows.length) userId = taRes.rows[0].user_id;
     else if (ta60Res.rows.length) userId = ta60Res.rows[0].user_id;
     else if (endlessRes.rows.length) userId = endlessRes.rows[0].user_id;
+    else if (puzzleRes.rows.length) userId = puzzleRes.rows[0].user_id;
 
     if (!userId) {
       return res.status(404).json({ error: 'Player not found' });
@@ -1085,10 +1243,11 @@ app.get('/api/profile/:username', async (req, res) => {
     const exactUsername = classicRes.rows[0]?.username ||
                          taRes.rows[0]?.username ||
                          ta60Res.rows[0]?.username ||
-                         endlessRes.rows[0]?.username;
+                         endlessRes.rows[0]?.username ||
+                         puzzleRes.rows[0]?.username;
 
     // Compute ranks for each mode (only if user has stats in that mode)
-    let classicRank = null, taRank = null, ta60Rank = null, endlessRank = null;
+    let classicRank = null, taRank = null, ta60Rank = null, endlessRank = null, puzzleRank = null;
 
     if (classicRes.rows.length) {
       const rankRes = await pool.query(
@@ -1120,6 +1279,14 @@ app.get('/api/profile/:username', async (req, res) => {
         [username]
       );
       endlessRank = rankRes.rows.length ? Number(rankRes.rows[0].rank) : null;
+    }
+
+    if (puzzleRes.rows.length) {
+      const rankRes = await pool.query(
+        `SELECT rank() OVER (ORDER BY highest_level DESC, total_blocks_cleared_best_session DESC) AS rank FROM puzzle_scores WHERE LOWER(username) = $1`,
+        [username]
+      );
+      puzzleRank = rankRes.rows.length ? Number(rankRes.rows[0].rank) : null;
     }
 
     // Fetch badges
@@ -1181,6 +1348,11 @@ app.get('/api/profile/:username', async (req, res) => {
           best_placed: endlessRes.rows.length ? endlessRes.rows[0].best_placed : 0,
           best_moves_survived: endlessRes.rows.length ? endlessRes.rows[0].best_moves_survived : 0,
           rank: endlessRank,
+        },
+        puzzle: {
+          highest_level: puzzleRes.rows.length ? Number(puzzleRes.rows[0].highest_level) : 0,
+          total_blocks_cleared_best_session: puzzleRes.rows.length ? Number(puzzleRes.rows[0].total_blocks_cleared_best_session) : 0,
+          rank: puzzleRank,
         },
       },
       badges: badgesRes.rows.map((r) => ({
@@ -2639,6 +2811,69 @@ async function seedDailyChallenge() {
   }
 }
 
+// Helper to generate deterministic puzzle level blocks seeded by level number.
+function generatePuzzleBlocks(levelNumber) {
+  const blocks = [];
+  const seed = levelNumber * 12345; // Deterministic seed based on level
+  let rng = seed;
+
+  function nextRandom() {
+    rng = (rng * 1103515245 + 12345) & 0x7fffffff;
+    return rng / 0x7fffffff;
+  }
+
+  const blockCount = 20 + levelNumber * 8; // Increases with level
+  const blockTypes = [1, 2, 3, 4, 5, 6, 7, 9, 10, 11]; // Color variety, exclude glass/special
+
+  for (let i = 0; i < blockCount; i++) {
+    const x = Math.floor(nextRandom() * 32);
+    const z = Math.floor(nextRandom() * 32);
+    const y = 2 + Math.floor(nextRandom() * 8); // Height 2-10
+    const t = blockTypes[Math.floor(nextRandom() * blockTypes.length)];
+    blocks.push({ x, y, z, t });
+  }
+
+  return blocks;
+}
+
+async function seedPuzzleLevels() {
+  // Seed 5 levels with deterministic block layouts and targets.
+  const levelSeeds = [
+    { level: 1, target: 10 },
+    { level: 2, target: 15 },
+    { level: 3, target: 25 },
+    { level: 4, target: 40 },
+    { level: 5, target: 50 },
+  ];
+
+  for (const { level, target } of levelSeeds) {
+    const blocks = generatePuzzleBlocks(level);
+    await pool.query(
+      `INSERT INTO puzzle_level_definitions (level_number, block_snapshot, target_blocks_to_clear)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (level_number) DO NOTHING`,
+      [level, JSON.stringify(blocks), target]
+    );
+  }
+}
+
+async function seedPuzzleScores() {
+  // Seed demo users with varying puzzle mode high scores.
+  const seeds = [
+    { userId: -11, username: 'Staging demo puzzle A', level: 8, blocks: 240 },
+    { userId: -12, username: 'Staging demo puzzle B', level: 5, blocks: 140 },
+    { userId: -13, username: 'Staging demo puzzle C', level: 12, blocks: 380 },
+  ];
+  for (const s of seeds) {
+    await pool.query(
+      `INSERT INTO puzzle_scores (user_id, username, highest_level, total_blocks_cleared_best_session, updated_at)
+       VALUES ($1, $2, $3, $4, NOW())
+       ON CONFLICT (user_id) DO NOTHING`,
+      [s.userId, s.username, s.level, s.blocks]
+    );
+  }
+}
+
 // ---- Natural Disaster trigger (called from GET /api/world/changes) ----
 // Uses SELECT ... FOR UPDATE SKIP LOCKED on disaster_schedule so that only one
 // concurrent request can trigger at a time. Returns the fired disaster row or null.
@@ -2991,6 +3226,29 @@ async function start() {
   await pool.query(`CREATE INDEX IF NOT EXISTS friendships_addressee_status_idx ON friendships (addressee_id, status)`);
   await pool.query(`CREATE INDEX IF NOT EXISTS friendships_requester_status_idx ON friendships (requester_id, status)`);
 
+  // Puzzle Mode scores: tracks best performance per user.
+  // Public table — holds only username and level counts, nothing sensitive.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS puzzle_scores (
+      user_id                      INTEGER PRIMARY KEY,
+      username                     VARCHAR(255) NOT NULL,
+      highest_level                INTEGER NOT NULL DEFAULT 1,
+      total_blocks_cleared_best_session INTEGER NOT NULL DEFAULT 0,
+      updated_at                   TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+
+  // Puzzle level definitions: seed data for each level's block layout and target.
+  // Public table — level data is not sensitive.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS puzzle_level_definitions (
+      level_number              INTEGER PRIMARY KEY,
+      block_snapshot            JSONB NOT NULL,
+      target_blocks_to_clear    INTEGER NOT NULL,
+      created_at                TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+
   await pool.query(`
     CREATE TABLE IF NOT EXISTS disasters (
       id               SERIAL PRIMARY KEY,
@@ -3072,6 +3330,10 @@ async function start() {
     catch (err) { console.error('login-rewards seed failed', err); }
     try { await seedDailyChallenge(); }
     catch (err) { console.error('daily-challenge seed failed', err); }
+    try { await seedPuzzleLevels(); }
+    catch (err) { console.error('puzzle-levels seed failed', err); }
+    try { await seedPuzzleScores(); }
+    catch (err) { console.error('puzzle-scores seed failed', err); }
     // Staging spectators are now surfaced via the STAGING_DEMO_USERS constant
     // appended in GET /api/presence/online, so no DB seed is needed here.
   }
