@@ -106,6 +106,24 @@
 
     /* Hold panel swatch transition for locked/unlocked state */
     #hold-swatch { transition: opacity 0.2s; }
+
+    /* High-contrast mode: stronger panel borders */
+    body.high-contrast .bg-black\/70 { border: 1px solid rgba(255,255,255,0.25); }
+
+    /* Keybinding table: clickable key chips */
+    .kbd-key {
+      display: inline-block; min-width: 2.5rem; padding: 0.15rem 0.4rem;
+      font-family: monospace; font-size: 0.75rem; background: rgba(255,255,255,0.1);
+      border: 1px solid rgba(255,255,255,0.2); border-radius: 0.25rem;
+      text-align: center; cursor: pointer; transition: background 0.15s;
+    }
+    .kbd-key:hover { background: rgba(255,255,255,0.18); }
+    .kbd-key.rebinding { background: rgba(139,92,246,0.4); border-color: #7c3aed;
+      animation: kb-blink 0.7s ease-in-out infinite; }
+    @keyframes kb-blink { 0%,100%{opacity:1} 50%{opacity:0.5} }
+
+    /* Toggle switch knob */
+    .toggle-knob { transition: transform 0.15s; }
   </style>
 </head>
 <body class="bg-zinc-950 text-zinc-100">
@@ -189,6 +207,10 @@
 
   <!-- Block palette -->
   <div id="palette" class="fixed bottom-4 left-1/2 -translate-x-1/2 z-20 flex gap-1.5 p-1.5 rounded-xl bg-black/50 backdrop-blur"></div>
+
+  <!-- Accessibility settings toggle: sits to the left of the badges button. -->
+  <button id="settings-btn" title="Accessibility settings" aria-label="Toggle accessibility settings"
+          class="fixed top-3 z-30 w-9 h-9 rounded-full bg-black/50 hover:bg-black/70 text-zinc-100 text-lg leading-none flex items-center justify-center transition-colors cursor-pointer" style="right: 9.75rem">⚙</button>
 
   <!-- Badges toggle: sits to the left of the mute button. -->
   <button id="badges-btn" title="Badges" aria-label="Toggle badges"
@@ -298,6 +320,84 @@
     <div id="friends-add-status" class="mt-1 text-xs text-center min-h-[1.2em]"></div>
   </div>
 
+  <!-- Accessibility settings panel: Visual / Motor / Audio tabs. -->
+  <div id="settings-panel" class="hidden fixed top-28 right-3 z-30 w-80 max-w-[90vw] rounded-xl bg-black/70 backdrop-blur p-4 text-sm text-zinc-200 shadow-xl">
+    <div class="flex items-center justify-between mb-3">
+      <h2 class="font-bold text-zinc-100">Accessibility</h2>
+      <button id="settings-close" aria-label="Close settings" class="text-zinc-400 hover:text-zinc-100 cursor-pointer leading-none">✕</button>
+    </div>
+    <div class="flex gap-1 mb-3">
+      <button id="stab-visual" class="px-2 py-0.5 rounded text-xs font-semibold bg-zinc-700 text-zinc-100 cursor-pointer">Visual</button>
+      <button id="stab-motor" class="px-2 py-0.5 rounded text-xs font-semibold text-zinc-400 hover:text-zinc-200 cursor-pointer">Motor</button>
+      <button id="stab-audio" class="px-2 py-0.5 rounded text-xs font-semibold text-zinc-400 hover:text-zinc-200 cursor-pointer">Audio</button>
+    </div>
+    <!-- Visual tab -->
+    <div id="stab-visual-panel" class="space-y-3">
+      <div class="flex items-center justify-between gap-3">
+        <div><div class="text-zinc-100 font-medium">High Contrast</div><div class="text-zinc-400 text-xs mt-0.5">Stronger borders and darker sky</div></div>
+        <button id="pref-high-contrast" role="switch" aria-checked="false"
+                class="relative inline-flex shrink-0 w-10 h-6 rounded-full bg-zinc-700 transition-colors cursor-pointer">
+          <span class="toggle-knob inline-block w-4 h-4 bg-white rounded-full absolute top-1 left-1"></span>
+        </button>
+      </div>
+      <div>
+        <div class="text-zinc-100 font-medium mb-1.5">Colorblind Mode</div>
+        <div class="flex gap-1 flex-wrap">
+          <button class="cb-mode-btn px-2 py-1 rounded text-xs font-semibold bg-zinc-700 text-zinc-100 cursor-pointer" data-mode="none">None</button>
+          <button class="cb-mode-btn px-2 py-1 rounded text-xs font-semibold text-zinc-400 hover:text-zinc-200 cursor-pointer" data-mode="deuteranopia">Deuteranopia</button>
+          <button class="cb-mode-btn px-2 py-1 rounded text-xs font-semibold text-zinc-400 hover:text-zinc-200 cursor-pointer" data-mode="protanopia">Protanopia</button>
+          <button class="cb-mode-btn px-2 py-1 rounded text-xs font-semibold text-zinc-400 hover:text-zinc-200 cursor-pointer" data-mode="tritanopia">Tritanopia</button>
+        </div>
+      </div>
+      <div class="flex items-center justify-between gap-3">
+        <div><div class="text-zinc-100 font-medium">Reduced Motion</div><div class="text-zinc-400 text-xs mt-0.5">Disable floating and pulse animations</div></div>
+        <button id="pref-reduced-motion-v" role="switch" aria-checked="false"
+                class="relative inline-flex shrink-0 w-10 h-6 rounded-full bg-zinc-700 transition-colors cursor-pointer">
+          <span class="toggle-knob inline-block w-4 h-4 bg-white rounded-full absolute top-1 left-1"></span>
+        </button>
+      </div>
+    </div>
+    <!-- Motor tab -->
+    <div id="stab-motor-panel" class="hidden space-y-3">
+      <div class="flex items-center justify-between gap-3">
+        <div><div class="text-zinc-100 font-medium">Reduced Motion</div><div class="text-zinc-400 text-xs mt-0.5">Also disables turntable camera</div></div>
+        <button id="pref-reduced-motion-m" role="switch" aria-checked="false"
+                class="relative inline-flex shrink-0 w-10 h-6 rounded-full bg-zinc-700 transition-colors cursor-pointer">
+          <span class="toggle-knob inline-block w-4 h-4 bg-white rounded-full absolute top-1 left-1"></span>
+        </button>
+      </div>
+      <div>
+        <div class="text-zinc-100 font-medium mb-1">Key Bindings <span class="text-zinc-500 text-xs font-normal">(click to rebind)</span></div>
+        <div id="keybind-table" class="space-y-1 text-xs max-h-52 overflow-y-auto pr-0.5"></div>
+        <button id="keybind-reset" class="mt-2 text-xs text-zinc-500 hover:text-zinc-300 cursor-pointer underline">Reset to defaults</button>
+      </div>
+    </div>
+    <!-- Audio tab -->
+    <div id="stab-audio-panel" class="hidden space-y-3">
+      <div>
+        <div class="flex items-center justify-between mb-1.5">
+          <div class="text-zinc-100 font-medium">Master Volume</div>
+          <span id="pref-master-volume-label" class="text-zinc-400 text-xs tabular-nums">100%</span>
+        </div>
+        <input id="pref-master-volume" type="range" min="0" max="100" value="100" class="w-full accent-violet-500 cursor-pointer">
+      </div>
+      <div class="flex items-center justify-between gap-3">
+        <div><div class="text-zinc-100 font-medium">Sound Effects</div><div class="text-zinc-400 text-xs mt-0.5">Block place and break sounds</div></div>
+        <button id="pref-sfx" role="switch" aria-checked="true"
+                class="relative inline-flex shrink-0 w-10 h-6 rounded-full bg-violet-600 transition-colors cursor-pointer">
+          <span class="toggle-knob inline-block w-4 h-4 bg-white rounded-full absolute top-1 left-5"></span>
+        </button>
+      </div>
+      <div class="flex items-center justify-between gap-3">
+        <div><div class="text-zinc-100 font-medium">Music</div><div class="text-zinc-400 text-xs mt-0.5">Background ambient music</div></div>
+        <button id="pref-music" role="switch" aria-checked="true"
+                class="relative inline-flex shrink-0 w-10 h-6 rounded-full bg-violet-600 transition-colors cursor-pointer">
+          <span class="toggle-knob inline-block w-4 h-4 bg-white rounded-full absolute top-1 left-5"></span>
+        </button>
+      </div>
+    </div>
+  </div>
+
   <!-- Touch controls: translucent on-screen overlay shown only on touch devices
        while playing. The container is pointer-events-none so empty gaps fall
        through to the canvas (look-drag); each button re-enables pointer events.
@@ -376,6 +476,24 @@
   </div>
 
 
+  <!-- Hidden SVG: colorblind simulation filters applied to the canvas via CSS filter:url() -->
+  <svg xmlns="http://www.w3.org/2000/svg" style="position:absolute;width:0;height:0;overflow:hidden" aria-hidden="true">
+    <defs>
+      <!-- Deuteranopia: green cone absent -->
+      <filter id="cb-deuteranopia" color-interpolation-filters="linearRGB">
+        <feColorMatrix type="matrix" values="0.625 0.375 0 0 0  0.700 0.300 0 0 0  0 0.300 0.700 0 0  0 0 0 1 0"/>
+      </filter>
+      <!-- Protanopia: red cone absent -->
+      <filter id="cb-protanopia" color-interpolation-filters="linearRGB">
+        <feColorMatrix type="matrix" values="0.567 0.433 0 0 0  0.558 0.442 0 0 0  0 0.242 0.758 0 0  0 0 0 1 0"/>
+      </filter>
+      <!-- Tritanopia: blue cone absent -->
+      <filter id="cb-tritanopia" color-interpolation-filters="linearRGB">
+        <feColorMatrix type="matrix" values="0.950 0.050 0 0 0  0 0.433 0.567 0 0  0 0.475 0.525 0 0  0 0 0 1 0"/>
+      </filter>
+    </defs>
+  </svg>
+
   </div><!-- /#rotor -->
 
   <script type="module">
@@ -398,7 +516,7 @@
 
     // Build identifier — bump this (to the deploying commit short SHA) on every
     // change so the top-right stamp confirms exactly which code is running.
-    const BUILD_VERSION = 'power-ups+hold-queue+achievements-badges+chat+daily-challenge+leaderboard+online-presence+block-attribution+audio-sfx+next-piece-preview+spectator-mode+weekly-tournament+friends';
+    const BUILD_VERSION = 'power-ups+hold-queue+achievements-badges+chat+daily-challenge+leaderboard+online-presence+block-attribution+audio-sfx+next-piece-preview+spectator-mode+weekly-tournament+friends+accessibility';
 
     // Badge definitions — mirror of the server-side BADGES array, extended with
     // a `hint` field shown in the panel for unearned badges.
@@ -427,10 +545,17 @@
     // ---- Audio system ----
     // All audio generated with Web Audio API — no external files.
     // AudioContext is created lazily on first user gesture (browser autoplay policy).
+    // Graph: SFX → sfxGain → masterGain → destination
+    //        music → musicGain → masterGain → destination
     const audio = (() => {
       let ctx = null;
       let masterGain = null;
+      let sfxGain = null;
+      let musicGain = null;
       let muted = localStorage.getItem('blockgame-muted') === 'true';
+      let masterVolume = 100; // 0–100
+      let _sfxEnabled = true;
+      let _musicEnabled = true;
 
       // Music: 72 BPM, 8-beat looping phrase (C – Am – F – G)
       const BEAT_SEC = 60 / 72;
@@ -460,7 +585,6 @@
         const g = ctx.createGain();
         osc.type = type;
         osc.frequency.value = freq;
-        // Start at near-zero so exponential ramps work; linear attack, exp decay.
         g.gain.setValueAtTime(0.0001, startT);
         g.gain.linearRampToValueAtTime(gainPeak, startT + 0.015);
         g.gain.exponentialRampToValueAtTime(0.0001, startT + durSec);
@@ -476,7 +600,7 @@
           osc.connect(g);
           osc.addEventListener('ended', () => { osc.disconnect(); g.disconnect(); });
         }
-        g.connect(masterGain);
+        g.connect(musicGain || masterGain);
         osc.start(startT);
         osc.stop(startT + durSec + 0.05);
       }
@@ -492,7 +616,6 @@
 
       function musicTick() {
         if (!ctx) return;
-        // Keep two full phrases buffered ahead at all times.
         const until = ctx.currentTime + PHRASE_SEC * 2;
         while (nextPhraseTime < until) {
           schedulePhrase(nextPhraseTime);
@@ -504,7 +627,6 @@
         if (musicTimerId !== null) return;
         nextPhraseTime = ctx.currentTime + 0.1;
         musicTick();
-        // Re-run every ~3s (well within one phrase duration) to pre-schedule ahead.
         musicTimerId = setInterval(musicTick, 3000);
       }
 
@@ -520,7 +642,7 @@
         g.gain.linearRampToValueAtTime(0.4, t + 0.005);
         g.gain.exponentialRampToValueAtTime(0.0001, t + 0.15);
         osc.connect(g);
-        g.connect(masterGain);
+        g.connect(sfxGain || masterGain);
         osc.addEventListener('ended', () => { osc.disconnect(); g.disconnect(); });
         osc.start(t);
         osc.stop(t + 0.16);
@@ -544,7 +666,7 @@
         g.gain.exponentialRampToValueAtTime(0.0001, t + 0.08);
         src.connect(filter);
         filter.connect(g);
-        g.connect(masterGain);
+        g.connect(sfxGain || masterGain);
         src.addEventListener('ended', () => { src.disconnect(); filter.disconnect(); g.disconnect(); });
         src.start(t);
         src.stop(t + 0.09);
@@ -553,7 +675,6 @@
       function playJoin() {
         if (!ctx) return;
         const t = ctx.currentTime;
-        // Arpeggiated C major chord
         [[261.6, 0], [329.6, 0.12], [392.0, 0.24]].forEach(([freq, delay]) => {
           const osc = ctx.createOscillator();
           const g = ctx.createGain();
@@ -564,11 +685,31 @@
           g.gain.linearRampToValueAtTime(0.2, ts + 0.4);
           g.gain.exponentialRampToValueAtTime(0.0001, ts + 1.2);
           osc.connect(g);
-          g.connect(masterGain);
+          g.connect(sfxGain || masterGain);
           osc.addEventListener('ended', () => { osc.disconnect(); g.disconnect(); });
           osc.start(ts);
           osc.stop(ts + 1.3);
         });
+      }
+
+      function setMasterVolume(pct) {
+        masterVolume = Math.max(0, Math.min(100, pct));
+        if (masterGain && !muted) {
+          const t = ctx.currentTime;
+          masterGain.gain.cancelScheduledValues(t);
+          masterGain.gain.setValueAtTime(masterGain.gain.value, t);
+          masterGain.gain.linearRampToValueAtTime(masterVolume / 100, t + 0.05);
+        }
+      }
+
+      function setSfxEnabled(on) {
+        _sfxEnabled = on;
+        if (sfxGain) sfxGain.gain.value = on ? 1 : 0;
+      }
+
+      function setMusicEnabled(on) {
+        _musicEnabled = on;
+        if (musicGain) musicGain.gain.value = on ? 1 : 0;
       }
 
       function toggleMute() {
@@ -578,26 +719,39 @@
           const t = ctx.currentTime;
           masterGain.gain.cancelScheduledValues(t);
           masterGain.gain.setValueAtTime(masterGain.gain.value, t);
-          masterGain.gain.linearRampToValueAtTime(muted ? 0 : 1, t + 0.05);
+          masterGain.gain.linearRampToValueAtTime(muted ? 0 : masterVolume / 100, t + 0.05);
         }
         return muted;
       }
 
       function isMuted() { return muted; }
+      function getMasterVolume() { return masterVolume; }
+      function isSfxEnabled() { return _sfxEnabled; }
+      function isMusicEnabled() { return _musicEnabled; }
 
       function init() {
         if (!ctx) {
           ctx = new (window.AudioContext || window.webkitAudioContext)();
           masterGain = ctx.createGain();
-          masterGain.gain.setValueAtTime(muted ? 0 : 1, ctx.currentTime);
+          masterGain.gain.setValueAtTime(muted ? 0 : masterVolume / 100, ctx.currentTime);
           masterGain.connect(ctx.destination);
+
+          sfxGain = ctx.createGain();
+          sfxGain.gain.value = _sfxEnabled ? 1 : 0;
+          sfxGain.connect(masterGain);
+
+          musicGain = ctx.createGain();
+          musicGain.gain.value = _musicEnabled ? 1 : 0;
+          musicGain.connect(masterGain);
         }
         if (ctx.state === 'suspended') ctx.resume();
         playJoin();
         startMusic();
       }
 
-      return { init, playPlace, playBreak, toggleMute, isMuted };
+      return { init, playPlace, playBreak, toggleMute, isMuted,
+               setMasterVolume, setSfxEnabled, setMusicEnabled,
+               getMasterVolume, isSfxEnabled, isMusicEnabled };
     })();
 
     const buildStampEl = document.getElementById('build-stamp');
@@ -638,6 +792,27 @@
     // ---- Hold queue state ----
     let heldType = null;    // block type ID currently in the hold slot, or null
     let holdLocked = false; // true after a hold swap; cleared on next block placement
+
+    // ---- Accessibility state ----
+    let highContrast = false;
+    let colorblindMode = 'none';
+    let reducedMotion = false;
+    let settingsOpen = false;
+    let rebindTarget = null; // action string being rebound, or null
+
+    // ---- Keybinding defaults ----
+    const KEY_BINDING_DEFAULTS = {
+      forward: 'KeyW', backward: 'KeyS', left: 'KeyA', right: 'KeyD',
+      up: 'Space', down: 'ShiftLeft',
+      place: 'KeyF', delete: 'KeyG', hold: 'KeyH',
+    };
+    const KEY_BINDING_LABELS = {
+      forward: 'Move Forward', backward: 'Move Backward',
+      left: 'Move Left', right: 'Move Right',
+      up: 'Fly Up', down: 'Fly Down',
+      place: 'Place Block', delete: 'Delete Block', hold: 'Hold / Swap',
+    };
+    let keyBindings = { ...KEY_BINDING_DEFAULTS };
 
     // ---- Badge state ----
     const earnedBadges = new Map(); // badge_id -> { earned_at }
@@ -1106,7 +1281,7 @@
       } else {
         comboBadgeEl.classList.add('bg-amber-500');
       }
-      if (multiplier > lastComboMultiplier) {
+      if (multiplier > lastComboMultiplier && !reducedMotion) {
         comboBadgeEl.style.transform = 'scale(1.3)';
         requestAnimationFrame(() => requestAnimationFrame(() => { comboBadgeEl.style.transform = ''; }));
       }
@@ -1583,59 +1758,73 @@
       }
     });
 
-    const codeMap = {
-      KeyW: 'f', KeyS: 'b', KeyA: 'l', KeyD: 'r',
-      ArrowUp: 'f', ArrowDown: 'b', ArrowLeft: 'l', ArrowRight: 'r',
-      Space: 'up', ShiftLeft: 'down', ShiftRight: 'down',
-    };
+    // Dynamic movement resolution — arrow keys are fixed aliases; WASD/Space/Shift
+    // use the remappable keyBindings table.
+    function getMovementAction(code) {
+      const fixed = { ArrowUp: 'f', ArrowDown: 'b', ArrowLeft: 'l', ArrowRight: 'r' };
+      if (fixed[code]) return fixed[code];
+      if (code === keyBindings.forward)  return 'f';
+      if (code === keyBindings.backward) return 'b';
+      if (code === keyBindings.left)     return 'l';
+      if (code === keyBindings.right)    return 'r';
+      if (code === keyBindings.up)       return 'up';
+      if (code === keyBindings.down || code === 'ShiftRight') return 'down';
+      return null;
+    }
+
     window.addEventListener('keydown', (e) => {
-      // While the chat input is focused, only Escape is handled globally
-      // (to close the drawer); all other keys are for typing.
+      // While the chat input is focused, only Escape is handled globally.
       if (document.activeElement === chatInputEl) {
         if (e.key === 'Escape') { e.preventDefault(); closeChat(); }
         return;
       }
-      // While the friends add-by-username input is focused, only Escape is handled.
+      // While the friends input is focused, only Escape is handled.
       if (document.activeElement === friendsInputEl) {
         if (e.key === 'Escape') { e.preventDefault(); closeFriends(); }
         return;
       }
-      // Escape closes the chat drawer if it is open (before the existing
-      // Escape handler that would otherwise return to the overlay).
+      // Capture mode: intercept any key for rebinding.
+      if (rebindTarget !== null) {
+        if (e.code === 'Escape') { rebindTarget = null; renderKeybindingTable(); return; }
+        const FORBIDDEN = new Set(['Escape','Enter','Digit1','Digit2','Digit3','Digit4','Digit5','Digit6','Digit7','Digit8','Digit9']);
+        if (FORBIDDEN.has(e.code)) return;
+        e.preventDefault();
+        // Swap if another action already uses this key.
+        const conflict = Object.entries(keyBindings).find(([a, c]) => c === e.code && a !== rebindTarget);
+        if (conflict) keyBindings[conflict[0]] = keyBindings[rebindTarget];
+        keyBindings[rebindTarget] = e.code;
+        rebindTarget = null;
+        renderKeybindingTable();
+        savePrefs({ keybindings: { ...keyBindings } });
+        return;
+      }
+
       if (e.key === 'Escape' && chatOpen) { e.preventDefault(); closeChat(); return; }
-      // Enter opens chat while the player is active.
       if (e.code === 'Enter' && playing && !chatOpen) { e.preventDefault(); openChat(); return; }
 
-      if (codeMap[e.code]) { move[codeMap[e.code]] = true; if (e.code === 'Space') e.preventDefault(); }
+      const mv = getMovementAction(e.code);
+      if (mv) { move[mv] = true; if (e.code === 'Space' || e.code === keyBindings.up) e.preventDefault(); }
+
       if (e.code.startsWith('Digit')) {
         const n = parseInt(e.code.slice(5), 10);
         if (n >= 1 && n <= 9 && PALETTE[n - 1]) selectType(PALETTE[n - 1].id);
       }
-      // Build via keyboard: F adds a block, G deletes one (mirrors the mouse
-      // bindings). Only act while actually playing so the keys don't fire from
-      // behind the menu. `!e.repeat` prevents OS key-repeat from stacking
-      // single-fire shots; the render loop handles continuous firing when the
-      // Rapid Place buff is active.
-      if (e.code === 'KeyF' && playing && !e.repeat && gameMode !== 'spectate') {
+      if (e.code === keyBindings.place && playing && !e.repeat && gameMode !== 'spectate') {
         placeHeld = true;
         placeBlock();
         lastRapidPlace = performance.now();
       }
-      if (e.code === 'KeyG' && playing && gameMode !== 'spectate') breakBlock();
-      // H is context-aware: triggers hold/swap while playing, toggles the
-      // controls overlay when the menu/overlay is up.
-      if (e.code === 'KeyH') {
+      if (e.code === keyBindings.delete && playing && gameMode !== 'spectate') breakBlock();
+      if (e.code === keyBindings.hold) {
         if (playing && gameMode !== 'spectate') holdBlock();
         else toggleControls();
       }
-      // L toggles the leaderboard panel.
       if (e.code === 'KeyL') toggleLeaderboard();
       if (e.code === 'KeyM') { muteBtnEl.textContent = audio.toggleMute() ? '🔇' : '🔊'; }
-      // Escape: close overlays in priority order, then handle mode exit.
-      // In native (locked) mode the browser handles Esc and fires
-      // pointerlockchange, which restores the overlay there.
       if (e.code === 'Escape') {
-        if (!leaderboardEl.classList.contains('hidden')) {
+        if (!settingsPanelEl.classList.contains('hidden')) {
+          closeSettings();
+        } else if (!leaderboardEl.classList.contains('hidden')) {
           closeLeaderboard();
         } else if (!friendsPanelEl.classList.contains('hidden')) {
           closeFriends();
@@ -1654,8 +1843,9 @@
       }
     });
     window.addEventListener('keyup', (e) => {
-      if (codeMap[e.code]) move[codeMap[e.code]] = false;
-      if (e.code === 'KeyF') placeHeld = false;
+      const mv = getMovementAction(e.code);
+      if (mv) move[mv] = false;
+      if (e.code === keyBindings.place) placeHeld = false;
     });
 
     // ---- Touch input ----
@@ -2090,6 +2280,231 @@
       }
     });
 
+    // ---- Accessibility helpers ----
+    function applyHighContrast(hc) {
+      highContrast = hc;
+      document.body.classList.toggle('high-contrast', hc);
+      highlight.material.color.setHex(hc ? 0xffff00 : 0x000000);
+      const sky = hc ? '#5b7fa0' : '#8ec7ff';
+      scene.background = new THREE.Color(sky);
+      scene.fog.color = new THREE.Color(sky);
+    }
+
+    function applyColorblindMode(mode) {
+      colorblindMode = mode;
+      canvas.style.filter = mode === 'none' ? '' : 'url(#cb-' + mode + ')';
+      for (const btn of document.querySelectorAll('.cb-mode-btn')) {
+        const active = btn.dataset.mode === mode;
+        btn.classList.toggle('bg-zinc-700', active);
+        btn.classList.toggle('text-zinc-100', active);
+        btn.classList.toggle('text-zinc-400', !active);
+      }
+    }
+
+    function toggleSwitch(btn, on) {
+      btn.setAttribute('aria-checked', on ? 'true' : 'false');
+      btn.classList.toggle('bg-violet-600', on);
+      btn.classList.toggle('bg-zinc-700', !on);
+      const knob = btn.querySelector('.toggle-knob');
+      if (knob) knob.style.transform = on ? 'translateX(1rem)' : '';
+    }
+
+    function syncHighContrastToggle() {
+      const btn = document.getElementById('pref-high-contrast');
+      if (btn) toggleSwitch(btn, highContrast);
+    }
+
+    function syncReducedMotionToggles() {
+      const btnV = document.getElementById('pref-reduced-motion-v');
+      const btnM = document.getElementById('pref-reduced-motion-m');
+      if (btnV) toggleSwitch(btnV, reducedMotion);
+      if (btnM) toggleSwitch(btnM, reducedMotion);
+    }
+
+    function keyCodeToLabel(code) {
+      if (!code) return '—';
+      if (code.startsWith('Key')) return code.slice(3);
+      if (code.startsWith('Digit')) return code.slice(5);
+      const map = { Space:'Space', ShiftLeft:'L-Shift', ShiftRight:'R-Shift',
+                    ControlLeft:'L-Ctrl', AltLeft:'L-Alt', Tab:'Tab',
+                    ArrowUp:'↑', ArrowDown:'↓', ArrowLeft:'←', ArrowRight:'→' };
+      return map[code] || code;
+    }
+
+    function renderKeybindingTable() {
+      const tableEl = document.getElementById('keybind-table');
+      if (!tableEl) return;
+      tableEl.innerHTML = Object.entries(KEY_BINDING_LABELS).map(([action, label]) => {
+        const code = keyBindings[action] || KEY_BINDING_DEFAULTS[action];
+        const isRebinding = rebindTarget === action;
+        return '<div class="flex items-center justify-between py-0.5">' +
+          '<span class="text-zinc-300">' + label + '</span>' +
+          '<button class="kbd-key' + (isRebinding ? ' rebinding' : '') + '" data-action="' + action + '">' +
+          (isRebinding ? '…press a key' : keyCodeToLabel(code)) + '</button></div>';
+      }).join('');
+      for (const btn of tableEl.querySelectorAll('.kbd-key')) {
+        btn.addEventListener('click', () => {
+          rebindTarget = rebindTarget === btn.dataset.action ? null : btn.dataset.action;
+          renderKeybindingTable();
+        });
+      }
+    }
+
+    // ---- Preferences save / load ----
+    let prefsDebounceTimer = null;
+    const pendingPrefs = {};
+
+    function savePrefs(partial) {
+      Object.assign(pendingPrefs, partial);
+      if (prefsDebounceTimer) clearTimeout(prefsDebounceTimer);
+      prefsDebounceTimer = setTimeout(async () => {
+        prefsDebounceTimer = null;
+        const toSave = Object.assign({}, pendingPrefs);
+        for (const k of Object.keys(pendingPrefs)) delete pendingPrefs[k];
+        try {
+          await fetch('/api/preferences', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...headers },
+            body: JSON.stringify(toSave),
+          });
+        } catch (_) {}
+      }, 300);
+    }
+
+    function applyPrefs(prefs) {
+      if (typeof prefs.high_contrast === 'boolean') {
+        applyHighContrast(prefs.high_contrast);
+        syncHighContrastToggle();
+      }
+      if (typeof prefs.colorblind_mode === 'string') {
+        applyColorblindMode(prefs.colorblind_mode);
+      }
+      if (typeof prefs.reduced_motion === 'boolean') {
+        reducedMotion = prefs.reduced_motion;
+        syncReducedMotionToggles();
+      }
+      if (prefs.keybindings && typeof prefs.keybindings === 'object') {
+        const valid = Object.keys(KEY_BINDING_DEFAULTS);
+        for (const [action, code] of Object.entries(prefs.keybindings)) {
+          if (valid.includes(action) && typeof code === 'string') keyBindings[action] = code;
+        }
+        renderKeybindingTable();
+      }
+      if (typeof prefs.master_volume === 'number') {
+        const sldr = document.getElementById('pref-master-volume');
+        const lbl  = document.getElementById('pref-master-volume-label');
+        if (sldr) sldr.value = prefs.master_volume;
+        if (lbl)  lbl.textContent = prefs.master_volume + '%';
+        audio.setMasterVolume(prefs.master_volume);
+      }
+      if (typeof prefs.sfx_enabled === 'boolean') {
+        audio.setSfxEnabled(prefs.sfx_enabled);
+        const btn = document.getElementById('pref-sfx');
+        if (btn) toggleSwitch(btn, prefs.sfx_enabled);
+      }
+      if (typeof prefs.music_enabled === 'boolean') {
+        audio.setMusicEnabled(prefs.music_enabled);
+        const btn = document.getElementById('pref-music');
+        if (btn) toggleSwitch(btn, prefs.music_enabled);
+      }
+    }
+
+    async function loadPrefs() {
+      if (!token) return;
+      try {
+        const res = await fetch('/api/preferences', { headers });
+        if (!res.ok) return;
+        applyPrefs(await res.json());
+      } catch (_) {}
+    }
+
+    // ---- Settings panel ----
+    const settingsPanelEl = document.getElementById('settings-panel');
+
+    function openSettings() {
+      settingsOpen = true;
+      settingsPanelEl.classList.remove('hidden');
+      renderKeybindingTable();
+    }
+    function closeSettings() {
+      settingsOpen = false;
+      settingsPanelEl.classList.add('hidden');
+      if (rebindTarget) { rebindTarget = null; renderKeybindingTable(); }
+    }
+
+    document.getElementById('settings-btn').addEventListener('click', () => {
+      if (settingsOpen) closeSettings(); else openSettings();
+    });
+    document.getElementById('settings-close').addEventListener('click', closeSettings);
+
+    let currentSettingsTab = 'visual';
+    function setSettingsTab(tab) {
+      currentSettingsTab = tab;
+      for (const t of ['visual', 'motor', 'audio']) {
+        const btn   = document.getElementById('stab-' + t);
+        const panel = document.getElementById('stab-' + t + '-panel');
+        const active = t === tab;
+        if (btn)   { btn.classList.toggle('bg-zinc-700', active); btn.classList.toggle('text-zinc-100', active); btn.classList.toggle('text-zinc-400', !active); }
+        if (panel) panel.classList.toggle('hidden', !active);
+      }
+    }
+    document.getElementById('stab-visual').addEventListener('click', () => setSettingsTab('visual'));
+    document.getElementById('stab-motor').addEventListener('click', () => { setSettingsTab('motor'); renderKeybindingTable(); });
+    document.getElementById('stab-audio').addEventListener('click', () => setSettingsTab('audio'));
+
+    document.getElementById('pref-high-contrast').addEventListener('click', () => {
+      applyHighContrast(!highContrast);
+      syncHighContrastToggle();
+      savePrefs({ high_contrast: highContrast });
+    });
+
+    for (const btn of document.querySelectorAll('.cb-mode-btn')) {
+      btn.addEventListener('click', () => {
+        applyColorblindMode(btn.dataset.mode);
+        savePrefs({ colorblind_mode: colorblindMode });
+      });
+    }
+
+    function setReducedMotion(rm) {
+      reducedMotion = rm;
+      syncReducedMotionToggles();
+      savePrefs({ reduced_motion: reducedMotion });
+    }
+    document.getElementById('pref-reduced-motion-v').addEventListener('click', () => setReducedMotion(!reducedMotion));
+    document.getElementById('pref-reduced-motion-m').addEventListener('click', () => setReducedMotion(!reducedMotion));
+
+    const masterVolumeSlider = document.getElementById('pref-master-volume');
+    const masterVolumeLabel  = document.getElementById('pref-master-volume-label');
+    masterVolumeSlider.addEventListener('input', () => {
+      const v = Number(masterVolumeSlider.value);
+      masterVolumeLabel.textContent = v + '%';
+      audio.setMasterVolume(v);
+    });
+    masterVolumeSlider.addEventListener('change', () => {
+      savePrefs({ master_volume: Number(masterVolumeSlider.value) });
+    });
+
+    document.getElementById('pref-sfx').addEventListener('click', () => {
+      const on = !audio.isSfxEnabled();
+      audio.setSfxEnabled(on);
+      toggleSwitch(document.getElementById('pref-sfx'), on);
+      savePrefs({ sfx_enabled: on });
+    });
+
+    document.getElementById('pref-music').addEventListener('click', () => {
+      const on = !audio.isMusicEnabled();
+      audio.setMusicEnabled(on);
+      toggleSwitch(document.getElementById('pref-music'), on);
+      savePrefs({ music_enabled: on });
+    });
+
+    document.getElementById('keybind-reset').addEventListener('click', () => {
+      keyBindings = { ...KEY_BINDING_DEFAULTS };
+      rebindTarget = null;
+      renderKeybindingTable();
+      savePrefs({ keybindings: { ...keyBindings } });
+    });
+
     // ---- Palette UI ----
     function selectType(id) {
       selectedType = id;
@@ -2452,7 +2867,7 @@
         if (now > expiresAt) activeBuff.delete(type);
       }
 
-      if (!playing && turntableEnabled) {
+      if (!playing && turntableEnabled && !reducedMotion) {
         turntableAngle += dt * 0.25;
         const cx = DIMS.w / 2, cz = DIMS.d / 2;
         camera.position.set(cx + 8 * Math.sin(turntableAngle), 3.5, cz + 8 * Math.cos(turntableAngle));
@@ -2505,11 +2920,13 @@
       }
 
       // Animate power-up meshes every frame (even when the overlay is showing).
-      for (const [, pu] of powerupMap) {
-        if (pu.mesh) {
-          pu.mesh.position.y = pu.mesh.userData.baseY
-            + Math.sin(now * 0.002 + pu.mesh.userData.phase) * 0.12;
-          pu.mesh.rotation.y += dt;
+      if (!reducedMotion) {
+        for (const [, pu] of powerupMap) {
+          if (pu.mesh) {
+            pu.mesh.position.y = pu.mesh.userData.baseY
+              + Math.sin(now * 0.002 + pu.mesh.userData.phase) * 0.12;
+            pu.mesh.rotation.y += dt;
+          }
         }
       }
 
@@ -2560,6 +2977,9 @@
           if (sd.current_streak > 0) updateStreakHud(sd.current_streak);
         }
       } catch (_) {}
+
+      // Load accessibility preferences and apply them before the first frame.
+      await loadPrefs();
 
       requestAnimationFrame(loop);
       // Poll is started per-mode in onPlayEntered(), not here.

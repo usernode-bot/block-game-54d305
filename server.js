@@ -887,6 +887,95 @@ app.delete('/api/friends/:id', async (req, res) => {
   }
 });
 
+// ---- Accessibility preferences: load and save per-user settings ----
+app.get('/api/preferences', async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT high_contrast, colorblind_mode, reduced_motion, master_volume,
+              sfx_enabled, music_enabled, keybindings
+       FROM user_preferences WHERE user_id = $1`,
+      [req.user.id]
+    );
+    if (!rows.length) {
+      return res.json({
+        high_contrast: false, colorblind_mode: 'none', reduced_motion: false,
+        master_volume: 100, sfx_enabled: true, music_enabled: true, keybindings: {},
+      });
+    }
+    const r = rows[0];
+    res.json({
+      high_contrast: r.high_contrast,
+      colorblind_mode: r.colorblind_mode,
+      reduced_motion: r.reduced_motion,
+      master_volume: r.master_volume,
+      sfx_enabled: r.sfx_enabled,
+      music_enabled: r.music_enabled,
+      keybindings: r.keybindings || {},
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/preferences', async (req, res) => {
+  try {
+    const b = req.body || {};
+    const boolOf = (v) => (typeof v === 'boolean' ? v : undefined);
+    const intOf  = (v, lo, hi) => (typeof v === 'number' && Number.isInteger(v) && v >= lo && v <= hi) ? v : undefined;
+    const strOf  = (v, allowed) => (typeof v === 'string' && allowed.includes(v)) ? v : undefined;
+    const objOf  = (v) => (v && typeof v === 'object' && !Array.isArray(v)) ? v : undefined;
+
+    const VALID_CODES = new Set([
+      'KeyA','KeyB','KeyC','KeyD','KeyE','KeyF','KeyG','KeyH','KeyI','KeyJ','KeyK','KeyL','KeyM',
+      'KeyN','KeyO','KeyP','KeyQ','KeyR','KeyS','KeyT','KeyU','KeyV','KeyW','KeyX','KeyY','KeyZ',
+      'Digit0','Digit1','Digit2','Digit3','Digit4','Digit5','Digit6','Digit7','Digit8','Digit9',
+      'Space','ShiftLeft','ShiftRight','ControlLeft','AltLeft','Tab',
+      'ArrowUp','ArrowDown','ArrowLeft','ArrowRight',
+      'BracketLeft','BracketRight','Semicolon','Quote','Comma','Period','Slash','Backslash',
+      'Minus','Equal','Backquote',
+    ]);
+    const VALID_ACTIONS = new Set(['forward','backward','left','right','up','down','place','delete','hold']);
+    const RESERVED = new Set(['Escape','Enter']);
+
+    const fields = {};
+    const hc  = boolOf(b.high_contrast);      if (hc  !== undefined) fields.high_contrast  = hc;
+    const cbm = strOf(b.colorblind_mode, ['none','deuteranopia','protanopia','tritanopia']);
+                                               if (cbm !== undefined) fields.colorblind_mode = cbm;
+    const rm  = boolOf(b.reduced_motion);     if (rm  !== undefined) fields.reduced_motion  = rm;
+    const mv  = intOf(b.master_volume, 0, 100);if (mv  !== undefined) fields.master_volume   = mv;
+    const sfx = boolOf(b.sfx_enabled);        if (sfx !== undefined) fields.sfx_enabled     = sfx;
+    const mus = boolOf(b.music_enabled);       if (mus !== undefined) fields.music_enabled   = mus;
+    if (objOf(b.keybindings) !== undefined) {
+      const sanitized = {};
+      for (const [action, code] of Object.entries(b.keybindings)) {
+        if (VALID_ACTIONS.has(action) && typeof code === 'string'
+            && VALID_CODES.has(code) && !RESERVED.has(code)) {
+          sanitized[action] = code;
+        }
+      }
+      fields.keybindings = JSON.stringify(sanitized);
+    }
+
+    if (!Object.keys(fields).length) return res.status(400).json({ error: 'No valid fields provided' });
+
+    const keys   = Object.keys(fields);
+    const values = Object.values(fields);
+    const setClauses = keys.map((k, i) => `${k} = $${i + 2}`).join(', ');
+    const insertCols = keys.join(', ');
+    const insertVals = values.map((_, i) => `$${i + 2}`).join(', ');
+
+    await pool.query(
+      `INSERT INTO user_preferences (user_id, ${insertCols}, updated_at)
+       VALUES ($1, ${insertVals}, NOW())
+       ON CONFLICT (user_id) DO UPDATE SET ${setClauses}, updated_at = NOW()`,
+      [req.user.id, ...values]
+    );
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.use(express.static(path.join(__dirname, 'public'), {
   setHeaders(res, filePath) {
     // The entire game is inline in index.html, so a cached shell hides a
@@ -1183,6 +1272,16 @@ async function seedTournament() {
   }
 }
 
+async function seedPreferences() {
+  await pool.query(
+    `INSERT INTO user_preferences
+       (user_id, high_contrast, colorblind_mode, reduced_motion, master_volume, sfx_enabled, music_enabled, keybindings)
+     VALUES ($1, FALSE, 'deuteranopia', TRUE, 80, TRUE, FALSE, '{}')
+     ON CONFLICT (user_id) DO NOTHING`,
+    [SEED_USER_ID]
+  );
+}
+
 async function seedStreaks() {
   // Negative user IDs so they never collide with real platform user IDs (positive integers).
   const rows = [
@@ -1370,6 +1469,22 @@ async function start() {
   await pool.query(`CREATE INDEX IF NOT EXISTS friendships_addressee_status_idx ON friendships (addressee_id, status)`);
   await pool.query(`CREATE INDEX IF NOT EXISTS friendships_requester_status_idx ON friendships (requester_id, status)`);
 
+  // Per-user accessibility preferences. Marked staging:private so real user
+  // settings are never copied to staging containers.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS user_preferences (
+      user_id        INTEGER PRIMARY KEY,
+      high_contrast  BOOLEAN NOT NULL DEFAULT FALSE,
+      colorblind_mode VARCHAR(20) NOT NULL DEFAULT 'none',
+      reduced_motion BOOLEAN NOT NULL DEFAULT FALSE,
+      master_volume  SMALLINT NOT NULL DEFAULT 100,
+      sfx_enabled    BOOLEAN NOT NULL DEFAULT TRUE,
+      music_enabled  BOOLEAN NOT NULL DEFAULT TRUE,
+      keybindings    JSONB NOT NULL DEFAULT '{}',
+      updated_at     TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+  await pool.query(`COMMENT ON TABLE user_preferences IS 'staging:private'`);
 
   if (IS_STAGING) {
     try { await seedStaging(); }
@@ -1382,6 +1497,8 @@ async function start() {
     catch (err) { console.error('tournament seed failed', err); }
     try { await seedStreaks(); }
     catch (err) { console.error('streak seed failed', err); }
+    try { await seedPreferences(); }
+    catch (err) { console.error('preferences seed failed', err); }
     try {
       // Two fake spectators so the eye-icon path is exercisable in staging.
       await pool.query(
