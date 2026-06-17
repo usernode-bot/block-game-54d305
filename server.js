@@ -1,113 +1,22 @@
 const express = require('express');
 const path = require('path');
 const { Pool } = require('pg');
-const jwt = require('jsonwebtoken');
+
+const { authMiddleware } = require('./utils/auth');
+const { initializeSchema } = require('./db-schema');
+const { initializeStagingData } = require('./db-seed');
+const {
+  DIMS, PALETTE, VALID_TYPES, BLOCK_POINTS, BADGES, STREAK_BADGE_MILESTONES,
+  DISASTER_MIN_SECS, DISASTER_MAX_SECS, DISASTER_USER_ID, DISASTER_USERNAME,
+  DISASTER_DEFS, SEED_USER_ID, STAGING_DEMO_USERS
+} = require('./modules/constants');
 
 const app = express();
 const port = process.env.PORT || 3000;
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
-const JWT_SECRET = process.env.JWT_SECRET;
 const IS_STAGING = process.env.USERNODE_ENV === 'staging';
 const LLM_ENABLED = !!process.env.USERNODE_LLM_PROXY_TOKEN;
 
-// Hardcoded demo presence entries for staging so the online list is always
-// populated regardless of whether the seeded user_presence rows are still
-// within their 60-second expiry window.
-const STAGING_DEMO_USERS = [
-  { username: 'Staging demo Alice', mode: 'classic' },
-  { username: 'Staging demo Bob',   mode: 'classic' },
-  { username: 'Staging demo spectator — Alice', mode: 'spectate' },
-  { username: 'Staging demo spectator — Bob',   mode: 'spectate' },
-];
-
-// ---- Fixed shared-world parameters (authoritative; mirrored to client) ----
-// Coordinates are integer cell indices. y is up. y = 0 is the immutable
-// ground/base layer and is NOT stored as rows — buildable cells are y >= 1.
-const DIMS = { w: 32, d: 32, h: 24 }; // x in [0,w-1], z in [0,d-1], y in [0,h-1]
-
-// Block palette (authoritative). id 0 is reserved for "air" (a broken cell).
-// `opacity` < 1 renders semi-transparent (glass). Colors are hex strings.
-// `material` 'standard' uses MeshStandardMaterial (PBR); default is Lambert.
-// `emissive` / `emissiveIntensity` add a glow. `powerup` marks animated blocks.
-const PALETTE = [
-  { id: 1,  name: 'Grass',         color: '#3dd847' },
-  { id: 2,  name: 'Dirt',          color: '#b8643e' },
-  { id: 3,  name: 'Stone',         color: '#a8aeb8' },
-  { id: 4,  name: 'Wood',          color: '#d4944f' },
-  { id: 5,  name: 'Leaves',        color: '#2ac142' },
-  { id: 6,  name: 'Sand',          color: '#fce67f' },
-  { id: 7,  name: 'Brick',         color: '#f04a38' },
-  { id: 8,  name: 'Glass',         color: '#6fe3ff', opacity: 0.45 },
-  { id: 9,  name: 'Red',           color: '#ff2626' },
-  { id: 10, name: 'Blue',          color: '#2563ff' },
-  { id: 11, name: 'Yellow',        color: '#ffd600' },
-  { id: 12, name: 'White',         color: '#f4f4f8' },
-  { id: 13, name: 'Snow',          color: '#d0e8ff' },
-  { id: 14, name: 'Gold Block',    color: '#ffb800', material: 'standard', metalness: 0.85, roughness: 0.2 },
-  { id: 15, name: 'Glowstone',     color: '#ffb43d', emissive: '#ff6a00', emissiveIntensity: 0.6 },
-  { id: 16, name: 'Obsidian',      color: '#2d1555', material: 'standard', metalness: 0.3, roughness: 0.1 },
-  { id: 17, name: 'Rainbow Block', color: '#ff1493', powerup: true },
-  { id: 18, name: 'Crystal',       color: '#b39dff', opacity: 0.65, emissive: '#7a4dff', emissiveIntensity: 0.3, material: 'standard', metalness: 0.1, roughness: 0.2, unlockAt: 50, unlockIcon: '💎' },
-];
-const VALID_TYPES = new Set(PALETTE.map((p) => p.id)); // does NOT include 0
-
-// Points awarded per block placed (type 0 = break = 0 points).
-const BLOCK_POINTS = {
-  1: 1, 2: 1, 3: 1, 4: 1, 5: 1, 6: 1,   // Grass, Dirt, Stone, Wood, Leaves, Sand
-  7: 2, 8: 2, 9: 2, 10: 2, 11: 2, 12: 2, // Brick, Glass, Red, Blue, Yellow, White
-  13: 2,  // Snow
-  14: 5,  // Gold Block
-  15: 3,  // Glowstone
-  16: 4,  // Obsidian
-  17: 5,  // Rainbow Block
-  18: 3,  // Crystal Block
-};
-
-// Sentinel "user" id for staging seed rows so they never reference a real user.
-const SEED_USER_ID = 0;
-
-// ---- Natural Disasters ----
-const DISASTER_MIN_SECS = 180; // 3 minutes minimum between disasters
-const DISASTER_MAX_SECS = 480; // 8 minutes maximum
-const DISASTER_USER_ID = -999;
-const DISASTER_USERNAME = 'Natural Disaster';
-const DISASTER_DEFS = {
-  earthquake: { label: 'Earthquake',       icon: '⚡', zoneMin: 8,  zoneMax: 12 },
-  eruption:   { label: 'Volcanic Eruption', icon: '🌋', radiusMin: 5, radiusMax: 7 },
-  meteor:     { label: 'Meteor Strike',     icon: '☄️', radiusMin: 3, radiusMax: 5 },
-};
-
-// Badge definitions (authoritative; mirrored to the client for panel rendering).
-const BADGES = [
-  { id: 'first_block',     name: 'First Block',    icon: '🏗️', flavour: 'Placed your first block!' },
-  { id: 'builder',         name: 'Builder',         icon: '🧱', flavour: 'Placed 10 blocks!' },
-  { id: 'architect',       name: 'Architect',       icon: '🏰', flavour: 'Placed 100 blocks!' },
-  { id: 'high_scorer',     name: 'High Scorer',     icon: '⭐', flavour: 'Earned 1,000 score points!' },
-  { id: 'comboist',        name: 'Comboist',        icon: '⚡', flavour: 'Hit a ×3 combo multiplier!' },
-  { id: 'rainbow_placer',  name: 'Rainbow Placer',  icon: '🌈', flavour: 'Placed a Rainbow Block!' },
-  { id: 'golden_touch',    name: 'Golden Touch',    icon: '✨', flavour: 'Placed a Gold Block!' },
-  { id: 'glowmaster',      name: 'Glowmaster',      icon: '💡', flavour: 'Placed a Glowstone block!' },
-  { id: 'shadow_sculptor', name: 'Shadow Sculptor', icon: '🌑', flavour: 'Placed an Obsidian block!' },
-  { id: 'material_artist', name: 'Material Artist', icon: '🎨', flavour: 'Used 8+ different block types!' },
-  { id: 'crystal_placer',  name: 'Crystal Placer',  icon: '💎', flavour: 'Placed a Crystal Block!' },
-  { id: 'streak_3',        name: 'Hot Start',       icon: '🔥', flavour: 'Logged in 3 days in a row!' },
-  { id: 'streak_7',        name: 'Week Warrior',     icon: '🗓️', flavour: 'A full week of building!' },
-  { id: 'streak_14',       name: 'Fortnight Pro',    icon: '🏆', flavour: 'Two weeks of daily play!' },
-  { id: 'streak_30',       name: 'Monthly Master',   icon: '👑', flavour: 'A full month on the block!' },
-  { id: 'daily_devotee',   name: 'Daily Devotee',   icon: '🌟', flavour: 'Seven days of block-placing dedication!' },
-  { id: 'daily_champion',  name: 'Daily Champion',  icon: '👑', flavour: 'Won the Daily Challenge!' },
-  { id: 'speedrunner',     name: 'Speedrunner',     icon: '⚡', flavour: 'Blazing fast block placement!' },
-];
-
-const STREAK_BADGE_MILESTONES = [
-  { days: 3,  id: 'streak_3' },
-  { days: 7,  id: 'streak_7' },
-  { days: 14, id: 'streak_14' },
-  { days: 30, id: 'streak_30' },
-];
-
-// Returns badges from BADGES that are newly earned given updated leaderboard
-// totals, the block type just placed, and distinct type count.
 function checkBadges({ lb, justPlacedType, typeCount, dailyChallengeStreak, completionTimeMs }, earnedIds) {
   const newBadges = [];
   for (const badge of BADGES) {
@@ -133,14 +42,6 @@ function checkBadges({ lb, justPlacedType, typeCount, dailyChallengeStreak, comp
   return newBadges;
 }
 
-// Paths that stay open without authentication. Add a path here (and add it
-// with `app.get`/`app.post` below) if you deliberately want it public.
-// Everything else requires a valid platform-issued JWT.
-const PUBLIC_API_PATHS = new Set(['/health']);
-
-// ---- Daily Challenge: deterministic placement target [20, 100] from UTC date ----
-// Using UTC year/month/day so the same date always yields the same target
-// regardless of server timezone or restarts. No DB row needed for the target itself.
 function dailyTarget(dateObj) {
   const y = dateObj.getUTCFullYear();
   const m = dateObj.getUTCMonth() + 1;
@@ -148,11 +49,9 @@ function dailyTarget(dateObj) {
   return 20 + ((y * 31 + m * 7 + d) % 81);
 }
 
-// Returns the ISO date string (YYYY-MM-DD) for the Monday that starts the
-// UTC week containing dateObj. Deterministic — same as dailyTarget's UTC approach.
 function weekStart(dateObj) {
-  const day = dateObj.getUTCDay(); // 0 = Sun, 1 = Mon, …, 6 = Sat
-  const offset = day === 0 ? 6 : day - 1; // days since last Monday
+  const day = dateObj.getUTCDay();
+  const offset = day === 0 ? 6 : day - 1;
   const monday = new Date(Date.UTC(
     dateObj.getUTCFullYear(), dateObj.getUTCMonth(), dateObj.getUTCDate() - offset
   ));
@@ -160,26 +59,7 @@ function weekStart(dateObj) {
 }
 
 app.use(express.json());
-
-// Verify platform-issued JWT if one was passed, then enforce auth on
-// anything not explicitly marked public. The iframe adds `?token=…`
-// on load; the frontend script forwards the token via `x-usernode-token`
-// on subsequent fetches.
-app.use((req, res, next) => {
-  const token = req.query.token || req.headers['x-usernode-token'];
-  if (token && JWT_SECRET) {
-    try { req.user = jwt.verify(token, JWT_SECRET); } catch {}
-  }
-
-  // Static assets (CSS/JS/images) are always served; the API and the HTML
-  // shell are gated so direct hits to the staging/prod subdomain don't
-  // leak app data to the public internet.
-  if (req.method !== 'GET' || req.path.startsWith('/api/')) {
-    if (PUBLIC_API_PATHS.has(req.path)) return next();
-    if (!req.user) return res.status(401).json({ error: 'Not authenticated' });
-  }
-  next();
-});
+app.use(authMiddleware);
 
 app.get('/health', (_req, res) => res.json({ status: 'ok' }));
 
@@ -2747,302 +2627,8 @@ async function maybeFireDisaster() {
 }
 
 async function start() {
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS blocks (
-      x SMALLINT NOT NULL,
-      y SMALLINT NOT NULL,
-      z SMALLINT NOT NULL,
-      block_type SMALLINT NOT NULL,
-      seq BIGINT NOT NULL,
-      updated_by_user_id INTEGER,
-      updated_by_username VARCHAR(255),
-      updated_at TIMESTAMPTZ DEFAULT NOW(),
-      PRIMARY KEY (x, y, z)
-    )
-  `);
-  await pool.query(`CREATE SEQUENCE IF NOT EXISTS block_seq`);
-  await pool.query(`CREATE INDEX IF NOT EXISTS blocks_seq_idx ON blocks (seq)`);
-  await pool.query(`CREATE INDEX IF NOT EXISTS blocks_user_time_idx ON blocks (updated_by_user_id, updated_at)`);
+  await initializeSchema(pool);
 
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS leaderboard (
-      user_id       INTEGER PRIMARY KEY,
-      username      VARCHAR(255) NOT NULL,
-      total_score   BIGINT NOT NULL DEFAULT 0,
-      blocks_placed BIGINT NOT NULL DEFAULT 0,
-      best_combo    SMALLINT NOT NULL DEFAULT 1,
-      updated_at    TIMESTAMPTZ DEFAULT NOW()
-    )
-  `);
-
-  // Time Attack high scores: one row per user holding their best single-run
-  // block count and the difficulty (1-5) it was achieved at. Public table —
-  // it holds only a username and a block count, nothing a stranger seeing
-  // every row could misuse. No foreign keys.
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS ta_scores (
-      user_id         INTEGER PRIMARY KEY,
-      username        VARCHAR(255) NOT NULL,
-      best_cleared    INTEGER NOT NULL DEFAULT 0,
-      best_difficulty SMALLINT NOT NULL DEFAULT 1,
-      updated_at      TIMESTAMPTZ DEFAULT NOW()
-    )
-  `);
-
-  // Time Attack (60s) high scores: one row per user holding their best run.
-  // Public table — it holds only a username and block count, nothing sensitive.
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS ta_60_scores (
-      user_id         INTEGER PRIMARY KEY,
-      username        VARCHAR(255) NOT NULL,
-      best_cleared    INTEGER NOT NULL DEFAULT 0,
-      updated_at      TIMESTAMPTZ DEFAULT NOW()
-    )
-  `);
-
-  // Endless Mode high scores: one row per user holding their best run stats.
-  // Public table — it holds only a username and block counts, nothing sensitive.
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS endless_scores (
-      user_id              INTEGER PRIMARY KEY,
-      username             VARCHAR(255) NOT NULL,
-      best_placed          INTEGER NOT NULL DEFAULT 0,
-      best_moves_survived  INTEGER NOT NULL DEFAULT 0,
-      updated_at           TIMESTAMPTZ DEFAULT NOW()
-    )
-  `);
-
-  // Tracks which block types each player has ever placed. The blocks table
-  // records only the current placer of each cell, so overwrites erase
-  // history — this table preserves the full per-player type inventory.
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS player_type_usage (
-      user_id    INTEGER NOT NULL,
-      block_type SMALLINT NOT NULL,
-      PRIMARY KEY (user_id, block_type)
-    )
-  `);
-
-  // One row per badge per player; append-only (badges are never revoked).
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS player_badges (
-      user_id   INTEGER NOT NULL,
-      badge_id  VARCHAR(32) NOT NULL,
-      earned_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      PRIMARY KEY (user_id, badge_id)
-    )
-  `);
-
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS chat_messages (
-      id         BIGSERIAL PRIMARY KEY,
-      user_id    INTEGER      NOT NULL,
-      username   VARCHAR(255) NOT NULL,
-      body       VARCHAR(200) NOT NULL,
-      created_at TIMESTAMPTZ  DEFAULT NOW()
-    )
-  `);
-  await pool.query(`CREATE INDEX IF NOT EXISTS chat_messages_id_idx ON chat_messages (id)`);
-
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS user_presence (
-      user_id   INTEGER PRIMARY KEY,
-      username  VARCHAR(255) NOT NULL,
-      last_seen TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      mode      VARCHAR(20) NOT NULL DEFAULT 'classic'
-    )
-  `);
-  await pool.query(`
-    ALTER TABLE user_presence
-      ADD COLUMN IF NOT EXISTS mode VARCHAR(20) NOT NULL DEFAULT 'classic'
-  `);
-  await pool.query(`
-    ALTER TABLE user_presence
-      ADD COLUMN IF NOT EXISTS current_world_id INTEGER
-  `);
-
-  // Daily challenge progress: one row per (date, user). Public table —
-  // placement counts and usernames are not sensitive.
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS daily_challenge_progress (
-      challenge_date DATE NOT NULL,
-      user_id INTEGER NOT NULL,
-      username VARCHAR(255) NOT NULL,
-      blocks_placed INTEGER NOT NULL DEFAULT 0,
-      completed_at TIMESTAMPTZ,
-      updated_at TIMESTAMPTZ DEFAULT NOW(),
-      PRIMARY KEY (challenge_date, user_id)
-    )
-  `);
-  // Index for future leaderboard queries (challenge_date + ranked by blocks_placed).
-  await pool.query(`
-    CREATE INDEX IF NOT EXISTS daily_challenge_progress_date_placed_idx
-    ON daily_challenge_progress (challenge_date, blocks_placed DESC)
-  `);
-
-  // Daily challenge streaks: tracks consecutive days of challenge completion.
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS daily_challenge_streaks (
-      user_id INTEGER PRIMARY KEY,
-      current_streak INTEGER NOT NULL DEFAULT 0,
-      longest_streak INTEGER NOT NULL DEFAULT 0,
-      last_completed_date DATE,
-      updated_at TIMESTAMPTZ DEFAULT NOW()
-    )
-  `);
-
-  // Daily challenge rewards: audit log for streak bonuses and coins earned.
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS daily_challenge_rewards (
-      id BIGSERIAL PRIMARY KEY,
-      user_id INTEGER NOT NULL,
-      reward_date DATE NOT NULL,
-      coins_earned INTEGER NOT NULL,
-      streak_bonus_multiplier DECIMAL(3, 1) NOT NULL DEFAULT 1.0,
-      earned_at TIMESTAMPTZ DEFAULT NOW(),
-      UNIQUE (user_id, reward_date)
-    )
-  `);
-  await pool.query(`
-    CREATE INDEX IF NOT EXISTS daily_challenge_rewards_user_date_idx
-    ON daily_challenge_rewards (user_id, reward_date)
-  `);
-
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS tournament_scores (
-      week_start    DATE         NOT NULL,
-      user_id       INTEGER      NOT NULL,
-      username      VARCHAR(255) NOT NULL,
-      score         BIGINT       NOT NULL DEFAULT 0,
-      blocks_placed BIGINT       NOT NULL DEFAULT 0,
-      updated_at    TIMESTAMPTZ  DEFAULT NOW(),
-      PRIMARY KEY (week_start, user_id)
-    )
-  `);
-  await pool.query(`
-    CREATE INDEX IF NOT EXISTS tournament_scores_week_score_idx
-    ON tournament_scores (week_start, score DESC)
-  `);
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS powerups (
-      id SERIAL PRIMARY KEY,
-      type VARCHAR(20) NOT NULL,
-      x SMALLINT NOT NULL,
-      y SMALLINT NOT NULL,
-      z SMALLINT NOT NULL,
-      spawned_at TIMESTAMPTZ DEFAULT NOW(),
-      claimed_at TIMESTAMPTZ,
-      claimed_by_user_id INTEGER,
-      claimed_by_username VARCHAR(255)
-    )
-  `);
-
-  // Login streak tracking: one row per user, updated on each daily first visit.
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS login_streaks (
-      user_id        INTEGER PRIMARY KEY,
-      username       VARCHAR(255) NOT NULL,
-      last_login_date DATE NOT NULL,
-      current_streak INTEGER NOT NULL DEFAULT 1,
-      longest_streak INTEGER NOT NULL DEFAULT 1,
-      updated_at     TIMESTAMPTZ DEFAULT NOW()
-    )
-  `);
-
-  // Daily login rewards: tracks which players have claimed their daily reward and the date.
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS login_rewards (
-      user_id        INTEGER NOT NULL,
-      reward_date    DATE NOT NULL,
-      coins_earned   INTEGER NOT NULL,
-      claimed_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      updated_at     TIMESTAMPTZ DEFAULT NOW(),
-      PRIMARY KEY (user_id, reward_date)
-    )
-  `);
-  await pool.query(`CREATE INDEX IF NOT EXISTS login_rewards_user_date_idx ON login_rewards (user_id, reward_date)`);
-
-  // Player coin balance: stores cumulative coins for each player.
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS player_coins (
-      user_id        INTEGER PRIMARY KEY,
-      coins_balance  BIGINT NOT NULL DEFAULT 0,
-      updated_at     TIMESTAMPTZ DEFAULT NOW()
-    )
-  `);
-
-  // Social graph: friend requests and accepted friendships.
-  // Marked staging:private — the friend relationships between real users must
-  // not be copied to staging containers.
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS friendships (
-      id                 BIGSERIAL PRIMARY KEY,
-      requester_id       INTEGER      NOT NULL,
-      addressee_id       INTEGER      NOT NULL,
-      requester_username VARCHAR(255) NOT NULL,
-      addressee_username VARCHAR(255) NOT NULL,
-      status             VARCHAR(20)  NOT NULL DEFAULT 'pending',
-      created_at         TIMESTAMPTZ  DEFAULT NOW(),
-      updated_at         TIMESTAMPTZ  DEFAULT NOW(),
-      UNIQUE (requester_id, addressee_id)
-    )
-  `);
-  await pool.query(`COMMENT ON TABLE friendships IS 'staging:private'`);
-  await pool.query(`CREATE INDEX IF NOT EXISTS friendships_addressee_status_idx ON friendships (addressee_id, status)`);
-  await pool.query(`CREATE INDEX IF NOT EXISTS friendships_requester_status_idx ON friendships (requester_id, status)`);
-
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS disasters (
-      id               SERIAL PRIMARY KEY,
-      type             VARCHAR(20)  NOT NULL,
-      origin_x         SMALLINT,
-      origin_z         SMALLINT,
-      params           JSONB        NOT NULL DEFAULT '{}',
-      blocks_destroyed INTEGER      NOT NULL DEFAULT 0,
-      triggered_at     TIMESTAMPTZ  NOT NULL DEFAULT NOW()
-    )
-  `);
-  await pool.query(`CREATE INDEX IF NOT EXISTS disasters_triggered_at_idx ON disasters (triggered_at DESC)`);
-
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS disaster_schedule (
-      id        INTEGER PRIMARY KEY CHECK (id = 1),
-      fire_at   TIMESTAMPTZ  NOT NULL,
-      next_type VARCHAR(20)  NOT NULL
-    )
-  `);
-
-  // Tutorial completion tracking: one row per user who completes tutorial.
-  // Public table — only tracks completion status, no sensitive data.
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS player_tutorial_completed (
-      user_id INTEGER PRIMARY KEY,
-      completed_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    )
-  `);
-
-  // User custom worlds: snapshots of blocks that players can save and load.
-  // Public table — it holds only usernames and block configurations.
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS user_worlds (
-      id SERIAL PRIMARY KEY,
-      owner_id INTEGER NOT NULL,
-      owner_username VARCHAR(255) NOT NULL,
-      world_name VARCHAR(255) NOT NULL,
-      description TEXT,
-      block_snapshot JSONB NOT NULL DEFAULT '[]',
-      blocks_count INTEGER NOT NULL DEFAULT 0,
-      is_public BOOLEAN DEFAULT false,
-      created_at TIMESTAMPTZ DEFAULT NOW(),
-      updated_at TIMESTAMPTZ DEFAULT NOW(),
-      UNIQUE (owner_id, world_name)
-    )
-  `);
-  await pool.query(`
-    CREATE INDEX IF NOT EXISTS user_worlds_owner_idx ON user_worlds (owner_id, updated_at DESC)
-  `);
-
-  // Prime the schedule on first boot; subsequent boots leave the existing row intact.
   const disasterInitDelay = IS_STAGING ? '10 seconds' : '60 seconds';
   await pool.query(
     `INSERT INTO disaster_schedule (id, fire_at, next_type)
@@ -3051,31 +2637,7 @@ async function start() {
     [IS_STAGING ? '10' : '60']
   );
 
-  if (IS_STAGING) {
-    try { await seedStaging(); }
-    catch (err) { console.error('staging blocks seed failed', err); }
-    try { await seedChat(); }
-    catch (err) { console.error('staging chat seed failed', err); }
-    try { await seedLeaderboard(); }
-    catch (err) { console.error('leaderboard seed failed', err); }
-    try { await seedTournament(); }
-    catch (err) { console.error('tournament seed failed', err); }
-    try { await seedTaScores(); }
-    catch (err) { console.error('ta-scores seed failed', err); }
-    try { await seedTa60Scores(); }
-    catch (err) { console.error('ta-60-scores seed failed', err); }
-    try { await seedEndlessScores(); }
-    catch (err) { console.error('endless-scores seed failed', err); }
-    try { await seedStreaks(); }
-    catch (err) { console.error('streak seed failed', err); }
-    try { await seedLoginRewards(); }
-    catch (err) { console.error('login-rewards seed failed', err); }
-    try { await seedDailyChallenge(); }
-    catch (err) { console.error('daily-challenge seed failed', err); }
-    // Staging spectators are now surfaced via the STAGING_DEMO_USERS constant
-    // appended in GET /api/presence/online, so no DB seed is needed here.
-  }
-
+  await initializeStagingData(pool, IS_STAGING);
   await ensurePowerUps();
 
   app.listen(port, () => console.log(`Listening on :${port}`));
