@@ -138,6 +138,11 @@
     @media (min-width: 640px) {
       body { font-size: initial; }
     }
+
+    #overlay h1 {
+      color: #06b6d4;
+      text-shadow: 0 0 20px rgba(6, 182, 212, 0.5), 0 0 40px rgba(6, 182, 212, 0.3);
+    }
   </style>
 </head>
 <body class="bg-zinc-950 text-zinc-100">
@@ -167,7 +172,7 @@
   <div id="overlay" class="fixed inset-0 z-30 flex items-center justify-center bg-black/60 backdrop-blur-sm">
     <div class="max-w-lg w-full px-4">
       <div class="text-center mb-5">
-        <h1 class="text-2xl font-bold mb-1">block-game</h1>
+        <h1 class="text-2xl font-bold mb-1" id="header-title">block-game</h1>
         <p class="text-zinc-300 text-sm">A shared 3D world — build, challenge, or just watch.</p>
         <p id="overlay-help" class="text-zinc-500 text-xs mt-1">Choose a mode to start.</p>
       </div>
