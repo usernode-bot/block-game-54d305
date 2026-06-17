@@ -797,6 +797,74 @@ app.get('/api/ta-leaderboard', async (req, res) => {
   }
 });
 
+// ---- Time Attack (60s): submit a completed run ----
+// Body: { cleared }. Keeps only the best run per user.
+app.post('/api/ta-60-score', async (req, res) => {
+  try {
+    const cleared = Number(req.body.cleared);
+    if (!Number.isInteger(cleared) || cleared < 0) {
+      return res.status(400).json({ error: 'cleared must be a non-negative integer' });
+    }
+    const { rows } = await pool.query(
+      `INSERT INTO ta_60_scores (user_id, username, best_cleared, updated_at)
+       VALUES ($1, $2, $3, NOW())
+       ON CONFLICT (user_id) DO UPDATE
+         SET best_cleared = EXCLUDED.best_cleared,
+             username = EXCLUDED.username,
+             updated_at = NOW()
+       WHERE EXCLUDED.best_cleared > ta_60_scores.best_cleared
+       RETURNING best_cleared`,
+      [req.user.id, req.user.username, cleared]
+    );
+    let best_cleared, is_new_best;
+    if (rows.length) {
+      best_cleared = Number(rows[0].best_cleared);
+      is_new_best = true;
+    } else {
+      const cur = await pool.query(
+        `SELECT best_cleared FROM ta_60_scores WHERE user_id = $1`, [req.user.id]
+      );
+      best_cleared = cur.rows.length ? Number(cur.rows[0].best_cleared) : cleared;
+      is_new_best = false;
+    }
+    res.json({ ok: true, best_cleared, is_new_best });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- Time Attack (60s) leaderboard: top 10 by best run + caller's own best ----
+app.get('/api/ta-60-leaderboard', async (req, res) => {
+  try {
+    const topRes = await pool.query(
+      `SELECT rank() OVER (ORDER BY best_cleared DESC) AS rank,
+              user_id, username, best_cleared
+       FROM ta_60_scores
+       ORDER BY best_cleared DESC
+       LIMIT 10`
+    );
+    const selfRes = await pool.query(
+      `SELECT rank() OVER (ORDER BY best_cleared DESC) AS rank,
+              user_id, username, best_cleared
+       FROM ta_60_scores
+       WHERE user_id = $1`,
+      [req.user.id]
+    );
+    const toRow = (r) => ({
+      rank: Number(r.rank),
+      user_id: r.user_id,
+      username: r.username,
+      best_cleared: Number(r.best_cleared),
+    });
+    res.json({
+      entries: topRes.rows.map(toRow),
+      self: selfRes.rows.length ? toRow(selfRes.rows[0]) : null,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ---- Endless Mode: submit a completed run ----
 // Body: { placed, moves_survived }. Keeps only the best run per user.
 app.post('/api/endless-score', async (req, res) => {
@@ -1965,6 +2033,24 @@ async function seedTaScores() {
   }
 }
 
+async function seedTa60Scores() {
+  const seeds = [
+    { userId: -11, username: 'Staging demo Alice',   cleared: 87 },
+    { userId: -12, username: 'Staging demo Bob',     cleared: 64 },
+    { userId: -13, username: 'Staging demo Charlie', cleared: 102 },
+    { userId: -14, username: 'Staging demo Dana',    cleared: 56 },
+    { userId: -15, username: 'Staging demo Eve',     cleared: 93 },
+  ];
+  for (const s of seeds) {
+    await pool.query(
+      `INSERT INTO ta_60_scores (user_id, username, best_cleared, updated_at)
+       VALUES ($1, $2, $3, NOW())
+       ON CONFLICT (user_id) DO NOTHING`,
+      [s.userId, s.username, s.cleared]
+    );
+  }
+}
+
 async function seedEndlessScores() {
   const seeds = [
     { userId: -6, username: 'Staging demo Frank',   placed: 187, moves: 421 },
@@ -2185,6 +2271,17 @@ async function start() {
       username        VARCHAR(255) NOT NULL,
       best_cleared    INTEGER NOT NULL DEFAULT 0,
       best_difficulty SMALLINT NOT NULL DEFAULT 1,
+      updated_at      TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+
+  // Time Attack (60s) high scores: one row per user holding their best run.
+  // Public table — it holds only a username and block count, nothing sensitive.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS ta_60_scores (
+      user_id         INTEGER PRIMARY KEY,
+      username        VARCHAR(255) NOT NULL,
+      best_cleared    INTEGER NOT NULL DEFAULT 0,
       updated_at      TIMESTAMPTZ DEFAULT NOW()
     )
   `);
@@ -2414,6 +2511,8 @@ async function start() {
     catch (err) { console.error('tournament seed failed', err); }
     try { await seedTaScores(); }
     catch (err) { console.error('ta-scores seed failed', err); }
+    try { await seedTa60Scores(); }
+    catch (err) { console.error('ta-60-scores seed failed', err); }
     try { await seedEndlessScores(); }
     catch (err) { console.error('endless-scores seed failed', err); }
     try { await seedStreaks(); }
