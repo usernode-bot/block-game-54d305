@@ -295,6 +295,7 @@
       <li><span class="font-semibold">Space</span> / <span class="font-semibold">Shift</span> — up / down</li>
       <li><span class="font-semibold">Left-click</span> or <span class="font-semibold">F</span> — add a block</li>
       <li><span class="font-semibold">Right-click</span> or <span class="font-semibold">G</span> — delete a block</li>
+      <li><span class="font-semibold">Ctrl+Z</span> — undo last action (Classic only)</li>
       <li><span class="font-semibold">1–9</span> — pick block type</li>
       <li><span class="font-semibold">H</span> (playing) — hold / swap block type</li>
       <li><span class="font-semibold">H</span> (menu) or <span class="font-semibold">(?)</span> — toggle this panel</li>
@@ -360,6 +361,7 @@
         <button data-mv="up" class="touch-ctrl pointer-events-auto w-14 h-14 rounded-xl bg-black/40 active:bg-black/70 active:scale-95 text-sm font-semibold text-zinc-100 flex items-center justify-center">Up</button>
       </div>
       <div class="flex gap-2">
+        <button data-act="undo" id="undo-touch-btn" class="touch-ctrl pointer-events-auto w-16 h-16 rounded-2xl bg-amber-600/55 active:bg-amber-400/80 active:scale-95 text-sm font-bold text-white flex items-center justify-center">↩ Undo</button>
         <button data-act="break" class="touch-ctrl pointer-events-auto w-16 h-16 rounded-2xl bg-rose-600/55 active:bg-rose-500/80 active:scale-95 text-sm font-bold text-white flex items-center justify-center">Delete</button>
         <button data-act="place" class="touch-ctrl pointer-events-auto w-16 h-16 rounded-2xl bg-emerald-600/55 active:bg-emerald-500/80 active:scale-95 text-sm font-bold text-white flex items-center justify-center">Add</button>
       </div>
@@ -401,6 +403,9 @@
     <div id="combo-badge" class="text-3xl font-mono font-bold text-white rounded-xl px-4 py-2 leading-none tabular-nums bg-amber-500" style="transition: transform 0.15s ease-out;">2×</div>
   </div>
 
+  <!-- Desktop undo button: shown in Classic mode while playing; greyed when stack is empty. -->
+  <button id="undo-btn" class="hidden pointer-events-auto fixed top-3 left-16 z-20 px-3 h-9 rounded-lg bg-black/50 hover:bg-black/70 active:scale-95 text-zinc-100 text-sm font-semibold flex items-center justify-center gap-1.5 transition">↩ Undo</button>
+
   <!-- Time Attack game-over overlay -->
   <div id="ta-gameover" class="hidden fixed inset-0 z-30 flex items-center justify-center bg-black/60 backdrop-blur-sm">
     <div class="max-w-sm w-full mx-4 bg-zinc-900/95 rounded-2xl p-8 text-center shadow-xl">
@@ -437,7 +442,7 @@
 
     // Build identifier — bump this (to the deploying commit short SHA) on every
     // change so the top-right stamp confirms exactly which code is running.
-    const BUILD_VERSION = 'power-ups+hold-queue+achievements-badges+chat+daily-challenge+leaderboard+online-presence+block-attribution+audio-sfx+next-piece-preview+spectator-mode+weekly-tournament+friends+day-night-cycle+minimap+ai-coach+natural-disasters';
+    const BUILD_VERSION = 'power-ups+hold-queue+achievements-badges+chat+daily-challenge+leaderboard+online-presence+block-attribution+audio-sfx+next-piece-preview+spectator-mode+weekly-tournament+friends+day-night-cycle+minimap+ai-coach+natural-disasters+undo-stack';
 
     // Badge definitions — mirror of the server-side BADGES array, extended with
     // a `hint` field shown in the panel for unearned badges.
@@ -772,6 +777,10 @@
     let coachDismissTimer = null;
     let sessionBlocksPlaced = 0;     // placements this session, for milestone trigger
     let sessionScore = 0;
+
+    // ---- Undo stack (Classic mode only) ----
+    const undoStack = [];  // entries: { x, y, z, prevType, newType }, newest last, max 5
+    let undoInProgress = false;
 
     // ---- Smart Difficulty (Time Attack) ----
     const TA_DIFFICULTY_LEVELS = [
@@ -1623,7 +1632,10 @@
       if (gameMode !== 'spectate') challengeHudEl.classList.remove('hidden');
     }
 
-    async function sendEdit(x, y, z, t) {
+    async function sendEdit(x, y, z, t, prevType) {
+      if (!undoInProgress && gameMode === 'classic' && prevType !== undefined) {
+        pushUndo(x, y, z, prevType, t);
+      }
       applyLocal(x, y, z, t);
       // Optimistic challenge increment for placements (not breaks).
       if (t !== 0 && challengeDate && !challengeCompleted) {
@@ -1710,6 +1722,61 @@
       }, 3000);
     }
 
+    // ---- Undo helpers ----
+    const undoBtnEl = document.getElementById('undo-btn');
+    const undoTouchBtnEl = document.getElementById('undo-touch-btn');
+
+    function refreshUndoButton() {
+      const active = playing && gameMode === 'classic';
+      const hasItems = undoStack.length > 0;
+      // Desktop button
+      undoBtnEl.classList.toggle('hidden', !active);
+      undoBtnEl.disabled = !hasItems;
+      undoBtnEl.style.opacity = hasItems ? '' : '0.4';
+      undoBtnEl.style.cursor = hasItems ? '' : 'default';
+      // Touch button — always in DOM but opacity/pointer-events reflect state
+      undoTouchBtnEl.style.opacity = hasItems ? '' : '0.4';
+      undoTouchBtnEl.style.pointerEvents = hasItems ? '' : 'none';
+    }
+
+    function pushUndo(x, y, z, prevType, newType) {
+      if (undoStack.length >= 5) undoStack.shift();
+      undoStack.push({ x, y, z, prevType, newType });
+      refreshUndoButton();
+    }
+
+    function showSimpleToast(msg) {
+      toastQueue.push({ icon: '↩', name: msg, flavour: '' });
+      if (!toastShowing) showNextToast();
+    }
+
+    async function undoLastMove() {
+      if (undoStack.length === 0) { showSimpleToast('Nothing to undo'); return; }
+      const entry = undoStack.pop();
+      refreshUndoButton();
+      const currentType = blocks.get(key(entry.x, entry.y, entry.z)) ?? 0;
+      if (currentType !== entry.newType) {
+        showSimpleToast("Can't undo: block was changed");
+        return;
+      }
+      undoInProgress = true;
+      try {
+        if (entry.prevType === 0) {
+          audio.playBreak();
+        } else {
+          audio.playPlace();
+        }
+        await sendEdit(entry.x, entry.y, entry.z, entry.prevType);
+      } finally {
+        undoInProgress = false;
+        refreshUndoButton();
+      }
+    }
+
+    undoBtnEl.addEventListener('click', () => {
+      if (playing && gameMode === 'classic') undoLastMove();
+    });
+
     function placeBlock() {
       if (!target) return;
       const { x, y, z } = target.place;
@@ -1723,9 +1790,10 @@
         return;
       }
       if (blocks.get(key(x, y, z)) === selectedType) return;
+      const prevType = blocks.get(key(x, y, z)) ?? 0;
       audio.playPlace();
       emitBlockPlace(x + 0.5, y + 0.5, z + 0.5);
-      sendEdit(x, y, z, selectedType);
+      sendEdit(x, y, z, selectedType, prevType);
       // Unlock hold after each successful placement (Tetris lock rule)
       holdLocked = false;
       updateHoldPanel();
@@ -1750,7 +1818,7 @@
       const brokenType = blocks.get(key(x, y, z));
       audio.playBreak();
       emitBlockBreak(x + 0.5, y + 0.5, z + 0.5, brokenType);
-      sendEdit(x, y, z, 0);
+      sendEdit(x, y, z, 0, brokenType);
     }
 
     // ---- Pointer-lock fly camera ----
@@ -1986,6 +2054,7 @@
     // Handles per-mode initialization so it runs at the right moment regardless
     // of whether play was entered via pointer lock, drag fallback, or touch.
     function onPlayEntered() {
+      refreshUndoButton();
       if (pendingTaInit) {
         pendingTaInit = false;
         initTimeAttack();
@@ -2012,6 +2081,7 @@
     function startMode(mode) {
       gameMode = mode;
       if (mode === 'timeattack') pendingTaInit = true;
+      refreshUndoButton();
       tryPointerLock();
     }
 
@@ -2093,6 +2163,7 @@
       dragMode = false;
       resetMove();
       canvas.style.cursor = '';
+      refreshUndoButton();
 
       taBlocks.clear();
       rebuildBlockMeshes(); // gameMode is now null → renders classic blocks
@@ -2264,6 +2335,11 @@
       // Enter opens chat while the player is active.
       if (e.code === 'Enter' && playing && !chatOpen) { e.preventDefault(); openChat(); return; }
 
+      if (e.ctrlKey && e.code === 'KeyZ' && playing && gameMode === 'classic') {
+        e.preventDefault();
+        undoLastMove();
+        return;
+      }
       if (codeMap[e.code]) { move[codeMap[e.code]] = true; if (e.code === 'Space') e.preventDefault(); }
       if (e.code.startsWith('Digit')) {
         const n = parseInt(e.code.slice(5), 10);
@@ -2378,6 +2454,7 @@
         bindTap(el, () => {
           if (act === 'break' && playing && gameMode !== 'spectate') breakBlock();
           else if (act === 'hold' && playing && gameMode !== 'spectate') holdBlock();
+          else if (act === 'undo' && playing && gameMode === 'classic') undoLastMove();
           else if (act === 'menu') {
             if (gameMode === 'timeattack' && playing) endTimeAttack();
             else exitToMenu();
@@ -2397,6 +2474,7 @@
         '<li><span class="font-semibold">Move pad</span> — glide forward / back / left / right</li>',
         '<li><span class="font-semibold">Up / Down</span> — fly up / down</li>',
         '<li><span class="font-semibold">Add</span> / <span class="font-semibold">Delete</span> — place / remove a block at the crosshair</li>',
+        '<li><span class="font-semibold">↩ Undo</span> — undo last action (Classic only)</li>',
         '<li><span class="font-semibold">Hold</span> — swap the active block type with the hold slot</li>',
         '<li><span class="font-semibold">Palette</span> — tap a swatch to pick a block</li>',
         '<li><span class="font-semibold">💬</span> — open / close chat</li>',
