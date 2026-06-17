@@ -226,6 +226,12 @@
        Shifted down to make room for the leaderboard and friends buttons above. -->
   <div id="build-stamp" class="pointer-events-none fixed top-36 right-3 z-20 text-[11px] text-zinc-300/70 bg-black/40 rounded px-2 py-1 font-mono"></div>
 
+  <!-- Mini-map: top-down 128×128 px overhead view of the 32×32 world.
+       Hidden until a play mode is chosen; shown/hidden via JS. -->
+  <canvas id="minimap" width="128" height="128"
+          class="hidden fixed z-20 pointer-events-none"
+          style="top: 11.5rem; right: 0.75rem; border-radius: 6px; border: 1px solid rgba(255,255,255,0.15); opacity: 0.9"></canvas>
+
   <!-- Badges panel: lists all 10 badges with earned/locked state. Hidden by
        default; toggled by the trophy button. -->
   <div id="badges-panel" class="hidden fixed top-16 right-3 z-30 w-72 max-w-[90vw] rounded-xl bg-black/70 backdrop-blur p-4 text-sm text-zinc-200 shadow-xl">
@@ -398,7 +404,7 @@
 
     // Build identifier — bump this (to the deploying commit short SHA) on every
     // change so the top-right stamp confirms exactly which code is running.
-    const BUILD_VERSION = 'power-ups+hold-queue+achievements-badges+chat+daily-challenge+leaderboard+online-presence+block-attribution+audio-sfx+next-piece-preview+spectator-mode+weekly-tournament+friends';
+    const BUILD_VERSION = 'power-ups+hold-queue+achievements-badges+chat+daily-challenge+leaderboard+online-presence+block-attribution+audio-sfx+next-piece-preview+spectator-mode+weekly-tournament+friends+minimap';
 
     // Badge definitions — mirror of the server-side BADGES array, extended with
     // a `hint` field shown in the panel for unearned badges.
@@ -1073,6 +1079,59 @@
       if (html !== _lastHudHtml) { powerupHudEl.innerHTML = html; _lastHudHtml = html; }
     }
 
+    // ---- Mini-map rendering ----
+    function renderMinimap() {
+      const SCALE = 4; // px per world unit (128px / 32 units)
+      const SIZE = 128;
+
+      // Dark background for cells with no blocks (borders / unbuilt areas).
+      minimapCtx.fillStyle = 'rgba(20,20,30,0.85)';
+      minimapCtx.fillRect(0, 0, SIZE, SIZE);
+
+      // Grass base layer — every (x, z) cell starts as grass.
+      const grassEntry = PALETTE.find((p) => p.name === 'Grass');
+      const grassColor = grassEntry ? grassEntry.color : '#5a8a3c';
+      minimapCtx.fillStyle = grassColor;
+      for (let x = 0; x < DIMS.w; x++) {
+        for (let z = 0; z < DIMS.d; z++) {
+          minimapCtx.fillRect(x * SCALE, z * SCALE, SCALE, SCALE);
+        }
+      }
+
+      // Topmost player-placed block at each (x, z) overpaints the grass.
+      const source = gameMode === 'timeattack' ? taBlocks : blocks;
+      for (let x = 0; x < DIMS.w; x++) {
+        for (let z = 0; z < DIMS.d; z++) {
+          for (let y = DIMS.h - 1; y >= 1; y--) {
+            const t = source.get(key(x, y, z));
+            if (t) {
+              const p = PALETTE.find((q) => q.id === t);
+              if (p) { minimapCtx.fillStyle = p.color; minimapCtx.fillRect(x * SCALE, z * SCALE, SCALE, SCALE); }
+              break;
+            }
+          }
+        }
+      }
+
+      // Player position dot + facing indicator.
+      const mx = Math.max(0, Math.min(SIZE, camera.position.x * SCALE));
+      const mz = Math.max(0, Math.min(SIZE, camera.position.z * SCALE));
+      const dx = -Math.sin(yaw);
+      const dz = -Math.cos(yaw);
+
+      minimapCtx.strokeStyle = 'white';
+      minimapCtx.lineWidth = 1.5;
+      minimapCtx.beginPath();
+      minimapCtx.moveTo(mx, mz);
+      minimapCtx.lineTo(mx + dx * 7, mz + dz * 7);
+      minimapCtx.stroke();
+
+      minimapCtx.fillStyle = 'white';
+      minimapCtx.beginPath();
+      minimapCtx.arc(mx, mz, 3.5, 0, Math.PI * 2);
+      minimapCtx.fill();
+    }
+
     // ---- Power-up world sync ----
     async function pollPowerUps() {
       if (document.hidden) return;
@@ -1331,6 +1390,12 @@
     const lookModeEl = document.getElementById('lookmode');
     const touchControlsEl = document.getElementById('touch-controls');
 
+    // ---- Mini-map DOM refs + helpers ----
+    const minimapEl = document.getElementById('minimap');
+    const minimapCtx = minimapEl.getContext('2d');
+    function showMinimap() { minimapEl.classList.remove('hidden'); }
+    function hideMinimap() { minimapEl.classList.add('hidden'); }
+
     // ---- Chat DOM refs ----
     const chatDrawerEl = document.getElementById('chat-drawer');
     const chatMessagesEl = document.getElementById('chat-messages');
@@ -1572,6 +1637,7 @@
       dragging = false;
       canvas.style.cursor = 'grab';
       overlayEl.style.display = 'none';
+      if (!wasAlreadyPlaying) showMinimap();
       refreshControlCopy();
       if (!wasAlreadyPlaying) onPlayEntered();
     }
@@ -1582,6 +1648,7 @@
       playing = true;
       dragging = false;
       overlayEl.style.display = 'none';
+      showMinimap();
       refreshControlCopy();
       updateTouchControlsVisibility();
       onPlayEntered();
@@ -1614,6 +1681,7 @@
       document.getElementById('crosshair').style.opacity = '';
       hideComboHud();
 
+      hideMinimap();
       overlayEl.style.display = 'flex';
       refreshControlCopy();
       updateTouchControlsVisibility();
@@ -1656,6 +1724,7 @@
         lockUnavailable = false;
         canvas.style.cursor = '';
         overlayEl.style.display = 'none';
+        showMinimap();
         onPlayEntered();
       } else if (chatOpening) {
         // Lock released specifically so the player can type in chat.
@@ -1673,6 +1742,7 @@
           playing = false;
           resetMove();
           hideComboHud();
+          hideMinimap();
           overlayEl.style.display = 'flex';
         }
         // gameMode === 'timeattack' && !playing: endTimeAttack already ran, nothing to do.
@@ -1799,6 +1869,7 @@
             resetMove();
             hideComboHud();
             canvas.style.cursor = '';
+            hideMinimap();
             overlayEl.style.display = 'flex';
             refreshControlCopy();
           }
@@ -2691,6 +2762,7 @@
       if (crystalMaterial) crystalMaterial.emissiveIntensity = 0.2 + 0.2 * Math.sin(now * 0.0008);
       renderBuffHud();
       renderer.render(scene, camera);
+      if (gameMode !== null) renderMinimap();
       requestAnimationFrame(loop);
     }
 
