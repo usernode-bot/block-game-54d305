@@ -199,6 +199,7 @@
       background-color: rgba(0,0,0,0.9) !important;
     }
     html.a11y-hc #palette { border: 1px solid rgba(255,255,255,0.45); }
+    html.a11y-hc #hold-swatch { border-color: rgba(255,255,255,0.45) !important; }
     /* Lift the dim zinc text utilities used across panels/HUD toward white. */
     html.a11y-hc .text-zinc-300,
     html.a11y-hc .text-zinc-400,
@@ -778,7 +779,7 @@
 
   <!-- Hold panel: displays the currently held block type (one-slot hold queue).
        Positioned at the bottom-left, aligned with the palette bar. -->
-  <div id="hold-panel" class="pointer-events-none fixed bottom-4 left-4 z-20 flex flex-col items-center gap-1">
+  <div id="hold-panel" class="pointer-events-none fixed bottom-4 left-4 z-20 flex items-center gap-1.5">
     <span class="text-[10px] font-bold text-zinc-400 uppercase tracking-wide">Hold</span>
     <div id="hold-swatch" class="w-10 h-10 rounded-md border-2 border-dashed border-zinc-600 flex items-center justify-center">
       <span class="text-zinc-600 text-sm font-bold">–</span>
