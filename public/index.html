@@ -293,10 +293,33 @@
       <li><span class="font-semibold">Enter</span> — open / close chat</li>
       <li><span class="font-semibold">L</span> or <span class="font-semibold">🏆</span> — leaderboard</li>
       <li><span class="font-semibold">M</span> or <span class="font-semibold">🔊</span> — mute / unmute audio</li>
+      <li><span class="font-semibold">N</span> — write a hidden message (attached to next block placed)</li>
+      <li><span class="font-semibold">E</span> — reveal hidden message (when 📨 shows below crosshair)</li>
       <li><span class="font-semibold">Esc</span> — close panel / release / menu</li>
       <li><span class="font-semibold">Power-ups</span> — collect glowing cubes for Speed, Jump, or Rapid Place (hold F/Add)</li>
     </ul>
   </div>
+
+  <!-- Message compose overlay: shown when pressing N in Classic mode.
+       Positioned above the palette so it does not cover the world. -->
+  <div id="msg-compose" class="hidden fixed z-30 left-1/2 -translate-x-1/2 bg-zinc-900/95 backdrop-blur rounded-xl shadow-xl px-4 py-3 w-80 max-w-[90vw]" style="bottom:5.5rem">
+    <div class="text-xs font-semibold text-zinc-300 mb-2">📝 Hide a message in your next block</div>
+    <textarea id="msg-compose-input" maxlength="200" rows="3" placeholder="Write your secret message…"
+              class="w-full bg-zinc-800 text-zinc-100 text-sm rounded-lg px-3 py-2 border border-zinc-700 focus:border-violet-500 outline-none placeholder-zinc-500 resize-none"></textarea>
+    <div class="flex items-center justify-between mt-2">
+      <span id="msg-compose-counter" class="text-xs text-zinc-500">0 / 200</span>
+      <div class="flex gap-2">
+        <button id="msg-compose-cancel" class="px-3 py-1.5 text-xs rounded bg-zinc-700 hover:bg-zinc-600 text-zinc-200 cursor-pointer">Cancel</button>
+        <button id="msg-compose-hide" class="px-3 py-1.5 text-xs rounded bg-violet-600 hover:bg-violet-500 text-white font-semibold cursor-pointer">Hide</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Write-message button: shown in Classic mode to the right of the palette.
+       Icon switches to 📨 when a message is queued for the next placement. -->
+  <button id="msg-write-btn" class="hidden fixed bottom-4 right-4 z-20 w-10 h-10 rounded-xl bg-black/50 hover:bg-black/70 text-lg flex items-center justify-center transition-colors cursor-pointer" title="Write hidden message (N)">
+    <span id="msg-write-icon">📝</span>
+  </button>
 
   <!-- Leaderboard overlay: top 10 builders. Hidden by default; toggled by
        pressing `l` or clicking the trophy button. -->
@@ -427,7 +450,7 @@
 
     // Build identifier — bump this (to the deploying commit short SHA) on every
     // change so the top-right stamp confirms exactly which code is running.
-    const BUILD_VERSION = 'power-ups+hold-queue+achievements-badges+chat+daily-challenge+leaderboard+online-presence+block-attribution+audio-sfx+next-piece-preview+spectator-mode+weekly-tournament+friends+day-night-cycle+minimap+ai-coach+natural-disasters';
+    const BUILD_VERSION = 'power-ups+hold-queue+achievements-badges+chat+daily-challenge+leaderboard+online-presence+block-attribution+audio-sfx+next-piece-preview+spectator-mode+weekly-tournament+friends+day-night-cycle+minimap+ai-coach+natural-disasters+message-in-a-block';
 
     // Badge definitions — mirror of the server-side BADGES array, extended with
     // a `hint` field shown in the panel for unearned badges.
@@ -727,6 +750,10 @@
     let selectedType = 1;
     let unlockedTypes = new Set(); // block type IDs earned by the current user
     const key = (x, y, z) => x + ',' + y + ',' + z;
+
+    // ---- Message in a Block state ----
+    let pendingMessage = null;        // string queued for next placement, or null
+    const messageBlocks = new Set();  // "x,y,z" keys that have an unfound hidden message
 
     // ---- Power-up state ----
     const powerupMap = new Map(); // id -> { type, x, y, z, mesh }
@@ -1281,7 +1308,8 @@
       const toast = document.createElement('div');
       toast.className = 'flex items-center gap-3 bg-black/85 backdrop-blur rounded-xl px-4 py-2.5 text-sm text-zinc-100 shadow-xl' +
         (badge._isUnlock ? ' ring-2 ring-violet-500/60' : '') +
-        (badge._isDisaster ? ' ring-2 ring-red-500/60' : '');
+        (badge._isDisaster ? ' ring-2 ring-red-500/60' : '') +
+        (badge._isMessage ? ' ring-2 ring-violet-400/60' : '');
       toast.style.cssText = 'opacity:0;transition:opacity 0.3s;';
       const iconSpan = document.createElement('span');
       iconSpan.className = 'text-2xl leading-none flex-shrink-0';
@@ -1292,7 +1320,17 @@
       nameDiv.textContent = badge.name;
       const subDiv = document.createElement('div');
       subDiv.className = 'text-zinc-400 text-xs mt-0.5';
-      subDiv.textContent = badge.flavour;
+      if (badge._isMessage) {
+        const authorLine = document.createElement('div');
+        authorLine.textContent = badge._authorLine || '';
+        const bodyLine = document.createElement('div');
+        bodyLine.className = 'text-zinc-200 italic mt-0.5';
+        bodyLine.textContent = '“' + (badge._body || '') + '”';
+        subDiv.appendChild(authorLine);
+        subDiv.appendChild(bodyLine);
+      } else {
+        subDiv.textContent = badge.flavour;
+      }
       textDiv.appendChild(nameDiv);
       textDiv.appendChild(subDiv);
       toast.appendChild(iconSpan);
@@ -1300,7 +1338,7 @@
       container.appendChild(toast);
       // Trigger opacity transition after insertion.
       requestAnimationFrame(() => { toast.style.opacity = '1'; });
-      const displayMs = toastQueue.length > 0 ? 3000 : 4000;
+      const displayMs = badge._isMessage ? 7000 : (toastQueue.length > 0 ? 3000 : 4000);
       setTimeout(() => {
         toast.style.opacity = '0';
         setTimeout(() => { toast.remove(); showNextToast(); }, 300);
@@ -1386,8 +1424,28 @@
           if (!res.ok || ac.signal.aborted) return;
           const data = await res.json();
           if (!data || !data.username) return;
-          attributionEl.textContent = 'Built by ' + data.username + ' · ' + relativeTime(data.updated_at);
+          let attrHtml = 'Built by ' + escapeHtml(data.username) + ' · ' + relativeTime(data.updated_at);
+          if (data.hasMessage) {
+            attrHtml += '<br><span style="color:#a78bfa">📨 Hidden message — press E to reveal</span>';
+            if (isTouch) {
+              attrHtml += '&nbsp;<button id="attr-reveal-btn" style="background:#7c3aed;color:white;border-radius:4px;padding:1px 8px;font-size:11px;cursor:pointer">Reveal</button>';
+            }
+          } else if (data.ownMessage) {
+            if (!data.ownMessage.found) {
+              attrHtml += '<br><span style="color:#a1a1aa">📬 Your message is hidden here</span>';
+            } else {
+              attrHtml += '<br><span style="color:#a1a1aa">📬 Found by ' + escapeHtml(data.ownMessage.found_by_username) + ' · ' + relativeTime(data.ownMessage.found_at) + '</span>';
+            }
+          }
+          attributionEl.innerHTML = attrHtml;
           attributionEl.classList.remove('hidden');
+          if (data.hasMessage && isTouch) {
+            const rb = document.getElementById('attr-reveal-btn');
+            if (rb) rb.addEventListener('touchstart', (ev) => {
+              ev.preventDefault();
+              if (target) revealMessage(target.cell.x, target.cell.y, target.cell.z);
+            }, { passive: false });
+          }
         } catch (_) { /* AbortError or network error — fine */ }
       }, 200);
     }
@@ -1560,6 +1618,7 @@
     function applyLocal(x, y, z, t) {
       const k = key(x, y, z);
       if (t === 0) blocks.delete(k); else blocks.set(k, t);
+      messageBlocks.delete(k); // any message at this cell is gone once overwritten/broken
       rebuildBlockMeshes();
       clearAttribution(); // label is stale after any block change; loop will re-fetch
     }
@@ -1607,12 +1666,14 @@
         if (sessionBlocksPlaced % 25 === 0) fetchCoachTip('block_milestone');
       }
       try {
+        const _msgToSend = t !== 0 ? pendingMessage : null;
         const res = await fetch('/api/block', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', ...headers },
-          body: JSON.stringify({ x, y, z, block_type: t }),
+          body: JSON.stringify({ x, y, z, block_type: t, ...(_msgToSend ? { message: _msgToSend } : {}) }),
         });
         if (res.ok) {
+          if (_msgToSend) { pendingMessage = null; updateMsgWriteBtn(); }
           const data = await res.json();
           // Check combo tier-up before updateComboHud mutates lastComboMultiplier.
           const newMult = data.combo_multiplier || 1;
@@ -1948,6 +2009,7 @@
         // Immediately ping presence as a spectator so the online list updates fast.
         heartbeat();
       }
+      updateMsgWriteBtn();
     }
 
     function startMode(mode) {
@@ -2051,6 +2113,8 @@
       coachBubbleEl.style.opacity = '0';
       if (coachDismissTimer) { clearTimeout(coachDismissTimer); coachDismissTimer = null; }
       coachBtnEl.classList.remove('hidden');
+      closeMsgCompose();
+      updateMsgWriteBtn();
       overlayEl.style.display = 'flex';
       refreshControlCopy();
       updateTouchControlsVisibility();
@@ -2191,6 +2255,13 @@
         if (e.key === 'Escape') { e.preventDefault(); closeFriends(); }
         return;
       }
+      // While the message compose textarea is focused, handle Escape/Enter only.
+      const msgComposeInputEl = document.getElementById('msg-compose-input');
+      if (msgComposeInputEl && document.activeElement === msgComposeInputEl) {
+        if (e.key === 'Escape') { e.preventDefault(); closeMsgCompose(); }
+        else if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); confirmMsgCompose(); }
+        return;
+      }
       // Escape closes the chat drawer if it is open (before the existing
       // Escape handler that would otherwise return to the overlay).
       if (e.key === 'Escape' && chatOpen) { e.preventDefault(); closeChat(); return; }
@@ -2213,6 +2284,17 @@
         lastRapidPlace = performance.now();
       }
       if (e.code === 'KeyG' && playing && gameMode !== 'spectate') breakBlock();
+      // E: reveal the hidden message in the targeted block (Classic mode only)
+      if (e.code === 'KeyE' && playing && gameMode === 'classic' && target) {
+        const c = target.cell;
+        if (messageBlocks.has(key(c.x, c.y, c.z))) revealMessage(c.x, c.y, c.z);
+      }
+      // N: open / close the message compose overlay (Classic mode only)
+      if (e.code === 'KeyN' && playing && gameMode === 'classic') {
+        e.preventDefault();
+        const overlay = document.getElementById('msg-compose');
+        if (overlay.classList.contains('hidden')) openMsgCompose(); else closeMsgCompose();
+      }
       // H is context-aware: triggers hold/swap while playing, toggles the
       // controls overlay when the menu/overlay is up.
       if (e.code === 'KeyH') {
@@ -2311,6 +2393,7 @@
         bindTap(el, () => {
           if (act === 'break' && playing && gameMode !== 'spectate') breakBlock();
           else if (act === 'hold' && playing && gameMode !== 'spectate') holdBlock();
+          else if (act === 'msgcompose' && playing && gameMode === 'classic') openMsgCompose();
           else if (act === 'menu') {
             if (gameMode === 'timeattack' && playing) endTimeAttack();
             else exitToMenu();
@@ -2337,6 +2420,8 @@
         '<li><span class="font-semibold">☰ Menu</span> — back to the start screen</li>',
         '<li><span class="font-semibold">Power-ups</span> — collect glowing cubes for Speed, Jump, or Rapid Place (hold Add)</li>',
         '<li><span class="font-semibold">🔊 / 🔇</span> — tap to mute / unmute audio</li>',
+        '<li><span class="font-semibold">📝</span> — tap the write button to hide a message in your next block</li>',
+        '<li><span class="font-semibold">📨</span> — tap Reveal in the attribution label to discover a hidden message</li>',
       ].join('');
       const classicBtn = document.getElementById('play-classic-btn');
       if (classicBtn) classicBtn.textContent = 'Tap to play';
@@ -2371,6 +2456,64 @@
     }
     function escapeHtml(s) {
       return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+
+    // ---- Message in a Block ----
+
+    function updateMsgWriteBtn() {
+      const btn = document.getElementById('msg-write-btn');
+      if (!btn) return;
+      btn.classList.toggle('hidden', !(playing && gameMode === 'classic'));
+      const icon = document.getElementById('msg-write-icon');
+      if (icon) icon.textContent = pendingMessage ? '📨' : '📝';
+      btn.title = pendingMessage ? 'Message queued for next placement (N to change)' : 'Write hidden message (N)';
+    }
+
+    function openMsgCompose() {
+      if (gameMode !== 'classic' || !playing) return;
+      const overlay = document.getElementById('msg-compose');
+      overlay.classList.remove('hidden');
+      const inp = document.getElementById('msg-compose-input');
+      inp.value = pendingMessage || '';
+      document.getElementById('msg-compose-counter').textContent = inp.value.length + ' / 200';
+      inp.focus();
+    }
+
+    function closeMsgCompose() {
+      document.getElementById('msg-compose').classList.add('hidden');
+    }
+
+    function confirmMsgCompose() {
+      const val = document.getElementById('msg-compose-input').value.trim();
+      pendingMessage = val || null;
+      updateMsgWriteBtn();
+      closeMsgCompose();
+    }
+
+    async function revealMessage(x, y, z) {
+      try {
+        const res = await fetch('/api/block/' + x + '/' + y + '/' + z + '/reveal', {
+          method: 'POST',
+          headers,
+        });
+        if (res.ok) {
+          const data = await res.json();
+          messageBlocks.delete(key(x, y, z));
+          clearAttribution();
+          toastQueue.push({
+            icon: '📨',
+            name: 'Message found!',
+            _isMessage: true,
+            _authorLine: 'Hidden by ' + data.author_username + ' · ' + relativeTime(data.hidden_at),
+            _body: data.body,
+          });
+          if (!toastShowing) showNextToast();
+        } else if (res.status === 404) {
+          messageBlocks.delete(key(x, y, z));
+          clearAttribution();
+          showBadgeToast({ icon: '📨', name: 'Just missed it!', flavour: 'Another player found this message first.' });
+        }
+      } catch (_) { /* transient */ }
     }
 
     function setLeaderboardTab(tab) {
@@ -2983,6 +3126,17 @@
       // Escape is handled by the global keydown listener above.
     });
 
+    // ---- Message compose overlay wiring ----
+    document.getElementById('msg-compose-cancel').addEventListener('click', closeMsgCompose);
+    document.getElementById('msg-compose-hide').addEventListener('click', confirmMsgCompose);
+    document.getElementById('msg-compose-input').addEventListener('input', (e) => {
+      document.getElementById('msg-compose-counter').textContent = e.target.value.length + ' / 200';
+    });
+    document.getElementById('msg-write-btn').addEventListener('click', () => {
+      const overlay = document.getElementById('msg-compose');
+      if (overlay.classList.contains('hidden')) openMsgCompose(); else closeMsgCompose();
+    });
+
     // ---- Server sync ----
     async function loadWorld() {
       const res = await fetch('/api/world', { headers });
@@ -2998,7 +3152,11 @@
       unlockedTypes = new Set(data.unlockedTypes || []);
       selectedType = PALETTE[0] ? PALETTE[0].id : 1;
       blocks.clear();
-      for (const b of data.blocks) blocks.set(key(b.x, b.y, b.z), b.t);
+      messageBlocks.clear();
+      for (const b of data.blocks) {
+        blocks.set(key(b.x, b.y, b.z), b.t);
+        if (b.m) messageBlocks.add(key(b.x, b.y, b.z));
+      }
       buildGround();
       buildGroundGrid();
       buildPalette();
@@ -3117,6 +3275,7 @@
             for (const ch of changes) {
               const k = key(ch.x, ch.y, ch.z);
               if (ch.t === 0) blocks.delete(k); else blocks.set(k, ch.t);
+              if (ch.m) messageBlocks.add(k); else messageBlocks.delete(k);
             }
             rebuildBlockMeshes();
           }

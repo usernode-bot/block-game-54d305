@@ -182,7 +182,12 @@ app.get('/health', (_req, res) => res.json({ status: 'ok' }));
 app.get('/api/world', async (req, res) => {
   try {
     const { rows } = await pool.query(
-      `SELECT x, y, z, block_type FROM blocks WHERE block_type <> 0`
+      `SELECT b.x, b.y, b.z, b.block_type,
+              (bm.x IS NOT NULL) AS has_message
+       FROM blocks b
+       LEFT JOIN block_messages bm
+         ON bm.x = b.x AND bm.y = b.y AND bm.z = b.z AND bm.found_at IS NULL
+       WHERE b.block_type <> 0`
     );
     const cur = await pool.query(`SELECT COALESCE(MAX(seq), 0) AS cursor FROM blocks`);
     const maxDisasterRes = await pool.query(`SELECT COALESCE(MAX(id), 0) AS max_disaster_id FROM disasters`);
@@ -192,7 +197,7 @@ app.get('/api/world', async (req, res) => {
     res.json({
       dims: DIMS,
       palette: PALETTE,
-      blocks: rows.map((r) => ({ x: r.x, y: r.y, z: r.z, t: r.block_type })),
+      blocks: rows.map((r) => { const b = { x: r.x, y: r.y, z: r.z, t: r.block_type }; if (r.has_message) b.m = 1; return b; }),
       cursor: Number(cur.rows[0].cursor),
       maxDisasterId: Number(maxDisasterRes.rows[0].max_disaster_id),
       unlockedTypes,
@@ -239,6 +244,10 @@ app.post('/api/block', async (req, res) => {
       }
     }
 
+    // Remove any existing hidden message at this coordinate (handles both
+    // overwrites and breaks — a new placer starts with a clean slate).
+    await pool.query(`DELETE FROM block_messages WHERE x = $1 AND y = $2 AND z = $3`, [x, y, z]);
+
     const { rows } = await pool.query(
       `INSERT INTO blocks (x, y, z, block_type, seq, updated_by_user_id, updated_by_username, updated_at)
        VALUES ($1, $2, $3, $4, nextval('block_seq'), $5, $6, NOW())
@@ -252,6 +261,19 @@ app.post('/api/block', async (req, res) => {
       [x, y, z, t, req.user.id, req.user.username]
     );
     const seq = Number(rows[0].seq);
+
+    // Optionally attach a hidden message to the newly placed block.
+    if (t !== 0) {
+      const rawMsg = typeof req.body.message === 'string' ? req.body.message.trim() : '';
+      if (rawMsg.length > 0 && rawMsg.length <= 200) {
+        await pool.query(
+          `INSERT INTO block_messages (x, y, z, author_user_id, author_username, body, hidden_at)
+           VALUES ($1, $2, $3, $4, $5, $6, NOW())
+           ON CONFLICT (x, y, z) DO NOTHING`,
+          [x, y, z, req.user.id, req.user.username, rawMsg]
+        );
+      }
+    }
 
     // Track challenge progress for placements only (breaks don't count).
     let challenge = null;
@@ -405,7 +427,12 @@ app.get('/api/world/changes', async (req, res) => {
     const newDisaster = await maybeFireDisaster();
 
     const { rows } = await pool.query(
-      `SELECT x, y, z, block_type, seq FROM blocks WHERE seq > $1 ORDER BY seq`,
+      `SELECT b.x, b.y, b.z, b.block_type, b.seq,
+              (bm.x IS NOT NULL) AS has_message
+       FROM blocks b
+       LEFT JOIN block_messages bm
+         ON bm.x = b.x AND bm.y = b.y AND bm.z = b.z AND bm.found_at IS NULL
+       WHERE b.seq > $1 ORDER BY b.seq`,
       [since]
     );
     const cursor = rows.length ? Number(rows[rows.length - 1].seq) : since;
@@ -430,7 +457,7 @@ app.get('/api/world/changes', async (req, res) => {
     const eventsCursor = events.length ? events[events.length - 1].id : eventsSince;
 
     res.json({
-      changes: rows.map((r) => ({ x: r.x, y: r.y, z: r.z, t: r.block_type })),
+      changes: rows.map((r) => { const c = { x: r.x, y: r.y, z: r.z, t: r.block_type }; if (r.has_message) c.m = 1; return c; }),
       cursor,
       events,
       eventsCursor,
@@ -651,13 +678,73 @@ app.get('/api/block/:x/:y/:z', async (req, res) => {
     const z = Number(req.params.z);
     if (y < 1) return res.json(null);
     const { rows } = await pool.query(
-      `SELECT updated_by_username, updated_at
-       FROM blocks
-       WHERE x = $1 AND y = $2 AND z = $3 AND block_type <> 0`,
+      `SELECT b.updated_by_username, b.updated_at,
+              bm.author_user_id, bm.hidden_at,
+              bm.found_at, bm.found_by_username
+       FROM blocks b
+       LEFT JOIN block_messages bm ON bm.x = b.x AND bm.y = b.y AND bm.z = b.z
+       WHERE b.x = $1 AND b.y = $2 AND b.z = $3 AND b.block_type <> 0`,
       [x, y, z]
     );
     if (!rows.length || !rows[0].updated_by_username) return res.json(null);
-    res.json({ username: rows[0].updated_by_username, updated_at: rows[0].updated_at });
+    const row = rows[0];
+    const result = { username: row.updated_by_username, updated_at: row.updated_at };
+    if (row.author_user_id !== null && row.author_user_id !== undefined) {
+      if (Number(row.author_user_id) === req.user.id) {
+        result.ownMessage = row.found_at
+          ? { found: true, found_by_username: row.found_by_username, found_at: row.found_at, hidden_at: row.hidden_at }
+          : { found: false, hidden_at: row.hidden_at };
+      } else if (!row.found_at) {
+        result.hasMessage = true;
+      }
+    }
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- Block message reveal: claim the hidden message in a block ----
+app.post('/api/block/:x/:y/:z/reveal', async (req, res) => {
+  try {
+    const x = Number(req.params.x);
+    const y = Number(req.params.y);
+    const z = Number(req.params.z);
+
+    const blockRes = await pool.query(
+      `SELECT 1 FROM blocks WHERE x = $1 AND y = $2 AND z = $3 AND block_type <> 0`,
+      [x, y, z]
+    );
+    if (!blockRes.rows.length) return res.status(404).json({ error: 'No block at this position' });
+
+    const msgRes = await pool.query(
+      `SELECT author_user_id, author_username, body, hidden_at
+       FROM block_messages WHERE x = $1 AND y = $2 AND z = $3 AND found_at IS NULL`,
+      [x, y, z]
+    );
+    if (!msgRes.rows.length) return res.status(404).json({ error: 'No hidden message here' });
+
+    if (Number(msgRes.rows[0].author_user_id) === req.user.id) {
+      return res.status(403).json({ error: 'Cannot reveal your own message' });
+    }
+
+    const updateRes = await pool.query(
+      `UPDATE block_messages
+       SET found_by_user_id = $4, found_by_username = $5, found_at = NOW()
+       WHERE x = $1 AND y = $2 AND z = $3 AND found_at IS NULL
+       RETURNING body, author_username, hidden_at, found_by_username, found_at`,
+      [x, y, z, req.user.id, req.user.username]
+    );
+    if (!updateRes.rows.length) return res.status(404).json({ error: 'Message already found' });
+
+    const r = updateRes.rows[0];
+    res.json({
+      body: r.body,
+      author_username: r.author_username,
+      hidden_at: r.hidden_at,
+      found_by_username: r.found_by_username,
+      found_at: r.found_at,
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -1456,6 +1543,24 @@ async function maybeFireDisaster() {
     const delRes = await client.query(deleteQuery, deleteParams);
     const blocks_destroyed = delRes.rows.length;
 
+    // Remove hidden messages on destroyed blocks
+    if (type === 'earthquake') {
+      await client.query(
+        `DELETE FROM block_messages WHERE x BETWEEN $1 AND $2 AND z BETWEEN $3 AND $4`,
+        [params.x0, params.x1, params.z0, params.z1]
+      );
+    } else if (type === 'eruption') {
+      await client.query(
+        `DELETE FROM block_messages WHERE (x-$1)*(x-$1)+(z-$2)*(z-$2) <= $3`,
+        [origin_x, origin_z, params.radius * params.radius]
+      );
+    } else {
+      await client.query(
+        `DELETE FROM block_messages WHERE (x-$1)*(x-$1)+(y-$2)*(y-$2)+(z-$3)*(z-$3) <= $4`,
+        [origin_x, params.oy, origin_z, params.radius * params.radius]
+      );
+    }
+
     // Append count to chat message (keep under 200 chars)
     const countSuffix = ` ${blocks_destroyed} blocks destroyed.`;
     const fullMsg = (chatMsg + countSuffix).slice(0, 200);
@@ -1490,6 +1595,21 @@ async function maybeFireDisaster() {
   } finally {
     client.release();
   }
+}
+
+async function seedBlockMessages() {
+  // Unfound message on the Gold Block (20, 1, 10) — hidden by staging-demo-dave
+  await pool.query(
+    `INSERT INTO block_messages (x, y, z, author_user_id, author_username, body, hidden_at)
+     VALUES (20, 1, 10, -4, 'staging-demo-dave', 'Staging demo hidden treasure: Who will find this gold? 🔍', NOW() - INTERVAL '1 hour')
+     ON CONFLICT (x, y, z) DO NOTHING`
+  );
+  // Already-found message on the Glowstone (21, 1, 10) — found by staging-demo-alice
+  await pool.query(
+    `INSERT INTO block_messages (x, y, z, author_user_id, author_username, body, hidden_at, found_by_user_id, found_by_username, found_at)
+     VALUES (21, 1, 10, -5, 'staging-demo-eve', 'Staging demo found message: This glowstone marks the start. ✨', NOW() - INTERVAL '2 hours', -1, 'staging-demo-alice', NOW() - INTERVAL '30 minutes')
+     ON CONFLICT (x, y, z) DO NOTHING`
+  );
 }
 
 async function start() {
@@ -1667,6 +1787,26 @@ async function start() {
     )
   `);
 
+  // Hidden messages that players can attach to blocks. Marked staging:private
+  // so real messages are never copied into staging containers.
+  // No FK to blocks intentionally — blocks is public, this is private.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS block_messages (
+      x                  SMALLINT     NOT NULL,
+      y                  SMALLINT     NOT NULL,
+      z                  SMALLINT     NOT NULL,
+      author_user_id     INTEGER      NOT NULL,
+      author_username    VARCHAR(255) NOT NULL,
+      body               VARCHAR(200) NOT NULL,
+      hidden_at          TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+      found_by_user_id   INTEGER,
+      found_by_username  VARCHAR(255),
+      found_at           TIMESTAMPTZ,
+      PRIMARY KEY (x, y, z)
+    )
+  `);
+  await pool.query(`COMMENT ON TABLE block_messages IS 'staging:private'`);
+
   // Prime the schedule on first boot; subsequent boots leave the existing row intact.
   const disasterInitDelay = IS_STAGING ? '10 seconds' : '60 seconds';
   await pool.query(
@@ -1687,6 +1827,8 @@ async function start() {
     catch (err) { console.error('tournament seed failed', err); }
     try { await seedStreaks(); }
     catch (err) { console.error('streak seed failed', err); }
+    try { await seedBlockMessages(); }
+    catch (err) { console.error('block messages seed failed', err); }
     // Staging spectators are now surfaced via the STAGING_DEMO_USERS constant
     // appended in GET /api/presence/online, so no DB seed is needed here.
   }
