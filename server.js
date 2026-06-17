@@ -992,6 +992,110 @@ app.post('/api/coach/tip', async (req, res) => {
   }
 });
 
+// ---- AI Placement Hints ----
+const CANNED_HINT = { x: 16, y: 4, z: 16, reason: 'Building upward near the center is a great way to start a combo chain.' };
+
+async function checkHintCell(x, y, z) {
+  if (x < 0 || x > 31 || y < 1 || y > 23 || z < 0 || z > 31) return false;
+  const occupied = await pool.query(
+    'SELECT 1 FROM blocks WHERE x=$1 AND y=$2 AND z=$3 AND block_type != 0 LIMIT 1',
+    [x, y, z]
+  );
+  if (occupied.rows.length > 0) return false;
+  const neighbors = [[x-1,y,z],[x+1,y,z],[x,y-1,z],[x,y+1,z],[x,y,z-1],[x,y,z+1]];
+  for (const [nx, ny, nz] of neighbors) {
+    if (ny === 0) return true; // immovable grass ground always present
+    if (nx < 0 || nx > 31 || ny < 0 || ny > 23 || nz < 0 || nz > 31) continue;
+    const r = await pool.query(
+      'SELECT 1 FROM blocks WHERE x=$1 AND y=$2 AND z=$3 AND block_type != 0 LIMIT 1',
+      [nx, ny, nz]
+    );
+    if (r.rows.length > 0) return true;
+  }
+  return false;
+}
+
+app.post('/api/hint', async (req, res) => {
+  const { selected_type_name, selected_type_points, player_pos, combo_tier, session_score, nearby_blocks } = req.body || {};
+
+  if (!LLM_ENABLED) {
+    try {
+      const { x: cx, y: cy, z: cz, reason } = CANNED_HINT;
+      if (await checkHintCell(cx, cy, cz)) return res.json({ x: cx, y: cy, z: cz, reason });
+      for (let dx = 0; dx <= 3; dx++) {
+        for (let dz = 0; dz <= 3; dz++) {
+          for (let dy = 1; dy <= 10; dy++) {
+            const nx = Math.min(31, cx + dx), nz = Math.min(31, cz + dz);
+            if (await checkHintCell(nx, dy, nz)) return res.json({ x: nx, y: dy, z: nz, reason });
+          }
+        }
+      }
+    } catch (_) {}
+    return res.status(500).json({ error: 'unavailable' });
+  }
+
+  const px = Math.floor(Number(player_pos?.x) || 0);
+  const py = Math.floor(Number(player_pos?.y) || 0);
+  const pz = Math.floor(Number(player_pos?.z) || 0);
+  const nearbyStr = (Array.isArray(nearby_blocks) ? nearby_blocks : []).slice(0, 80)
+    .map(b => `(${b.x},${b.y},${b.z}:${b.name})`).join(' ');
+
+  const userMsg = [
+    `Player at (${px},${py},${pz})`,
+    `Holding: ${selected_type_name || 'block'} (${selected_type_points || 1} pt)`,
+    `Combo tier: ${combo_tier || 1}`,
+    `Session score: ${session_score || 0}`,
+    `Nearby occupied cells (≤5 units): ${nearbyStr || 'none'}`,
+    `Bounds: 0≤x≤31, 1≤y≤23, 0≤z≤31. y=0 is immovable ground.`,
+    `Reply ONLY as JSON: {"x":<int>,"y":<int>,"z":<int>,"reason":"<one sentence>"}`,
+  ].join('\n');
+
+  try {
+    const resp = await fetch(`${process.env.USERNODE_LLM_PROXY_URL}/v1/messages`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'anthropic-version': '2023-06-01',
+        'x-usernode-app-token': process.env.USERNODE_LLM_PROXY_TOKEN,
+        'x-usernode-user-token': req.headers['x-usernode-token'],
+      },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 80,
+        system: "You are a placement advisor for block-game, a 3D builder. Suggest ONE interesting cell for the player's next block — extend a structure, stack for height, or cluster for combos. Reply ONLY as JSON: {\"x\":<int>,\"y\":<int>,\"z\":<int>,\"reason\":\"<one sentence>\"}. The cell MUST be empty and 6-face-adjacent to an occupied cell or y=0 ground. No other text.",
+        messages: [{ role: 'user', content: userMsg }],
+      }),
+    });
+
+    if (resp.status === 403) {
+      const body = await resp.json().catch(() => ({}));
+      if (body.code === 'grant_required') return res.status(403).json({ error: 'grant_required' });
+    }
+    if (resp.status === 429) return res.status(429).json({ error: 'unavailable' });
+    if (!resp.ok) return res.status(500).json({ error: 'unavailable' });
+
+    const llmData = await resp.json();
+    const raw = (llmData?.content?.[0]?.text || '').trim();
+    if (!raw) return res.status(500).json({ error: 'unavailable' });
+
+    let parsed;
+    try { parsed = JSON.parse(raw); } catch (_) {
+      const m = raw.match(/\{[^}]+\}/);
+      if (!m) return res.status(500).json({ error: 'unavailable' });
+      try { parsed = JSON.parse(m[0]); } catch (_) { return res.status(500).json({ error: 'unavailable' }); }
+    }
+
+    const hx = Math.round(Number(parsed.x)), hy = Math.round(Number(parsed.y)), hz = Math.round(Number(parsed.z));
+    const reason = String(parsed.reason || '').trim();
+    if (!reason || isNaN(hx) || isNaN(hy) || isNaN(hz)) return res.status(500).json({ error: 'unavailable' });
+    if (!await checkHintCell(hx, hy, hz)) return res.status(500).json({ error: 'unavailable' });
+    return res.json({ x: hx, y: hy, z: hz, reason });
+  } catch (err) {
+    console.error('hint error', err.message);
+    return res.status(500).json({ error: 'unavailable' });
+  }
+});
+
 app.use(express.static(path.join(__dirname, 'public'), {
   setHeaders(res, filePath) {
     // The entire game is inline in index.html, so a cached shell hides a
