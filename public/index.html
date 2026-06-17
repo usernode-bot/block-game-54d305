@@ -199,6 +199,7 @@
       background-color: rgba(0,0,0,0.9) !important;
     }
     html.a11y-hc #palette { border: 1px solid rgba(255,255,255,0.45); }
+    html.a11y-hc #hold-swatch { border-color: rgba(255,255,255,0.45) !important; }
     /* Lift the dim zinc text utilities used across panels/HUD toward white. */
     html.a11y-hc .text-zinc-300,
     html.a11y-hc .text-zinc-400,
@@ -778,7 +779,7 @@
 
   <!-- Hold panel: displays the currently held block type (one-slot hold queue).
        Positioned at the bottom-left, aligned with the palette bar. -->
-  <div id="hold-panel" class="pointer-events-none fixed bottom-4 left-4 z-20 flex flex-col items-center gap-1">
+  <div id="hold-panel" class="pointer-events-none fixed bottom-4 left-4 z-20 flex items-center gap-1.5">
     <span class="text-[10px] font-bold text-zinc-400 uppercase tracking-wide">Hold</span>
     <div id="hold-swatch" class="w-10 h-10 rounded-md border-2 border-dashed border-zinc-600 flex items-center justify-center">
       <span class="text-zinc-600 text-sm font-bold">–</span>
@@ -2482,7 +2483,7 @@
       renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
       scene = new THREE.Scene();
       scene.background = null;
-      scene.fog = new THREE.Fog('#8ec7ff', 40, 90);
+      scene.fog = new THREE.Fog('#00bfff', 40, 90);
 
       camera = new THREE.PerspectiveCamera(70, 1, 0.1, 500);
       camera.up.set(0, 1, 0);
@@ -2543,8 +2544,8 @@
       depthWrite: false,
       side: THREE.BackSide,
       uniforms: {
-        uZenith:  { value: new THREE.Color('#4ab8ff') },
-        uHorizon: { value: new THREE.Color('#7dd9ff') },
+        uZenith:  { value: new THREE.Color('#00bfff') },
+        uHorizon: { value: new THREE.Color('#00e5ff') },
       },
       vertexShader: `
         varying float vY;
@@ -2571,7 +2572,7 @@
     // Sun visual mesh — named sunMesh to avoid collision with `sun` DirectionalLight
     const sunMesh = new THREE.Mesh(
       new THREE.SphereGeometry(3, 16, 16),
-      new THREE.MeshBasicMaterial({ color: '#fff5c0', fog: false, transparent: true })
+      new THREE.MeshBasicMaterial({ color: '#ffff66', fog: false, transparent: true })
     );
     sunMesh.renderOrder = -1;
     scene.add(sunMesh);
@@ -2579,7 +2580,7 @@
     // Moon visual mesh
     const moonMesh = new THREE.Mesh(
       new THREE.SphereGeometry(2, 16, 16),
-      new THREE.MeshBasicMaterial({ color: '#dde8ff', fog: false, transparent: true })
+      new THREE.MeshBasicMaterial({ color: '#cc99ff', fog: false, transparent: true })
     );
     moonMesh.renderOrder = -1;
     scene.add(moonMesh);
@@ -2638,7 +2639,7 @@
       archHole.closePath();
       castleShape.holes.push(archHole);
 
-      const castleMat = new THREE.MeshBasicMaterial({ color: '#0a0a18', fog: false, side: THREE.DoubleSide });
+      const castleMat = new THREE.MeshBasicMaterial({ color: '#0a0020', fog: false, side: THREE.DoubleSide });
       const castleMesh = new THREE.Mesh(new THREE.ShapeGeometry(castleShape), castleMat);
       castleMesh.position.set(DIMS.w / 2, -2, -50);
       castleMesh.scale.set(1.2, 1.2, 1);
@@ -2986,7 +2987,7 @@
     function buildGroundGrid() {
       if (groundGrid) { scene.remove(groundGrid); groundGrid = null; }
       const SIZE = 400;
-      const grid = new THREE.GridHelper(SIZE, SIZE, 0x7c8fa3, 0x44505f);
+      const grid = new THREE.GridHelper(SIZE, SIZE, 0x00ffcc, 0x007766);
       grid.position.set(DIMS.w / 2, -0.01, DIMS.d / 2);
       grid.material.transparent = true;
       grid.material.opacity = 0.35;
@@ -3000,10 +3001,12 @@
     // In TA mode uses taBlocks; otherwise uses the shared blocks map.
     const blockGroup = new THREE.Group();
     scene.add(blockGroup);
-    let crystalMaterial = null; // tracked for emissive pulse animation in the render loop
+    let crystalMaterial = null;  // tracked for emissive pulse animation in the render loop
+    let wildcardMaterial = null; // tracked for Gold Star sparkle animation in the render loop
     function rebuildBlockMeshes() {
       blockGroup.clear();
       crystalMaterial = null;
+      wildcardMaterial = null;
       let source = blocks;
       if (gameMode === 'timeattack') source = taBlocks;
       else if (gameMode === 'time-attack-60') source = ta60Blocks;
@@ -3022,6 +3025,7 @@
         if (!p) continue;
         const mat = materialFor(p);
         if (t === 18) crystalMaterial = mat;
+        if (t === 27) wildcardMaterial = mat;
         const mesh = new THREE.InstancedMesh(cube, mat, cells.length);
         cells.forEach((c, i) => {
           dummy.position.set(c.x + 0.5, c.y + 0.5, c.z + 0.5);
@@ -8570,6 +8574,8 @@
       updateAttribution();
       // Animate Crystal block emissive glow: gentle 0.2→0.4 pulse (~7.9s period).
       if (crystalMaterial) crystalMaterial.emissiveIntensity = 0.2 + 0.2 * Math.sin(now * 0.0008);
+      // Animate Gold Star sparkle: sharp 0.25→0.7 pulse (~2.1s period).
+      if (wildcardMaterial) wildcardMaterial.emissiveIntensity = 0.25 + 0.45 * Math.abs(Math.sin(now * 0.003));
       renderBuffHud();
 
       // Camera shake for disaster events: decaying sine displacement
