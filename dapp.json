@@ -5,7 +5,7 @@
     "view": "public"
   },
   "llm": {
-    "purpose": "Gives players contextual tips and guidance during gameplay",
-    "suggested_daily_cap_cents": 50
+    "purpose": "Gives players contextual tips and placement suggestions during gameplay",
+    "suggested_daily_cap_cents": 100
   }
 }
