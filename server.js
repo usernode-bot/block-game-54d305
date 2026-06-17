@@ -2270,6 +2270,376 @@ app.delete('/api/friends/:id', async (req, res) => {
   }
 });
 
+// ---- Wager Matches: send a challenge ----
+app.post('/api/matches/challenge', async (req, res) => {
+  try {
+    const { opponent_username, wager_amount } = req.body;
+    const wager = Number(wager_amount);
+    const opponentLower = opponent_username?.toLowerCase();
+
+    if (!opponent_username || !Number.isInteger(wager) || wager < 1) {
+      return res.status(400).json({ error: 'Invalid opponent_username or wager_amount' });
+    }
+
+    if (opponentLower === req.user.username.toLowerCase()) {
+      return res.status(400).json({ error: 'Cannot challenge yourself' });
+    }
+
+    // Find opponent by username (case-insensitive)
+    const opponentRes = await pool.query(
+      `SELECT user_id, username FROM leaderboard WHERE LOWER(username) = $1 LIMIT 1`,
+      [opponentLower]
+    );
+    if (!opponentRes.rows.length) {
+      return res.status(404).json({ error: 'Opponent not found' });
+    }
+    const opponent = opponentRes.rows[0];
+
+    // Check challenger has enough coins
+    const coinsRes = await pool.query(
+      `SELECT coins_balance FROM player_coins WHERE user_id = $1`,
+      [req.user.id]
+    );
+    const coins = coinsRes.rows.length ? Number(coinsRes.rows[0].coins_balance) : 0;
+    if (coins < wager) {
+      return res.status(400).json({ error: 'Insufficient coins' });
+    }
+
+    // Check for existing active/pending match
+    const existingRes = await pool.query(
+      `SELECT id FROM wager_matches
+       WHERE ((challenger_id = $1 AND opponent_id = $2) OR (challenger_id = $2 AND opponent_id = $1))
+       AND status IN ('pending', 'accepted')`,
+      [req.user.id, opponent.user_id]
+    );
+    if (existingRes.rows.length) {
+      return res.status(400).json({ error: 'Active or pending match already exists with this opponent' });
+    }
+
+    // Deduct coins immediately (reservation)
+    await pool.query(
+      `INSERT INTO player_coins (user_id, coins_balance) VALUES ($1, $2)
+       ON CONFLICT (user_id) DO UPDATE SET coins_balance = player_coins.coins_balance - $3`,
+      [req.user.id, -wager, wager]
+    );
+
+    // Create match
+    const matchRes = await pool.query(
+      `INSERT INTO wager_matches
+       (challenger_id, challenger_username, opponent_id, opponent_username, wager_amount, status)
+       VALUES ($1, $2, $3, $4, $5, 'pending')
+       RETURNING id, status`,
+      [req.user.id, req.user.username, opponent.user_id, opponent.username, wager]
+    );
+
+    res.json({ ok: true, match_id: matchRes.rows[0].id, status: matchRes.rows[0].status });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- Wager Matches: accept a challenge ----
+app.post('/api/matches/:match_id/accept', async (req, res) => {
+  try {
+    const matchId = Number(req.params.match_id);
+
+    // Fetch match
+    const matchRes = await pool.query(
+      `SELECT * FROM wager_matches WHERE id = $1`,
+      [matchId]
+    );
+    if (!matchRes.rows.length) {
+      return res.status(404).json({ error: 'Match not found' });
+    }
+    const match = matchRes.rows[0];
+
+    if (match.opponent_id !== req.user.id) {
+      return res.status(403).json({ error: 'Only the opponent can accept this match' });
+    }
+    if (match.status !== 'pending') {
+      return res.status(400).json({ error: 'Match is not pending' });
+    }
+
+    // Check if match has expired
+    if (new Date(match.expires_at) < new Date()) {
+      // Auto-decline and refund
+      await pool.query(
+        `UPDATE wager_matches SET status = 'expired' WHERE id = $1`,
+        [matchId]
+      );
+      await pool.query(
+        `INSERT INTO player_coins (user_id, coins_balance) VALUES ($1, $2)
+         ON CONFLICT (user_id) DO UPDATE SET coins_balance = player_coins.coins_balance + $3`,
+        [match.challenger_id, match.wager_amount, match.wager_amount]
+      );
+      return res.status(400).json({ error: 'Match has expired' });
+    }
+
+    // Re-check opponent has enough coins
+    const coinsRes = await pool.query(
+      `SELECT coins_balance FROM player_coins WHERE user_id = $1`,
+      [req.user.id]
+    );
+    const coins = coinsRes.rows.length ? Number(coinsRes.rows[0].coins_balance) : 0;
+    if (coins < match.wager_amount) {
+      return res.status(400).json({ error: 'Insufficient coins to accept this match' });
+    }
+
+    // Deduct coins from opponent
+    await pool.query(
+      `INSERT INTO player_coins (user_id, coins_balance) VALUES ($1, $2)
+       ON CONFLICT (user_id) DO UPDATE SET coins_balance = player_coins.coins_balance - $3`,
+      [req.user.id, -match.wager_amount, match.wager_amount]
+    );
+
+    // Update match status
+    await pool.query(
+      `UPDATE wager_matches SET status = 'accepted', accepted_at = NOW() WHERE id = $1`,
+      [matchId]
+    );
+
+    res.json({ ok: true, status: 'accepted' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- Wager Matches: decline a challenge ----
+app.post('/api/matches/:match_id/decline', async (req, res) => {
+  try {
+    const matchId = Number(req.params.match_id);
+
+    const matchRes = await pool.query(
+      `SELECT * FROM wager_matches WHERE id = $1`,
+      [matchId]
+    );
+    if (!matchRes.rows.length) {
+      return res.status(404).json({ error: 'Match not found' });
+    }
+    const match = matchRes.rows[0];
+
+    if (match.opponent_id !== req.user.id) {
+      return res.status(403).json({ error: 'Only the opponent can decline this match' });
+    }
+    if (match.status !== 'pending') {
+      return res.status(400).json({ error: 'Match is not pending' });
+    }
+
+    // Update match status
+    await pool.query(
+      `UPDATE wager_matches SET status = 'declined' WHERE id = $1`,
+      [matchId]
+    );
+
+    // Refund challenger coins
+    await pool.query(
+      `INSERT INTO player_coins (user_id, coins_balance) VALUES ($1, $2)
+       ON CONFLICT (user_id) DO UPDATE SET coins_balance = player_coins.coins_balance + $3`,
+      [match.challenger_id, match.wager_amount, match.wager_amount]
+    );
+
+    res.json({ ok: true, status: 'declined' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- Wager Matches: submit score ----
+app.post('/api/matches/:match_id/submit-score', async (req, res) => {
+  try {
+    const matchId = Number(req.params.match_id);
+    const score = Number(req.body.score);
+
+    if (!Number.isInteger(score) || score < 0) {
+      return res.status(400).json({ error: 'Invalid score' });
+    }
+
+    const matchRes = await pool.query(
+      `SELECT * FROM wager_matches WHERE id = $1`,
+      [matchId]
+    );
+    if (!matchRes.rows.length) {
+      return res.status(404).json({ error: 'Match not found' });
+    }
+    const match = matchRes.rows[0];
+
+    if (match.status !== 'accepted') {
+      return res.status(400).json({ error: 'Match is not accepted' });
+    }
+
+    let isChallenger = match.challenger_id === req.user.id;
+    let isOpponent = match.opponent_id === req.user.id;
+    if (!isChallenger && !isOpponent) {
+      return res.status(403).json({ error: 'You are not part of this match' });
+    }
+
+    // Check if user already submitted
+    if (isChallenger && match.challenger_score !== null) {
+      return res.status(400).json({ error: 'You have already submitted your score' });
+    }
+    if (isOpponent && match.opponent_score !== null) {
+      return res.status(400).json({ error: 'You have already submitted your score' });
+    }
+
+    // Record score
+    let updateCol = isChallenger ? 'challenger_score' : 'opponent_score';
+    await pool.query(
+      `UPDATE wager_matches SET ${updateCol} = $1 WHERE id = $2`,
+      [score, matchId]
+    );
+
+    // Re-fetch match to check if both scores are now recorded
+    const updatedRes = await pool.query(
+      `SELECT * FROM wager_matches WHERE id = $1`,
+      [matchId]
+    );
+    const updated = updatedRes.rows[0];
+
+    let completed = false;
+    let winner_id = null;
+
+    if (updated.challenger_score !== null && updated.opponent_score !== null) {
+      completed = true;
+      // Determine winner
+      if (updated.challenger_score > updated.opponent_score) {
+        winner_id = updated.challenger_id;
+      } else if (updated.opponent_score > updated.challenger_score) {
+        winner_id = updated.opponent_id;
+      }
+      // On tie, winner_id stays null
+
+      // Update match with winner and completion time
+      await pool.query(
+        `UPDATE wager_matches SET winner_id = $1, completed_at = NOW() WHERE id = $2`,
+        [winner_id, matchId]
+      );
+
+      // Settle coins
+      if (winner_id !== null) {
+        const loser_id = winner_id === updated.challenger_id ? updated.opponent_id : updated.challenger_id;
+        // Winner gets wager pool
+        await pool.query(
+          `INSERT INTO player_coins (user_id, coins_balance) VALUES ($1, $2)
+           ON CONFLICT (user_id) DO UPDATE SET coins_balance = player_coins.coins_balance + $3`,
+          [winner_id, updated.wager_amount * 2, updated.wager_amount * 2]
+        );
+      } else {
+        // Tie: refund both players
+        await pool.query(
+          `INSERT INTO player_coins (user_id, coins_balance) VALUES ($1, $2)
+           ON CONFLICT (user_id) DO UPDATE SET coins_balance = player_coins.coins_balance + $3`,
+          [updated.challenger_id, updated.wager_amount, updated.wager_amount]
+        );
+        await pool.query(
+          `INSERT INTO player_coins (user_id, coins_balance) VALUES ($1, $2)
+           ON CONFLICT (user_id) DO UPDATE SET coins_balance = player_coins.coins_balance + $3`,
+          [updated.opponent_id, updated.wager_amount, updated.wager_amount]
+        );
+      }
+    }
+
+    res.json({
+      ok: true,
+      challenger_score: updated.challenger_score,
+      opponent_score: updated.opponent_score,
+      winner_id: winner_id,
+      completed: completed,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- Wager Matches: get pending challenges (inbox) ----
+app.get('/api/matches/pending', async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT id, challenger_username, wager_amount, created_at
+       FROM wager_matches
+       WHERE opponent_id = $1 AND status = 'pending' AND expires_at > NOW()
+       ORDER BY created_at DESC`,
+      [req.user.id]
+    );
+    res.json({ pending_challenges: rows.map((r) => ({ ...r, wager_amount: Number(r.wager_amount) })) });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- Wager Matches: get current active match ----
+app.get('/api/matches/active', async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT id, challenger_id, challenger_username, opponent_id, opponent_username, wager_amount, status, challenger_score, opponent_score
+       FROM wager_matches
+       WHERE (challenger_id = $1 OR opponent_id = $1) AND status = 'accepted'
+       LIMIT 1`,
+      [req.user.id]
+    );
+    if (!rows.length) {
+      return res.json({ active_match: null });
+    }
+    const m = rows[0];
+    const opponent_username = m.challenger_id === req.user.id ? m.opponent_username : m.challenger_username;
+    const opponent_id = m.challenger_id === req.user.id ? m.opponent_id : m.challenger_id;
+    const my_score_submitted = m.challenger_id === req.user.id ? m.challenger_score !== null : m.opponent_score !== null;
+
+    res.json({
+      active_match: {
+        id: m.id,
+        opponent_username,
+        opponent_id,
+        wager_amount: Number(m.wager_amount),
+        status: m.status,
+        challenger_score: m.challenger_score,
+        opponent_score: m.opponent_score,
+        my_score_submitted,
+      },
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- Wager Matches: get match history ----
+app.get('/api/matches/history', async (req, res) => {
+  try {
+    const limit = Math.min(Number(req.query.limit) || 50, 100);
+    const offset = Number(req.query.offset) || 0;
+
+    const { rows } = await pool.query(
+      `SELECT id, challenger_id, challenger_username, opponent_id, opponent_username, wager_amount, challenger_score, opponent_score, winner_id, completed_at
+       FROM wager_matches
+       WHERE (challenger_id = $1 OR opponent_id = $1) AND status = 'completed'
+       ORDER BY completed_at DESC
+       LIMIT $2 OFFSET $3`,
+      [req.user.id, limit, offset]
+    );
+
+    const matches = rows.map((r) => {
+      const is_challenger = r.challenger_id === req.user.id;
+      const opponent_username = is_challenger ? r.opponent_username : r.challenger_username;
+      const my_score = is_challenger ? r.challenger_score : r.opponent_score;
+      const opponent_score = is_challenger ? r.opponent_score : r.challenger_score;
+      const result = r.winner_id === null ? 'tie' : (r.winner_id === req.user.id ? 'won' : 'lost');
+
+      return {
+        id: r.id,
+        opponent_username,
+        wager_amount: Number(r.wager_amount),
+        my_score,
+        opponent_score,
+        result,
+        completed_at: r.completed_at,
+      };
+    });
+
+    res.json({ matches });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ---- Mobs: list all alive mobs ----
 app.get('/api/mobs', (_req, res) => {
   const result = [];
@@ -3135,9 +3505,12 @@ async function seedTheme() {
 }
 
 async function seedLoginRewards() {
+  // Coin balances include wager match results:
+  // Alice: base 150 - 50 (wager sent) + 50 (won match 1) - 100 (lost match 2) = 50, plus 75 pending = 50
+  // Bob: base 250 - 100 (wager sent) + 100 (won match 1) - 50 (lost match 2) = 200, minus 75 (pending) = 200
   const rows = [
-    { user_id: -1, coins_earned: 30, coins_balance: 150 },
-    { user_id: -2, coins_earned: 50, coins_balance: 250 },
+    { user_id: -1, coins_earned: 30, coins_balance: 50 },
+    { user_id: -2, coins_earned: 50, coins_balance: 200 },
     { user_id: -3, coins_earned: 65, coins_balance: 325 },
     { user_id: -4, coins_earned: 15, coins_balance: 75 },
   ];
@@ -3254,6 +3627,63 @@ async function seedPuzzleScores() {
        VALUES ($1, $2, $3, $4, NOW())
        ON CONFLICT (user_id) DO NOTHING`,
       [s.userId, s.username, s.level, s.blocks]
+    );
+  }
+}
+
+async function seedWagerMatches() {
+  // Seed demo wager match history for staging demo users (Alice: -1, Bob: -2)
+  const now = new Date();
+  const matches = [
+    {
+      challenger_id: -1,
+      challenger_username: 'Staging demo Alice',
+      opponent_id: -2,
+      opponent_username: 'Staging demo Bob',
+      wager_amount: 50,
+      status: 'completed',
+      challenger_score: 145,
+      opponent_score: 98,
+      winner_id: -1,
+      created_at: new Date(now.getTime() - 2 * 24 * 60 * 60 * 1000),
+      accepted_at: new Date(now.getTime() - 2 * 24 * 60 * 60 * 1000 + 10 * 60 * 1000),
+      completed_at: new Date(now.getTime() - 2 * 24 * 60 * 60 * 1000 + 20 * 60 * 1000),
+    },
+    {
+      challenger_id: -2,
+      challenger_username: 'Staging demo Bob',
+      opponent_id: -1,
+      opponent_username: 'Staging demo Alice',
+      wager_amount: 100,
+      status: 'completed',
+      challenger_score: 120,
+      opponent_score: 167,
+      winner_id: -1,
+      created_at: new Date(now.getTime() - 1 * 24 * 60 * 60 * 1000),
+      accepted_at: new Date(now.getTime() - 1 * 24 * 60 * 60 * 1000 + 5 * 60 * 1000),
+      completed_at: new Date(now.getTime() - 1 * 24 * 60 * 60 * 1000 + 15 * 60 * 1000),
+    },
+    {
+      challenger_id: -1,
+      challenger_username: 'Staging demo Alice',
+      opponent_id: -2,
+      opponent_username: 'Staging demo Bob',
+      wager_amount: 75,
+      status: 'pending',
+      challenger_score: null,
+      opponent_score: null,
+      winner_id: null,
+      created_at: new Date(now.getTime() - 2 * 60 * 60 * 1000),
+      accepted_at: null,
+      completed_at: null,
+    },
+  ];
+  for (const m of matches) {
+    await pool.query(
+      `INSERT INTO wager_matches (challenger_id, challenger_username, opponent_id, opponent_username, wager_amount, status, challenger_score, opponent_score, winner_id, created_at, accepted_at, completed_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+       ON CONFLICT DO NOTHING`,
+      [m.challenger_id, m.challenger_username, m.opponent_id, m.opponent_username, m.wager_amount, m.status, m.challenger_score, m.opponent_score, m.winner_id, m.created_at, m.accepted_at, m.completed_at]
     );
   }
 }
@@ -3718,6 +4148,30 @@ async function start() {
     CREATE INDEX IF NOT EXISTS user_worlds_owner_idx ON user_worlds (owner_id, updated_at DESC)
   `);
 
+  // Wager matches: peer-to-peer competitive matches with coin stakes.
+  // Public table — it holds only usernames and game scores, nothing sensitive.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS wager_matches (
+      id                 BIGSERIAL PRIMARY KEY,
+      challenger_id      INTEGER      NOT NULL,
+      challenger_username VARCHAR(255) NOT NULL,
+      opponent_id        INTEGER      NOT NULL,
+      opponent_username  VARCHAR(255) NOT NULL,
+      wager_amount       BIGINT       NOT NULL,
+      status             VARCHAR(20)  NOT NULL DEFAULT 'pending',
+      challenger_score   INTEGER,
+      opponent_score     INTEGER,
+      winner_id          INTEGER,
+      created_at         TIMESTAMPTZ  DEFAULT NOW(),
+      accepted_at        TIMESTAMPTZ,
+      completed_at       TIMESTAMPTZ,
+      expires_at         TIMESTAMPTZ  DEFAULT NOW() + INTERVAL '24 hours'
+    )
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS wager_matches_opponent_status_idx ON wager_matches (opponent_id, status)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS wager_matches_challenger_status_idx ON wager_matches (challenger_id, status)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS wager_matches_completed_at_idx ON wager_matches (completed_at DESC NULLS LAST)`);
+
   // Prime the schedule on first boot; subsequent boots leave the existing row intact.
   const disasterInitDelay = IS_STAGING ? '10 seconds' : '60 seconds';
   await pool.query(
@@ -3754,6 +4208,8 @@ async function start() {
     catch (err) { console.error('puzzle-levels seed failed', err); }
     try { await seedPuzzleScores(); }
     catch (err) { console.error('puzzle-scores seed failed', err); }
+    try { await seedWagerMatches(); }
+    catch (err) { console.error('wager-matches seed failed', err); }
     // Staging spectators are now surfaced via the STAGING_DEMO_USERS constant
     // appended in GET /api/presence/online, so no DB seed is needed here.
   }
