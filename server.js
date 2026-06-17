@@ -1,9 +1,13 @@
 const express = require('express');
+const http = require('http');
 const path = require('path');
 const { Pool } = require('pg');
 const jwt = require('jsonwebtoken');
+const WebSocket = require('ws');
 
 const app = express();
+const httpServer = http.createServer(app);
+const wss = new WebSocket.Server({ noServer: true });
 const port = process.env.PORT || 3000;
 
 // Validate required environment variables
@@ -39,24 +43,24 @@ const STAGING_DEMO_USERS = [
 const DIMS = { w: 32, d: 32, h: 24 };
 
 const PALETTE = [
-  { id: 1,  name: 'Grass',         color: '#7ed98a' },
-  { id: 2,  name: 'Dirt',          color: '#c9917a' },
-  { id: 3,  name: 'Stone',         color: '#c2c6cf' },
-  { id: 4,  name: 'Wood',          color: '#ddb680' },
-  { id: 5,  name: 'Leaves',        color: '#6ec67a' },
-  { id: 6,  name: 'Sand',          color: '#fdf0a8' },
-  { id: 7,  name: 'Brick',         color: '#e88c82' },
-  { id: 8,  name: 'Glass',         color: '#b3e8f5', opacity: 0.45 },
-  { id: 9,  name: 'Red',           color: '#f09090' },
-  { id: 10, name: 'Blue',          color: '#80a8f0' },
-  { id: 11, name: 'Yellow',        color: '#ffe580' },
-  { id: 12, name: 'White',         color: '#f8f6ff' },
-  { id: 13, name: 'Snow',          color: '#e4eeff' },
-  { id: 14, name: 'Gold Block',    color: '#f5d27a', material: 'standard', metalness: 0.85, roughness: 0.2 },
-  { id: 15, name: 'Glowstone',     color: '#ffd099', emissive: '#f0a870', emissiveIntensity: 0.6 },
-  { id: 16, name: 'Obsidian',      color: '#6b5588', material: 'standard', metalness: 0.3, roughness: 0.1 },
-  { id: 17, name: 'Rainbow Block', color: '#f0a8c5', powerup: true },
-  { id: 18, name: 'Crystal',       color: '#d4c8ff', opacity: 0.65, emissive: '#b0a0ff', emissiveIntensity: 0.3, material: 'standard', metalness: 0.1, roughness: 0.2, unlockAt: 50, unlockIcon: '💎' },
+  { id: 1,  name: 'Grass',         color: '#2d6b1a' },
+  { id: 2,  name: 'Dirt',          color: '#4d2f12' },
+  { id: 3,  name: 'Stone',         color: '#4a4a52' },
+  { id: 4,  name: 'Wood',          color: '#5e3e1c' },
+  { id: 5,  name: 'Leaves',        color: '#1c4e18' },
+  { id: 6,  name: 'Sand',          color: '#8c7d50' },
+  { id: 7,  name: 'Brick',         color: '#6b2518' },
+  { id: 8,  name: 'Glass',         color: '#4a7080', opacity: 0.45 },
+  { id: 9,  name: 'Red',           color: '#8c1a1a' },
+  { id: 10, name: 'Blue',          color: '#1c3d80' },
+  { id: 11, name: 'Yellow',        color: '#8c7820' },
+  { id: 12, name: 'White',         color: '#a0a0a8' },
+  { id: 13, name: 'Snow',          color: '#8aaccc' },
+  { id: 14, name: 'Gold Block',    color: '#9c6e00', material: 'standard', metalness: 0.85, roughness: 0.2 },
+  { id: 15, name: 'Glowstone',     color: '#9c5000', emissive: '#ff8800', emissiveIntensity: 1.0 },
+  { id: 16, name: 'Obsidian',      color: '#0d041a', material: 'standard', metalness: 0.3, roughness: 0.1 },
+  { id: 17, name: 'Rainbow Block', color: '#88003a', powerup: true },
+  { id: 18, name: 'Crystal',       color: '#b39dff', opacity: 0.65, emissive: '#7a4dff', emissiveIntensity: 0.3, material: 'standard', metalness: 0.1, roughness: 0.2, unlockAt: 50, unlockIcon: '💎' },
   { id: 19, name: 'Ice',           color: '#aadeef', opacity: 0.55 },
   { id: 20, name: 'Lava',          color: '#e8540f', emissive: '#ff2200', emissiveIntensity: 0.8 },
   { id: 21, name: 'Lime',          color: '#78de3e' },
@@ -88,6 +92,37 @@ const BLOCK_POINTS = {
   28: 5,  // Gold Star
 };
 
+// XP / levelling — XP equals total_score. Index i corresponds to level i+1.
+const XP_THRESHOLDS = [
+  0, 100, 300, 600, 1000, 1600, 2400, 3500, 5000, 7000,
+  9500, 12500, 16500, 21500, 28000, 36000, 46000, 58000, 73000, 90000,
+];
+
+function getLevel(totalScore) {
+  for (let i = XP_THRESHOLDS.length - 1; i >= 0; i--) {
+    if (totalScore >= XP_THRESHOLDS[i]) {
+      if (i < XP_THRESHOLDS.length - 1) return i + 1;
+      let thresh = XP_THRESHOLDS[i], level = i + 1;
+      while (totalScore >= Math.round(thresh * 1.25)) { thresh = Math.round(thresh * 1.25); level++; }
+      return level;
+    }
+  }
+  return 1;
+}
+
+function getXPInfo(totalScore) {
+  const level = getLevel(totalScore);
+  function threshFor(lvl) {
+    if (lvl <= XP_THRESHOLDS.length) return XP_THRESHOLDS[lvl - 1];
+    let t = XP_THRESHOLDS[XP_THRESHOLDS.length - 1];
+    for (let i = XP_THRESHOLDS.length; i < lvl; i++) t = Math.round(t * 1.25);
+    return t;
+  }
+  const cur = threshFor(level), next = threshFor(level + 1);
+  return { level, xp_in_level: totalScore - cur, xp_to_next: next - cur };
+}
+
+// Sentinel "user" id for staging seed rows so they never reference a real user.
 const SEED_USER_ID = 0;
 
 // AI opponent constants.
@@ -466,6 +501,16 @@ function weekStart(dateObj) {
   return monday.toISOString().slice(0, 10);
 }
 
+// ---- In-memory Tetris room state ----
+// room_code -> { hostWs, guestWs, status, countdownTimer }
+const rooms = new Map();
+
+function sendWs(ws, msg) {
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    try { ws.send(JSON.stringify(msg)); } catch {}
+  }
+}
+
 app.use(express.json());
 
 app.use((req, res, next) => {
@@ -777,6 +822,7 @@ app.post('/api/block', async (req, res) => {
     // ---- Scoring (placements only; breaks earn 0) ----
     let earned = 0, combo_multiplier = 1, rainbow_multiplier = 1, combo_tier = 1;
     let newly_earned_badges = [];
+    let placement_xp = null; // { total_score, level } — only set for placements
     let newly_unlocked_types = [];
     let newly_unlocked_pets = [];
     if (t !== 0) {
@@ -900,6 +946,7 @@ app.post('/api/block', async (req, res) => {
         );
       }
       newly_earned_badges = newBadges.map((b) => ({ id: b.id, name: b.name, icon: b.icon, flavour: b.flavour }));
+      placement_xp = { total_score: lb.total_score, level: getLevel(lb.total_score) };
 
       // Check daily_regular badge: fires when the challenge is completed and the
       // player hasn't earned it yet. Queries total completions only at that moment.
@@ -1148,7 +1195,7 @@ app.post('/api/block', async (req, res) => {
     const monument = await recomputeMonument(sectorCoord(x), sectorCoord(z));
     if (monument && monument.is_new) newly_crowned_monuments = [{ id: monument.id, name: monument.name, sector_x: monument.sector_x, sector_z: monument.sector_z }];
 
-    res.json({ ok: true, seq, ...(challenge ? { challenge } : {}), earned, combo_multiplier, rainbow_multiplier, newly_earned_badges, newly_unlocked_types, newly_unlocked_pets, lines_cleared, line_clear_points, bomb_explosions, newly_crowned_monuments, ...(mission_data ? { mission: mission_data } : {}), ...(activeSkinId ? { skin_id: activeSkinId } : {}) });
+    res.json({ ok: true, seq, ...(challenge ? { challenge } : {}), earned, combo_multiplier, rainbow_multiplier, newly_earned_badges, newly_unlocked_types, newly_unlocked_pets, lines_cleared, line_clear_points, bomb_explosions, newly_crowned_monuments, ...(mission_data ? { mission: mission_data } : {}), ...(activeSkinId ? { skin_id: activeSkinId } : {}), ...(placement_xp || {}) });
   } catch (err) {
     res.status(err.statusCode || 500).json({ error: err.message });
   }
@@ -1729,6 +1776,7 @@ app.get('/api/leaderboard', async (req, res) => {
       blocks_placed: Number(r.blocks_placed),
       best_combo: r.best_combo,
       count: Number(r.blocks_placed),
+      level: getLevel(Number(r.total_score)),
     });
     res.json({
       entries: topRes.rows.map(toRow),
@@ -2514,6 +2562,20 @@ app.get('/api/badges', async (req, res) => {
     res.json({
       badges: rows.map((r) => ({ id: r.badge_id, earned_at: r.earned_at })),
     });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- Player profile: level + XP info for the current user (initial page load). ----
+app.get('/api/me', async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT total_score FROM leaderboard WHERE user_id = $1`,
+      [req.user.id]
+    );
+    const totalScore = rows.length ? Number(rows[0].total_score) : 0;
+    res.json({ total_score: totalScore, ...getXPInfo(totalScore) });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -3794,6 +3856,47 @@ app.delete('/api/friends/:id', async (req, res) => {
   }
 });
 
+// ---- Tetris REST API ----
+app.post('/api/tetris/rooms', async (req, res) => {
+  let tries = 0;
+  while (tries < 3) {
+    const code = generateRoomCode();
+    try {
+      await pool.query(
+        `INSERT INTO tetris_rooms (room_code, host_user_id, host_username)
+         VALUES ($1, $2, $3)`,
+        [code, req.user.id, req.user.username]
+      );
+      rooms.set(code, { hostWs: null, guestWs: null, status: 'waiting', countdownTimer: null });
+      return res.json({ room_code: code });
+    } catch (err) {
+      if (err.code === '23505') { tries++; continue; }
+      return res.status(500).json({ error: err.message });
+    }
+  }
+  res.status(500).json({ error: 'Could not generate unique room code' });
+});
+
+app.post('/api/tetris/rooms/:code/join', async (req, res) => {
+  const code = req.params.code.toUpperCase();
+  try {
+    const { rows } = await pool.query(
+      `SELECT * FROM tetris_rooms WHERE room_code = $1`, [code]
+    );
+    if (!rows.length) return res.status(404).json({ error: 'Room not found' });
+    const room = rows[0];
+    if (room.status !== 'waiting') return res.status(400).json({ error: 'Room is not open for joining' });
+    if (room.host_user_id === req.user.id) return res.status(400).json({ error: 'You created this room' });
+    await pool.query(
+      `UPDATE tetris_rooms SET guest_user_id = $1, guest_username = $2 WHERE room_code = $3`,
+      [req.user.id, req.user.username, code]
+    );
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ---- Coins: current player's balance ----
 app.get('/api/coins', async (req, res) => {
   try {
@@ -4628,6 +4731,19 @@ app.post('/api/theme/vote', async (req, res) => {
   }
 });
 
+app.get('/api/tetris/rooms/:code', async (req, res) => {
+  const code = req.params.code.toUpperCase();
+  try {
+    const { rows } = await pool.query(
+      `SELECT status, host_username, guest_username FROM tetris_rooms WHERE room_code = $1`, [code]
+    );
+    if (!rows.length) return res.status(404).json({ error: 'Room not found' });
+    res.json(rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Look up metadata for a skin by its skin_id (used by other clients to
 // resolve textures they encounter in the block change feed).
 app.get('/api/skins/:skin_id', async (req, res) => {
@@ -4649,7 +4765,7 @@ app.get('/api/skins/:skin_id', async (req, res) => {
   }
 });
 
-
+// ---- Static + HTML shell ----
 app.use(express.static(path.join(__dirname, 'public'), {
   setHeaders(res, filePath) {
     if (filePath.endsWith('.html')) res.setHeader('Cache-Control', 'no-cache');
@@ -4670,6 +4786,140 @@ app.get('*', (req, res) => {
   res.set('Cache-Control', 'no-cache');
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
+
+// ---- WebSocket upgrade handler ----
+httpServer.on('upgrade', (request, socket, head) => {
+  let url;
+  try { url = new URL(request.url, 'http://localhost'); } catch {
+    socket.destroy();
+    return;
+  }
+  if (url.pathname !== '/ws/tetris') {
+    socket.destroy();
+    return;
+  }
+
+  const token = url.searchParams.get('token');
+  const code = (url.searchParams.get('code') || '').toUpperCase();
+
+  if (!token || !JWT_SECRET) {
+    socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
+    socket.destroy();
+    return;
+  }
+
+  let user;
+  try { user = jwt.verify(token, JWT_SECRET); } catch {
+    socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
+    socket.destroy();
+    return;
+  }
+
+  wss.handleUpgrade(request, socket, head, (ws) => {
+    handleTetrisConnection(ws, user, code).catch(err => {
+      console.error('WS connect error:', err);
+      try { ws.close(1011, 'Server error'); } catch {}
+    });
+  });
+});
+
+async function handleTetrisConnection(ws, user, code) {
+  const { rows } = await pool.query(`SELECT * FROM tetris_rooms WHERE room_code = $1`, [code]);
+  if (!rows.length) { ws.close(1008, 'Room not found'); return; }
+  const roomRow = rows[0];
+
+  const isHost = roomRow.host_user_id === user.id;
+  const isGuest = roomRow.guest_user_id === user.id;
+  if (!isHost && !isGuest) { ws.close(1008, 'Not in room'); return; }
+
+  if (!rooms.has(code)) {
+    rooms.set(code, { hostWs: null, guestWs: null, status: roomRow.status, countdownTimer: null });
+  }
+  const mem = rooms.get(code);
+
+  // Replace any stale connection for this role
+  if (isHost) {
+    if (mem.hostWs) try { mem.hostWs.close(1000, 'Reconnected'); } catch {}
+    mem.hostWs = ws;
+  } else {
+    if (mem.guestWs) try { mem.guestWs.close(1000, 'Reconnected'); } catch {}
+    mem.guestWs = ws;
+    sendWs(mem.hostWs, { type: 'guest_joined', guest_username: user.username });
+  }
+
+  // Both connected and room is open — start countdown
+  if (mem.hostWs && mem.guestWs && mem.status === 'waiting') {
+    mem.status = 'countdown';
+    mem.countdownTimer = setTimeout(async () => {
+      mem.countdownTimer = null;
+      // Re-read room for latest guest_username (set by REST join)
+      const { rows: fresh } = await pool.query(`SELECT * FROM tetris_rooms WHERE room_code = $1`, [code]);
+      const fr = fresh[0];
+      if (!fr) return;
+      sendWs(mem.hostWs, { type: 'game_start', you: 'host', opponent_username: fr.guest_username });
+      sendWs(mem.guestWs, { type: 'game_start', you: 'guest', opponent_username: fr.host_username });
+      mem.status = 'active';
+      await pool.query(`UPDATE tetris_rooms SET status='active', started_at=NOW() WHERE room_code=$1`, [code]);
+    }, 3000);
+  }
+
+  ws.on('message', (data) => {
+    let msg;
+    try { msg = JSON.parse(data.toString()); } catch { return; }
+
+    if (msg.type === 'ping') {
+      sendWs(ws, { type: 'pong' });
+      return;
+    }
+
+    if (msg.type === 'board_update' && mem.status === 'active') {
+      const oppWs = isHost ? mem.guestWs : mem.hostWs;
+      sendWs(oppWs, { type: 'opponent_update', board: msg.board, piece: msg.piece, score: msg.score });
+      return;
+    }
+
+    if (msg.type === 'game_over' && mem.status === 'active') {
+      mem.status = 'finished';
+      sendWs(ws, { type: 'game_end', result: 'loss', reason: 'topped_out' });
+      sendWs(isHost ? mem.guestWs : mem.hostWs, { type: 'game_end', result: 'win', reason: 'topped_out' });
+      updateGameResult(code, !isHost).catch(console.error);
+    }
+  });
+
+  ws.on('close', () => {
+    if (isHost) mem.hostWs = null;
+    else mem.guestWs = null;
+
+    if (mem.countdownTimer) {
+      clearTimeout(mem.countdownTimer);
+      mem.countdownTimer = null;
+    }
+
+    if (mem.status === 'active') {
+      mem.status = 'finished';
+      const survivorWs = isHost ? mem.guestWs : mem.hostWs;
+      sendWs(survivorWs, { type: 'game_end', result: 'win', reason: 'opponent_disconnected' });
+      updateGameResult(code, !isHost).catch(console.error);
+    } else if (mem.status === 'countdown') {
+      mem.status = 'waiting';
+      const otherWs = isHost ? mem.guestWs : mem.hostWs;
+      sendWs(otherWs, { type: 'opponent_disconnected' });
+    }
+  });
+
+  ws.on('error', () => { try { ws.close(); } catch {} });
+}
+
+async function updateGameResult(code, winnerIsHost) {
+  await pool.query(`
+    UPDATE tetris_rooms SET
+      status = 'finished',
+      finished_at = NOW(),
+      winner_user_id = CASE WHEN $1 THEN host_user_id ELSE guest_user_id END,
+      winner_username = CASE WHEN $1 THEN host_username ELSE guest_username END
+    WHERE room_code = $2
+  `, [winnerIsHost, code]);
+}
 
 // ---- Staging seed: an obviously-fake starter build so a fresh staging DB
 // has something to render, target, break, and sync. Uses three distinct fake
@@ -4771,11 +5021,16 @@ async function seedStaging() {
   }
 
   const fakeScores = [
-    { id: -1, username: 'Staging demo Alice', total_score: 5200, blocks_placed: 520, best_combo: 4, ta: 42 },
-    { id: -2, username: 'Staging demo Bob',   total_score: 980,  blocks_placed: 210, best_combo: 3, ta: 31 },
-    { id: -3, username: 'Staging demo Carol', total_score: 720,  blocks_placed: 180, best_combo: 2, ta: 15 },
-    { id: -4, username: 'Staging demo Dave',  total_score: 440,  blocks_placed:  95, best_combo: 1, ta: 0  },
-    { id: -5, username: 'Staging demo Eve',   total_score: 115,  blocks_placed:  30, best_combo: 1, ta: 0  },
+    { id: -1, username: 'Staging demo Alice',   total_score: 5200,  blocks_placed:  520, best_combo: 4, ta: 42 },
+    { id: -2, username: 'Staging demo Bob',     total_score:  980,  blocks_placed:  210, best_combo: 3, ta: 31 },
+    { id: -3, username: 'Staging demo Carol',   total_score:  720,  blocks_placed:  180, best_combo: 2, ta: 15 },
+    { id: -4, username: 'Staging demo Dave',    total_score:  440,  blocks_placed:   95, best_combo: 1, ta: 0  },
+    { id: -5, username: 'Staging demo Eve',     total_score:  115,  blocks_placed:   30, best_combo: 1, ta: 0  },
+    // Extra entries spanning levels 8–17 so the Level column and XP HUD can be
+    // verified across a wide range without placing thousands of blocks.
+    { id: -6, username: 'Staging demo Veteran', total_score:  4200, blocks_placed:  900, best_combo: 3, ta: 0  },
+    { id: -7, username: 'Staging demo Master',  total_score: 10500, blocks_placed: 2000, best_combo: 3, ta: 0  },
+    { id: -8, username: 'Staging demo Legend',  total_score: 38000, blocks_placed: 6000, best_combo: 3, ta: 0  },
   ];
   for (const s of fakeScores) {
     await pool.query(
@@ -5353,6 +5608,13 @@ async function seedStreaks() {
       [s.user_id, s.badge_id]
     );
   }
+  // Seed one waiting room so the join flow can be tested
+  await pool.query(
+    `INSERT INTO tetris_rooms (room_code, host_user_id, host_username, status)
+     VALUES ('STAGE', $1, 'Staging demo', 'waiting')
+     ON CONFLICT (room_code) DO NOTHING`,
+    [SEED_USER_ID]
+  );
 }
 
 async function seedCoins() {
@@ -6454,6 +6716,25 @@ async function start() {
     [IS_STAGING ? '10' : '60']
   );
 
+  // Tetris rooms table
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS tetris_rooms (
+      id SERIAL PRIMARY KEY,
+      room_code VARCHAR(5) UNIQUE NOT NULL,
+      host_user_id INTEGER NOT NULL,
+      host_username VARCHAR(255) NOT NULL,
+      guest_user_id INTEGER,
+      guest_username VARCHAR(255),
+      status VARCHAR(20) NOT NULL DEFAULT 'waiting',
+      winner_user_id INTEGER,
+      winner_username VARCHAR(255),
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      started_at TIMESTAMPTZ,
+      finished_at TIMESTAMPTZ
+    )
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS tetris_rooms_status_idx ON tetris_rooms (status)`);
+
   if (IS_STAGING) {
     try { await seedStaging(); }
     catch (err) { console.error('staging blocks seed failed', err); }
@@ -6513,9 +6794,22 @@ async function start() {
   await ensurePowerUps();
   initMobs();
 
+    // Cleanup stale rooms (waiting/active older than 1 hour) every 30 minutes
+    setInterval(async () => {
+      try {
+        await pool.query(`
+          UPDATE tetris_rooms SET status='finished', finished_at=NOW()
+          WHERE status IN ('waiting','active') AND created_at < NOW() - INTERVAL '1 hour'
+        `);
+      } catch (e) { console.error('room cleanup:', e); }
+      for (const [code, room] of rooms) {
+        if (room.status === 'finished') rooms.delete(code);
+      }
+    }, 30 * 60 * 1000);
+
     console.log('[startup] Database initialization complete.');
     startupComplete = true;
-    app.listen(port, () => {
+    httpServer.listen(port, () => {
       console.log(`[startup] Listening on :${port}`);
       startAiLoop();
     });
@@ -6523,8 +6817,7 @@ async function start() {
     const msg = err.message || String(err);
     console.error('[startup] FATAL: Database initialization failed:', msg);
     startupError = msg;
-    // Keep the app running but report errors when requested
-    app.listen(port, () => console.log(`[startup] Listening on :${port} (with startup error)`));
+    httpServer.listen(port, () => console.log(`[startup] Listening on :${port} (with startup error)`));
   }
 }
 
