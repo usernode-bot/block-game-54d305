@@ -196,6 +196,7 @@ app.get('/api/world', async (req, res) => {
       cursor: Number(cur.rows[0].cursor),
       maxDisasterId: Number(maxDisasterRes.rows[0].max_disaster_id),
       unlockedTypes,
+      isStaging: IS_STAGING,
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
