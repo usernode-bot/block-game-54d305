@@ -110,6 +110,14 @@
 
     #bg-canvas { position: fixed; inset: 0; pointer-events: none; }
 
+    /* Undo/redo buttons: disabled state */
+    #undo-btn:disabled, #redo-btn:disabled,
+    #history-undo-btn:disabled, #history-redo-btn:disabled {
+      opacity: 0.3;
+      cursor: default;
+      pointer-events: none;
+    }
+
     /* Mobile-first responsive adjustments for small screens */
     @media (max-width: 359px) {
       /* Ultra-small phone adjustments */
@@ -511,6 +519,33 @@
     </div>
   </div>
 
+  <!-- Undo/Redo/History HUD: shown in Classic mode only -->
+  <div id="undo-redo-hud" class="hidden fixed z-20 flex items-center gap-1" style="bottom: 1rem; left: 4.5rem">
+    <button id="undo-btn" title="Undo (Ctrl+Z)"
+            class="w-9 h-9 rounded-lg bg-black/50 hover:bg-black/70 text-zinc-100 text-base leading-none flex items-center justify-center transition hover:scale-110 active:scale-95 cursor-pointer">↩</button>
+    <button id="redo-btn" title="Redo (Ctrl+Y)"
+            class="w-9 h-9 rounded-lg bg-black/50 hover:bg-black/70 text-zinc-100 text-base leading-none flex items-center justify-center transition hover:scale-110 active:scale-95 cursor-pointer">↪</button>
+    <button id="history-btn" title="Build History"
+            class="w-9 h-9 rounded-lg bg-black/50 hover:bg-black/70 text-zinc-100 text-base leading-none flex items-center justify-center transition hover:scale-110 active:scale-95 cursor-pointer">🕐</button>
+  </div>
+
+  <!-- History panel: recent block placements/breaks -->
+  <div id="history-panel" class="hidden fixed z-30 rounded-xl bg-black/75 backdrop-blur-sm p-3 text-sm text-zinc-200 shadow-xl" style="bottom: 5.5rem; left: 1rem; width: 264px">
+    <div class="flex items-center justify-between mb-2">
+      <span class="font-bold text-xs text-zinc-100 uppercase tracking-wide">Recent Actions</span>
+      <div class="flex items-center gap-1.5">
+        <button id="history-undo-btn" title="Undo"
+                class="w-7 h-7 rounded bg-zinc-700 hover:bg-zinc-600 text-zinc-100 text-sm flex items-center justify-center cursor-pointer transition hover:scale-110 active:scale-95">↩</button>
+        <button id="history-redo-btn" title="Redo"
+                class="w-7 h-7 rounded bg-zinc-700 hover:bg-zinc-600 text-zinc-100 text-sm flex items-center justify-center cursor-pointer transition hover:scale-110 active:scale-95">↪</button>
+        <button id="history-close" aria-label="Close history"
+                class="text-zinc-400 hover:text-zinc-100 cursor-pointer leading-none transition-colors ml-1">✕</button>
+      </div>
+    </div>
+    <ul id="history-list" class="space-y-0.5 max-h-48 overflow-y-auto"></ul>
+    <p id="history-empty" class="text-zinc-500 text-xs text-center py-2">No actions yet — place or break a block.</p>
+  </div>
+
   <!-- Block palette -->
   <div id="palette" class="fixed bottom-4 left-1/2 -translate-x-1/2 z-20 flex gap-1.5 p-1.5 rounded-xl bg-black/50 backdrop-blur"></div>
 
@@ -713,6 +748,8 @@
       <li><span class="font-semibold">Enter</span> — open / close chat</li>
       <li><span class="font-semibold">L</span> or <span class="font-semibold">🏆</span> — leaderboard</li>
       <li><span class="font-semibold">M</span> or <span class="font-semibold">🔊</span> — mute / unmute audio</li>
+      <li><span class="font-semibold">Ctrl+Z</span> — undo last action (Classic)</li>
+      <li><span class="font-semibold">Ctrl+Y</span> — redo (Classic)</li>
       <li><span class="font-semibold">Esc</span> — close panel / release / menu</li>
       <li><span class="font-semibold">Power-ups</span> — collect glowing cubes for Speed, Jump, or Rapid Place (hold F/Add)</li>
     </ul>
@@ -955,7 +992,7 @@
 
     // Build identifier — bump this (to the deploying commit short SHA) on every
     // change so the top-right stamp confirms exactly which code is running.
-    const BUILD_VERSION = 'power-ups+hold-queue+achievements-badges+chat+daily-challenge+leaderboard+online-presence+block-attribution+audio-sfx+next-piece-preview+spectator-mode+weekly-tournament+friends+day-night-cycle+minimap+ai-coach+natural-disasters+undo-stack+pastel-chrome';
+    const BUILD_VERSION = 'power-ups+hold-queue+achievements-badges+chat+daily-challenge+leaderboard+online-presence+block-attribution+audio-sfx+next-piece-preview+spectator-mode+weekly-tournament+friends+day-night-cycle+minimap+ai-coach+natural-disasters+undo-redo-history+pastel-chrome';
 
     // Badge definitions — mirror of the server-side BADGES array, extended with
     // a `hint` field shown in the panel for unearned badges.
@@ -1623,6 +1660,12 @@
     // ---- Hold queue state ----
     let heldType = null;    // block type ID currently in the hold slot, or null
     let holdLocked = false; // true after a hold swap; cleared on next block placement
+
+    // ---- Undo/Redo history ----
+    const UNDO_LIMIT = 20;
+    const undoStack = []; // { x, y, z, from, to, blockName, ts }
+    const redoStack = [];
+    let isStaging = false;
 
     // ---- Badge state ----
     const earnedBadges = new Map(); // badge_id -> { earned_at }
@@ -3096,6 +3139,7 @@
       audio.playPlace();
       emitBlockPlace(x + 0.5, y + 0.5, z + 0.5);
       sendEdit(x, y, z, selectedType, prevType);
+      pushHistory(x, y, z, prevType, selectedType);
       // Unlock hold after each successful placement (Tetris lock rule)
       holdLocked = false;
       updateHoldPanel();
@@ -3232,6 +3276,78 @@
       audio.playBreak();
       emitBlockBreak(x + 0.5, y + 0.5, z + 0.5, brokenType);
       sendEdit(x, y, z, 0, brokenType);
+      pushHistory(x, y, z, brokenType, 0);
+    }
+
+    // ---- Undo/Redo history functions ----
+
+    function timeAgo(ts) {
+      const s = Math.floor((Date.now() - ts) / 1000);
+      if (s < 2) return 'just now';
+      if (s < 60) return s + 's ago';
+      const m = Math.floor(s / 60);
+      if (m < 60) return m + 'm ago';
+      return Math.floor(m / 60) + 'h ago';
+    }
+
+    function renderHistoryPanel() {
+      const listEl = document.getElementById('history-list');
+      const emptyEl = document.getElementById('history-empty');
+      if (!listEl || !emptyEl) return;
+      const undoDisabled = undoStack.length === 0;
+      const redoDisabled = redoStack.length === 0;
+      for (const id of ['undo-btn', 'redo-btn', 'history-undo-btn', 'history-redo-btn']) {
+        const btn = document.getElementById(id);
+        if (!btn) continue;
+        const isUndo = id === 'undo-btn' || id === 'history-undo-btn';
+        btn.disabled = isUndo ? undoDisabled : redoDisabled;
+      }
+      if (undoStack.length === 0) {
+        listEl.innerHTML = '';
+        emptyEl.classList.remove('hidden');
+        return;
+      }
+      emptyEl.classList.add('hidden');
+      const items = [...undoStack].reverse();
+      listEl.innerHTML = items.map((entry, i) => {
+        const relevantType = entry.to !== 0 ? entry.to : entry.from;
+        const p = PALETTE.find((q) => q.id === relevantType);
+        const color = p ? p.color : '#888888';
+        const name = entry.blockName || (p ? p.name : 'Block');
+        const action = entry.to !== 0 ? 'Placed' : 'Broke';
+        const ago = timeAgo(entry.ts);
+        const isActive = i === 0;
+        return '<li class="flex items-center gap-2 rounded px-1.5 py-1 text-xs' + (isActive ? ' bg-white/10' : '') + '">' +
+          '<span class="w-4 h-4 rounded-sm shrink-0" style="background:' + color + '"></span>' +
+          '<span class="flex-1 text-zinc-200 truncate">' + action + ' <span style="font-weight:600">' + name + '</span></span>' +
+          '<span class="text-zinc-500 whitespace-nowrap shrink-0">' + ago + '</span>' +
+          '</li>';
+      }).join('');
+    }
+
+    function pushHistory(x, y, z, from, to) {
+      const relevantType = to !== 0 ? to : from;
+      const p = PALETTE.find((q) => q.id === relevantType);
+      undoStack.push({ x, y, z, from, to, blockName: p ? p.name : 'Block', ts: Date.now() });
+      redoStack.length = 0;
+      if (undoStack.length > UNDO_LIMIT) undoStack.shift();
+      renderHistoryPanel();
+    }
+
+    function undo() {
+      if (undoStack.length === 0 || gameMode !== 'classic') return;
+      const entry = undoStack.pop();
+      redoStack.push(entry);
+      sendEdit(entry.x, entry.y, entry.z, entry.from);
+      renderHistoryPanel();
+    }
+
+    function redo() {
+      if (redoStack.length === 0 || gameMode !== 'classic') return;
+      const entry = redoStack.pop();
+      undoStack.push(entry);
+      sendEdit(entry.x, entry.y, entry.z, entry.to);
+      renderHistoryPanel();
     }
 
     // ---- Pointer-lock fly camera ----
@@ -3819,11 +3935,14 @@
         updateScoreHud();
         if (!pollHandle) pollHandle = setInterval(poll, 1500);
         coachBtnEl.classList.remove('hidden');
+        document.getElementById('undo-redo-hud').classList.remove('hidden');
         setTimeout(() => fetchCoachTip('mode_start'), 3000);
       } else if (gameMode === 'spectate') {
         if (!pollHandle) pollHandle = setInterval(poll, 1500);
         document.getElementById('palette').classList.add('hidden');
         document.getElementById('hold-panel').classList.add('hidden');
+        document.getElementById('undo-redo-hud').classList.add('hidden');
+        document.getElementById('history-panel').classList.add('hidden');
         challengeHudEl.classList.add('hidden');
         document.getElementById('crosshair').style.opacity = '0.3';
         // Hide coach in spectate mode — player isn't building.
@@ -3948,6 +4067,8 @@
       document.getElementById('learn-hints').innerHTML = '';
       document.getElementById('palette').classList.remove('hidden');
       document.getElementById('hold-panel').classList.remove('hidden');
+      document.getElementById('undo-redo-hud').classList.add('hidden');
+      document.getElementById('history-panel').classList.add('hidden');
       document.getElementById('crosshair').style.opacity = '';
       hideComboHud();
       hideScoreHud();
@@ -4176,6 +4297,15 @@
         lastRapidPlace = performance.now();
       }
       if (e.code === 'KeyG' && playing && gameMode !== 'spectate') breakBlock();
+      // Ctrl+Z = undo, Ctrl+Y / Ctrl+Shift+Z = redo (Classic mode only).
+      if (e.ctrlKey && e.code === 'KeyZ' && gameMode === 'classic') {
+        e.preventDefault();
+        if (e.shiftKey) redo(); else undo();
+      }
+      if (e.ctrlKey && e.code === 'KeyY' && gameMode === 'classic') {
+        e.preventDefault();
+        redo();
+      }
       // H is context-aware: triggers hold/swap while playing, toggles the
       // controls overlay when the menu/overlay is up.
       if (e.code === 'KeyH') {
@@ -5388,6 +5518,18 @@
       }
     }
 
+    // ---- Undo/Redo/History button wiring ----
+    document.getElementById('undo-btn').addEventListener('click', undo);
+    document.getElementById('redo-btn').addEventListener('click', redo);
+    document.getElementById('history-undo-btn').addEventListener('click', undo);
+    document.getElementById('history-redo-btn').addEventListener('click', redo);
+    document.getElementById('history-btn').addEventListener('click', () => {
+      document.getElementById('history-panel').classList.toggle('hidden');
+    });
+    document.getElementById('history-close').addEventListener('click', () => {
+      document.getElementById('history-panel').classList.add('hidden');
+    });
+
     coachBtnEl.addEventListener('click', () => fetchCoachTip('player_asked'));
     document.getElementById('coach-dismiss').addEventListener('click', () => {
       if (coachDismissTimer) { clearTimeout(coachDismissTimer); coachDismissTimer = null; }
@@ -5772,6 +5914,7 @@
       cursor = data.cursor || 0;
       eventsCursor = data.maxDisasterId || 0;
       unlockedTypes = new Set(data.unlockedTypes || []);
+      isStaging = !!data.isStaging;
       selectedType = PALETTE[0] ? PALETTE[0].id : 1;
       blocks.clear();
       for (const b of data.blocks) blocks.set(key(b.x, b.y, b.z), b.t);
@@ -5780,6 +5923,23 @@
       buildPalette();
       rebuildBlockMeshes();
       spawnCamera();
+      // Pre-populate the undo stack in staging so the history panel has visible content.
+      if (isStaging) {
+        const now = Date.now();
+        const demoEntries = [
+          { x: 16, y: 1, z: 13, from: 0, to: 6 },
+          { x: 14, y: 1, z: 14, from: 0, to: 3 },
+          { x: 18, y: 2, z: 16, from: 0, to: 8 },
+          { x: 16, y: 3, z: 14, from: 0, to: 3 },
+          { x: 16, y: 4, z: 16, from: 0, to: 4 },
+        ];
+        for (let i = 0; i < demoEntries.length; i++) {
+          const e = demoEntries[i];
+          const p = PALETTE.find((q) => q.id === e.to);
+          undoStack.push({ ...e, blockName: p ? p.name : 'Block', ts: now - (demoEntries.length - i) * 30000 });
+        }
+        renderHistoryPanel();
+      }
       return true;
     }
 
