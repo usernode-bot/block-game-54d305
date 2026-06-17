@@ -29,10 +29,10 @@ let startupError = null;
 // populated regardless of whether the seeded user_presence rows are still
 // within their 60-second expiry window.
 const STAGING_DEMO_USERS = [
-  { username: 'Staging demo Alice', mode: 'classic' },
-  { username: 'Staging demo Bob',   mode: 'classic' },
-  { username: 'Staging demo spectator — Alice', mode: 'spectate' },
-  { username: 'Staging demo spectator — Bob',   mode: 'spectate' },
+  { username: 'Staging demo Alice', mode: 'classic',  active_pet: 'cat'  },
+  { username: 'Staging demo Bob',   mode: 'classic',  active_pet: 'dog'  },
+  { username: 'Staging demo spectator — Alice', mode: 'spectate', active_pet: null },
+  { username: 'Staging demo spectator — Bob',   mode: 'spectate', active_pet: null },
 ];
 
 // ---- Fixed shared-world parameters (authoritative; mirrored to client) ----
@@ -203,6 +203,52 @@ const STREAK_BADGE_MILESTONES = [
   { days: 30, id: 'streak_30' },
 ];
 
+// Pet companion definitions. Unlocked automatically when blocks_placed reaches
+// the threshold — no separate ownership table, same pattern as Crystal block.
+const PET_TYPES = [
+  { id: 'cat',    name: 'Cat',    icon: '🐱', unlockAt: 25,   color: '#e8a857' },
+  { id: 'dog',    name: 'Dog',    icon: '🐶', unlockAt: 100,  color: '#c8a070' },
+  { id: 'ghost',  name: 'Ghost',  icon: '👻', unlockAt: 300,  color: '#ddeeff', opacity: 0.75 },
+  { id: 'dragon', name: 'Dragon', icon: '🐲', unlockAt: 750,  color: '#7c5ea8' },
+  { id: 'robot',  name: 'Robot',  icon: '🤖', unlockAt: 1500, color: '#8090a0' },
+];
+const PET_MAP = new Map(PET_TYPES.map((p) => [p.id, p]));
+
+// Creative prompts shown to players each day. Rotated deterministically by date
+// (same UTC approach as dailyTarget). Add more entries freely — modulo adjusts.
+const DAILY_PROMPTS = [
+  'Build a lighthouse',
+  'Build a bridge',
+  'Make a cosy cottage',
+  'Sculpt a tower',
+  'Design a market stall',
+  'Build a fountain',
+  'Create a castle gate',
+  'Make a garden',
+  'Build a treehouse',
+  'Design a windmill',
+  'Sculpt a pyramid',
+  'Build a ship',
+  'Create a campsite',
+  'Make a clock tower',
+  'Build a greenhouse',
+  'Design a cave entrance',
+  'Create an arch',
+  'Build an observatory',
+  'Make a barn',
+  'Design a waterfall',
+  'Build a fortress wall',
+  'Create a monument',
+  'Make a mine entrance',
+  'Build a dock',
+  'Design a shrine',
+  'Create a maze',
+  'Build an amphitheater',
+  'Make a snowfort',
+  'Design a portal',
+  'Build a volcano',
+];
+
 // ---- Daily Build Theme Voting ----
 const DAILY_THEMES = ['Castle', 'Ocean', 'Space', 'Forest', 'City', 'Cave', 'Desert', 'Snow', 'Sky Tower', 'Mountain', 'Dungeon', 'Crystal Palace'];
 
@@ -321,6 +367,16 @@ function dailyTarget(dateObj) {
   return 20 + ((y * 31 + m * 7 + d) % 81);
 }
 
+// Returns today's creative building prompt, derived deterministically from the
+// UTC date using a different multiplier from dailyTarget to avoid correlation.
+function dailyPrompt(dateObj) {
+  const y = dateObj.getUTCFullYear();
+  const m = dateObj.getUTCMonth() + 1;
+  const d = dateObj.getUTCDate();
+  const idx = ((y * 31 + m * 7 + d) * 13) % DAILY_PROMPTS.length;
+  return DAILY_PROMPTS[idx];
+}
+
 // Returns the ISO date string (YYYY-MM-DD) for the Monday that starts the
 // UTC week containing dateObj. Deterministic — same as dailyTarget's UTC approach.
 function weekStart(dateObj) {
@@ -378,6 +434,9 @@ app.get('/api/world', async (req, res) => {
     const lbRow = await pool.query(`SELECT blocks_placed FROM leaderboard WHERE user_id = $1`, [req.user.id]);
     const userPlaced = lbRow.rows.length ? Number(lbRow.rows[0].blocks_placed) : 0;
     const unlockedTypes = PALETTE.filter((p) => p.unlockAt && userPlaced >= p.unlockAt).map((p) => p.id);
+    const unlockedPets = PET_TYPES.filter((p) => userPlaced >= p.unlockAt).map((p) => p.id);
+    const presRow = await pool.query(`SELECT active_pet FROM user_presence WHERE user_id = $1`, [req.user.id]);
+    const activePet = presRow.rows.length ? (presRow.rows[0].active_pet || null) : null;
     const monumentsRes = await pool.query(
       `SELECT id, name, sector_x, sector_z, block_count, contributor_count, crowned_at
        FROM monuments ORDER BY block_count DESC`
@@ -393,10 +452,13 @@ app.get('/api/world', async (req, res) => {
     res.json({
       dims: DIMS,
       palette: PALETTE,
+      petTypes: PET_TYPES,
       blocks: rows.map((r) => { const b = { x: r.x, y: r.y, z: r.z, t: r.block_type }; if (r.has_message) b.m = 1; return b; }),
       cursor: Number(cur.rows[0].cursor),
       maxDisasterId: Number(maxDisasterRes.rows[0].max_disaster_id),
       unlockedTypes,
+      unlockedPets,
+      activePet,
       monuments,
       isStaging: IS_STAGING,
       tutorial_completed,
@@ -480,6 +542,7 @@ app.post('/api/block', async (req, res) => {
     let earned = 0, combo_multiplier = 1, rainbow_multiplier = 1, combo_tier = 1;
     let newly_earned_badges = [];
     let newly_unlocked_types = [];
+    let newly_unlocked_pets = [];
     if (t !== 0) {
       const now = new Date();
       const dateStr = now.toISOString().slice(0, 10);
@@ -658,6 +721,13 @@ app.post('/api/block', async (req, res) => {
           newly_unlocked_types.push({ id: up.id, name: up.name, icon: up.unlockIcon || '✨', description: 'A translucent gem-like block, earned through dedication.' });
         }
       }
+
+      // Detect pet unlock milestones (same exact-crossing pattern as block types).
+      for (const pet of PET_TYPES) {
+        if (lb.blocks_placed === pet.unlockAt) {
+          newly_unlocked_pets.push({ id: pet.id, name: pet.name, icon: pet.icon });
+        }
+      }
     }
 
     // ---- Line clearing: detect and clear complete horizontal layers ----
@@ -703,7 +773,7 @@ app.post('/api/block', async (req, res) => {
     const monument = await recomputeMonument(sectorCoord(x), sectorCoord(z));
     if (monument && monument.is_new) newly_crowned_monuments = [{ id: monument.id, name: monument.name, sector_x: monument.sector_x, sector_z: monument.sector_z }];
 
-    res.json({ ok: true, seq, ...(challenge ? { challenge } : {}), earned, combo_multiplier, rainbow_multiplier, newly_earned_badges, newly_unlocked_types, lines_cleared, line_clear_points, newly_crowned_monuments });
+    res.json({ ok: true, seq, ...(challenge ? { challenge } : {}), earned, combo_multiplier, rainbow_multiplier, newly_earned_badges, newly_unlocked_types, newly_unlocked_pets, lines_cleared, line_clear_points, newly_crowned_monuments });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -984,6 +1054,31 @@ app.get('/api/streak', async (req, res) => {
   }
 });
 
+// ---- Pet: equip or unequip a companion ----
+app.post('/api/pet/equip', async (req, res) => {
+  try {
+    const { pet_id } = req.body;
+    if (pet_id !== null && pet_id !== undefined && !PET_MAP.has(pet_id)) {
+      return res.status(400).json({ error: 'Unknown pet_id' });
+    }
+    if (pet_id) {
+      const lbRow = await pool.query(`SELECT blocks_placed FROM leaderboard WHERE user_id = $1`, [req.user.id]);
+      const placed = lbRow.rows.length ? Number(lbRow.rows[0].blocks_placed) : 0;
+      const pet = PET_MAP.get(pet_id);
+      if (placed < pet.unlockAt) return res.status(403).json({ error: 'Pet not yet unlocked' });
+    }
+    await pool.query(
+      `INSERT INTO user_presence (user_id, username, last_seen, active_pet)
+       VALUES ($1, $2, NOW(), $3)
+       ON CONFLICT (user_id) DO UPDATE SET active_pet = $3`,
+      [req.user.id, req.user.username, pet_id || null]
+    );
+    res.json({ ok: true, active_pet: pet_id || null });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ---- Player coins: current user's coin balance ----
 app.get('/api/player/coins', async (req, res) => {
   try {
@@ -1206,7 +1301,7 @@ app.get('/api/presence/online', async (req, res) => {
   try {
     const current_world_id = req.query.current_world_id ? Number(req.query.current_world_id) : null;
 
-    let query = `SELECT username, mode, current_world_id FROM user_presence
+    let query = `SELECT username, mode, active_pet, current_world_id FROM user_presence
        WHERE last_seen > NOW() - INTERVAL '60 seconds'`;
     if (current_world_id !== null) {
       query += ` AND (current_world_id = $1 OR current_world_id IS NULL)`;
@@ -1215,7 +1310,7 @@ app.get('/api/presence/online', async (req, res) => {
 
     const params = current_world_id !== null ? [current_world_id] : [];
     const { rows } = await pool.query(query, params);
-    const users = rows.map((r) => ({ username: r.username, mode: r.mode || 'classic' }));
+    const users = rows.map((r) => ({ username: r.username, mode: r.mode || 'classic', active_pet: r.active_pet || null }));
     if (IS_STAGING) users.push(...STAGING_DEMO_USERS);
     res.json({ users });
   } catch (err) {
@@ -2816,6 +2911,77 @@ app.post('/api/coach/tip', async (req, res) => {
   }
 });
 
+// ---- Daily Prompt: today's prompt + eligible builders + vote state ----
+app.get('/api/prompt/today', async (req, res) => {
+  try {
+    const now = new Date();
+    const dateStr = now.toISOString().slice(0, 10);
+    const prompt = dailyPrompt(now);
+
+    const yesterday = new Date(Date.UTC(
+      now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - 1
+    ));
+    const yesterdayStr = yesterday.toISOString().slice(0, 10);
+
+    const [yesterdayRes, myVoteRes, buildersRes] = await Promise.all([
+      pool.query(
+        `SELECT voted_for_username, COUNT(*)::int AS vote_count
+         FROM daily_prompt_votes
+         WHERE vote_date = $1
+         GROUP BY voted_for_user_id, voted_for_username
+         ORDER BY vote_count DESC
+         LIMIT 1`,
+        [yesterdayStr]
+      ),
+      pool.query(
+        `SELECT voted_for_user_id, voted_for_username
+         FROM daily_prompt_votes
+         WHERE vote_date = $1 AND voter_user_id = $2`,
+        [dateStr, req.user.id]
+      ),
+      pool.query(
+        `SELECT dcp.user_id, dcp.username,
+                COALESCE(v.vote_count, 0) AS vote_count
+         FROM daily_challenge_progress dcp
+         LEFT JOIN (
+           SELECT voted_for_user_id, COUNT(*)::int AS vote_count
+           FROM daily_prompt_votes
+           WHERE vote_date = $1
+           GROUP BY voted_for_user_id
+         ) v ON dcp.user_id = v.voted_for_user_id
+         WHERE dcp.challenge_date = $1
+           AND dcp.blocks_placed >= 1
+           AND dcp.user_id <> $2
+         ORDER BY vote_count DESC, dcp.username ASC`,
+        [dateStr, SEED_USER_ID]
+      ),
+    ]);
+
+    const yesterdayWinner = yesterdayRes.rows.length
+      ? { username: yesterdayRes.rows[0].voted_for_username, vote_count: yesterdayRes.rows[0].vote_count }
+      : null;
+
+    const myVote = myVoteRes.rows.length
+      ? { voted_for_user_id: myVoteRes.rows[0].voted_for_user_id, voted_for_username: myVoteRes.rows[0].voted_for_username }
+      : null;
+
+    res.json({
+      date: dateStr,
+      prompt,
+      my_vote: myVote,
+      eligible_builders: buildersRes.rows.map((r) => ({
+        user_id: r.user_id,
+        username: r.username,
+        vote_count: Number(r.vote_count),
+        is_self: r.user_id === req.user.id,
+      })),
+      yesterday_winner: yesterdayWinner,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ---- Share Score API ----
 app.post('/api/share-score', async (req, res) => {
   try {
@@ -2985,6 +3151,48 @@ app.get('/api/theme/today', async (req, res) => {
         anchor: yesterdayAnchor || null,
       } : null,
     });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- Daily Prompt: cast or change a vote ----
+app.post('/api/prompt/vote', async (req, res) => {
+  try {
+    const voted_for_user_id = Number(req.body.voted_for_user_id);
+    const voted_for_username = (typeof req.body.voted_for_username === 'string'
+      ? req.body.voted_for_username : '').trim();
+
+    if (!voted_for_user_id || !voted_for_username) {
+      return res.status(400).json({ error: 'voted_for_user_id and voted_for_username are required' });
+    }
+    if (voted_for_user_id === req.user.id) {
+      return res.status(400).json({ error: 'Cannot vote for yourself' });
+    }
+
+    const now = new Date();
+    const dateStr = now.toISOString().slice(0, 10);
+
+    const eligRes = await pool.query(
+      `SELECT 1 FROM daily_challenge_progress
+       WHERE challenge_date = $1 AND user_id = $2 AND blocks_placed >= 1`,
+      [dateStr, voted_for_user_id]
+    );
+    if (!eligRes.rows.length) {
+      return res.status(400).json({ error: 'That player has not built anything today' });
+    }
+
+    await pool.query(
+      `INSERT INTO daily_prompt_votes
+         (vote_date, voter_user_id, voter_username, voted_for_user_id, voted_for_username, created_at)
+       VALUES ($1, $2, $3, $4, $5, NOW())
+       ON CONFLICT (vote_date, voter_user_id) DO UPDATE SET
+         voted_for_user_id   = EXCLUDED.voted_for_user_id,
+         voted_for_username  = EXCLUDED.voted_for_username,
+         created_at          = NOW()`,
+      [dateStr, req.user.id, req.user.username, voted_for_user_id, voted_for_username]
+    );
+    res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -3558,6 +3766,33 @@ async function seedStreaks() {
   }
 }
 
+async function seedPromptVotes() {
+  const now = new Date();
+  const todayStr = now.toISOString().slice(0, 10);
+  const yesterday = new Date(Date.UTC(
+    now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - 1
+  ));
+  const yesterdayStr = yesterday.toISOString().slice(0, 10);
+
+  // Today: alice gets 2 votes (from bob and charlie), bob gets 1 (from alice).
+  // Yesterday: alice wins (1 vote from bob) — surfaces as "Yesterday's winner".
+  const votes = [
+    { vote_date: todayStr,     voter_id: -2, voter_username: 'Staging demo Bob',     voted_for_id: -1, voted_for_username: 'Staging demo Alice'   },
+    { vote_date: todayStr,     voter_id: -3, voter_username: 'Staging demo Charlie', voted_for_id: -1, voted_for_username: 'Staging demo Alice'   },
+    { vote_date: todayStr,     voter_id: -1, voter_username: 'Staging demo Alice',   voted_for_id: -2, voted_for_username: 'Staging demo Bob'     },
+    { vote_date: yesterdayStr, voter_id: -2, voter_username: 'Staging demo Bob',     voted_for_id: -1, voted_for_username: 'Staging demo Alice'   },
+  ];
+  for (const v of votes) {
+    await pool.query(
+      `INSERT INTO daily_prompt_votes
+         (vote_date, voter_user_id, voter_username, voted_for_user_id, voted_for_username)
+       VALUES ($1, $2, $3, $4, $5)
+       ON CONFLICT (vote_date, voter_user_id) DO NOTHING`,
+      [v.vote_date, v.voter_id, v.voter_username, v.voted_for_id, v.voted_for_username]
+    );
+  }
+}
+
 async function seedTheme() {
   const now = new Date();
   const todayStr = now.toISOString().slice(0, 10);
@@ -4054,6 +4289,10 @@ async function start() {
   `);
   await pool.query(`
     ALTER TABLE user_presence
+      ADD COLUMN IF NOT EXISTS active_pet VARCHAR(20)
+  `);
+  await pool.query(`
+    ALTER TABLE user_presence
       ADD COLUMN IF NOT EXISTS current_world_id INTEGER
   `);
 
@@ -4143,6 +4382,24 @@ async function start() {
       longest_streak INTEGER NOT NULL DEFAULT 1,
       updated_at     TIMESTAMPTZ DEFAULT NOW()
     )
+  `);
+
+  // Daily prompt votes: one row per (date, voter). Public — vote counts and
+  // usernames for a given day are not sensitive.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS daily_prompt_votes (
+      vote_date             DATE          NOT NULL,
+      voter_user_id         INTEGER       NOT NULL,
+      voter_username        VARCHAR(255)  NOT NULL,
+      voted_for_user_id     INTEGER       NOT NULL,
+      voted_for_username    VARCHAR(255)  NOT NULL,
+      created_at            TIMESTAMPTZ   DEFAULT NOW(),
+      PRIMARY KEY (vote_date, voter_user_id)
+    )
+  `);
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS daily_prompt_votes_voted_for_idx
+    ON daily_prompt_votes (vote_date, voted_for_user_id)
   `);
 
   // Daily login rewards: tracks which players have claimed their daily reward and the date.
@@ -4370,6 +4627,8 @@ async function start() {
     catch (err) { console.error('endless-scores seed failed', err); }
     try { await seedStreaks(); }
     catch (err) { console.error('streak seed failed', err); }
+    try { await seedPromptVotes(); }
+    catch (err) { console.error('prompt votes seed failed', err); }
     try { await seedBlockMessages(); }
     catch (err) { console.error('block messages seed failed', err); }
     try { await seedTheme(); }
