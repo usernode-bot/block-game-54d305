@@ -687,6 +687,80 @@ app.get('/api/ta-leaderboard', async (req, res) => {
   }
 });
 
+// ---- Endless Mode: submit a completed run ----
+// Body: { placed, moves_survived }. Keeps only the best run per user.
+app.post('/api/endless-score', async (req, res) => {
+  try {
+    const placed = Number(req.body.placed);
+    const moves_survived = Number(req.body.moves_survived);
+    if (!Number.isInteger(placed) || placed < 0) {
+      return res.status(400).json({ error: 'placed must be a non-negative integer' });
+    }
+    if (!Number.isInteger(moves_survived) || moves_survived < 0) {
+      return res.status(400).json({ error: 'moves_survived must be a non-negative integer' });
+    }
+    const { rows } = await pool.query(
+      `INSERT INTO endless_scores (user_id, username, best_placed, best_moves_survived, updated_at)
+       VALUES ($1, $2, $3, $4, NOW())
+       ON CONFLICT (user_id) DO UPDATE
+         SET best_placed = EXCLUDED.best_placed,
+             best_moves_survived = EXCLUDED.best_moves_survived,
+             username = EXCLUDED.username,
+             updated_at = NOW()
+       WHERE EXCLUDED.best_placed > endless_scores.best_placed
+       RETURNING best_placed`,
+      [req.user.id, req.user.username, placed, moves_survived]
+    );
+    let best_placed, is_new_best;
+    if (rows.length) {
+      best_placed = Number(rows[0].best_placed);
+      is_new_best = true;
+    } else {
+      const cur = await pool.query(
+        `SELECT best_placed FROM endless_scores WHERE user_id = $1`, [req.user.id]
+      );
+      best_placed = cur.rows.length ? Number(cur.rows[0].best_placed) : placed;
+      is_new_best = false;
+    }
+    res.json({ ok: true, best_placed, is_new_best });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- Endless Mode leaderboard: top 10 by best blocks placed + caller's entry ----
+app.get('/api/endless-leaderboard', async (req, res) => {
+  try {
+    const topRes = await pool.query(
+      `SELECT rank() OVER (ORDER BY best_placed DESC) AS rank,
+              user_id, username, best_placed, best_moves_survived
+       FROM endless_scores
+       ORDER BY best_placed DESC
+       LIMIT 10`
+    );
+    const selfRes = await pool.query(
+      `SELECT rank() OVER (ORDER BY best_placed DESC) AS rank,
+              user_id, username, best_placed, best_moves_survived
+       FROM endless_scores
+       WHERE user_id = $1`,
+      [req.user.id]
+    );
+    const toRow = (r) => ({
+      rank: Number(r.rank),
+      user_id: r.user_id,
+      username: r.username,
+      best_placed: Number(r.best_placed),
+      best_moves_survived: Number(r.best_moves_survived),
+    });
+    res.json({
+      entries: topRes.rows.map(toRow),
+      self: selfRes.rows.length ? toRow(selfRes.rows[0]) : null,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ---- Badges: current player's earned badges ----
 app.get('/api/badges', async (req, res) => {
   try {
@@ -1453,6 +1527,24 @@ async function seedTaScores() {
   }
 }
 
+async function seedEndlessScores() {
+  const seeds = [
+    { userId: -6, username: 'Staging demo Frank',   placed: 187, moves: 421 },
+    { userId: -7, username: 'Staging demo Grace',   placed: 156, moves: 358 },
+    { userId: -8, username: 'Staging demo Henry',   placed: 124, moves: 287 },
+    { userId: -9, username: 'Staging demo Ivy',     placed: 89,  moves: 198 },
+    { userId: -10, username: 'Staging demo Jack',   placed: 52,  moves: 112 },
+  ];
+  for (const s of seeds) {
+    await pool.query(
+      `INSERT INTO endless_scores (user_id, username, best_placed, best_moves_survived, updated_at)
+       VALUES ($1, $2, $3, $4, NOW())
+       ON CONFLICT (user_id) DO NOTHING`,
+      [s.userId, s.username, s.placed, s.moves]
+    );
+  }
+}
+
 async function seedStreaks() {
   // Negative user IDs so they never collide with real platform user IDs (positive integers).
   const rows = [
@@ -1636,6 +1728,18 @@ async function start() {
     )
   `);
 
+  // Endless Mode high scores: one row per user holding their best run stats.
+  // Public table — it holds only a username and block counts, nothing sensitive.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS endless_scores (
+      user_id              INTEGER PRIMARY KEY,
+      username             VARCHAR(255) NOT NULL,
+      best_placed          INTEGER NOT NULL DEFAULT 0,
+      best_moves_survived  INTEGER NOT NULL DEFAULT 0,
+      updated_at           TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+
   // Tracks which block types each player has ever placed. The blocks table
   // records only the current placer of each cell, so overwrites erase
   // history — this table preserves the full per-player type inventory.
@@ -1802,6 +1906,8 @@ async function start() {
     catch (err) { console.error('tournament seed failed', err); }
     try { await seedTaScores(); }
     catch (err) { console.error('ta-scores seed failed', err); }
+    try { await seedEndlessScores(); }
+    catch (err) { console.error('endless-scores seed failed', err); }
     try { await seedStreaks(); }
     catch (err) { console.error('streak seed failed', err); }
     // Staging spectators are now surfaced via the STAGING_DEMO_USERS constant
