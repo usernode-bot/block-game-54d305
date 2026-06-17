@@ -439,6 +439,12 @@
           <button id="play-endless-btn" class="w-full px-4 py-3 rounded-lg bg-rose-600 hover:bg-rose-500 font-semibold text-sm sm:text-sm lg:text-base transition hover:scale-[1.02] active:scale-[0.98]">Play Endless</button>
         </div>
         <div class="bg-zinc-900/80 rounded-xl p-5 sm:p-6 lg:p-7 transition hover:bg-zinc-800/80">
+          <canvas id="preview-learn" class="w-full rounded-lg mb-4" height="140"></canvas>
+          <h2 class="font-semibold text-lg sm:text-base lg:text-lg text-zinc-100 mb-2">Learn Mode</h2>
+          <p class="text-zinc-400 text-sm sm:text-sm lg:text-sm mb-5">Perfect for getting started. Learn the basics at your own pace with helpful hints.</p>
+          <button id="play-learn-btn" class="w-full px-4 py-3 rounded-lg bg-green-600 hover:bg-green-500 font-semibold text-sm sm:text-sm lg:text-base transition hover:scale-[1.02] active:scale-[0.98]">Play Learn</button>
+        </div>
+        <div class="bg-zinc-900/80 rounded-xl p-5 sm:p-6 lg:p-7 transition hover:bg-zinc-800/80">
           <canvas id="preview-spectate" class="w-full rounded-lg mb-4" height="140"></canvas>
           <h2 class="font-semibold text-lg sm:text-base lg:text-lg text-zinc-100 mb-2">Watch</h2>
           <p class="text-zinc-400 text-sm sm:text-sm lg:text-sm mb-5">Fly through the world as a spectator. No building required — just explore and chat.</p>
@@ -775,6 +781,9 @@
 
   <!-- Floating "+1" score pops (Time Attack). Positioned per-pop by JS. -->
   <div id="score-pops" class="pointer-events-none fixed inset-0 z-20 overflow-hidden"></div>
+
+  <!-- Learn mode hints: on-screen instructions and tutorials -->
+  <div id="learn-hints" class="pointer-events-none fixed inset-0 z-20"></div>
 
   <!-- Time Attack game-over overlay -->
   <div id="ta-gameover" class="hidden fixed inset-0 z-30 flex items-center justify-center bg-black/60 backdrop-blur-sm">
@@ -1213,7 +1222,7 @@
     }
 
     // ---- Game mode state ----
-    let gameMode = null;           // null | 'classic' | 'timeattack' | 'endless'
+    let gameMode = null;           // null | 'classic' | 'timeattack' | 'endless' | 'learn'
     const taBlocks = new Map();    // TA layout: client-only, never written to server
     let taScore = 0;
     let taTimeLeft = 60;
@@ -1228,6 +1237,12 @@
     let endlessBlocksPlaced = 0;         // blocks placed in current run
     let endlessMovesStarted = 0;         // moves made in this run
     let pendingEndlessInit = false;      // true while waiting for play-entry to fire initEndlessMode
+
+    // ---- Learn Mode state ----
+    const learnBlocks = new Map();       // Learn session: key = 'x,y,z', value = block_type
+    let learnBlocksPlaced = 0;           // blocks placed in learn session
+    let pendingLearnInit = false;        // true while waiting for play-entry to fire initLearnMode
+    let learnHintsShown = lsGet('learn_hints_shown', {});
 
     // ---- Three.js scaffold ----
     const canvas = document.getElementById('scene');
@@ -1675,7 +1690,10 @@
     function rebuildBlockMeshes() {
       blockGroup.clear();
       crystalMaterial = null;
-      const source = gameMode === 'timeattack' ? taBlocks : gameMode === 'endless' ? endlessBlocks : blocks;
+      let source = blocks;
+      if (gameMode === 'timeattack') source = taBlocks;
+      else if (gameMode === 'endless') source = endlessBlocks;
+      else if (gameMode === 'learn') source = learnBlocks;
       const byType = new Map();
       for (const [k, t] of source) {
         if (!byType.has(t)) byType.set(t, []);
@@ -2215,6 +2233,43 @@
       scoreHudEl.classList.add('hidden');
     }
 
+    // ---- Learn mode hints ----
+    const learnHintsEl = document.getElementById('learn-hints');
+    const learnHintTexts = {
+      welcome: { text: 'Welcome to Learn Mode! Build freely at your own pace.', pos: 'top-center', timeout: 5000 },
+      first_block: { text: '🎉 Great! You placed your first block.', pos: 'top-center', timeout: 3000 },
+      first_break: { text: '✂️ You removed a block! Tap a block and press Right-click to break.', pos: 'top-center', timeout: 3000 },
+      controls_desktop: { text: 'WASD to move • Space/Shift to up/down • Click to place • Right-click to break', pos: 'bottom-center', timeout: 0 },
+      controls_mobile: { text: 'Use the on-screen buttons to move and build', pos: 'bottom-center', timeout: 0 },
+    };
+
+    function showLearnHint(hintKey, duration = null) {
+      if (gameMode !== 'learn') return;
+      if (learnHintsShown[hintKey]) return; // Already shown this session
+      const hint = learnHintTexts[hintKey];
+      if (!hint) return;
+
+      learnHintsShown[hintKey] = true;
+      lsSet('learn_hints_shown', learnHintsShown);
+
+      const div = document.createElement('div');
+      div.className = 'text-xs sm:text-sm text-white bg-black/60 rounded-lg px-3 sm:px-4 py-2 sm:py-3 backdrop-blur max-w-sm text-center';
+      div.textContent = hint.text;
+
+      if (hint.pos === 'top-center') {
+        div.className += ' fixed top-16 sm:top-20 left-1/2 -translate-x-1/2';
+      } else if (hint.pos === 'bottom-center') {
+        div.className += ' fixed bottom-24 sm:bottom-32 left-1/2 -translate-x-1/2';
+      }
+
+      learnHintsEl.appendChild(div);
+
+      const timeout = duration !== null ? duration : hint.timeout;
+      if (timeout > 0) {
+        setTimeout(() => { div.remove(); }, timeout);
+      }
+    }
+
     // ---- Undo helpers ----
     const undoBtnEl = document.getElementById('undo-btn');
     const undoTouchBtnEl = document.getElementById('undo-touch-btn');
@@ -2298,6 +2353,19 @@
         }
         return;
       }
+      if (gameMode === 'learn') {
+        const k = key(x, y, z);
+        if (learnBlocks.get(k) === selectedType) return;
+        learnBlocks.set(k, selectedType);
+        learnBlocksPlaced++;
+        if (learnBlocksPlaced === 1) showLearnHint('first_block');
+        emitBlockPlace(x + 0.5, y + 0.5, z + 0.5);
+        audio.playPlace();
+        rebuildBlockMeshes();
+        holdLocked = false;
+        updateHoldPanel();
+        return;
+      }
       if (blocks.get(key(x, y, z)) === selectedType) return;
       const prevType = blocks.get(key(x, y, z)) ?? 0;
       audio.playPlace();
@@ -2339,6 +2407,17 @@
         if (endlessMovesRemaining <= 0 || !hasValidMoveAnywhere()) {
           endEndlessMode();
         }
+        return;
+      }
+      if (gameMode === 'learn') {
+        const k = key(x, y, z);
+        if (!learnBlocks.has(k)) return;
+        const brokenTypeLearn = learnBlocks.get(k);
+        learnBlocks.delete(k);
+        showLearnHint('first_break');
+        audio.playBreak();
+        emitBlockBreak(x + 0.5, y + 0.5, z + 0.5, brokenTypeLearn);
+        rebuildBlockMeshes();
         return;
       }
       if (!blocks.has(key(x, y, z))) return;
@@ -2745,6 +2824,37 @@
       updateTouchControlsVisibility();
     }
 
+    function initLearnMode() {
+      learnBlocks.clear();
+      learnBlocksPlaced = 0;
+
+      document.getElementById('palette').classList.remove('hidden');
+      document.getElementById('hold-panel').classList.remove('hidden');
+      document.getElementById('score-hud').classList.add('hidden');
+      document.getElementById('combo-hud').classList.add('hidden');
+      document.getElementById('ta-hud').classList.add('hidden');
+      document.getElementById('ta-gameover').classList.add('hidden');
+      document.getElementById('endless-hud').classList.add('hidden');
+      document.getElementById('endless-gameover').classList.add('hidden');
+
+      rebuildBlockMeshes();
+      spawnCamera();
+      showLearnHint('welcome');
+    }
+
+    function endLearnMode() {
+      playing = false;
+      dragMode = false;
+      resetMove();
+      canvas.style.cursor = '';
+      if (locked) { try { document.exitPointerLock(); } catch (_) {} }
+
+      learnBlocks.clear();
+      document.getElementById('learn-hints').innerHTML = '';
+      refreshControlCopy();
+      updateTouchControlsVisibility();
+    }
+
     // ---- Mode entry ----
 
     // Called once play is actually entered (lock acquired or drag/touch started).
@@ -2763,6 +2873,10 @@
         initEndlessMode();
         coachBtnEl.classList.remove('hidden');
         setTimeout(() => fetchCoachTip('mode_start'), 2000);
+      } else if (pendingLearnInit) {
+        pendingLearnInit = false;
+        initLearnMode();
+        coachBtnEl.classList.add('hidden');
       } else if (gameMode === 'classic') {
         sessionScore = 0;
         updateScoreHud();
@@ -2787,6 +2901,7 @@
       gameMode = mode;
       if (mode === 'timeattack') pendingTaInit = true;
       if (mode === 'endless') pendingEndlessInit = true;
+      if (mode === 'learn') pendingLearnInit = true;
       refreshUndoButton();
       tryPointerLock();
     }
@@ -2859,6 +2974,10 @@
         endTimeAttack();
         return;
       }
+      // In Learn mode, end the session.
+      if (gameMode === 'learn' && playing) {
+        endLearnMode();
+      }
       // Stop any lingering TA timer.
       if (taTimerHandle) { clearInterval(taTimerHandle); taTimerHandle = null; }
       // Stop classic poll.
@@ -2872,10 +2991,12 @@
       refreshUndoButton();
 
       taBlocks.clear();
+      learnBlocks.clear();
       rebuildBlockMeshes(); // gameMode is now null → renders classic blocks
 
       document.getElementById('ta-hud').classList.add('hidden');
       document.getElementById('ta-gameover').classList.add('hidden');
+      document.getElementById('learn-hints').innerHTML = '';
       document.getElementById('palette').classList.remove('hidden');
       document.getElementById('hold-panel').classList.remove('hidden');
       document.getElementById('crosshair').style.opacity = '';
@@ -2964,6 +3085,7 @@
     document.getElementById('play-classic-btn').addEventListener('click', () => { audio.init(); startMode('classic'); });
     document.getElementById('play-ta-btn').addEventListener('click', () => { audio.init(); startMode('timeattack'); });
     document.getElementById('play-endless-btn').addEventListener('click', () => { audio.init(); startMode('endless'); });
+    document.getElementById('play-learn-btn').addEventListener('click', () => { audio.init(); startMode('learn'); });
     document.getElementById('play-spectate-btn').addEventListener('click', () => { audio.init(); startMode('spectate'); });
 
     document.getElementById('ta-tier-down').addEventListener('click', () => {
@@ -4134,7 +4256,9 @@
           if (c && c > cursor) cursor = c;
           if (events && events.length) {
             if (ec) eventsCursor = ec;
-            for (const ev of events) handleDisasterEvent(ev);
+            for (const ev of events) {
+              if (gameMode !== 'learn') handleDisasterEvent(ev);
+            }
           }
         }
       } catch (e) { /* transient; next tick retries */ }
@@ -4371,6 +4495,7 @@
       document.getElementById('preview-classic'),
       document.getElementById('preview-ta'),
       document.getElementById('preview-endless'),
+      document.getElementById('preview-learn'),
       document.getElementById('preview-spectate'),
     ];
     var ctxs = canvases.map(function(c) { return c.getContext('2d'); });
@@ -4616,10 +4741,77 @@
       }
     })();
 
-    // ---- Watch (Spectate) preview ----
+    // ---- Learn preview ----
     (function () {
       var c = canvases[3];
       var ctx = ctxs[3];
+      var LEARN_COLORS = ['#a8e6a8','#b8d4c8','#c4a9d4','#d9e5a0','#f0d9a0','#e0c9b0'];
+      var grid = null;
+      var frame = 0;
+      var BLOCK = 18;
+
+      function buildGrid() {
+        var cols = Math.ceil(c.offsetWidth / BLOCK) + 1;
+        var rows = Math.ceil(110 / BLOCK) + 1;
+        var g = [];
+        for (var row = 0; row < rows; row++) {
+          g[row] = [];
+          for (var col = 0; col < cols; col++) {
+            g[row][col] = { color: LEARN_COLORS[Math.floor(Math.random() * LEARN_COLORS.length)], opacity: 0.3 };
+          }
+        }
+        return g;
+      }
+
+      function drawLearn() {
+        if (overlay.classList.contains('hidden')) return;
+        frame++;
+        if (!grid || grid.length === 0) grid = buildGrid();
+
+        var w = c.offsetWidth, h = 110;
+
+        // background gradient
+        var bg = ctx.createLinearGradient(0, 0, 0, h);
+        bg.addColorStop(0, '#1a2e2e');
+        bg.addColorStop(1, '#0d2117');
+        ctx.fillStyle = bg;
+        ctx.fillRect(0, 0, w, h);
+
+        // draw block grid with fading animation
+        var rows = grid.length, cols = grid[0] ? grid[0].length : 0;
+        for (var row = 0; row < rows; row++) {
+          for (var col = 0; col < cols; col++) {
+            var block = grid[row][col];
+            ctx.save();
+            ctx.globalAlpha = block.opacity;
+            drawBlock(ctx, col * BLOCK, row * BLOCK, BLOCK - 1, block.color);
+            ctx.restore();
+          }
+        }
+
+        // slowly fade in/out blocks
+        if (frame % 60 === 0) {
+          var r = Math.floor(Math.random() * grid.length);
+          var col2 = Math.floor(Math.random() * (grid[r] ? grid[r].length : 0));
+          if (grid[r] && grid[r][col2]) {
+            grid[r][col2].opacity = Math.min(1, grid[r][col2].opacity + 0.2);
+          }
+        }
+
+        if (!reducedMotion) requestAnimationFrame(drawLearn);
+      }
+
+      if (reducedMotion) {
+        setTimeout(drawLearn, 50);
+      } else {
+        requestAnimationFrame(drawLearn);
+      }
+    })();
+
+    // ---- Watch (Spectate) preview ----
+    (function () {
+      var c = canvases[4];
+      var ctx = ctxs[4];
       var FAR_COLORS  = ['#306f27','#4a8a2d','#6b4828','#6e6e73','#4a8a2d','#306f27','#6b4828'];
       var NEAR_COLORS = ['#4a8a2d','#6b4828','#4a8a2d','#6e6e73','#4a8a2d','#6b4828','#4a8a2d'];
       var BW = 18; // block width in the parallax strips
