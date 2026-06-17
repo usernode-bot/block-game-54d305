@@ -71,6 +71,7 @@ const PALETTE = [
   { id: 24, name: 'Cyan',          color: '#29b8b8' },
   { id: 25, name: 'Iron Block',    color: '#d4d4dc', material: 'standard', metalness: 0.9, roughness: 0.3 },
   { id: 26, name: 'Terracotta',    color: '#c5694a' },
+  { id: 27, name: 'Gold Star',     color: '#ffd700', wildcard: true, material: 'standard', metalness: 0.85, roughness: 0.12, emissive: '#ffa500', emissiveIntensity: 0.4, unlockIcon: '⭐' },
 ];
 const VALID_TYPES = new Set(PALETTE.map((p) => p.id)); // does NOT include 0
 
@@ -89,6 +90,7 @@ const BLOCK_POINTS = {
   21: 2, 22: 2, 23: 2, 24: 2, // Lime, Orange, Purple, Cyan
   25: 4,  // Iron Block
   26: 1,  // Terracotta
+  27: 5,  // Gold Star
 };
 
 // Sentinel "user" id for staging seed rows so they never reference a real user.
@@ -3902,6 +3904,7 @@ function generatePuzzleBlocks(levelNumber) {
 
   const blockCount = 20 + levelNumber * 8; // Increases with level
   const blockTypes = [1, 2, 3, 4, 5, 6, 7, 9, 10, 11]; // Color variety, exclude glass/special
+  if (levelNumber >= 3) blockTypes.push(27); // Gold Star wildcard appears from level 3
 
   for (let i = 0; i < blockCount; i++) {
     const x = Math.floor(nextRandom() * 32);
@@ -3926,6 +3929,8 @@ async function seedPuzzleLevels() {
 
   for (const { level, target } of levelSeeds) {
     const blocks = generatePuzzleBlocks(level);
+    // Guarantee at least one Gold Star wildcard is visible in the level-3 staging seed.
+    if (level === 3) blocks.push({ x: 5, y: 4, z: 5, t: 27 });
     await pool.query(
       `INSERT INTO puzzle_level_definitions (level_number, block_snapshot, target_blocks_to_clear)
        VALUES ($1, $2, $3)
