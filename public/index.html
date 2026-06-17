@@ -841,6 +841,13 @@
           <span id="settings-sound-knob" class="absolute top-0.5 left-0.5 w-6 h-6 rounded-full bg-white shadow transition-transform" style="transform: translateX(20px)"></span>
         </button>
       </div>
+      <!-- Music volume slider -->
+      <div class="text-zinc-300 pt-3 border-t border-zinc-700">
+        <div class="font-semibold text-zinc-100 mb-2" id="settings-music-volume-label">Music Volume</div>
+        <input type="range" id="settings-music-volume" min="0" max="100" value="70" aria-label="Music volume"
+               class="w-full h-2 bg-zinc-700 rounded-lg appearance-none cursor-pointer accent-emerald-600" />
+        <div class="text-xs text-zinc-400 mt-1">Reggae background music level</div>
+      </div>
       <!-- Language toggle -->
       <div class="flex items-center justify-between gap-3">
         <div>
@@ -1601,6 +1608,7 @@
         if (ctx.state === 'suspended') ctx.resume();
         playJoin();
         startMusic();
+        loadReggae();
       }
 
       function playLineClear() {
@@ -1614,7 +1622,78 @@
         });
       }
 
-      return { init, playPlace, playBreak, playDisasterSound, playGameOver, playFanfare, toggleMute, isMuted, playLineClear, stopMusic };
+      // Reggae background music playback
+      let reggaeBuffer = null;
+      let reggaeSource = null;
+      let reggaeGain = null;
+      let reggaeVolume = parseFloat(localStorage.getItem('blockgame-reggae-volume') || '0.7');
+      let reggaePlaying = false;
+
+      async function loadReggae() {
+        if (reggaeBuffer) return; // Already loaded
+        try {
+          const response = await fetch('/music/reggae.wav');
+          if (!response.ok) {
+            console.warn('Reggae audio file not found');
+            return;
+          }
+          const arrayBuffer = await response.arrayBuffer();
+          reggaeBuffer = await ctx.decodeAudioData(arrayBuffer);
+        } catch (e) {
+          console.warn('Failed to load reggae music:', e);
+        }
+      }
+
+      function startReggae() {
+        if (!ctx || !reggaeBuffer || reggaePlaying) return;
+        reggaePlaying = true;
+
+        if (!reggaeGain) {
+          reggaeGain = ctx.createGain();
+          reggaeGain.connect(masterGain);
+        }
+
+        reggaeGain.gain.setValueAtTime(muted ? 0 : reggaeVolume * 0.7, ctx.currentTime);
+
+        reggaeSource = ctx.createBufferSource();
+        reggaeSource.buffer = reggaeBuffer;
+        reggaeSource.loop = true;
+        reggaeSource.connect(reggaeGain);
+        reggaeSource.start(ctx.currentTime);
+      }
+
+      function stopReggae() {
+        if (reggaeSource) {
+          try {
+            reggaeSource.stop(ctx.currentTime);
+          } catch (_) {}
+          reggaeSource = null;
+        }
+        reggaePlaying = false;
+      }
+
+      function setReggaeVolume(level) {
+        reggaeVolume = Math.max(0, Math.min(1, level));
+        localStorage.setItem('blockgame-reggae-volume', String(reggaeVolume));
+        if (reggaeGain && ctx) {
+          reggaeGain.gain.setValueAtTime(muted ? 0 : reggaeVolume * 0.7, ctx.currentTime);
+        }
+      }
+
+      function syncReggaeMute() {
+        if (reggaeGain && ctx) {
+          reggaeGain.gain.setValueAtTime(muted ? 0 : reggaeVolume * 0.7, ctx.currentTime);
+        }
+      }
+
+      // Override toggleMute to also sync reggae
+      const originalToggleMute = toggleMute;
+      function toggleMuteWithReggae() {
+        originalToggleMute();
+        syncReggaeMute();
+      }
+
+      return { init, playPlace, playBreak, playDisasterSound, playGameOver, playFanfare, toggleMute: toggleMuteWithReggae, isMuted, playLineClear, stopMusic, startReggae, stopReggae, setReggaeVolume, loadReggae };
     })();
 
     // ---- Language system ----
@@ -3608,6 +3687,7 @@
       resetMove();
       canvas.style.cursor = '';
       if (locked) { try { document.exitPointerLock(); } catch (_) {} }
+      audio.stopReggae();
 
       tutorialBlocks.clear();
       tutorialStep = 0;
@@ -4308,6 +4388,9 @@
     });
     document.getElementById('settings-close').addEventListener('click', closeSettings);
     document.getElementById('settings-sound-toggle').addEventListener('click', toggleSound);
+    document.getElementById('settings-music-volume').addEventListener('input', (e) => {
+      audio.setReggaeVolume(e.target.value / 100);
+    });
     document.getElementById('settings-diff-down').addEventListener('click', () => {
       if (taDifficulty > 1) { taDifficulty--; lsSet('ta_difficulty', taDifficulty); updateTaTierPicker(); }
     });
@@ -4606,6 +4689,7 @@
       resetMove();
       canvas.style.cursor = '';
       if (locked) { try { document.exitPointerLock(); } catch (_) {} }
+      audio.stopReggae();
       clearScorePops();
 
       // Capture what the run was actually played at BEFORE the auto-adjust
@@ -4751,6 +4835,7 @@
       resetMove();
       canvas.style.cursor = '';
       if (locked) { try { document.exitPointerLock(); } catch (_) {} }
+      audio.stopReggae();
       clearScorePops();
 
       const clearedThisRun = ta60Score;
@@ -4859,6 +4944,7 @@
       resetMove();
       canvas.style.cursor = '';
       if (locked) { try { document.exitPointerLock(); } catch (_) {} }
+      audio.stopReggae();
 
       const placedThisRun = endlessBlocksPlaced;
       const movesSurvived = endlessMovesStarted;
@@ -4899,6 +4985,7 @@
       resetMove();
       canvas.style.cursor = '';
       if (locked) { try { document.exitPointerLock(); } catch (_) {} }
+      audio.stopReggae();
 
       learnBlocks.clear();
       document.getElementById('learn-hints').innerHTML = '';
@@ -4920,6 +5007,7 @@
     // of whether play was entered via pointer lock, drag fallback, or touch.
     function onPlayEntered() {
       refreshUndoButton();
+      audio.startReggae();
       if (pendingTaInit) {
         pendingTaInit = false;
         initTimeAttack();
@@ -5082,6 +5170,7 @@
       dragMode = false;
       resetMove();
       canvas.style.cursor = '';
+      audio.stopReggae();
       pauseOverlayEl.classList.add('hidden');
       canvas.style.pointerEvents = 'auto';
       refreshUndoButton();
@@ -5518,6 +5607,7 @@
             hideComboHud();
             canvas.style.cursor = '';
             hideMinimap();
+            audio.stopReggae();
             overlayEl.style.display = 'flex';
             refreshControlCopy();
           }
