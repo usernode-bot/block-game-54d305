@@ -915,14 +915,27 @@
   <button id="theme-btn" title="Daily Build Theme" aria-label="Daily Build Theme"
           class="fixed top-[10.5rem] right-3 z-30 w-9 h-9 rounded-full bg-black/50 hover:bg-black/70 text-zinc-100 text-lg leading-none flex items-center justify-center transition-colors cursor-pointer">🌟</button>
 
-  <!-- Accessibility toggle: below the coach button. Opens the a11y panel. -->
+  <!-- NFT Skins toggle: below the coach button. -->
+  <button id="skins-btn" title="NFT Block Skins" aria-label="Toggle NFT skins"
+          class="fixed top-[11rem] right-3 z-30 w-9 h-9 rounded-full bg-black/50 hover:bg-black/70 text-zinc-100 text-lg leading-none flex items-center justify-center transition-colors cursor-pointer">🎨</button>
+
+  <!-- Accessibility toggle: below the skins button. Opens the a11y panel. -->
   <button id="accessibility-btn" title="Accessibility" aria-label="Accessibility settings"
-          class="fixed top-[10.5rem] right-3 z-30 w-9 h-9 rounded-full bg-black/50 hover:bg-black/70 text-zinc-100 text-lg leading-none flex items-center justify-center transition hover:scale-110 active:scale-95 cursor-pointer">♿</button>
+          class="fixed top-[11.5rem] right-3 z-30 w-9 h-9 rounded-full bg-black/50 hover:bg-black/70 text-zinc-100 text-lg leading-none flex items-center justify-center transition hover:scale-110 active:scale-95 cursor-pointer">♿</button>
 
   <!-- Build/version stamp: always visible, dim, so the running build can be
        confirmed at a glance. Bump BUILD_VERSION (below) on every change.
-       Shifted down to make room for the leaderboard, friends, coach, accessibility, and theme buttons above. -->
-  <div id="build-stamp" class="pointer-events-none fixed top-[12.75rem] right-3 z-20 text-[11px] text-zinc-300/70 bg-black/40 rounded px-2 py-1 font-mono"></div>
+       Shifted down to make room for the leaderboard, friends, coach, skins, accessibility, and theme buttons. -->
+  <div id="build-stamp" class="pointer-events-none fixed top-[13rem] right-3 z-20 text-[11px] text-zinc-300/70 bg-black/40 rounded px-2 py-1 font-mono"></div>
+
+  <!-- NFT Skins panel: shows owned NFTs for equipping as block textures. -->
+  <div id="skins-panel" class="hidden fixed top-16 right-3 z-30 w-72 max-w-[90vw] rounded-xl bg-black/70 backdrop-blur p-4 text-sm text-zinc-200 shadow-xl">
+    <div class="flex items-center justify-between mb-3">
+      <h2 class="font-bold text-zinc-100">NFT Block Skins</h2>
+      <button id="skins-close" aria-label="Close skins" class="text-zinc-400 hover:text-zinc-100 cursor-pointer leading-none">✕</button>
+    </div>
+    <div id="skins-content" class="text-zinc-400 text-center py-2 text-xs">Loading…</div>
+  </div>
 
   <!-- Mini-map: top-down 128×128 px overhead view of the 32×32 world.
        Hidden until a play mode is chosen; shown/hidden via JS. -->
@@ -945,14 +958,18 @@
     </div>
   </div>
 
-  <!-- Badges panel: lists all 10 badges with earned/locked state. Hidden by
-       default; toggled by the trophy button. -->
-  <div id="badges-panel" class="hidden fixed top-16 right-3 z-30 w-full sm:w-72 max-w-[90vw] rounded-xl bg-black/70 backdrop-blur px-3 py-4 sm:p-4 text-sm text-zinc-200 shadow-xl">
+  <!-- Profile panel: Stats + Badges tabs. Hidden by default; toggled by the trophy button. -->
+  <div id="badges-panel" class="hidden fixed top-16 right-3 z-30 w-full sm:w-72 max-w-[90vw] rounded-xl bg-black/70 backdrop-blur p-4 text-sm text-zinc-200 shadow-xl">
     <div class="flex items-center justify-between mb-3">
-      <h2 class="font-bold text-zinc-100" id="badges-panel-title">Badges</h2>
-      <button id="badges-close" aria-label="Close badges" class="text-zinc-400 hover:text-zinc-100 cursor-pointer leading-none transition-colors">✕</button>
+      <h2 class="font-bold text-zinc-100" id="badges-panel-title">Profile</h2>
+      <button id="badges-close" aria-label="Close profile" class="text-zinc-400 hover:text-zinc-100 cursor-pointer leading-none transition-colors">✕</button>
     </div>
-    <div id="badges-list" class="space-y-2 sm:space-y-1.5 max-h-[calc(100vh-200px)] sm:max-h-96 overflow-y-auto pr-0.5"></div>
+    <div class="flex gap-1 mb-3">
+      <button id="profile-tab-stats"  class="px-2 py-0.5 rounded text-xs font-semibold bg-zinc-700 text-zinc-100 cursor-pointer">Stats</button>
+      <button id="profile-tab-badges" class="px-2 py-0.5 rounded text-xs font-semibold text-zinc-400 hover:text-zinc-200 cursor-pointer">Badges</button>
+    </div>
+    <div id="profile-stats-content"  class="text-zinc-400 text-center py-2 text-xs">Loading…</div>
+    <div id="badges-list" class="hidden space-y-2 sm:space-y-1.5 max-h-[calc(100vh-200px)] sm:max-h-80 overflow-y-auto pr-0.5"></div>
   </div>
 
   <!-- Settings panel: sound on/off + Time Attack difficulty. Hidden by
@@ -1194,7 +1211,7 @@
         <button id="tab-monuments" class="px-2 py-0.5 rounded text-xs font-semibold text-zinc-400 hover:text-zinc-200 cursor-pointer transition-colors whitespace-nowrap" data-tab="monuments">Monuments</button>
         <button id="tab-ta" class="px-2 py-0.5 rounded text-xs font-semibold text-zinc-400 hover:text-zinc-200 cursor-pointer transition-colors whitespace-nowrap" data-tab="ta">Time Attack</button>
         <button id="tab-ta-60" class="px-2 py-0.5 rounded text-xs font-semibold text-zinc-400 hover:text-zinc-200 cursor-pointer transition-colors whitespace-nowrap" data-tab="ta-60">TA (60s)</button>
-        <button id="tab-daily-challenge" class="px-2 py-0.5 rounded text-xs font-semibold text-zinc-400 hover:text-zinc-200 cursor-pointer transition-colors whitespace-nowrap" data-tab="daily">Daily</button>
+        <button id="tab-daily-challenge" class="px-2 py-0.5 rounded text-xs font-semibold text-zinc-400 hover:text-zinc-200 cursor-pointer transition-colors whitespace-nowrap" data-tab="daily-challenge">Daily</button>
         <button id="tab-endless" class="px-2 py-0.5 rounded text-xs font-semibold text-zinc-400 hover:text-zinc-200 cursor-pointer transition-colors whitespace-nowrap" data-tab="endless">Endless</button>
         <button id="tab-puzzle" class="px-2 py-0.5 rounded text-xs font-semibold text-zinc-400 hover:text-zinc-200 cursor-pointer transition-colors whitespace-nowrap" data-tab="puzzle">Puzzle</button>
         <button id="tab-prompt" class="px-2 py-0.5 rounded text-xs font-semibold text-zinc-400 hover:text-zinc-200 cursor-pointer transition-colors whitespace-nowrap" data-tab="prompt">Prompt</button>
@@ -1561,7 +1578,7 @@
 
     // Build identifier — bump this (to the deploying commit short SHA) on every
     // change so the top-right stamp confirms exactly which code is running.
-    const BUILD_VERSION = 'power-ups+hold-queue+achievements-badges+chat+daily-challenge+leaderboard+online-presence+block-attribution+audio-sfx+next-piece-preview+spectator-mode+weekly-tournament+friends+betting-system+blocks-placed-hud+day-night-cycle+minimap+ai-coach+daily-theme-voting+natural-disasters+community-monuments+undo-redo-history+pastel-chrome+mobs+message-in-a-block+accessibility-panel+pixel-pets+versus-mode';
+    const BUILD_VERSION = 'power-ups+hold-queue+achievements-badges+chat+daily-challenge+leaderboard+online-presence+block-attribution+audio-sfx+next-piece-preview+spectator-mode+weekly-tournament+friends+betting-system+blocks-placed-hud+day-night-cycle+minimap+ai-coach+nft-skins+player-stats+leaderboard-daily+new-badges+daily-theme-voting+natural-disasters+community-monuments+undo-redo-history+pastel-chrome+mobs+message-in-a-block+accessibility-panel+pixel-pets+versus-mode';
 
     // Badge definitions — mirror of the server-side BADGES array, extended with
     // a `hint` field shown in the panel for unearned badges.
@@ -1579,14 +1596,21 @@
       { id: 'crystal_placer',  name: 'Crystal Placer',  icon: '💎', flavour: 'Placed a Crystal Block!',        hint: 'Place a Crystal Block (unlock by placing 50 blocks first)' },
       { id: 'streak_3',        name: 'Hot Start',       icon: '🔥', flavour: 'Logged in 3 days in a row!',     hint: 'Log in 3 days in a row' },
       { id: 'streak_7',        name: 'Week Warrior',    icon: '🗓️', flavour: 'A full week of building!',       hint: 'Log in 7 days in a row' },
-      { id: 'streak_14',       name: 'Fortnight Pro',   icon: '🏆', flavour: 'Two weeks of daily play!',       hint: 'Log in 14 days in a row' },
-      { id: 'streak_30',       name: 'Monthly Master',  icon: '👑', flavour: 'A full month on the block!',     hint: 'Log in 30 days in a row' },
+      { id: 'streak_14',        name: 'Fortnight Pro',    icon: '🏆', flavour: 'Two weeks of daily play!',       hint: 'Log in 14 days in a row' },
+      { id: 'streak_30',        name: 'Monthly Master',   icon: '👑', flavour: 'A full month on the block!',    hint: 'Log in 30 days in a row' },
+      { id: 'master_comboist',  name: 'Combo King',       icon: '💥', flavour: 'Achieved a ×5 combo!',         hint: 'Achieve a ×5 combo (10+ blocks in 10 seconds)' },
+      { id: 'overachiever',     name: 'Overachiever',     icon: '🏅', flavour: 'Earned 5,000 total score!',    hint: 'Accumulate 5,000 total score points' },
+      { id: 'legendary_builder',name: 'Legendary Builder',icon: '🌟', flavour: 'Placed 500 blocks!',           hint: 'Place 500 blocks total' },
+      { id: 'daily_regular',    name: 'Daily Regular',    icon: '📅', flavour: 'Completed 5 daily challenges!',hint: 'Complete 5 daily challenges' },
+      { id: 'speed_demon',      name: 'Speed Demon',      icon: '⚡', flavour: 'Cleared 30+ blocks in Time Attack!', hint: 'Clear 30+ blocks in a single Time Attack run' },
       { id: 'mission_complete',  name: 'Mission Complete', icon: '🎯', flavour: 'Completed your first daily mission!', hint: 'Complete your first daily mission' },
       { id: 'mission_streak_3',  name: 'Mission Regular',  icon: '📋', flavour: 'Completed missions 3 days in a row!', hint: 'Complete daily missions 3 days in a row' },
       { id: 'mission_streak_7',  name: 'Mission Pro',      icon: '📊', flavour: 'Completed missions 7 days in a row!', hint: 'Complete daily missions 7 days in a row' },
       { id: 'mission_streak_30', name: 'Mission Master',   icon: '🏅', flavour: 'Completed missions 30 days in a row!', hint: 'Complete daily missions 30 days in a row' },
-      { id: 'theme_winner',   name: 'Theme Champion',  icon: '🥇', flavour: 'First place in the daily build theme vote!', hint: 'Win the daily build theme vote' },
-      { id: 'daily_devotee',   name: 'Daily Devotee',   icon: '🌟', flavour: 'Completed the daily challenge 7 days in a row!', hint: 'Complete the daily challenge 7 days in a row' },
+      { id: 'theme_winner',     name: 'Theme Champion',   icon: '🥇', flavour: 'First place in the daily build theme vote!', hint: 'Win the daily build theme vote' },
+      { id: 'daily_devotee',    name: 'Daily Devotee',    icon: '🌟', flavour: 'Completed the daily challenge 7 days in a row!', hint: 'Complete the daily challenge 7 days in a row' },
+      { id: 'daily_champion',   name: 'Daily Champion',   icon: '👑', flavour: 'Won the Daily Challenge!',     hint: 'Rank #1 on the daily challenge leaderboard' },
+      { id: 'speedrunner',      name: 'Speedrunner',      icon: '⚡', flavour: 'Blazing fast block placement!',hint: 'Complete the daily challenge in under 2 minutes' },
     ];
 
     // Wager tier definitions — mirror of WAGER_TIERS in server.js.
@@ -2347,6 +2371,7 @@
     let DIMS = { w: 32, d: 32, h: 24 };
     let PALETTE = [];
     const blocks = new Map();        // "x,y,z" -> block_type (non-zero only) — classic world
+    const blockSkins = new Map();    // "x,y,z" -> skin_id (only for skinned blocks)
     let cursor = 0;                  // last seq seen from the server
     let eventsCursor = 0;            // last disaster id seen
     let shakeEndTime = 0;            // ms timestamp when camera shake ends
@@ -2362,6 +2387,12 @@
     try { const _cm = localStorage.getItem('blockgame-chaos-mode'); if (_cm !== null) chaosMode = JSON.parse(_cm); } catch (_) {}
     let unlockedTypes = new Set(); // block type IDs earned by the current user
     const key = (x, y, z) => x + ',' + y + ',' + z;
+
+    // ---- NFT skin state ----
+    let myActiveSkinId = null;     // skin_id the local player has equipped, or null
+    const skinTextures = new Map(); // skin_id -> THREE.Texture | 'loading' | 'error'
+    const SKIN_TEXTURE_CAP = 20;   // max loaded textures before LRU eviction
+    const skinTextureOrder = [];   // LRU order: oldest-used first
 
     // ---- Message in a Block state ----
     let pendingMessage = null;        // string queued for next placement, or null
@@ -2383,9 +2414,12 @@
     const redoStack = [];
     let isStaging = false;
 
-    // ---- Badge state ----
+    // ---- Badge / Profile panel state ----
     const earnedBadges = new Map(); // badge_id -> { earned_at }
     let badgesOpen = false;
+    let profileTab = 'stats'; // 'stats' | 'badges'
+    let profileStatsCache = null;   // cached /api/stats/me response
+    let profileStatsCacheAt = 0;   // timestamp when cache was populated
 
     // ---- Chat state ----
     let chatCursor = 0;    // last chat message id seen
@@ -3054,6 +3088,33 @@
       }
     }
 
+    function emitBombExplosion(cx, cy, cz) {
+      if (reducedMotion) return;
+      const bombColors = [0x3d3a52, 0xe8500a, 0xff7700, 0x2a2840, 0xffd080, 0xff4400];
+      for (let _k = 0; _k < 30; _k++) {
+        const slot = _acquireParticle();
+        if (!slot) break;
+        const speed = 4 + Math.random() * 4;
+        const theta = Math.random() * Math.PI * 2;
+        const phi = Math.acos(2 * Math.random() - 1);
+        const colorIdx = Math.floor(Math.random() * bombColors.length);
+        slot.mesh.material.color.setHex(bombColors[colorIdx]);
+        slot.mesh.material.opacity = 1;
+        slot.startOpacity = 1;
+        slot.vx = Math.sin(phi) * Math.cos(theta) * speed;
+        slot.vy = Math.sin(phi) * Math.sin(theta) * speed + 2;
+        slot.vz = Math.cos(phi) * speed;
+        slot.gravity = 5;
+        slot.age = 0;
+        slot.maxAge = 0.7 + Math.random() * 0.2;
+        const scale = 0.5 + Math.random() * 0.7;
+        slot.mesh.scale.setScalar(scale);
+        slot.mesh.position.set(cx + (Math.random() - 0.5) * 0.5, cy + (Math.random() - 0.5) * 0.5, cz + (Math.random() - 0.5) * 0.5);
+        slot.mesh.visible = true;
+        slot.active = true;
+      }
+    }
+
     function tickParticles(dt) {
       for (let _j = 0; _j < PARTICLE_POOL_SIZE; _j++) {
         const slot = particlePool[_j];
@@ -3168,13 +3229,25 @@
       else if (gameMode === 'learn') source = learnBlocks;
       else if (gameMode === 'tutorial') source = tutorialBlocks;
       else if (gameMode === 'versus') source = versusBlocks;
-      const byType = new Map();
+      const byType = new Map(); // typeInt -> [{x,y,z}]
+      const bySkin = new Map(); // skin_id -> {cells: [{x,y,z}], blockType: int}
+
+
       for (const [k, t] of source) {
-        if (!byType.has(t)) byType.set(t, []);
         const [x, y, z] = k.split(',').map(Number);
-        byType.get(t).push({ x, y, z });
+        const skinId = blockSkins.get(k) || null;
+        if (skinId) {
+          if (!bySkin.has(skinId)) bySkin.set(skinId, { cells: [], blockType: t });
+          bySkin.get(skinId).cells.push({ x, y, z });
+        } else {
+          if (!byType.has(t)) byType.set(t, []);
+          byType.get(t).push({ x, y, z });
+        }
       }
+
       const dummy = new THREE.Object3D();
+
+      // Unskinned blocks — same as before.
       for (const [t, cells] of byType) {
         const p = PALETTE.find((q) => q.id === t);
         if (!p) continue;
@@ -3190,6 +3263,93 @@
         mesh.instanceMatrix.needsUpdate = true;
         mesh.userData.cells = cells;
         blockGroup.add(mesh);
+      }
+
+      // Skinned blocks — one InstancedMesh per skin_id.
+      for (const [skinId, { cells, blockType }] of bySkin) {
+        const tex = skinTextures.get(skinId);
+        if (tex === undefined) {
+          // Trigger async load; fall back to default type material this frame.
+          loadSkinTexture(skinId);
+          const p = PALETTE.find((q) => q.id === blockType);
+          if (p) {
+            const mat = materialFor(p);
+            const mesh = new THREE.InstancedMesh(cube, mat, cells.length);
+            cells.forEach((c, i) => { dummy.position.set(c.x + 0.5, c.y + 0.5, c.z + 0.5); dummy.updateMatrix(); mesh.setMatrixAt(i, dummy.matrix); });
+            mesh.instanceMatrix.needsUpdate = true;
+            mesh.userData.cells = cells;
+            blockGroup.add(mesh);
+          }
+        } else if (tex === 'loading') {
+          // Texture is in flight — use default material as placeholder.
+          const p = PALETTE.find((q) => q.id === blockType);
+          if (p) {
+            const mat = materialFor(p);
+            const mesh = new THREE.InstancedMesh(cube, mat, cells.length);
+            cells.forEach((c, i) => { dummy.position.set(c.x + 0.5, c.y + 0.5, c.z + 0.5); dummy.updateMatrix(); mesh.setMatrixAt(i, dummy.matrix); });
+            mesh.instanceMatrix.needsUpdate = true;
+            mesh.userData.cells = cells;
+            blockGroup.add(mesh);
+          }
+        } else if (tex === 'error') {
+          // Load failed — permanently use default type material.
+          const p = PALETTE.find((q) => q.id === blockType);
+          if (p) {
+            const mat = materialFor(p);
+            const mesh = new THREE.InstancedMesh(cube, mat, cells.length);
+            cells.forEach((c, i) => { dummy.position.set(c.x + 0.5, c.y + 0.5, c.z + 0.5); dummy.updateMatrix(); mesh.setMatrixAt(i, dummy.matrix); });
+            mesh.instanceMatrix.needsUpdate = true;
+            mesh.userData.cells = cells;
+            blockGroup.add(mesh);
+          }
+        } else {
+          // Texture loaded — render with NFT artwork.
+          touchSkinLRU(skinId);
+          const mat = new THREE.MeshLambertMaterial({ map: tex });
+          const mesh = new THREE.InstancedMesh(cube, mat, cells.length);
+          cells.forEach((c, i) => { dummy.position.set(c.x + 0.5, c.y + 0.5, c.z + 0.5); dummy.updateMatrix(); mesh.setMatrixAt(i, dummy.matrix); });
+          mesh.instanceMatrix.needsUpdate = true;
+          mesh.userData.cells = cells;
+          blockGroup.add(mesh);
+        }
+      }
+    }
+
+    function touchSkinLRU(skinId) {
+      const idx = skinTextureOrder.indexOf(skinId);
+      if (idx !== -1) skinTextureOrder.splice(idx, 1);
+      skinTextureOrder.push(skinId);
+      // Evict oldest if over cap.
+      while (skinTextureOrder.length > SKIN_TEXTURE_CAP) {
+        const oldest = skinTextureOrder.shift();
+        const old = skinTextures.get(oldest);
+        if (old && old !== 'loading' && old !== 'error') old.dispose();
+        skinTextures.delete(oldest);
+      }
+    }
+
+    async function loadSkinTexture(skinId) {
+      if (skinTextures.has(skinId)) return; // already loading or loaded
+      skinTextures.set(skinId, 'loading');
+      try {
+        const res = await fetch('/api/skins/' + encodeURIComponent(skinId), { headers });
+        if (!res.ok) throw new Error('not found');
+        const { image_url } = await res.json();
+        if (!image_url) throw new Error('no image_url');
+        const loader = new THREE.TextureLoader();
+        loader.load(
+          image_url,
+          (texture) => {
+            texture.colorSpace = THREE.SRGBColorSpace;
+            skinTextures.set(skinId, texture);
+            rebuildBlockMeshes();
+          },
+          undefined,
+          () => { skinTextures.set(skinId, 'error'); rebuildBlockMeshes(); }
+        );
+      } catch (_) {
+        skinTextures.set(skinId, 'error');
+        rebuildBlockMeshes();
       }
     }
 
@@ -3236,8 +3396,76 @@
     }
 
     // ---- Badge panel rendering ----
+    // ---- Profile panel: stats + badges tabs ----
+
+    function setProfileTab(tab) {
+      profileTab = tab;
+      const statsBtn  = document.getElementById('profile-tab-stats');
+      const badgesBtn = document.getElementById('profile-tab-badges');
+      const statsEl   = document.getElementById('profile-stats-content');
+      const badgesEl  = document.getElementById('badges-list');
+      const isStats = tab === 'stats';
+      statsBtn.classList.toggle('bg-zinc-700',    isStats);
+      statsBtn.classList.toggle('text-zinc-100',  isStats);
+      statsBtn.classList.toggle('text-zinc-400',  !isStats);
+      badgesBtn.classList.toggle('bg-zinc-700',   !isStats);
+      badgesBtn.classList.toggle('text-zinc-100', !isStats);
+      badgesBtn.classList.toggle('text-zinc-400', isStats);
+      statsEl.classList.toggle('hidden',  !isStats);
+      badgesEl.classList.toggle('hidden',  isStats);
+      if (isStats) loadAndRenderStats();
+      else renderBadgesPanel();
+    }
+
+    async function loadAndRenderStats() {
+      const statsEl = document.getElementById('profile-stats-content');
+      const now = Date.now();
+      if (!profileStatsCache || now - profileStatsCacheAt > 60000) {
+        statsEl.innerHTML = '<span class="text-zinc-500">Loading…</span>';
+        try {
+          const res = await fetch('/api/stats/me', { headers });
+          if (!res.ok) throw new Error('fetch failed');
+          profileStatsCache = await res.json();
+          profileStatsCacheAt = Date.now();
+        } catch (_) {
+          statsEl.innerHTML = '<span class="text-zinc-500">Couldn\'t load stats.</span>';
+          return;
+        }
+      }
+      renderStatsTab(profileStatsCache);
+    }
+
+    function renderStatsTab(s) {
+      const statsEl = document.getElementById('profile-stats-content');
+      const comboLabel = s.best_combo >= 4 ? '×5' : s.best_combo >= 3 ? '×3' : s.best_combo >= 2 ? '×2' : '×1';
+      const rows = [
+        ['Total Score',     s.total_score.toLocaleString() + ' pts'],
+        ['Blocks Placed',   s.blocks_placed.toLocaleString()],
+        ['Best Combo',      comboLabel],
+        ['Login Streak',    '🔥 ' + s.current_streak + ' day' + (s.current_streak !== 1 ? 's' : '') + (s.longest_streak > s.current_streak ? ' (best: ' + s.longest_streak + ')' : '')],
+        ['Daily Challenges',s.daily_challenges_completed + ' completed'],
+        ['Badges',          s.badges_earned + ' / ' + s.badges_total],
+      ];
+      if (s.best_time_attack_score > 0) {
+        rows.push(['Best Time Attack', s.best_time_attack_score + ' blocks']);
+      }
+      if (!s.total_score && !s.blocks_placed) {
+        statsEl.innerHTML = '<p class="text-zinc-500 py-2">No data yet — start building!</p>';
+        return;
+      }
+      statsEl.innerHTML =
+        '<div class="grid grid-cols-2 gap-x-4 gap-y-2">' +
+        rows.map(([label, val]) =>
+          '<div class="text-zinc-500 text-xs">' + escapeHtml(label) + '</div>' +
+          '<div class="text-zinc-100 text-xs font-semibold text-right">' + escapeHtml(String(val)) + '</div>'
+        ).join('') +
+        '</div>';
+    }
+
     function renderBadgesPanel() {
       const listEl = document.getElementById('badges-list');
+      // Use cached stats for progress indicators if available
+      const stats = profileStatsCache;
       listEl.innerHTML = '';
       for (const b of BADGES_DEF) {
         const earned = earnedBadges.get(b.id);
@@ -3253,9 +3481,26 @@
         nameEl.textContent = b.name;
         const subEl = document.createElement('div');
         subEl.className = 'text-zinc-400 text-xs mt-0.5 leading-snug';
-        subEl.textContent = earned
-          ? b.flavour + ' · earned ' + relativeTime(earned.earned_at)
-          : b.hint;
+        if (earned) {
+          subEl.textContent = b.flavour + ' · earned ' + relativeTime(earned.earned_at);
+        } else {
+          let progressNote = '';
+          if (stats) {
+            switch (b.id) {
+              case 'builder':          progressNote = stats.blocks_placed + '/10 blocks'; break;
+              case 'architect':        progressNote = stats.blocks_placed + '/100 blocks'; break;
+              case 'legendary_builder':progressNote = stats.blocks_placed + '/500 blocks'; break;
+              case 'high_scorer':      progressNote = stats.total_score.toLocaleString() + '/1,000 pts'; break;
+              case 'overachiever':     progressNote = stats.total_score.toLocaleString() + '/5,000 pts'; break;
+              case 'streak_3':         progressNote = 'current streak: ' + stats.current_streak + '🔥'; break;
+              case 'streak_7':         progressNote = 'current streak: ' + stats.current_streak + '🔥'; break;
+              case 'streak_14':        progressNote = 'current streak: ' + stats.current_streak + '🔥'; break;
+              case 'streak_30':        progressNote = 'current streak: ' + stats.current_streak + '🔥'; break;
+              case 'daily_regular':    progressNote = stats.daily_challenges_completed + '/5 challenges'; break;
+            }
+          }
+          subEl.textContent = b.hint + (progressNote ? ' · ' + progressNote : '');
+        }
         info.appendChild(nameEl);
         info.appendChild(subEl);
         item.appendChild(iconEl);
@@ -3700,10 +3945,14 @@
       x >= 0 && x < DIMS.w && z >= 0 && z < DIMS.d && y >= 1 && y < DIMS.h;
 
     // ---- Apply an edit locally + send to server (optimistic) ----
-    function applyLocal(x, y, z, t) {
+    function applyLocal(x, y, z, t, skinId) {
       const k = key(x, y, z);
-      if (t === 0) blocks.delete(k); else blocks.set(k, t);
-      messageBlocks.delete(k); // any message at this cell is gone once overwritten/broken
+      if (t === 0) { blocks.delete(k); blockSkins.delete(k); }
+      else {
+        blocks.set(k, t);
+        if (skinId) blockSkins.set(k, skinId); else blockSkins.delete(k);
+      }
+      messageBlocks.delete(k);
       rebuildBlockMeshes();
       clearAttribution(); // label is stale after any block change; loop will re-fetch
     }
@@ -3780,7 +4029,8 @@
       if (!undoInProgress && gameMode === 'classic' && prevType !== undefined) {
         pushUndo(x, y, z, prevType, t);
       }
-      applyLocal(x, y, z, t);
+      // Optimistic skin: use active skin for placements, none for breaks.
+      applyLocal(x, y, z, t, t !== 0 ? myActiveSkinId : null);
       // Optimistic challenge and mission updates.
       let goalsChanged = false;
       if (t !== 0 && challengeDate && !challengeCompleted) {
@@ -3844,6 +4094,18 @@
               emitLineClearExplosion(yLevel, clearedRows);
             }
           }
+          if (data.bomb_explosions && data.bomb_explosions.length) {
+            const totalBonus = data.bomb_explosions.reduce((s, e) => s + (e.bonus_points || 0), 0);
+            if (totalBonus > 0) {
+              sessionScore += totalBonus;
+              updateScoreHud();
+            }
+            for (const entry of data.bomb_explosions) {
+              emitBombExplosion(entry.x + 0.5, entry.y + 0.5, entry.z + 0.5);
+            }
+            const bombLabel = data.bomb_explosions.length > 1 ? `Boom! x${data.bomb_explosions.length}` : 'Boom!';
+            showBadgeToast({ icon: '💣', name: bombLabel, flavour: totalBonus > 0 ? `+${totalBonus} bonus points` : 'Bombs detonated!' });
+          }
           if (data.seq && data.seq > cursor) cursor = data.seq;
           if (data.newly_earned_badges && data.newly_earned_badges.length) {
             for (const badge of data.newly_earned_badges) {
@@ -3851,7 +4113,8 @@
               showBadgeToast(badge);
             }
             fetchCoachTip('badge_earned', data.newly_earned_badges[0].name);
-            if (badgesOpen) renderBadgesPanel();
+            profileStatsCache = null; // invalidate so stats tab refreshes on next open
+            if (badgesOpen) setProfileTab(profileTab);
           }
           if (data.newly_unlocked_types && data.newly_unlocked_types.length) {
             for (const ut of data.newly_unlocked_types) {
@@ -3891,7 +4154,12 @@
               if (badgesOpen) renderBadgesPanel();
             }
           }
+          // Reconcile block skin with server-confirmed value (handles cases
+          // where the server's stored skin differs from the client's optimistic one).
           if (t !== 0) {
+            const k = key(x, y, z);
+            if (data.skin_id) blockSkins.set(k, data.skin_id);
+            else blockSkins.delete(k);
             myBlocksPlaced++;
             renderBlocksPlacedHud();
             blocksPlacedHudEl.classList.remove('hidden');
@@ -4918,14 +5186,14 @@
       syncTurntableBtn();
     });
 
-    // Badges button: toggle the badges panel.
+    // Profile panel (badges-btn): toggle + tabs.
     const badgesBtnEl = document.getElementById('badges-btn');
     const badgesPanelEl = document.getElementById('badges-panel');
     badgesBtnEl.addEventListener('click', () => {
       badgesOpen = !badgesOpen;
       if (badgesOpen) {
-        renderBadgesPanel();
         badgesPanelEl.classList.remove('hidden');
+        setProfileTab(profileTab); // restore last active tab
       } else {
         badgesPanelEl.classList.add('hidden');
       }
@@ -4934,6 +5202,103 @@
       badgesOpen = false;
       badgesPanelEl.classList.add('hidden');
     });
+    document.getElementById('profile-tab-stats').addEventListener('click',  () => setProfileTab('stats'));
+    document.getElementById('profile-tab-badges').addEventListener('click', () => setProfileTab('badges'));
+
+    // ---- NFT Skins panel ----
+    const skinsPanelEl = document.getElementById('skins-panel');
+    const skinsContentEl = document.getElementById('skins-content');
+    let skinsOpen = false;
+
+    function closeSkins() {
+      skinsOpen = false;
+      skinsPanelEl.classList.add('hidden');
+    }
+    function toggleSkins() {
+      skinsOpen = !skinsOpen;
+      if (skinsOpen) {
+        skinsPanelEl.classList.remove('hidden');
+        fetchAndRenderSkins();
+      } else {
+        skinsPanelEl.classList.add('hidden');
+      }
+    }
+    document.getElementById('skins-btn').addEventListener('click', toggleSkins);
+    document.getElementById('skins-close').addEventListener('click', closeSkins);
+
+    async function fetchAndRenderSkins() {
+      skinsContentEl.innerHTML = '<span class="text-zinc-500">Loading…</span>';
+      try {
+        const res = await fetch('/api/skins/my-nfts', { headers });
+        if (!res.ok) throw new Error('fetch failed');
+        const { wallet_linked, nfts } = await res.json();
+        renderSkinsPanel(wallet_linked, nfts);
+      } catch (_) {
+        skinsContentEl.innerHTML = '<span class="text-zinc-500">Couldn\'t load skins.</span>';
+      }
+    }
+
+    function renderSkinsPanel(wallet_linked, nfts) {
+      if (!wallet_linked) {
+        skinsContentEl.innerHTML =
+          '<p class="text-zinc-400 text-xs text-center py-2">Link a Usernode wallet to unlock NFT block skins.</p>';
+        return;
+      }
+      let html = '<button id="skins-use-default" class="w-full mb-3 px-3 py-1.5 rounded-lg text-xs font-semibold cursor-pointer transition-colors ' +
+        (!myActiveSkinId ? 'bg-violet-600 text-white' : 'bg-zinc-700 text-zinc-300 hover:bg-zinc-600') + '">Use default appearance</button>';
+      if (!nfts.length) {
+        html += '<p class="text-zinc-500 text-xs text-center py-1">No NFTs found in your wallet.</p>';
+        skinsContentEl.innerHTML = html;
+        skinsContentEl.querySelector('#skins-use-default').addEventListener('click', unequipSkin);
+        return;
+      }
+      html += '<div class="grid grid-cols-3 gap-2">';
+      for (const nft of nfts) {
+        const isActive = myActiveSkinId === nft.skin_id;
+        html += '<div class="relative rounded-lg overflow-hidden bg-zinc-800 cursor-pointer skin-nft-card" data-skin-id="' + escapeHtml(nft.skin_id) + '" data-image-url="' + escapeHtml(nft.image_url) + '" data-nft-name="' + escapeHtml(nft.nft_name) + '">' +
+          '<img src="' + escapeHtml(nft.image_url) + '" alt="' + escapeHtml(nft.nft_name) + '" class="w-full aspect-square object-cover" onerror="this.style.background=\'#333\'">' +
+          (isActive ? '<div class="absolute inset-0 flex items-end justify-center pb-1"><span class="text-[10px] font-bold bg-violet-600 px-1.5 py-0.5 rounded text-white">Active</span></div>' : '') +
+          '<p class="text-[9px] text-zinc-400 truncate px-1 py-0.5">' + escapeHtml(nft.nft_name) + '</p></div>';
+      }
+      html += '</div>';
+      skinsContentEl.innerHTML = html;
+
+      skinsContentEl.querySelector('#skins-use-default').addEventListener('click', unequipSkin);
+      for (const card of skinsContentEl.querySelectorAll('.skin-nft-card')) {
+        card.addEventListener('click', () => {
+          equipSkin(card.dataset.skinId, card.dataset.imageUrl, card.dataset.nftName);
+        });
+      }
+    }
+
+    async function equipSkin(skinId, imageUrl, nftName) {
+      try {
+        const res = await fetch('/api/skins/equip', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...headers },
+          body: JSON.stringify({ skin_id: skinId, image_url: imageUrl, nft_name: nftName }),
+        });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          skinsContentEl.insertAdjacentHTML('afterbegin', '<p class="text-red-400 text-xs mb-2">' + escapeHtml(data.error || 'Failed to equip') + '</p>');
+          return;
+        }
+        myActiveSkinId = skinId;
+        // Pre-load the texture so it's ready for the next placement.
+        if (!skinTextures.has(skinId)) loadSkinTexture(skinId);
+        fetchAndRenderSkins();
+      } catch (_) {
+        skinsContentEl.insertAdjacentHTML('afterbegin', '<p class="text-red-400 text-xs mb-2">Network error</p>');
+      }
+    }
+
+    async function unequipSkin() {
+      try {
+        await fetch('/api/skins/unequip', { method: 'POST', headers: { 'Content-Type': 'application/json', ...headers } });
+        myActiveSkinId = null;
+        fetchAndRenderSkins();
+      } catch (_) { /* transient */ }
+    }
 
     // ---- Pet panel ----
     const petBtnEl    = document.getElementById('pet-btn');
@@ -5521,6 +5886,29 @@
       document.getElementById('learn-hints').innerHTML = '';
       refreshControlCopy();
       updateTouchControlsVisibility();
+
+      // Persist personal best and check speed_demon badge.
+      if (taScore > 0) {
+        (async () => {
+          try {
+            const res = await fetch('/api/time-attack/score', {
+              method: 'POST',
+              headers,
+              body: JSON.stringify({ blocks_cleared: taScore }),
+            });
+            if (!res.ok) return;
+            const data = await res.json();
+            if (data.earned && data.earned.includes('speed_demon')) {
+              const def = BADGES_DEF.find((b) => b.id === 'speed_demon');
+              if (def) {
+                earnedBadges.set('speed_demon', { earned_at: new Date().toISOString() });
+                showBadgeToast(def);
+                profileStatsCache = null;
+              }
+            }
+          } catch (_) {}
+        })();
+      }
     }
 
     // ---- Versus Mode functions ----
@@ -7523,6 +7911,15 @@
       } catch (_) { /* non-fatal */ }
     }
 
+    function relTimeShort(ts) {
+      if (!ts) return '';
+      const diff = Math.floor((Date.now() - new Date(ts).getTime()) / 1000);
+      if (diff < 60) return 'just now';
+      if (diff < 3600) return Math.floor(diff / 60) + 'm ago';
+      if (diff < 86400) return Math.floor(diff / 3600) + 'h ago';
+      return Math.floor(diff / 86400) + 'd ago';
+    }
+
     function syncPromptHud() {
       if (!currentPromptText) return;
       promptHudEl.innerHTML = '<div class="text-zinc-400 text-[10px] uppercase tracking-wide">Today\'s prompt</div>' +
@@ -7699,7 +8096,7 @@
           const res = await fetch('/api/leaderboard', { headers });
           if (!res.ok) throw new Error('fetch failed');
           const lbData = await res.json();
-          const { entries } = lbData;
+          const { entries, self } = lbData;
           if (lbData.self != null) {
             myBlocksPlaced = lbData.self.blocks_placed;
             renderBlocksPlacedHud();
@@ -7708,23 +8105,33 @@
           if (!entries.length) {
             leaderboardContentEl.innerHTML = '<p class="py-1">No builders yet — be the first!</p>';
           } else {
-            leaderboardContentEl.innerHTML =
+            let html =
               '<table class="w-full text-xs">' +
               '<thead><tr class="text-zinc-500 uppercase border-b border-zinc-700">' +
               '<th class="text-left pb-1 w-6">#</th>' +
               '<th class="text-left pb-1 pl-2">Player</th>' +
-              '<th class="text-right pb-1">Blocks</th></tr></thead><tbody>' +
+              '<th class="text-right pb-1">Score</th></tr></thead><tbody>' +
               entries.map(e =>
                 '<tr class="border-b border-zinc-800/60 last:border-0">' +
                 '<td class="py-1 text-zinc-500">' + e.rank + '</td>' +
                 '<td class="py-1 pl-2 max-w-[180px] truncate"><button class="text-violet-400 hover:text-violet-300 hover:underline cursor-pointer" data-profile-btn>' + escapeHtml(e.username) + '</button></td>' +
-                '<td class="py-1 text-right font-mono text-zinc-100">' + e.count + '</td></tr>'
+                '<td class="py-1 text-right font-mono text-zinc-100">' + e.total_score.toLocaleString() + '</td></tr>'
               ).join('') +
               '</tbody></table>';
             // Attach click handlers to profile buttons
             for (const btn of leaderboardContentEl.querySelectorAll('[data-profile-btn]')) {
               btn.addEventListener('click', () => showProfile(btn.textContent));
             }
+            // Show self row if outside top 10
+            if (self && !entries.find(e => e.user_id === self.user_id)) {
+              html += '<div class="mt-2 pt-2 border-t border-zinc-700 text-xs">' +
+                '<table class="w-full"><tbody><tr class="text-violet-300">' +
+                '<td class="w-6">' + self.rank + '</td>' +
+                '<td class="pl-2 max-w-[140px] truncate">' + escapeHtml(self.username) + ' (you)</td>' +
+                '<td class="text-right font-mono">' + self.total_score.toLocaleString() + '</td>' +
+                '</tr></tbody></table></div>';
+            }
+            leaderboardContentEl.innerHTML = html;
           }
         } catch (_) {
           leaderboardContentEl.innerHTML = '<p class="py-1 text-zinc-500">Couldn\'t load leaderboard.</p>';
@@ -8857,7 +9264,8 @@
             earnedBadges.set(badge.id, { earned_at: badge.earned_at });
             showBadgeToast(badge);
           }
-          renderBadgesPanel();
+          profileStatsCache = null;
+          if (badgesOpen) setProfileTab(profileTab);
         }
       } catch (_) { /* transient */ }
     }
@@ -9000,7 +9408,8 @@
           if (changes && changes.length) {
             for (const ch of changes) {
               const k = key(ch.x, ch.y, ch.z);
-              if (ch.t === 0) blocks.delete(k); else blocks.set(k, ch.t);
+              if (ch.t === 0) { blocks.delete(k); blockSkins.delete(k); }
+              else { blocks.set(k, ch.t); if (ch.s) blockSkins.set(k, ch.s); else blockSkins.delete(k); }
               if (ch.m) messageBlocks.add(k); else messageBlocks.delete(k);
             }
             rebuildBlockMeshes();
