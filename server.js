@@ -793,7 +793,7 @@ app.post('/api/tutorial/complete', async (req, res) => {
 app.post('/api/presence/ping', async (req, res) => {
   try {
     const rawMode = req.body && req.body.mode;
-    const mode = ['classic', 'spectate'].includes(rawMode) ? rawMode : 'classic';
+    const mode = ['classic', 'spectate', 'versus'].includes(rawMode) ? rawMode : 'classic';
     const current_world_id = req.body && req.body.current_world_id ? Number(req.body.current_world_id) : null;
     await pool.query(
       `INSERT INTO user_presence (user_id, username, last_seen, mode, current_world_id)
@@ -1155,6 +1155,264 @@ app.get('/api/ta-60-leaderboard', async (req, res) => {
       entries: topRes.rows.map(toRow),
       self: selfRes.rows.length ? toRow(selfRes.rows[0]) : null,
     });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- Versus Mode ----
+
+function generateRoomCode() {
+  // Omit easily confused chars: 0/O, 1/I/L
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  let code = '';
+  for (let i = 0; i < 6; i++) code += chars[Math.floor(Math.random() * chars.length)];
+  return code;
+}
+
+// POST /api/versus/create — create a new match and become host
+app.post('/api/versus/create', async (req, res) => {
+  try {
+    let roomCode;
+    for (let attempt = 0; attempt < 10; attempt++) {
+      roomCode = generateRoomCode();
+      const existing = await pool.query(`SELECT id FROM versus_matches WHERE room_code = $1`, [roomCode]);
+      if (!existing.rows.length) break;
+    }
+    const matchRes = await pool.query(
+      `INSERT INTO versus_matches (room_code, status, host_user_id, host_username, max_players, duration_secs)
+       VALUES ($1, 'waiting', $2, $3, 4, 60) RETURNING id`,
+      [roomCode, req.user.id, req.user.username]
+    );
+    const matchId = matchRes.rows[0].id;
+    await pool.query(
+      `INSERT INTO versus_players (match_id, user_id, username) VALUES ($1, $2, $3)
+       ON CONFLICT (match_id, user_id) DO NOTHING`,
+      [matchId, req.user.id, req.user.username]
+    );
+    res.json({ match_id: matchId, room_code: roomCode });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/versus/join — join a match by room code
+app.post('/api/versus/join', async (req, res) => {
+  try {
+    const roomCode = (req.body.room_code || '').toString().toUpperCase().trim();
+    if (!roomCode) return res.status(400).json({ error: 'room_code required' });
+    const matchRes = await pool.query(
+      `SELECT id, status, max_players, host_username, created_at
+       FROM versus_matches WHERE room_code = $1`,
+      [roomCode]
+    );
+    if (!matchRes.rows.length) return res.status(404).json({ error: 'Match not found' });
+    const match = matchRes.rows[0];
+    if (match.status !== 'waiting') return res.status(400).json({ error: 'Match already started' });
+    const ageMs = Date.now() - new Date(match.created_at).getTime();
+    if (ageMs > 10 * 60 * 1000) return res.status(400).json({ error: 'Match expired' });
+    const countRes = await pool.query(
+      `SELECT COUNT(*) AS cnt FROM versus_players WHERE match_id = $1`, [match.id]
+    );
+    if (Number(countRes.rows[0].cnt) >= match.max_players) {
+      return res.status(400).json({ error: 'Match is full' });
+    }
+    await pool.query(
+      `INSERT INTO versus_players (match_id, user_id, username) VALUES ($1, $2, $3)
+       ON CONFLICT (match_id, user_id) DO UPDATE SET username = EXCLUDED.username`,
+      [match.id, req.user.id, req.user.username]
+    );
+    res.json({ ok: true, match_id: match.id, host_username: match.host_username });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/versus/start — host starts the match (triggers 5-second countdown)
+app.post('/api/versus/start', async (req, res) => {
+  try {
+    const matchId = Number(req.body.match_id);
+    if (!matchId) return res.status(400).json({ error: 'match_id required' });
+    const matchRes = await pool.query(
+      `SELECT id, status, host_user_id, duration_secs FROM versus_matches WHERE id = $1`, [matchId]
+    );
+    if (!matchRes.rows.length) return res.status(404).json({ error: 'Match not found' });
+    const match = matchRes.rows[0];
+    if (match.host_user_id !== req.user.id) return res.status(403).json({ error: 'Only the host can start' });
+    if (match.status !== 'waiting') return res.status(400).json({ error: 'Match already started' });
+    const countRes = await pool.query(
+      `SELECT COUNT(*) AS cnt FROM versus_players WHERE match_id = $1`, [matchId]
+    );
+    if (Number(countRes.rows[0].cnt) < 2) {
+      return res.status(400).json({ error: 'Need at least 2 players to start' });
+    }
+    const startAt = new Date(Date.now() + 5000);
+    const endAt = new Date(startAt.getTime() + match.duration_secs * 1000);
+    await pool.query(
+      `UPDATE versus_matches SET status = 'countdown', start_at = $1, end_at = $2 WHERE id = $3`,
+      [startAt, endAt, matchId]
+    );
+    res.json({ ok: true, start_at: startAt.toISOString(), end_at: endAt.toISOString() });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/versus/match/:id — poll match state, optionally report live score
+app.get('/api/versus/match/:id', async (req, res) => {
+  try {
+    const matchId = Number(req.params.id);
+    const liveScoreParam = req.query.live_score;
+    const liveScore = liveScoreParam !== undefined ? Number(liveScoreParam) : null;
+
+    const matchRes = await pool.query(
+      `SELECT id, room_code, status, host_user_id, host_username, start_at, end_at,
+              winner_user_id, winner_username, duration_secs
+       FROM versus_matches WHERE id = $1`,
+      [matchId]
+    );
+    if (!matchRes.rows.length) return res.status(404).json({ error: 'Match not found' });
+    const match = matchRes.rows[0];
+
+    // Only players in the match may poll
+    const callerRes = await pool.query(
+      `SELECT user_id FROM versus_players WHERE match_id = $1 AND user_id = $2`,
+      [matchId, req.user.id]
+    );
+    if (!callerRes.rows.length) return res.status(403).json({ error: 'Not in this match' });
+
+    // Update live score when match is active
+    if (liveScore !== null && Number.isFinite(liveScore) && match.status === 'active') {
+      await pool.query(
+        `UPDATE versus_players SET live_score = $1, live_score_at = NOW()
+         WHERE match_id = $2 AND user_id = $3`,
+        [Math.max(0, Math.floor(liveScore)), matchId, req.user.id]
+      );
+    }
+
+    // Countdown -> active transition
+    if (match.status === 'countdown' && match.start_at && new Date(match.start_at) <= new Date()) {
+      await pool.query(
+        `UPDATE versus_matches SET status = 'active' WHERE id = $1 AND status = 'countdown'`,
+        [matchId]
+      );
+      match.status = 'active';
+    }
+
+    // Check for match completion when active
+    if (match.status === 'active') {
+      const allRes = await pool.query(
+        `SELECT user_id, username, final_score, submitted_at FROM versus_players WHERE match_id = $1`,
+        [matchId]
+      );
+      const allPlayers = allRes.rows;
+      const allSubmitted = allPlayers.every(p => p.submitted_at !== null);
+      const gracePassed = match.end_at &&
+        new Date() > new Date(new Date(match.end_at).getTime() + 15000);
+
+      if (allSubmitted || gracePassed) {
+        let winner = null, topScore = -1;
+        for (const p of allPlayers) {
+          const s = Number(p.final_score) || 0;
+          if (s > topScore) { topScore = s; winner = p; }
+        }
+        await pool.query(
+          `UPDATE versus_matches SET status = 'finished', winner_user_id = $1, winner_username = $2
+           WHERE id = $3 AND status = 'active'`,
+          [winner ? winner.user_id : null, winner ? winner.username : null, matchId]
+        );
+        match.status = 'finished';
+        match.winner_user_id = winner ? winner.user_id : null;
+        match.winner_username = winner ? winner.username : null;
+      }
+    }
+
+    const playersRes = await pool.query(
+      `SELECT user_id, username, live_score, final_score, submitted_at
+       FROM versus_players WHERE match_id = $1 ORDER BY joined_at`,
+      [matchId]
+    );
+    res.json({
+      match: {
+        id: match.id,
+        room_code: match.room_code,
+        status: match.status,
+        host_user_id: match.host_user_id,
+        host_username: match.host_username,
+        start_at: match.start_at,
+        end_at: match.end_at,
+        winner_user_id: match.winner_user_id,
+        winner_username: match.winner_username,
+      },
+      players: playersRes.rows.map(p => ({
+        user_id: p.user_id,
+        username: p.username,
+        live_score: Number(p.live_score) || 0,
+        final_score: p.final_score !== null ? Number(p.final_score) : null,
+        submitted_at: p.submitted_at,
+      })),
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/versus/submit — record final score at end of match
+app.post('/api/versus/submit', async (req, res) => {
+  try {
+    const matchId = Number(req.body.match_id);
+    const score = Number(req.body.score);
+    if (!matchId || !Number.isFinite(score) || score < 0) {
+      return res.status(400).json({ error: 'match_id and non-negative score required' });
+    }
+    const matchRes = await pool.query(
+      `SELECT id, status, end_at FROM versus_matches WHERE id = $1`, [matchId]
+    );
+    if (!matchRes.rows.length) return res.status(404).json({ error: 'Match not found' });
+    const match = matchRes.rows[0];
+    const gracePassed = match.end_at &&
+      new Date() > new Date(new Date(match.end_at).getTime() + 15000);
+    if (match.status === 'finished' || gracePassed) {
+      return res.status(400).json({ error: 'Submission window closed' });
+    }
+    if (match.status !== 'active' && match.status !== 'countdown') {
+      return res.status(400).json({ error: 'Match is not active' });
+    }
+
+    // Ensure caller is in the match
+    const callerRes = await pool.query(
+      `SELECT user_id FROM versus_players WHERE match_id = $1 AND user_id = $2`,
+      [matchId, req.user.id]
+    );
+    if (!callerRes.rows.length) return res.status(403).json({ error: 'Not in this match' });
+
+    await pool.query(
+      `UPDATE versus_players SET final_score = $1, submitted_at = NOW(), live_score = $1
+       WHERE match_id = $2 AND user_id = $3`,
+      [Math.floor(score), matchId, req.user.id]
+    );
+
+    // Check if all players submitted
+    const allRes = await pool.query(
+      `SELECT user_id, username, final_score, submitted_at FROM versus_players WHERE match_id = $1`,
+      [matchId]
+    );
+    const allSubmitted = allRes.rows.every(p => p.submitted_at !== null);
+    let winnerDetermined = false;
+    if (allSubmitted && match.status === 'active') {
+      let winner = null, topScore = -1;
+      for (const p of allRes.rows) {
+        const s = Number(p.final_score) || 0;
+        if (s > topScore) { topScore = s; winner = p; }
+      }
+      await pool.query(
+        `UPDATE versus_matches SET status = 'finished', winner_user_id = $1, winner_username = $2
+         WHERE id = $3`,
+        [winner ? winner.user_id : null, winner ? winner.username : null, matchId]
+      );
+      winnerDetermined = true;
+    }
+    res.json({ ok: true, final_score: Math.floor(score), winner_determined: winnerDetermined });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -2516,6 +2774,9 @@ app.post('/api/share-score', async (req, res) => {
       case 'daily-challenge':
         message = `${username} completed today's Daily Challenge (placed ${score_data.blocks_placed}/${score_data.target_blocks} blocks)! 🔥`;
         break;
+      case 'versus':
+        message = `${username} cleared ${score_data.blocks_cleared} blocks in Versus Mode! ⚔️`;
+        break;
       default:
         return res.status(400).json({ error: 'Invalid mode' });
     }
@@ -3442,6 +3703,56 @@ async function seedPuzzleScores() {
   }
 }
 
+async function seedVersus() {
+  // Seed a finished demo match so the versus game-over overlay can be previewed.
+  const finishedRes = await pool.query(
+    `INSERT INTO versus_matches (room_code, status, host_user_id, host_username, max_players, duration_secs,
+       start_at, end_at, winner_user_id, winner_username, created_at)
+     VALUES ('DEMO01', 'finished', 0, 'Staging Versus Alice', 4, 60,
+       NOW() - INTERVAL '2 minutes', NOW() - INTERVAL '1 minute',
+       0, 'Staging Versus Alice', NOW() - INTERVAL '3 minutes')
+     ON CONFLICT (room_code) DO NOTHING RETURNING id`
+  );
+  if (finishedRes.rows.length) {
+    const finishedId = finishedRes.rows[0].id;
+    const players = [
+      { uid: -101, uname: 'Staging Versus Alice', score: 87 },
+      { uid: -102, uname: 'Staging Versus Bob',   score: 64 },
+      { uid: -103, uname: 'Staging Versus Carol',  score: 51 },
+      { uid: -104, uname: 'Staging Versus Dan',    score: 12 },
+    ];
+    for (const p of players) {
+      await pool.query(
+        `INSERT INTO versus_players (match_id, user_id, username, live_score, final_score, submitted_at)
+         VALUES ($1, $2, $3, $4, $4, NOW() - INTERVAL '1 minute')
+         ON CONFLICT (match_id, user_id) DO NOTHING`,
+        [finishedId, p.uid, p.uname, p.score]
+      );
+    }
+  }
+  // Seed a waiting match so the join-by-code flow can be tested (enter WAIT01).
+  const waitRes = await pool.query(
+    `INSERT INTO versus_matches (room_code, status, host_user_id, host_username, max_players, duration_secs, created_at)
+     VALUES ('WAIT01', 'waiting', 0, 'Staging Versus Alice', 4, 60, NOW())
+     ON CONFLICT (room_code) DO NOTHING RETURNING id`
+  );
+  if (waitRes.rows.length) {
+    const waitId = waitRes.rows[0].id;
+    await pool.query(
+      `INSERT INTO versus_players (match_id, user_id, username)
+       VALUES ($1, 0, 'Staging Versus Alice')
+       ON CONFLICT (match_id, user_id) DO NOTHING`,
+      [waitId]
+    );
+    await pool.query(
+      `INSERT INTO versus_players (match_id, user_id, username)
+       VALUES ($1, -102, 'Staging Versus Bob')
+       ON CONFLICT (match_id, user_id) DO NOTHING`,
+      [waitId]
+    );
+  }
+}
+
 // ---- Natural Disaster trigger (called from GET /api/world/changes) ----
 // Uses SELECT ... FOR UPDATE SKIP LOCKED on disaster_schedule so that only one
 // concurrent request can trigger at a time. Returns the fired disaster row or null.
@@ -3931,6 +4242,39 @@ async function start() {
   `);
 
 
+  // Versus Mode match tables: both public (usernames + scores, no sensitive data).
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS versus_matches (
+      id              SERIAL PRIMARY KEY,
+      room_code       VARCHAR(8)   NOT NULL UNIQUE,
+      status          VARCHAR(20)  NOT NULL DEFAULT 'waiting',
+      host_user_id    INTEGER      NOT NULL,
+      host_username   VARCHAR(255) NOT NULL,
+      max_players     SMALLINT     NOT NULL DEFAULT 4,
+      duration_secs   INTEGER      NOT NULL DEFAULT 60,
+      start_at        TIMESTAMPTZ,
+      end_at          TIMESTAMPTZ,
+      winner_user_id  INTEGER,
+      winner_username VARCHAR(255),
+      created_at      TIMESTAMPTZ  DEFAULT NOW()
+    )
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS versus_matches_room_code_idx ON versus_matches (room_code)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS versus_matches_status_created_idx ON versus_matches (status, created_at)`);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS versus_players (
+      match_id        INTEGER      NOT NULL REFERENCES versus_matches(id),
+      user_id         INTEGER      NOT NULL,
+      username        VARCHAR(255) NOT NULL,
+      joined_at       TIMESTAMPTZ  DEFAULT NOW(),
+      live_score      INTEGER      NOT NULL DEFAULT 0,
+      live_score_at   TIMESTAMPTZ,
+      final_score     INTEGER,
+      submitted_at    TIMESTAMPTZ,
+      PRIMARY KEY (match_id, user_id)
+    )
+  `);
+
   // Prime the schedule on first boot; subsequent boots leave the existing row intact.
   const disasterInitDelay = IS_STAGING ? '10 seconds' : '60 seconds';
   await pool.query(
@@ -3967,6 +4311,8 @@ async function start() {
     catch (err) { console.error('puzzle-levels seed failed', err); }
     try { await seedPuzzleScores(); }
     catch (err) { console.error('puzzle-scores seed failed', err); }
+    try { await seedVersus(); }
+    catch (err) { console.error('versus seed failed', err); }
     // Staging spectators are now surfaced via the STAGING_DEMO_USERS constant
     // appended in GET /api/presence/online, so no DB seed is needed here.
   }

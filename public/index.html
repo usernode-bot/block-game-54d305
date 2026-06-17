@@ -612,6 +612,13 @@
           <p class="text-zinc-400 text-sm sm:text-sm lg:text-sm mb-5 mode-desc">Fly through the world as a spectator. See what others are building, chat freely, and join any time.</p>
           <button id="play-spectate-btn" class="w-full px-4 py-3 rounded-lg bg-teal-600 hover:bg-teal-500 font-semibold text-sm sm:text-sm lg:text-base transition hover:scale-[1.02] active:scale-[0.98] mode-btn">Watch World</button>
         </div>
+        <div class="bg-zinc-900/80 rounded-xl p-5 sm:p-6 lg:p-7 transition hover:bg-zinc-800/80" data-mode="versus">
+          <canvas id="preview-versus" class="w-full rounded-lg mb-4" height="140"></canvas>
+          <div class="text-4xl mb-2">⚔️</div>
+          <h2 class="font-semibold text-lg sm:text-base lg:text-lg text-zinc-100 mb-2 mode-title">Versus</h2>
+          <p class="text-zinc-400 text-sm sm:text-sm lg:text-sm mb-5 mode-desc">Race up to 3 friends. 60 seconds, your own board — highest score wins.</p>
+          <button id="play-versus-btn" class="w-full px-4 py-3 rounded-lg bg-orange-600 hover:bg-orange-500 font-semibold text-sm sm:text-sm lg:text-base transition hover:scale-[1.02] active:scale-[0.98] mode-btn">Play Versus</button>
+        </div>
       </div>
       <div id="tournament-teaser" class="hidden mt-3 rounded-xl bg-zinc-900/60 px-4 py-2.5 text-xs text-zinc-300"></div>
       <div id="status" class="mt-3 text-xs text-zinc-500 text-center"></div>
@@ -1207,6 +1214,95 @@
     </div>
   </div>
 
+  <!-- Versus Mode lobby overlay -->
+  <div id="versus-lobby" class="hidden fixed inset-0 z-40 flex items-center justify-center bg-black/80 backdrop-blur-sm">
+    <div class="max-w-sm w-full mx-4 bg-zinc-900/95 rounded-2xl p-6 sm:p-8 shadow-xl">
+      <h2 class="text-2xl font-bold mb-1 text-center">⚔️ Versus Mode</h2>
+      <p class="text-zinc-400 text-sm text-center mb-5">Race friends for high score on your own board</p>
+
+      <!-- Screen: choice (host or join) -->
+      <div id="versus-screen-choice">
+        <div class="flex flex-col gap-3">
+          <button id="versus-host-btn" class="w-full px-4 py-3 rounded-lg bg-orange-600 hover:bg-orange-500 font-semibold transition hover:scale-[1.02] active:scale-[0.98]">Host a Match</button>
+          <button id="versus-join-btn" class="w-full px-4 py-3 rounded-lg bg-zinc-700 hover:bg-zinc-600 font-semibold transition hover:scale-[1.02] active:scale-[0.98]">Join a Match</button>
+          <button id="versus-back-choice-btn" class="w-full px-4 py-3 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-400 font-semibold transition hover:scale-[1.02] active:scale-[0.98]">Back to Menu</button>
+        </div>
+      </div>
+
+      <!-- Screen: host (shows room code + player list) -->
+      <div id="versus-screen-host" class="hidden">
+        <p class="text-zinc-400 text-xs mb-2 text-center">Share this code with friends:</p>
+        <div class="flex items-center gap-2 mb-4 justify-center">
+          <span id="versus-room-code" class="text-4xl font-mono font-bold tracking-widest text-orange-400">------</span>
+          <button id="versus-copy-btn" class="px-3 py-2 rounded-lg bg-zinc-700 hover:bg-zinc-600 text-sm font-semibold transition">Copy</button>
+        </div>
+        <div id="versus-player-list" class="mb-4 min-h-[80px] bg-zinc-800/60 rounded-xl p-3 text-sm text-zinc-300 space-y-1"></div>
+        <p id="versus-host-hint" class="text-zinc-500 text-xs text-center mb-4">Waiting for at least 1 more player to join…</p>
+        <div class="flex flex-col gap-2">
+          <button id="versus-start-btn" class="w-full px-4 py-3 rounded-lg bg-orange-600 hover:bg-orange-500 font-semibold transition disabled:opacity-40 disabled:cursor-not-allowed" disabled>Start Match</button>
+          <button id="versus-cancel-btn" class="w-full px-4 py-3 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-400 font-semibold transition">Back to Menu</button>
+        </div>
+      </div>
+
+      <!-- Screen: join (code input) -->
+      <div id="versus-screen-join" class="hidden">
+        <label class="block text-sm text-zinc-400 mb-2">Enter room code:</label>
+        <input id="versus-code-input" type="text" maxlength="6" placeholder="ABCD12"
+          class="w-full px-4 py-3 rounded-lg bg-zinc-800 border border-zinc-600 text-white font-mono text-2xl tracking-widest text-center uppercase mb-3 focus:outline-none focus:border-orange-500" />
+        <p id="versus-join-error" class="hidden text-red-400 text-sm text-center mb-3"></p>
+        <div class="flex flex-col gap-2">
+          <button id="versus-do-join-btn" class="w-full px-4 py-3 rounded-lg bg-orange-600 hover:bg-orange-500 font-semibold transition">Join</button>
+          <button id="versus-back-join-btn" class="w-full px-4 py-3 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-400 font-semibold transition">Back</button>
+        </div>
+      </div>
+
+      <!-- Screen: waiting (non-host joined, waiting for host) -->
+      <div id="versus-screen-waiting" class="hidden">
+        <p class="text-zinc-400 text-sm text-center mb-3">Waiting for host to start…</p>
+        <div id="versus-waiting-player-list" class="mb-4 min-h-[80px] bg-zinc-800/60 rounded-xl p-3 text-sm text-zinc-300 space-y-1"></div>
+        <button id="versus-leave-btn" class="w-full px-4 py-3 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-400 font-semibold transition">Leave</button>
+      </div>
+
+      <!-- Screen: countdown (5-second pre-match) -->
+      <div id="versus-screen-countdown" class="hidden text-center">
+        <p class="text-zinc-400 text-sm mb-3">Match starting in…</p>
+        <div id="versus-countdown-num" class="text-8xl font-bold text-orange-400 mb-3">5</div>
+        <p class="text-zinc-500 text-sm">Get ready!</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Versus in-match HUD -->
+  <div id="versus-hud" class="hidden fixed top-4 left-1/2 -translate-x-1/2 z-20 flex flex-col items-center gap-2 pointer-events-none">
+    <div class="flex items-center gap-4 bg-zinc-900/80 rounded-xl px-5 py-2 shadow-lg">
+      <div>
+        <span class="text-xs text-zinc-400">Time</span>
+        <div id="versus-timer" class="text-2xl font-mono font-bold text-white">1:00</div>
+      </div>
+      <div class="w-px h-8 bg-zinc-600"></div>
+      <div>
+        <span class="text-xs text-zinc-400">You</span>
+        <div id="versus-own-score" class="text-2xl font-bold text-orange-400">0</div>
+      </div>
+    </div>
+    <div id="versus-scoreboard" class="bg-zinc-900/80 rounded-xl px-4 py-2 shadow text-xs text-zinc-300 min-w-[160px]"></div>
+  </div>
+
+  <!-- Versus game-over overlay -->
+  <div id="versus-gameover" class="hidden fixed inset-0 z-30 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+    <div id="versus-gameover-card" class="max-w-sm w-full mx-4 bg-zinc-900/95 rounded-2xl p-6 sm:p-8 text-center shadow-xl">
+      <h2 class="text-2xl font-bold mb-3">Match Over!</h2>
+      <div id="versus-winner-banner" class="hidden mb-3 rounded-xl bg-gradient-to-r from-orange-500 to-amber-400 text-zinc-900 font-bold py-2 px-3 text-sm shadow"></div>
+      <p id="versus-waiting-msg" class="hidden text-zinc-400 text-sm mb-4">Waiting for all players to finish…</p>
+      <div id="versus-results" class="hidden mb-4 text-left"></div>
+      <div class="flex flex-col gap-2">
+        <button id="versus-gameover-share-btn" class="w-full px-6 py-3 rounded-lg bg-orange-600 hover:bg-orange-500 font-semibold transition hover:scale-105 active:scale-95">Share Score</button>
+        <button id="versus-play-again-btn" class="w-full px-6 py-3 rounded-lg bg-orange-600 hover:bg-orange-500 font-semibold transition hover:scale-105 active:scale-95">Play Again</button>
+        <button id="versus-gameover-menu-btn" class="w-full px-6 py-3 rounded-lg bg-zinc-700 hover:bg-zinc-600 font-semibold transition hover:scale-105 active:scale-95">Back to Menu</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Share Score modal (reusable for all modes) -->
   <div id="share-score-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
     <div class="max-w-sm w-full mx-4 bg-zinc-900/95 rounded-2xl p-6 sm:p-8 text-center shadow-xl">
@@ -1241,7 +1337,7 @@
 
     // Build identifier — bump this (to the deploying commit short SHA) on every
     // change so the top-right stamp confirms exactly which code is running.
-    const BUILD_VERSION = 'power-ups+hold-queue+achievements-badges+chat+daily-challenge+leaderboard+online-presence+block-attribution+audio-sfx+next-piece-preview+spectator-mode+weekly-tournament+friends+blocks-placed-hud+day-night-cycle+minimap+ai-coach+daily-theme-voting+natural-disasters+community-monuments+undo-redo-history+pastel-chrome+mobs+accessibility-panel';
+    const BUILD_VERSION = 'power-ups+hold-queue+achievements-badges+chat+daily-challenge+leaderboard+online-presence+block-attribution+audio-sfx+next-piece-preview+spectator-mode+weekly-tournament+friends+blocks-placed-hud+day-night-cycle+minimap+ai-coach+daily-theme-voting+natural-disasters+community-monuments+undo-redo-history+pastel-chrome+mobs+accessibility-panel+versus-mode';
 
     // Badge definitions — mirror of the server-side BADGES array, extended with
     // a `hint` field shown in the panel for unearned badges.
@@ -2136,6 +2232,27 @@
     let tutorialEarned = 0;              // score earned during tutorial
     let firstBlockPlacedInTutorial = false;
 
+    // ---- Versus Mode state ----
+    const versusBlocks = new Map();      // client-only board, same pattern as ta60Blocks
+    let versusScore = 0;
+    let versusTimeLeft = 60;
+    let versusTimerHandle = null;
+    let versusMatchId = null;
+    let versusRoomCode = null;
+    let versusStartAt = null;
+    let versusEndAt = null;
+    let versusPlayers = [];
+    let versusPollHandle = null;
+    let pendingVersusInit = false;
+    let versusIsHost = false;
+    let myUserId = null;
+    try {
+      if (token) {
+        const _vp = JSON.parse(atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
+        myUserId = _vp.id || null;
+      }
+    } catch (_) {}
+
     // ---- Three.js scaffold ----
     const canvas = document.getElementById('scene');
     const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
@@ -2622,6 +2739,7 @@
       else if (gameMode === 'endless') source = endlessBlocks;
       else if (gameMode === 'learn') source = learnBlocks;
       else if (gameMode === 'tutorial') source = tutorialBlocks;
+      else if (gameMode === 'versus') source = versusBlocks;
       const byType = new Map();
       for (const [k, t] of source) {
         if (!byType.has(t)) byType.set(t, []);
@@ -2914,6 +3032,7 @@
       let source = blocks;
       if (gameMode === 'timeattack') source = taBlocks;
       else if (gameMode === 'time-attack-60') source = ta60Blocks;
+      else if (gameMode === 'versus') source = versusBlocks;
       for (let x = 0; x < DIMS.w; x++) {
         for (let z = 0; z < DIMS.d; z++) {
           for (let y = DIMS.h - 1; y >= 1; y--) {
@@ -3568,7 +3687,7 @@
     }
 
     function toggleStampMode() {
-      if (gameMode !== 'classic' && gameMode !== null && currentWorldId <= 0) return;
+      if (gameMode !== 'classic' && gameMode !== 'versus' && gameMode !== null && currentWorldId <= 0) return;
       stampModeActive = !stampModeActive;
       const stampBtn = document.querySelector('#palette [data-id="stamp"]');
       if (stampBtn) {
@@ -3661,6 +3780,19 @@
         ta60Score++;
         rebuildBlockMeshes();
         updateTa60ScoreDisplay();
+        return;
+      }
+      if (gameMode === 'versus') {
+        const k = key(x, y, z);
+        if (!versusBlocks.has(k)) return;
+        const brokenTypeVs = versusBlocks.get(k);
+        versusBlocks.delete(k);
+        audio.playBreak();
+        emitBlockBreak(x + 0.5, y + 0.5, z + 0.5, brokenTypeVs);
+        spawnScorePop(x + 0.5, y + 0.5, z + 0.5, '+1');
+        versusScore++;
+        rebuildBlockMeshes();
+        updateVersusScoreDisplay();
         return;
       }
       if (gameMode === 'endless') {
@@ -4553,6 +4685,273 @@
       updateTouchControlsVisibility();
     }
 
+    // ---- Versus Mode functions ----
+
+    function updateVersusTimerDisplay() {
+      const el = document.getElementById('versus-timer');
+      if (!el) return;
+      const m = Math.floor(versusTimeLeft / 60);
+      const s = versusTimeLeft % 60;
+      el.textContent = m + ':' + (s < 10 ? '0' : '') + s;
+      el.classList.toggle('text-red-400', versusTimeLeft <= 10);
+      el.classList.toggle('text-white', versusTimeLeft > 10);
+    }
+
+    function updateVersusScoreDisplay() {
+      const el = document.getElementById('versus-own-score');
+      if (el) el.textContent = versusScore;
+    }
+
+    function renderVersusScoreboard(players) {
+      const el = document.getElementById('versus-scoreboard');
+      if (!el) return;
+      const sorted = [...players].sort((a, b) => (b.live_score || 0) - (a.live_score || 0));
+      el.innerHTML = sorted.map(p => {
+        const isMe = p.user_id === myUserId;
+        const score = p.final_score !== null ? p.final_score : p.live_score;
+        return '<div class="flex justify-between gap-3' + (isMe ? ' text-orange-400 font-bold' : '') + '">' +
+          '<span class="truncate max-w-[100px]">' + p.username.replace(/</g, '&lt;') + '</span>' +
+          '<span>' + score + '</span></div>';
+      }).join('');
+    }
+
+    function showVersusResults(data) {
+      document.getElementById('versus-waiting-msg').classList.add('hidden');
+      const resultsEl = document.getElementById('versus-results');
+      resultsEl.classList.remove('hidden');
+      const sorted = [...data.players].sort((a, b) => (b.final_score || 0) - (a.final_score || 0));
+      const positions = ['1st', '2nd', '3rd', '4th'];
+      const topScore = sorted[0] ? (sorted[0].final_score || 0) : 0;
+      const winners = sorted.filter(p => (p.final_score || 0) === topScore && topScore > 0);
+      const bannerEl = document.getElementById('versus-winner-banner');
+      if (winners.length > 1) {
+        bannerEl.textContent = winners.map(w => w.username).join(' & ') + ' tie! ' + topScore + ' blocks';
+        bannerEl.classList.remove('hidden');
+      } else if (data.match.winner_username) {
+        bannerEl.textContent = data.match.winner_username + ' wins! ' + topScore + ' blocks cleared';
+        bannerEl.classList.remove('hidden');
+      }
+      resultsEl.innerHTML = sorted.map((p, i) => {
+        const isMe = p.user_id === myUserId;
+        const score = p.final_score !== null ? p.final_score : '—';
+        return '<div class="flex justify-between items-center py-1 border-b border-zinc-700/50 last:border-0' +
+          (isMe ? ' text-orange-300 font-bold' : ' text-zinc-300') + '">' +
+          '<span>' + (positions[i] || (i + 1) + 'th') + ' ' + p.username.replace(/</g, '&lt;') + '</span>' +
+          '<span>' + score + ' blocks</span></div>';
+      }).join('');
+    }
+
+    function initVersus() {
+      versusBlocks.clear();
+      versusScore = 0;
+      // Same scatter as Time Attack (60s)
+      const vsTypes = [9, 10, 11, 7, 6, 3];
+      let count = 0, attempts = 0;
+      while (count < 200 && attempts < 200 * 15) {
+        attempts++;
+        const x = Math.floor(Math.random() * DIMS.w);
+        const z = Math.floor(Math.random() * DIMS.d);
+        const y = 1 + Math.floor(Math.random() * 8);
+        const k = key(x, y, z);
+        if (!versusBlocks.has(k)) {
+          versusBlocks.set(k, vsTypes[count % vsTypes.length]);
+          count++;
+        }
+      }
+      rebuildBlockMeshes();
+      spawnCamera();
+      document.getElementById('versus-hud').classList.remove('hidden');
+      document.getElementById('palette').classList.add('hidden');
+      // Compute remaining time from server end_at (corrects for countdown delay)
+      const now = Date.now();
+      const endMs = versusEndAt ? new Date(versusEndAt).getTime() : now + 60000;
+      versusTimeLeft = Math.max(0, Math.ceil((endMs - now) / 1000));
+      updateVersusTimerDisplay();
+      updateVersusScoreDisplay();
+      versusTimerHandle = setInterval(tickVersusTimer, 1000);
+      versusPollHandle = setInterval(pollVersusMatch, 2000);
+    }
+
+    function tickVersusTimer() {
+      if (paused) return;
+      const endMs = versusEndAt ? new Date(versusEndAt).getTime() : Date.now();
+      versusTimeLeft = Math.max(0, Math.ceil((endMs - Date.now()) / 1000));
+      updateVersusTimerDisplay();
+      if (versusTimeLeft <= 0) {
+        clearInterval(versusTimerHandle);
+        versusTimerHandle = null;
+        endVersus();
+      }
+    }
+
+    async function pollVersusMatch() {
+      if (!versusMatchId) return;
+      try {
+        const url = '/api/versus/match/' + versusMatchId +
+          (playing ? '?live_score=' + versusScore : '');
+        const res = await fetch(url, { headers });
+        if (!res.ok) return;
+        const data = await res.json();
+        versusPlayers = data.players;
+        renderVersusScoreboard(data.players);
+        // Countdown -> active: notify all non-host clients
+        if (data.match.status === 'active' && !playing && pendingVersusInit) {
+          versusStartAt = data.match.start_at;
+          versusEndAt = data.match.end_at;
+        }
+        if (data.match.status === 'finished' && document.getElementById('versus-gameover').classList.contains('hidden') && !playing) {
+          clearInterval(versusPollHandle);
+          versusPollHandle = null;
+          showVersusResults(data);
+        }
+        // Update live scoreboard while in the game-over interim wait
+        if (!document.getElementById('versus-results').classList.contains('hidden')) return;
+        if (data.match.status === 'finished') {
+          clearInterval(versusPollHandle);
+          versusPollHandle = null;
+          showVersusResults(data);
+        }
+      } catch (_) {}
+    }
+
+    async function endVersus() {
+      if (versusTimerHandle) { clearInterval(versusTimerHandle); versusTimerHandle = null; }
+      playing = false;
+      dragMode = false;
+      resetMove();
+      canvas.style.cursor = '';
+      if (locked) { try { document.exitPointerLock(); } catch (_) {} }
+      clearScorePops();
+      document.getElementById('versus-hud').classList.add('hidden');
+      document.getElementById('versus-gameover').classList.remove('hidden');
+      document.getElementById('versus-winner-banner').classList.add('hidden');
+      document.getElementById('versus-waiting-msg').classList.remove('hidden');
+      document.getElementById('versus-results').classList.add('hidden');
+      // Submit final score
+      try {
+        await fetch('/api/versus/submit', {
+          method: 'POST',
+          headers: Object.assign({ 'content-type': 'application/json' }, headers),
+          body: JSON.stringify({ match_id: versusMatchId, score: versusScore }),
+        });
+      } catch (_) {}
+      // Keep polling for results if not already done
+      if (!versusPollHandle) {
+        versusPollHandle = setInterval(async () => {
+          if (!versusMatchId) { clearInterval(versusPollHandle); versusPollHandle = null; return; }
+          try {
+            const res = await fetch('/api/versus/match/' + versusMatchId, { headers });
+            if (!res.ok) return;
+            const data = await res.json();
+            versusPlayers = data.players;
+            if (data.match.status === 'finished') {
+              clearInterval(versusPollHandle);
+              versusPollHandle = null;
+              showVersusResults(data);
+            }
+          } catch (_) {}
+        }, 2000);
+      }
+      refreshControlCopy();
+      updateTouchControlsVisibility();
+    }
+
+    // ---- Versus lobby logic ----
+
+    function openVersusLobby() {
+      overlayEl.style.display = 'none';
+      document.getElementById('versus-lobby').classList.remove('hidden');
+      showVersusScreen('choice');
+    }
+
+    function closeVersusLobbyToMenu() {
+      document.getElementById('versus-lobby').classList.add('hidden');
+      // Clean up any in-progress match state
+      if (versusPollHandle) { clearInterval(versusPollHandle); versusPollHandle = null; }
+      versusMatchId = null;
+      versusRoomCode = null;
+      versusStartAt = null;
+      versusEndAt = null;
+      versusPlayers = [];
+      versusIsHost = false;
+      gameMode = null;
+      pendingVersusInit = false;
+      overlayEl.style.display = 'flex';
+      refreshControlCopy();
+    }
+
+    function showVersusScreen(name) {
+      ['choice', 'host', 'join', 'waiting', 'countdown'].forEach(s => {
+        document.getElementById('versus-screen-' + s).classList.toggle('hidden', s !== name);
+      });
+    }
+
+    function renderLobbyPlayerList(players, elId) {
+      const el = document.getElementById(elId);
+      if (!el) return;
+      el.innerHTML = players.map(p =>
+        '<div class="py-0.5">' + p.username.replace(/</g, '&lt;') + '</div>'
+      ).join('') || '<div class="text-zinc-500 italic">No players yet…</div>';
+    }
+
+    let versusLobbyPollHandle = null;
+
+    function stopLobbyPoll() {
+      if (versusLobbyPollHandle) { clearInterval(versusLobbyPollHandle); versusLobbyPollHandle = null; }
+    }
+
+    function startLobbyPoll() {
+      stopLobbyPoll();
+      versusLobbyPollHandle = setInterval(async () => {
+        if (!versusMatchId) { stopLobbyPoll(); return; }
+        try {
+          const res = await fetch('/api/versus/match/' + versusMatchId, { headers });
+          if (!res.ok) return;
+          const data = await res.json();
+          versusPlayers = data.players;
+          const isHost = versusIsHost;
+          if (isHost) {
+            renderLobbyPlayerList(data.players, 'versus-player-list');
+            const canStart = data.players.length >= 2;
+            document.getElementById('versus-start-btn').disabled = !canStart;
+            document.getElementById('versus-host-hint').textContent =
+              canStart ? 'Ready! Press Start when everyone is here.' : 'Waiting for at least 1 more player to join…';
+          } else {
+            renderLobbyPlayerList(data.players, 'versus-waiting-player-list');
+          }
+          if (data.match.status === 'countdown' || data.match.status === 'active') {
+            versusStartAt = data.match.start_at;
+            versusEndAt = data.match.end_at;
+            stopLobbyPoll();
+            startVersusCountdown();
+          }
+        } catch (_) {}
+      }, 3000);
+    }
+
+    function startVersusCountdown() {
+      showVersusScreen('countdown');
+      const numEl = document.getElementById('versus-countdown-num');
+      const start = versusStartAt ? new Date(versusStartAt).getTime() : Date.now() + 5000;
+
+      function tick() {
+        const remaining = Math.max(0, Math.ceil((start - Date.now()) / 1000));
+        numEl.textContent = remaining > 0 ? remaining : 'GO!';
+        if (remaining > 0) {
+          setTimeout(tick, 200);
+        } else {
+          // Enter the game
+          setTimeout(() => {
+            document.getElementById('versus-lobby').classList.add('hidden');
+            pendingVersusInit = true;
+            refreshUndoButton();
+            tryPointerLock();
+          }, 400);
+        }
+      }
+      tick();
+    }
+
     function showDailyChallengeGameOver() {
       document.getElementById('daily-final-score').textContent = 'You placed ' + challengePlaced + '/' + challengeTarget + ' blocks';
       document.getElementById('daily-feedback-msg').textContent = 'Great job completing today\'s challenge!';
@@ -4594,6 +4993,10 @@
         pendingTutorialInit = false;
         initTutorialMode();
         coachBtnEl.classList.add('hidden');
+      } else if (pendingVersusInit) {
+        pendingVersusInit = false;
+        initVersus();
+        coachBtnEl.classList.add('hidden');
       } else if (gameMode === 'classic') {
         sessionScore = 0;
         updateScoreHud();
@@ -4632,6 +5035,11 @@
       if (mode === 'puzzle') pendingPuzzleInit = true;
       if (mode === 'learn') pendingLearnInit = true;
       if (mode === 'tutorial') pendingTutorialInit = true;
+      if (mode === 'versus') {
+        pendingVersusInit = true;
+        openVersusLobby();
+        return; // lobby handles entry into play
+      }
       refreshUndoButton();
       tryPointerLock();
     }
@@ -4718,6 +5126,15 @@
       if (taTimerHandle) { clearInterval(taTimerHandle); taTimerHandle = null; }
       // Stop classic poll.
       if (pollHandle) { clearInterval(pollHandle); pollHandle = null; }
+      // Clean up versus state.
+      if (versusTimerHandle) { clearInterval(versusTimerHandle); versusTimerHandle = null; }
+      if (versusPollHandle) { clearInterval(versusPollHandle); versusPollHandle = null; }
+      versusMatchId = null;
+      versusRoomCode = null;
+      versusStartAt = null;
+      versusEndAt = null;
+      versusPlayers = [];
+      versusIsHost = false;
 
       gameMode = null;
       playing = false;
@@ -4736,6 +5153,10 @@
       document.getElementById('ta-hud').classList.add('hidden');
       document.getElementById('ta-gameover').classList.add('hidden');
       document.getElementById('daily-challenge-gameover').classList.add('hidden');
+      document.getElementById('versus-lobby').classList.add('hidden');
+      document.getElementById('versus-hud').classList.add('hidden');
+      document.getElementById('versus-gameover').classList.add('hidden');
+      versusBlocks.clear();
       document.getElementById('learn-hints').innerHTML = '';
       document.getElementById('palette').classList.remove('hidden');
       document.getElementById('hold-panel').classList.remove('hidden');
@@ -4815,7 +5236,11 @@
           // Esc pressed mid-Endless run — end the game.
           endEndlessMode();
           return;
-        } else if (gameMode !== 'timeattack' && gameMode !== 'endless') {
+        } else if (gameMode === 'versus' && playing) {
+          // Esc pressed mid-Versus run — end the match for this player.
+          endVersus();
+          return;
+        } else if (gameMode !== 'timeattack' && gameMode !== 'endless' && gameMode !== 'versus') {
           playing = false;
           resetMove();
           hideComboHud();
@@ -4837,6 +5262,7 @@
     document.getElementById('play-tutorial-btn').addEventListener('click', () => { audio.init(); startMode('tutorial'); });
     document.getElementById('play-learn-btn').addEventListener('click', () => { audio.init(); startMode('learn'); });
     document.getElementById('play-spectate-btn').addEventListener('click', () => { audio.init(); startMode('spectate'); });
+    document.getElementById('play-versus-btn').addEventListener('click', () => { audio.init(); startMode('versus'); });
 
     document.getElementById('ta-tier-down').addEventListener('click', () => {
       if (taDifficulty > 1) { taDifficulty--; lsSet('ta_difficulty', taDifficulty); updateTaTierPicker(); }
@@ -4876,6 +5302,119 @@
     document.getElementById('daily-back-menu').addEventListener('click', () => {
       document.getElementById('daily-challenge-gameover').classList.add('hidden');
       exitToMenu();
+    });
+
+    // ---- Versus lobby event listeners ----
+    document.getElementById('versus-back-choice-btn').addEventListener('click', () => closeVersusLobbyToMenu());
+    document.getElementById('versus-host-btn').addEventListener('click', async () => {
+      showVersusScreen('host');
+      document.getElementById('versus-player-list').innerHTML = '<div class="text-zinc-500 italic">Creating match…</div>';
+      try {
+        const res = await fetch('/api/versus/create', { method: 'POST', headers: Object.assign({ 'content-type': 'application/json' }, headers), body: '{}' });
+        if (!res.ok) throw new Error('Failed to create match');
+        const data = await res.json();
+        versusMatchId = data.match_id;
+        versusRoomCode = data.room_code;
+        versusIsHost = true;
+        document.getElementById('versus-room-code').textContent = data.room_code;
+        renderLobbyPlayerList([{ username: myUsername || 'You' }], 'versus-player-list');
+        startLobbyPoll();
+      } catch (err) {
+        document.getElementById('versus-player-list').innerHTML = '<div class="text-red-400">Error: ' + err.message + '</div>';
+      }
+    });
+    document.getElementById('versus-copy-btn').addEventListener('click', () => {
+      if (versusRoomCode) {
+        navigator.clipboard.writeText(versusRoomCode).catch(() => {});
+        document.getElementById('versus-copy-btn').textContent = 'Copied!';
+        setTimeout(() => { document.getElementById('versus-copy-btn').textContent = 'Copy'; }, 1500);
+      }
+    });
+    document.getElementById('versus-start-btn').addEventListener('click', async () => {
+      document.getElementById('versus-start-btn').disabled = true;
+      try {
+        const res = await fetch('/api/versus/start', {
+          method: 'POST',
+          headers: Object.assign({ 'content-type': 'application/json' }, headers),
+          body: JSON.stringify({ match_id: versusMatchId }),
+        });
+        if (!res.ok) { const d = await res.json(); throw new Error(d.error || 'Failed'); }
+        const data = await res.json();
+        versusStartAt = data.start_at;
+        versusEndAt = data.end_at;
+        stopLobbyPoll();
+        startVersusCountdown();
+      } catch (err) {
+        document.getElementById('versus-start-btn').disabled = false;
+        alert('Could not start match: ' + err.message);
+      }
+    });
+    document.getElementById('versus-cancel-btn').addEventListener('click', () => {
+      stopLobbyPoll();
+      closeVersusLobbyToMenu();
+    });
+    document.getElementById('versus-join-btn').addEventListener('click', () => showVersusScreen('join'));
+    document.getElementById('versus-back-join-btn').addEventListener('click', () => showVersusScreen('choice'));
+    document.getElementById('versus-code-input').addEventListener('input', function() {
+      this.value = this.value.toUpperCase();
+      document.getElementById('versus-join-error').classList.add('hidden');
+    });
+    document.getElementById('versus-do-join-btn').addEventListener('click', async () => {
+      const code = document.getElementById('versus-code-input').value.toUpperCase().trim();
+      if (code.length < 4) {
+        document.getElementById('versus-join-error').textContent = 'Enter a valid room code.';
+        document.getElementById('versus-join-error').classList.remove('hidden');
+        return;
+      }
+      document.getElementById('versus-do-join-btn').disabled = true;
+      document.getElementById('versus-join-error').classList.add('hidden');
+      try {
+        const res = await fetch('/api/versus/join', {
+          method: 'POST',
+          headers: Object.assign({ 'content-type': 'application/json' }, headers),
+          body: JSON.stringify({ room_code: code }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Failed to join');
+        versusMatchId = data.match_id;
+        versusRoomCode = code;
+        versusIsHost = false;
+        showVersusScreen('waiting');
+        renderLobbyPlayerList([{ username: myUsername || 'You' }], 'versus-waiting-player-list');
+        startLobbyPoll();
+      } catch (err) {
+        const errEl = document.getElementById('versus-join-error');
+        errEl.textContent = err.message;
+        errEl.classList.remove('hidden');
+        setTimeout(() => errEl.classList.add('hidden'), 3000);
+      } finally {
+        document.getElementById('versus-do-join-btn').disabled = false;
+      }
+    });
+    document.getElementById('versus-leave-btn').addEventListener('click', () => {
+      stopLobbyPoll();
+      closeVersusLobbyToMenu();
+    });
+
+    // ---- Versus game-over listeners ----
+    document.getElementById('versus-gameover-menu-btn').addEventListener('click', () => {
+      document.getElementById('versus-gameover').classList.add('hidden');
+      exitToMenu();
+    });
+    document.getElementById('versus-play-again-btn').addEventListener('click', () => {
+      document.getElementById('versus-gameover').classList.add('hidden');
+      // Reset versus state and re-open lobby
+      if (versusTimerHandle) { clearInterval(versusTimerHandle); versusTimerHandle = null; }
+      if (versusPollHandle) { clearInterval(versusPollHandle); versusPollHandle = null; }
+      versusMatchId = null; versusRoomCode = null; versusStartAt = null; versusEndAt = null;
+      versusPlayers = []; versusIsHost = false; versusScore = 0;
+      versusBlocks.clear();
+      gameMode = 'versus';
+      pendingVersusInit = true;
+      openVersusLobby();
+    });
+    document.getElementById('versus-gameover-share-btn').addEventListener('click', () => {
+      openShareMenu('versus', { blocks_cleared: versusScore });
     });
 
     // ---- Share Score functionality ----
@@ -6969,7 +7508,7 @@
     async function heartbeat() {
       if (!token) return;
       try {
-        const presenceMode = gameMode === 'spectate' ? 'spectate' : 'classic';
+        const presenceMode = gameMode === 'spectate' ? 'spectate' : (gameMode === 'versus' ? 'versus' : 'classic');
         const res = await fetch('/api/presence/ping', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', ...headers },
@@ -7545,6 +8084,7 @@
       document.getElementById('preview-endless'),
       document.getElementById('preview-learn'),
       document.getElementById('preview-spectate'),
+      document.getElementById('preview-versus'),
     ];
     var ctxs = canvases.map(function(c) { return c.getContext('2d'); });
 
