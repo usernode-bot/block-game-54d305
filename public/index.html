@@ -59,7 +59,17 @@
     try { post('info', ['[dev-console ready]'], { kind: 'ready' }); } catch (_) {}
   })();
   </script>
+
+  <!-- Apply stored theme before first paint to prevent flash -->
+  <script>(function(){var t=localStorage.getItem('block-game-theme')||'default';document.documentElement.dataset.theme=t;})()</script>
+
   <title>block-game</title>
+
+  <!-- Orbitron for cyberpunk theme headings -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&display=swap" rel="stylesheet">
+
   <script src="https://cdn.tailwindcss.com"></script>
   <script>tailwind.config = { darkMode: 'class' }</script>
   <script src="https://social-vibecoding.usernodelabs.org/usernode-bridge/v1/bridge.js"></script>
@@ -91,6 +101,121 @@
       -webkit-user-select: none;
       -webkit-tap-highlight-color: transparent;
     }
+
+    /* ---- Cyberpunk theme overrides ---- */
+    [data-theme="cyberpunk"] body {
+      background-color: #030314 !important;
+    }
+    [data-theme="cyberpunk"] #overlay {
+      background: rgba(0, 0, 10, 0.82) !important;
+    }
+    [data-theme="cyberpunk"] #overlay h1 {
+      font-family: 'Orbitron', sans-serif;
+      color: #d0f8ff !important;
+    }
+    [data-theme="cyberpunk"] #overlay p {
+      color: #4a9aaa !important;
+    }
+    [data-theme="cyberpunk"] #status {
+      color: #4a9aaa !important;
+    }
+    [data-theme="cyberpunk"] #play-btn {
+      background-color: #ff0090 !important;
+    }
+    [data-theme="cyberpunk"] #play-btn:hover {
+      background-color: #ff35a2 !important;
+    }
+    [data-theme="cyberpunk"] #hint,
+    [data-theme="cyberpunk"] #hint-fallback {
+      background: rgba(0, 8, 28, 0.88) !important;
+      color: #d0f8ff !important;
+      border: 1px solid rgba(0, 229, 255, 0.25) !important;
+    }
+    [data-theme="cyberpunk"] #lookmode {
+      background: rgba(0, 8, 28, 0.75) !important;
+      color: #d0f8ff !important;
+    }
+    [data-theme="cyberpunk"] #lookmode:hover {
+      background: rgba(0, 8, 28, 1) !important;
+    }
+    [data-theme="cyberpunk"] #attribution {
+      background: rgba(0, 8, 28, 0.88) !important;
+      color: #d0f8ff !important;
+      border: 1px solid rgba(0, 229, 255, 0.25) !important;
+    }
+    [data-theme="cyberpunk"] #palette {
+      background: rgba(0, 8, 28, 0.88) !important;
+      border: 1px solid rgba(0, 229, 255, 0.25) !important;
+    }
+    [data-theme="cyberpunk"] #help-btn {
+      background: rgba(0, 8, 28, 0.88) !important;
+      color: #00e5ff !important;
+      border: 1px solid rgba(0, 229, 255, 0.25) !important;
+    }
+    [data-theme="cyberpunk"] #help-btn:hover {
+      background: rgba(0, 8, 28, 1) !important;
+    }
+    [data-theme="cyberpunk"] #theme-btn {
+      background: rgba(0, 8, 28, 0.88) !important;
+      color: #00e5ff !important;
+      border: 1px solid rgba(0, 229, 255, 0.25) !important;
+    }
+    [data-theme="cyberpunk"] #theme-btn:hover {
+      background: rgba(0, 8, 28, 1) !important;
+    }
+    [data-theme="cyberpunk"] #build-stamp {
+      color: #4a9aaa !important;
+      background: rgba(0, 8, 28, 0.60) !important;
+    }
+    [data-theme="cyberpunk"] #controls {
+      background: rgba(0, 8, 28, 0.92) !important;
+      border: 1px solid rgba(0, 229, 255, 0.25) !important;
+      color: #d0f8ff !important;
+    }
+    [data-theme="cyberpunk"] #controls h2 {
+      color: #d0f8ff !important;
+      font-family: 'Orbitron', sans-serif;
+    }
+    [data-theme="cyberpunk"] #controls-close {
+      color: #4a9aaa !important;
+    }
+    [data-theme="cyberpunk"] #controls-close:hover {
+      color: #d0f8ff !important;
+    }
+    [data-theme="cyberpunk"] #touch-controls [data-act="break"] {
+      background: rgba(255, 0, 144, 0.55) !important;
+    }
+    [data-theme="cyberpunk"] #touch-controls [data-act="break"]:active {
+      background: rgba(255, 0, 144, 0.80) !important;
+    }
+    [data-theme="cyberpunk"] #touch-controls [data-act="place"] {
+      background: rgba(0, 229, 255, 0.45) !important;
+    }
+    [data-theme="cyberpunk"] #touch-controls [data-act="place"]:active {
+      background: rgba(0, 229, 255, 0.75) !important;
+    }
+
+    /* Battle overlay covers 3D canvas while in battle mode */
+    #battle-overlay {
+      position: absolute;
+      inset: 0;
+      z-index: 40;
+      background: #09090b;
+      color: #e4e4e7;
+      overflow: hidden;
+    }
+    #battle-overlay.hidden { display: none; }
+
+    .battle-screen { position: absolute; inset: 0; overflow-y: auto; }
+    .battle-screen.hidden { display: none; }
+
+    /* Tetris board canvas borders */
+    #my-canvas, #opp-canvas { display: block; border: 1px solid #27272a; border-radius: 4px; }
+    #next-canvas { display: block; border-radius: 4px; background: #0f0f1a; }
+
+    /* Spinner animation */
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .spin { animation: spin 0.8s linear infinite; }
     @keyframes sr-banner-fade {
       0%   { opacity: 0; transform: translateY(-12px); }
       15%  { opacity: 1; transform: translateY(0); }
@@ -722,6 +847,11 @@
           <p class="text-zinc-400 text-sm sm:text-sm lg:text-sm mb-5 mode-desc">Race up to 3 friends. 60 seconds, your own board — highest score wins.</p>
           <button id="play-versus-btn" class="w-full px-4 py-3 rounded-lg bg-orange-600 hover:bg-orange-500 font-semibold text-sm sm:text-sm lg:text-base transition hover:scale-[1.02] active:scale-[0.98] mode-btn">Play Versus</button>
         </div>
+        <div class="flex-1 bg-zinc-900/80 rounded-xl p-5">
+          <h2 class="font-semibold text-zinc-100 mb-1">Battle Mode</h2>
+          <p class="text-zinc-400 text-xs mb-4">Race to outlast your opponent on your own Tetris board.</p>
+          <button id="battle-btn" class="w-full px-4 py-2 rounded-lg bg-emerald-700 hover:bg-emerald-600 font-semibold text-sm transition-colors">⚔ Battle</button>
+        </div>
       </div>
       <div id="tournament-teaser" class="hidden mt-3 rounded-xl bg-zinc-900/60 px-4 py-2.5 text-xs text-zinc-300"></div>
       <div id="collab-teaser" class="hidden mt-2 rounded-xl bg-zinc-900/60 px-4 py-2.5 text-xs text-zinc-300"></div>
@@ -878,12 +1008,12 @@
   <div id="hint" class="pointer-events-none fixed top-3 left-1/2 -translate-x-1/2 z-20 text-center text-[10px] sm:text-xs text-zinc-300/90 bg-black/40 rounded-lg px-2 sm:px-3 py-1 sm:py-2 transition-opacity duration-700">
     <span class="font-semibold">WASD</span> move · <span class="font-semibold">Space/Shift</span> up·down ·
     <span class="font-semibold">Left-click/F</span> add · <span class="font-semibold">Right-click/G</span> delete · <span class="font-semibold">Drag+📦</span> stamp ·
-    <span class="font-semibold">1–9</span> pick · <span class="font-semibold">H</span> hold · <span class="font-semibold">Enter</span> chat · <span class="font-semibold">Esc</span> release
+    <span class="font-semibold">1–9</span> pick block · <span class="font-semibold">H</span> hold/controls · <span class="font-semibold">X</span> hint · <span class="font-semibold">Enter</span> chat · <span class="font-semibold">M</span> mute · <span class="font-semibold">Esc</span> release
   </div>
   <div id="hint-fallback" class="hidden pointer-events-none fixed top-3 left-1/2 -translate-x-1/2 z-20 text-center text-[10px] sm:text-xs text-zinc-300/90 bg-black/40 rounded-lg px-2 sm:px-3 py-1 sm:py-2 transition-opacity duration-700">
     <span class="font-semibold">WASD</span> move · <span class="font-semibold">Space/Shift</span> up·down ·
     <span class="font-semibold">Drag</span> look · <span class="font-semibold">Left-click/F</span> add · <span class="font-semibold">Right-click/G</span> delete · <span class="font-semibold">Drag+📦</span> stamp ·
-    <span class="font-semibold">1–9</span> pick · <span class="font-semibold">H</span> hold · <span class="font-semibold">Enter</span> chat · <span class="font-semibold">Esc</span> menu
+    <span class="font-semibold">1–9</span> pick block · <span class="font-semibold">H</span> hold/controls · <span class="font-semibold">X</span> hint · <span class="font-semibold">Enter</span> chat · <span class="font-semibold">M</span> mute · <span class="font-semibold">Esc</span> menu
   </div>
 
   <!-- Look-mode control: always-visible, clickable, shows the active look
@@ -929,6 +1059,11 @@
 
   <!-- Block palette -->
   <div id="palette" class="fixed bottom-4 left-1/2 -translate-x-1/2 z-20 flex gap-1.5 p-1.5 rounded-xl bg-black/50 backdrop-blur max-w-[calc(100vw-2rem)] overflow-x-auto"></div>
+
+  <!-- Theme toggle: sits to the left of the top-right button cluster.
+       Label shows what the button will switch TO (opposite of current theme). -->
+  <button id="theme-btn" title="Toggle theme" aria-label="Toggle theme"
+          class="fixed top-3 z-30 h-9 px-3 rounded-full bg-black/50 hover:bg-black/70 text-zinc-100 text-xs font-semibold flex items-center justify-center transition-colors cursor-pointer" style="right: 9.5rem">◈ Cyber</button>
 
   <!-- Badges toggle: sits to the left of the mute button. -->
   <button id="badges-btn" title="Badges" aria-label="Toggle badges"
@@ -1004,6 +1139,10 @@
   <button id="theme-btn" title="Daily Build Theme" aria-label="Daily Build Theme"
           class="fixed top-[10.5rem] right-3 z-30 w-9 h-9 rounded-full bg-black/50 hover:bg-black/70 text-zinc-100 text-lg leading-none flex items-center justify-center transition-colors cursor-pointer">🌟</button>
 
+  <!-- AI Hint button: placement suggestion. Shown only in Classic mode. -->
+  <button id="hint-btn" title="Placement hint (X)" aria-label="Ask for placement hint"
+          class="hidden fixed top-[10.5rem] right-3 z-30 w-9 h-9 rounded-full bg-black/50 hover:bg-black/70 text-zinc-100 text-lg leading-none flex items-center justify-center transition-colors cursor-pointer">🎯</button>
+
   <!-- NFT Skins toggle: below the coach button. -->
   <button id="skins-btn" title="NFT Block Skins" aria-label="Toggle NFT skins"
           class="fixed top-[11rem] right-3 z-30 w-9 h-9 rounded-full bg-black/50 hover:bg-black/70 text-zinc-100 text-lg leading-none flex items-center justify-center transition-colors cursor-pointer">🎨</button>
@@ -1014,7 +1153,7 @@
 
   <!-- Build/version stamp: always visible, dim, so the running build can be
        confirmed at a glance. Bump BUILD_VERSION (below) on every change.
-       Shifted down to make room for the leaderboard, friends, coach, skins, accessibility, and theme buttons. -->
+       Shifted down to make room for the leaderboard, friends, coach, hint, skins, accessibility, and theme buttons. -->
   <div id="build-stamp" class="pointer-events-none fixed top-[13rem] right-3 z-20 text-[11px] text-zinc-300/70 bg-black/40 rounded px-2 py-1 font-mono"></div>
 
   <!-- NFT Skins panel: shows owned NFTs for equipping as block textures. -->
@@ -1187,6 +1326,18 @@
   <div id="blocks-placed-hud" class="hidden pointer-events-none fixed left-3 z-20 rounded-lg bg-black/55 px-2 py-1.5 text-white/90">
     <div class="text-[9px] font-bold uppercase tracking-widest text-white/60 leading-tight">Blocks Placed</div>
     <div id="blocks-placed-count" class="text-lg font-mono font-bold leading-tight tabular-nums">0</div>
+  </div>
+
+  <!-- XP / Level HUD: always visible below the build stamp at top-right.
+       Shows current level badge, XP progress bar, and XP numbers. -->
+  <div id="xp-hud" class="pointer-events-none fixed right-3 z-20 w-36 rounded-lg bg-black/55 px-2 py-1.5 text-xs text-white/90" style="top:8rem">
+    <div class="flex items-center justify-between mb-1">
+      <span id="xp-level-label" class="font-bold text-white" style="font-size:13px">Lv. 1</span>
+    </div>
+    <div style="height:3px;border-radius:9999px;background:rgba(255,255,255,0.18);overflow:hidden;margin-bottom:3px">
+      <div id="xp-bar-fill" style="width:0%;height:100%;border-radius:9999px;background:#7c3aed;transition:width 0.3s"></div>
+    </div>
+    <span id="xp-numbers" style="color:rgba(255,255,255,0.55);font-size:10px">0 / 100 XP</span>
   </div>
 
   <!-- Player HP HUD: shown in Classic mode only. -->
@@ -1383,6 +1534,115 @@
     </div>
   </div>
 
+  <!-- ===== BATTLE OVERLAY ===== -->
+  <div id="battle-overlay" class="hidden">
+
+    <!-- Lobby Screen -->
+    <div id="battle-lobby-screen" class="battle-screen flex flex-col items-center justify-center p-6">
+      <h2 class="text-3xl font-bold mb-2">⚔ Battle Mode</h2>
+      <p class="text-zinc-400 text-sm mb-8">Race to outlast your opponent on your own Tetris board.</p>
+      <div class="flex flex-col sm:flex-row gap-6 w-full max-w-xl">
+        <!-- Create Room -->
+        <div class="flex-1 flex flex-col bg-zinc-900 rounded-2xl p-6 border border-zinc-800">
+          <h3 class="text-lg font-semibold mb-1">Create Room</h3>
+          <p class="text-zinc-500 text-sm mb-4">Get a code to share with a friend.</p>
+          <button id="create-room-btn" class="mt-auto w-full py-2.5 rounded-lg bg-violet-600 hover:bg-violet-500 font-semibold transition-colors">Create Room</button>
+          <p id="create-room-error" class="hidden mt-2 text-rose-400 text-sm text-center"></p>
+        </div>
+        <!-- Join Room -->
+        <div class="flex-1 flex flex-col bg-zinc-900 rounded-2xl p-6 border border-zinc-800">
+          <h3 class="text-lg font-semibold mb-1">Join Room</h3>
+          <p class="text-zinc-500 text-sm mb-4">Enter a 5-letter code to join.</p>
+          <input id="join-code-input" type="text" maxlength="5" placeholder="XXXXX" autocomplete="off" spellcheck="false"
+                 class="w-full px-3 py-2 rounded-lg bg-zinc-800 border border-zinc-700 text-center font-mono text-2xl uppercase tracking-widest focus:outline-none focus:border-violet-500 mb-2">
+          <button id="join-room-btn" class="w-full py-2.5 rounded-lg bg-emerald-700 hover:bg-emerald-600 font-semibold transition-colors">Join</button>
+          <p id="join-room-error" class="hidden mt-2 text-rose-400 text-sm text-center"></p>
+        </div>
+      </div>
+      <button id="battle-back-btn" class="mt-8 text-zinc-500 hover:text-zinc-300 text-sm transition-colors">← Back to Block World</button>
+    </div>
+
+    <!-- Waiting Screen -->
+    <div id="battle-waiting-screen" class="battle-screen hidden flex flex-col items-center justify-center p-6">
+      <h2 class="text-2xl font-bold mb-2">Waiting for Opponent</h2>
+      <p class="text-zinc-400 text-sm mb-6">Share this code with a friend:</p>
+      <div class="flex items-center gap-3 mb-2">
+        <span id="display-room-code" class="font-mono text-5xl font-bold tracking-widest text-violet-400">XXXXX</span>
+        <button id="copy-code-btn" title="Copy code"
+                class="p-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 transition-colors text-xs font-semibold">
+          Copy
+        </button>
+      </div>
+      <p id="copy-confirm" class="hidden text-emerald-400 text-xs mb-4">Copied!</p>
+      <div id="waiting-status" class="flex items-center gap-3 mt-6 text-zinc-400">
+        <div class="w-4 h-4 rounded-full border-2 border-violet-500 border-t-transparent spin"></div>
+        <span id="waiting-status-text">Waiting for opponent to join…</span>
+      </div>
+      <button id="waiting-back-btn" class="mt-10 text-zinc-500 hover:text-zinc-300 text-sm transition-colors">← Cancel</button>
+    </div>
+
+    <!-- Game Screen -->
+    <div id="battle-game-screen" class="battle-screen hidden flex flex-col items-center justify-center py-4 px-2">
+      <!-- Result overlay -->
+      <div id="game-result" class="hidden absolute inset-0 z-50 flex flex-col items-center justify-center bg-black/85 text-center px-4">
+        <div id="game-result-emoji" class="text-6xl mb-3"></div>
+        <div id="game-result-title" class="text-4xl font-bold mb-2"></div>
+        <div id="game-result-sub" class="text-zinc-400 text-sm mb-6"></div>
+        <button id="game-back-btn" class="px-6 py-3 rounded-lg bg-violet-600 hover:bg-violet-500 font-semibold text-base transition-colors">Back to Menu</button>
+      </div>
+
+      <!-- Boards -->
+      <div id="boards-row" class="flex items-start gap-4 select-none">
+        <!-- My side -->
+        <div class="flex flex-col items-center gap-1">
+          <div class="text-sm font-semibold text-zinc-300" id="my-label">You</div>
+          <div class="flex gap-3 items-start">
+            <!-- Side info -->
+            <div class="flex flex-col items-start gap-3 pt-1">
+              <div>
+                <div class="text-[10px] text-zinc-500 uppercase tracking-wider mb-1">Next</div>
+                <canvas id="next-canvas" width="80" height="80"></canvas>
+              </div>
+              <div>
+                <div class="text-[10px] text-zinc-500 uppercase tracking-wider">Score</div>
+                <div id="my-score" class="text-xl font-mono font-bold text-violet-400">0</div>
+              </div>
+              <div>
+                <div class="text-[10px] text-zinc-500 uppercase tracking-wider">Lines</div>
+                <div id="my-lines" class="text-lg font-mono text-zinc-300">0</div>
+              </div>
+            </div>
+            <canvas id="my-canvas" width="240" height="480"></canvas>
+          </div>
+        </div>
+
+        <!-- VS divider -->
+        <div class="text-xl font-bold text-zinc-700 self-center pb-8">VS</div>
+
+        <!-- Opponent side -->
+        <div class="flex flex-col items-center gap-1">
+          <div class="text-sm font-semibold text-zinc-300" id="opp-label">Opponent</div>
+          <div class="flex gap-3 items-start">
+            <canvas id="opp-canvas" width="240" height="480"></canvas>
+            <!-- Side info -->
+            <div class="flex flex-col items-start gap-3 pt-1">
+              <div>
+                <div class="text-[10px] text-zinc-500 uppercase tracking-wider">Score</div>
+                <div id="opp-score" class="text-xl font-mono font-bold text-emerald-400">0</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Controls hint -->
+      <div class="mt-3 text-[11px] text-zinc-600 text-center">
+        ← → / A D move &nbsp;·&nbsp; ↑ / W rotate &nbsp;·&nbsp; ↓ / S soft drop &nbsp;·&nbsp; Space hard drop
+      </div>
+    </div>
+
+  </div><!-- /#battle-overlay -->
+
   <!-- Chat drawer: slides up from the bottom of the game canvas. Hidden by
        default; toggled by the chat button or the Enter key. -->
   <div id="chat-drawer" class="hidden fixed bottom-0 left-0 right-0 z-[22] flex flex-col h-48 sm:h-64 border-t border-zinc-700/80">
@@ -1432,6 +1692,13 @@
   <!-- Combo HUD: placement streak multiplier badge shown in Classic mode -->
   <div id="combo-hud" class="hidden pointer-events-none fixed top-3 left-3 z-20 transition-opacity duration-200">
     <div id="combo-badge" class="text-2xl sm:text-3xl font-mono font-bold text-white rounded-xl px-3 sm:px-4 py-1 sm:py-2 leading-tight tabular-nums bg-amber-500" style="transition: transform 0.15s ease-out;">2×</div>
+  </div>
+
+  <!-- Move Analyzer HUD: chess-style rating badge shown after each Classic placement -->
+  <div id="move-rating-hud" class="hidden pointer-events-none fixed bottom-24 left-4 z-20" style="transition: opacity 0.3s;">
+    <div id="move-rating-badge" class="flex items-center gap-1.5 text-sm font-semibold text-white rounded-full px-3 py-1 bg-black/80 backdrop-blur" style="transition: transform 0.15s ease-out;">
+      <span id="move-rating-icon"></span><span id="move-rating-label"></span>
+    </div>
   </div>
 
   <!-- Score HUD: shows session score during Classic mode -->
@@ -1673,7 +1940,7 @@
 
     // Build identifier — bump this (to the deploying commit short SHA) on every
     // change so the top-right stamp confirms exactly which code is running.
-    const BUILD_VERSION = 'speedrun-mode+power-ups+hold-queue+achievements-badges+chat+daily-challenge+leaderboard+online-presence+block-attribution+audio-sfx+next-piece-preview+spectator-mode+weekly-tournament+friends+collab-challenges+betting-system+blocks-placed-hud+weather-system+day-night-cycle+minimap+ai-coach+nft-skins+player-stats+leaderboard-daily+new-badges+daily-theme-voting+natural-disasters+community-monuments+undo-redo-history+pastel-chrome+mobs+message-in-a-block+accessibility-panel+pixel-pets+versus-mode';
+    const BUILD_VERSION = 'cyberpunk-theme+speedrun-mode+power-ups+hold-queue+achievements-badges+chat+daily-challenge+leaderboard+online-presence+block-attribution+audio-sfx+next-piece-preview+spectator-mode+weekly-tournament+friends+xp-levels+collab-challenges+betting-system+blocks-placed-hud+ai-opponent+weather-system+day-night-cycle+minimap+ai-coach+ai-hints+nft-skins+player-stats+leaderboard-daily+new-badges+daily-theme-voting+natural-disasters+community-monuments+undo-redo-history+pastel-chrome+mobs+message-in-a-block+accessibility-panel+pixel-pets+versus-mode+battle-mode';
 
     // Badge definitions — mirror of the server-side BADGES array, extended with
     // a `hint` field shown in the panel for unearned badges.
@@ -1716,10 +1983,40 @@
       { id: 'expert', label: 'Expert', target: 110, multiplier: 5.0 },
     ];
 
+    // XP thresholds — mirror of server-side XP_THRESHOLDS. Index i = level i+1.
+    const XP_THRESHOLDS = [
+      0, 100, 300, 600, 1000, 1600, 2400, 3500, 5000, 7000,
+      9500, 12500, 16500, 21500, 28000, 36000, 46000, 58000, 73000, 90000,
+    ];
+    function getLevel(totalScore) {
+      for (let i = XP_THRESHOLDS.length - 1; i >= 0; i--) {
+        if (totalScore >= XP_THRESHOLDS[i]) {
+          if (i < XP_THRESHOLDS.length - 1) return i + 1;
+          let thresh = XP_THRESHOLDS[i], level = i + 1;
+          while (totalScore >= Math.round(thresh * 1.25)) { thresh = Math.round(thresh * 1.25); level++; }
+          return level;
+        }
+      }
+      return 1;
+    }
+    function getXPInfo(totalScore) {
+      const level = getLevel(totalScore);
+      function threshFor(lvl) {
+        if (lvl <= XP_THRESHOLDS.length) return XP_THRESHOLDS[lvl - 1];
+        let t = XP_THRESHOLDS[XP_THRESHOLDS.length - 1];
+        for (let i = XP_THRESHOLDS.length; i < lvl; i++) t = Math.round(t * 1.25);
+        return t;
+      }
+      const cur = threshFor(level), next = threshFor(level + 1);
+      return { level, xpInLevel: totalScore - cur, xpToNext: next - cur };
+    }
+
     // Touch capability: drives (a) the on-screen control overlay, (b) skipping
     // mouse-lock in favour of direct touch play, and (c) portrait force-rotation.
+    // Desktop (isTouch === false) keeps every existing mouse/keyboard path.
     const isTouch = (window.matchMedia && window.matchMedia('(pointer: coarse)').matches)
       || ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
+
 
     // ---- Audio system ----
     const audio = (() => {
@@ -2355,6 +2652,45 @@
     const buildStampEl = document.getElementById('build-stamp');
     buildStampEl.textContent = 'build ' + BUILD_VERSION;
 
+    // ---- Theme management ----
+    function getStoredTheme() {
+      return localStorage.getItem('block-game-theme') || 'default';
+    }
+
+    function getThemeColors(themeName) {
+      if (themeName === 'cyberpunk') {
+        return { sky: '#030314', fog: '#030314', gridPrimary: 0x00e5ff, gridSecondary: 0x003344 };
+      }
+      return { sky: '#8ec7ff', fog: '#8ec7ff', gridPrimary: 0x6b7a8d, gridSecondary: 0x44505f };
+    }
+
+    const themeBtnEl = document.getElementById('theme-btn');
+
+    // Sync JS state with the theme already set by the inline anti-flash script
+    (function () {
+      const t = getStoredTheme();
+      document.documentElement.dataset.theme = t;
+      themeBtnEl.textContent = t === 'cyberpunk' ? '◈ Default' : '◈ Cyber';
+    })();
+
+    function applyTheme(name) {
+      document.documentElement.dataset.theme = name;
+      themeBtnEl.textContent = name === 'cyberpunk' ? '◈ Default' : '◈ Cyber';
+      localStorage.setItem('block-game-theme', name);
+      // Update Three.js scene colors once the world has loaded
+      if (groundGrid) {
+        const colors = getThemeColors(name);
+        scene.background = new THREE.Color(colors.sky);
+        scene.fog.color.set(colors.sky);
+        buildGroundGrid();
+      }
+    }
+
+    themeBtnEl.addEventListener('click', () => {
+      const current = document.documentElement.dataset.theme || 'default';
+      applyTheme(current === 'cyberpunk' ? 'default' : 'cyberpunk');
+    });
+
     // Daily Challenge HUD element — bottom position raised on touch to clear
     // the on-screen fly/build action cluster that lives at bottom-right.
     // Incorporates safe-area-inset-bottom so the pill clears the home indicator.
@@ -2422,6 +2758,15 @@
       streakHudEl.textContent = current === 1 ? '🔥 Day 1' : '🔥 ' + current + ' day streak';
       streakHudEl.classList.remove('hidden');
     }
+
+    // ---- Move Analyzer: block point values (mirrors BLOCK_POINTS in server.js) ----
+    const MOVE_POINTS = {
+      1:1, 2:1, 3:1, 4:1, 5:1, 6:1, 13:1,  // Grass, Dirt, Stone, Wood, Leaves, Sand, Snow
+      7:2, 8:2, 9:2, 10:2, 11:2, 12:2,      // Brick, Glass, Red, Blue, Yellow, White
+      15:3, 18:3,                            // Glowstone, Crystal
+      16:4,                                  // Obsidian
+      14:5, 17:5,                            // Gold Block, Rainbow Block
+    };
 
     // ---- World/runtime state ----
     let DIMS = { w: 32, d: 32, h: 24 };
@@ -2669,8 +3014,19 @@
     let collabEndsAt = null;
     let collabTopContributors = [];
 
+    // ---- XP / Level state ----
+    let playerLevel = 1;
+    let playerTotalXP = 0;
+
     // ---- Blocks placed (lifetime) ----
     let myBlocksPlaced = 0;
+
+    // ---- Hint state ----
+    let hintCell = null;             // {x,y,z} of active highlight, or null
+    let hintExpiry = 0;              // ms timestamp when highlight auto-clears
+    let hintFetching = false;        // prevents concurrent hint requests
+    let lastHintAt = 0;              // ms timestamp of last hint shown
+    const HINT_COOLDOWN_MS = 20_000;
 
     // ---- Pet companion state ----
     let petTypes = [];              // full PET_TYPES array from /api/world
@@ -2972,7 +3328,7 @@
       scene.fog = new THREE.Fog('#00bfff', 40, 90);
 
       camera = new THREE.PerspectiveCamera(70, 1, 0.1, 500);
-      camera.up.set(0, 1, 0);
+      camera.up.set(0, 1, 0); // pin world up so the horizon can never roll
       camera.position.set(DIMS.w / 2, 3.5, DIMS.d / 2 + 8);
     } catch (err) {
       console.error('[Three.js] Initialization failed:', err.message);
@@ -3221,7 +3577,7 @@
     }
 
     const cube = new THREE.BoxGeometry(1, 1, 1);
-    const materials = new Map();
+    const materials = new Map();     // block_type -> Material
     function materialFor(p) {
       const opts = { color: new THREE.Color(hcColor(p.color)) };
       if (p.opacity != null && p.opacity < 1) { opts.transparent = true; opts.opacity = p.opacity; opts.side = THREE.DoubleSide; }
@@ -3532,11 +3888,14 @@
       scene.add(mesh);
     }
 
+    // Infinite-looking ground grid: colours driven by the active theme.
     let groundGrid = null;
     function buildGroundGrid() {
       if (groundGrid) { scene.remove(groundGrid); groundGrid = null; }
-      const SIZE = 400;
-      const grid = new THREE.GridHelper(SIZE, SIZE, 0x00ffcc, 0x007766);
+      const SIZE = 400; // world units — far beyond the plot and the fly margin
+      const colors = getThemeColors(document.documentElement.dataset.theme || 'default');
+      const grid = new THREE.GridHelper(SIZE, SIZE, colors.gridPrimary, colors.gridSecondary);
+      // Centre on the plot centre (an integer) so lines land on cell borders.
       grid.position.set(DIMS.w / 2, -0.01, DIMS.d / 2);
       grid.material.transparent = true;
       grid.material.opacity = 0.35;
@@ -3546,13 +3905,16 @@
       scene.add(grid);
     }
 
-    // Dynamic blocks: one InstancedMesh per type, rebuilt from the active map.
-    // In TA mode uses taBlocks; otherwise uses the shared blocks map.
+    // Dynamic (user-placed) blocks: one InstancedMesh per type, rebuilt from
+    // the `blocks` map whenever it changes. Plot is small, so a full rebuild
+    // is cheap and keeps instanceId -> cell mapping trivial.
     const blockGroup = new THREE.Group();
     scene.add(blockGroup);
     let crystalMaterial = null;  // tracked for emissive pulse animation in the render loop
     let wildcardMaterial = null; // tracked for Gold Star sparkle animation in the render loop
     function rebuildBlockMeshes() {
+      // InstancedMeshes share the cached `cube` geometry and palette materials,
+      // so disposing them here would break other meshes — just drop the refs.
       blockGroup.clear();
       crystalMaterial = null;
       wildcardMaterial = null;
@@ -3687,7 +4049,7 @@
       }
     }
 
-    // Targeting highlight.
+    // Targeting highlight (thin wireframe box on the aimed cell).
     const highlight = new THREE.LineSegments(
       new THREE.EdgesGeometry(cube),
       new THREE.LineBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.6 })
@@ -3703,6 +4065,14 @@
     const previewMesh = new THREE.Mesh(cube, previewMaterial);
     previewMesh.visible = false;
     scene.add(previewMesh);
+
+    // Hint highlight: glowing cyan wireframe cube at the AI-suggested cell.
+    // Pulses in opacity via the render loop; visible only when a hint is active.
+    const hintHighlightGeo = new THREE.EdgesGeometry(new THREE.BoxGeometry(1.08, 1.08, 1.08));
+    const hintHighlightMat = new THREE.LineBasicMaterial({ color: 0x00e5ff, transparent: true, opacity: 1.0 });
+    const hintHighlightMesh = new THREE.LineSegments(hintHighlightGeo, hintHighlightMat);
+    hintHighlightMesh.visible = false;
+    scene.add(hintHighlightMesh);
 
     // Stamp preview: wireframe box showing the rectangular region during a stamp drag
     const stampMaterial = new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.5 });
@@ -4319,6 +4689,17 @@
         '</div>';
     }
 
+    function renderXPHud() {
+      const { level, xpInLevel, xpToNext } = getXPInfo(playerTotalXP);
+      const labelEl = document.getElementById('xp-level-label');
+      const barEl = document.getElementById('xp-bar-fill');
+      const numEl = document.getElementById('xp-numbers');
+      if (!labelEl) return;
+      labelEl.textContent = 'Lv. ' + level;
+      barEl.style.width = Math.min(100, Math.round((xpInLevel / xpToNext) * 100)) + '%';
+      numEl.textContent = xpInLevel.toLocaleString() + ' / ' + xpToNext.toLocaleString() + ' XP';
+    }
+
     function renderChallenge() {
       if (!challengeDate && !missionDate) return;
       let html = '';
@@ -4548,6 +4929,17 @@
           }
           if (data.challenge) syncChallenge(data.challenge);
           if (data.collab) syncCollab(data.collab);
+          if (typeof data.total_score === 'number') {
+            const newLevel = data.level || getLevel(data.total_score);
+            if (newLevel > playerLevel) {
+              for (let lv = playerLevel + 1; lv <= newLevel; lv++) {
+                showBadgeToast({ icon: '⭐', name: 'Level Up!', flavour: 'You\'re now Level ' + lv });
+              }
+            }
+            playerLevel = newLevel;
+            playerTotalXP = data.total_score;
+            renderXPHud();
+          }
           if (data.mission) {
             syncMission({
               date: missionDate,
@@ -4670,6 +5062,64 @@
         lastComboMultiplier = 1;
         comboHideTimer = null;
       }, 3000);
+    }
+
+    // ---- Move Analyzer ----
+    const moveRatingHudEl = document.getElementById('move-rating-hud');
+    const moveRatingBadgeEl = document.getElementById('move-rating-badge');
+    const moveRatingIconEl = document.getElementById('move-rating-icon');
+    const moveRatingLabelEl = document.getElementById('move-rating-label');
+    let moveRatingTimer = null;
+
+    function countNeighbors(x, y, z) {
+      const dirs = [[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]];
+      let count = 0;
+      for (const [dx, dy, dz] of dirs) {
+        const ny = y + dy;
+        if (ny < 0) { count++; continue; } // ground layer is always solid
+        if (blocks.has(key(x + dx, ny, z + dz))) count++;
+      }
+      return count;
+    }
+
+    const MOVE_TIERS = [
+      { icon: '🌟', label: 'Brilliant', bg: 'bg-violet-600' },
+      { icon: '✨', label: 'Great',     bg: 'bg-blue-600'   },
+      { icon: '👍', label: 'Good',      bg: 'bg-zinc-600'   },
+      { icon: '〰️', label: 'Inaccuracy',bg: 'bg-zinc-700'   },
+      { icon: '⚠️', label: 'Mistake',   bg: 'bg-orange-600' },
+      { icon: '💥', label: 'Blunder',   bg: 'bg-red-700'    },
+    ];
+    const BG_CLASSES = MOVE_TIERS.map((t) => t.bg);
+
+    function getTier(neighbors, blockType) {
+      const pts = MOVE_POINTS[blockType] || 1;
+      if (neighbors >= 5) return 0; // Brilliant
+      if (neighbors >= 3) return 1; // Great
+      if (neighbors >= 2) return 2; // Good
+      if (neighbors === 1 && pts >= 4) return 2; // Good
+      if (neighbors === 1) return 3; // Inaccuracy
+      if (pts >= 4) return 3; // Inaccuracy (alone but premium)
+      if (pts >= 2) return 4; // Mistake
+      return 5; // Blunder
+    }
+
+    function showMoveRating(neighbors, blockType) {
+      const tier = MOVE_TIERS[getTier(neighbors, blockType)];
+      moveRatingIconEl.textContent = tier.icon;
+      moveRatingLabelEl.textContent = tier.label;
+      BG_CLASSES.forEach((c) => moveRatingBadgeEl.classList.remove(c));
+      moveRatingBadgeEl.classList.add(tier.bg);
+      moveRatingBadgeEl.style.transform = 'scale(1.15)';
+      requestAnimationFrame(() => requestAnimationFrame(() => { moveRatingBadgeEl.style.transform = ''; }));
+      moveRatingHudEl.style.opacity = '1';
+      moveRatingHudEl.classList.remove('hidden');
+      if (moveRatingTimer !== null) clearTimeout(moveRatingTimer);
+      moveRatingTimer = setTimeout(() => {
+        moveRatingHudEl.style.opacity = '0';
+        setTimeout(() => { moveRatingHudEl.classList.add('hidden'); }, 300);
+        moveRatingTimer = null;
+      }, 2500);
     }
 
     // ---- Score HUD ----
@@ -4976,6 +5426,7 @@
       if (!target || paused) return;
       const { x, y, z } = target.place;
       if (!inBounds(x, y, z)) return;
+      clearHintHighlight();
       const actualType = resolveBlockType();
       if (gameMode === 'timeattack') {
         const k = key(x, y, z);
@@ -5040,11 +5491,13 @@
       if (mode === 'speedrun') speedrunSendBlock(x, y, z, actualType);
       else {
         emitBlockPlace(x + 0.5, y + 0.5, z + 0.5);
+        const ratingNeighbors = countNeighbors(x, y, z);
         sendEdit(x, y, z, actualType, prevType);
         pushHistory(x, y, z, prevType, actualType);
         // Unlock hold after each successful placement (Tetris lock rule)
         holdLocked = false;
         updateHoldPanel();
+        showMoveRating(ratingNeighbors, actualType);
       }
     }
 
@@ -5118,7 +5571,8 @@
       }
       if (!target || paused) return;
       const { x, y, z } = target.cell;
-      if (y < 1) return;
+      if (y < 1) return; // ground layer is immutable
+      clearHintHighlight();
       if (gameMode === 'timeattack') {
         const k = key(x, y, z);
         if (!taBlocks.has(k)) return;
@@ -5447,10 +5901,10 @@
       } catch (_) { /* transient; next poll will sync */ }
     }
 
-    // ---- Pointer-lock fly camera ----
+    // ---- Camera ----
     let yaw = 0, pitch = 0;
-    let locked = false;
-    let playing = false;
+    let locked = false;          // true OS pointer lock is held (native path)
+    let playing = false;         // game is active / overlay hidden
     let paused = false;
     let turntableEnabled = true;
     let turntableAngle = 0;
@@ -5458,12 +5912,12 @@
     let attractMode = false;
     let attractT = 0;
     let idleTimer = null;
-    let dragMode = false;
-    let lockUnavailable = false;
-    let lockTimer = null;
-    let dragging = false;
-    let pressX = 0, pressY = 0;
-    const DRAG_THRESHOLD = 5;
+    let dragMode = false;        // fallback: playing without OS pointer lock
+    let lockUnavailable = false; // a *retry* was denied — stop inviting retries
+    let lockTimer = null;        // pending silent-denial watchdog (cleared per try)
+    let dragging = false;        // fallback: a look-drag is in progress
+    let pressX = 0, pressY = 0;  // fallback: where the press started
+    const DRAG_THRESHOLD = 5;    // px of movement that turns a click into a drag
     let stampModeActive = false;
     let stampStartCell = null;
     let stampEndCell = null;
@@ -5490,6 +5944,9 @@
     const coachTipTextEl = document.getElementById('coach-tip-text');
     const coachProgressEl = document.getElementById('coach-progress');
     const coachBtnEl = document.getElementById('coach-btn');
+
+    // ---- Hint DOM refs ----
+    const hintBtnEl = document.getElementById('hint-btn');
 
     // ---- Chat DOM refs ----
     const chatDrawerEl = document.getElementById('chat-drawer');
@@ -5915,6 +6372,7 @@
     });
     syncA11yToggles();
 
+
     // Reusable temporaries + one-shot roll diagnostic state for applyLook().
     const _lookFwd = new THREE.Vector3();
     const _lookTarget = new THREE.Vector3();
@@ -5922,11 +6380,20 @@
     let _rollWarned = false;
 
     function applyLook() {
+      // Build orientation from yaw+pitch and aim the camera with a FIXED world
+      // up-vector. lookAt() with up = (0,1,0) constructs the camera's right axis
+      // as up × viewDir, which is always horizontal (right.y == 0) — i.e. zero
+      // roll, dead-level horizon — at every yaw/pitch (pitch is clamped away
+      // from straight up/down, so the basis never degenerates).
       const cp = Math.cos(pitch);
       _lookFwd.set(-Math.sin(yaw) * cp, Math.sin(pitch), -Math.cos(yaw) * cp);
       _lookTarget.copy(camera.position).add(_lookFwd);
       camera.up.set(0, 1, 0);
       camera.lookAt(_lookTarget);
+      // Runtime self-check: the rendered horizon is level iff the camera's world
+      // right vector has no vertical component. If a real roll ever appears,
+      // surface its actual magnitude once (forwarded to the platform dev
+      // console) instead of guessing from the static source.
       if (!_rollWarned) {
         _camRight.set(1, 0, 0).applyQuaternion(camera.quaternion);
         if (Math.abs(_camRight.y) > 1e-3) {
@@ -5937,6 +6404,10 @@
       }
     }
 
+    // Place the camera at a comfortable spawn and aim it at the build-plot
+    // centre so the ground and any structures fill the lower screen instead of
+    // open sky. yaw/pitch are derived from the look direction so the (yaw-only)
+    // movement basis stays consistent with where the camera faces.
     function spawnCamera() {
       camera.position.set(DIMS.w / 2, 6, DIMS.d / 2 + 10);
       const tgt = new THREE.Vector3(DIMS.w / 2, 3, DIMS.d / 2);
@@ -5955,6 +6426,9 @@
       applyLook();
     }
 
+    // Clear all held-movement state. Called whenever the game loses input
+    // focus (tab/window blur, page hidden) or play is released, so a key whose
+    // `keyup` never arrives can't leave the camera drifting forever.
     function resetMove() {
       for (const k in move) move[k] = false;
       dragging = false;
@@ -6707,6 +7181,7 @@
         initTimeAttack();
         hideScoreHud();
         coachBtnEl.classList.remove('hidden');
+        hintBtnEl.classList.add('hidden'); // TA is client-only; no server context for hints
         // Hide theme button and panel during Time Attack.
         themeBtnEl.classList.add('hidden');
         closeThemePanel();
@@ -6739,6 +7214,7 @@
         document.getElementById('hud-copy-score-btn').classList.remove('hidden');
         if (!pollHandle) pollHandle = setInterval(poll, 1500);
         coachBtnEl.classList.remove('hidden');
+        hintBtnEl.classList.remove('hidden');
         document.getElementById('undo-redo-hud').classList.remove('hidden');
         hpHudEl.classList.remove('hidden');
         updateHpHud();
@@ -6759,9 +7235,11 @@
         challengeHudEl.classList.add('hidden');
         coinsHudEl.classList.add('hidden');
         document.getElementById('crosshair').style.opacity = '0.3';
-        // Hide coach and prompt HUD in spectate mode — player isn't building.
+        // Hide coach, hint, and prompt HUD in spectate mode — player isn't building.
         coachBtnEl.classList.add('hidden');
         dismissCoachTip();
+        hintBtnEl.classList.add('hidden');
+        clearHintHighlight();
         promptHudEl.classList.add('hidden');
         // Immediately ping presence as a spectator so the online list updates fast.
         heartbeat();
@@ -6791,14 +7269,18 @@
     }
 
     // ---- Control scheme helpers ----
+    // Reflect the active control scheme in the overlay copy, keys hint, and the
+    // always-visible look-mode control.
 
 
     function refreshControlCopy() {
       if (isTouch) {
+        // Touch devices use the on-screen overlay; the keyboard/mouse hints and
+        // the look-mode control don't apply.
         hintEl.classList.add('hidden');
         hintFallbackEl.classList.add('hidden');
         lookModeEl.classList.add('hidden');
-        overlayHelpEl.textContent = 'Tap a mode to start — drag to look, use the on-screen buttons to move and build.';
+        overlayHelpEl.textContent = 'Tap to play — drag to look, use the on-screen buttons to move and build.';
         return;
       }
       if (locked) {
@@ -6806,6 +7288,7 @@
         hintEl.classList.remove('hidden');
         hintFallbackEl.classList.add('hidden');
       } else if (dragMode) {
+        // In drag fallback: invite a retry unless a retry already failed.
         lookModeEl.textContent = lockUnavailable
           ? 'Mouse-lock unavailable here'
           : 'Look: Drag — click for mouse-lock';
@@ -6816,9 +7299,12 @@
         hintEl.classList.remove('hidden');
         hintFallbackEl.classList.add('hidden');
       }
+      // Overlay entry copy stays honest about whether mouse-lock has proven
+      // unavailable this session.
       overlayHelpEl.textContent = lockUnavailable
-        ? 'Click a mode — drag to look, click to build, press Esc for this menu.'
-        : 'Click a mode — move the mouse to look, press Esc to release. If your browser blocks mouse-lock, you can drag to look instead.';
+        ? 'Click to play — drag to look, click to build, press Esc for this menu.'
+        : 'Click to play — move the mouse to look, press Esc to release. If your browser blocks mouse-lock, you can drag to look instead.';
+      // The interactive control is only meaningful while the game is running.
       lookModeEl.classList.toggle('hidden', !playing);
       pauseBtnEl.classList.toggle('hidden', !playing || gameMode === 'spectate');
     }
@@ -6827,11 +7313,14 @@
       if (lockTimer !== null) { clearTimeout(lockTimer); lockTimer = null; }
     }
 
+    // A pointer-lock attempt was denied — start (or stay in) drag-to-look.
+    // Never permanently blocks future attempts; retries are always allowed.
     function onLockFail() {
       clearLockTimer();
-      if (locked) return;
-      const wasAlreadyPlaying = dragMode && playing;
-      if (wasAlreadyPlaying) lockUnavailable = true;
+      if (locked) return;           // a real lock won the race; ignore stale denial
+      // If we were already playing in drag mode, this denial came from an
+      // explicit retry that also failed — stop inviting further retries.
+      if (dragMode && playing) lockUnavailable = true;
       dragMode = true;
       playing = true;
       dragging = false;
@@ -6840,9 +7329,11 @@
       if (mode !== 'speedrun') mode = 'normal';
       if (!wasAlreadyPlaying) showMinimap();
       refreshControlCopy();
-      if (!wasAlreadyPlaying) onPlayEntered();
     }
 
+    // Touch devices can't use OS pointer lock — enter play directly using the
+    // existing drag-mode path (which loop() already integrates movement under),
+    // and reveal the on-screen controls.
     function enterTouchPlay() {
       clearLockTimer();
       dragMode = true;
@@ -6853,9 +7344,9 @@
       showMinimap();
       refreshControlCopy();
       updateTouchControlsVisibility();
-      onPlayEntered();
     }
 
+    // Return to the start overlay from touch play (the Esc / "pause" equivalent).
     function exitToMenu() {
       if (mode === 'speedrun') {
         showAbandonConfirm();
@@ -6932,6 +7423,11 @@
       // Dismiss any active coach tip and restore coach button.
       dismissCoachTip();
       coachBtnEl.classList.remove('hidden');
+      // Clear any active hint and hide hint button (no mode active at overlay).
+      clearHintHighlight();
+      hintBtnEl.classList.add('hidden');
+      hintBtnEl.disabled = false;
+      hintBtnEl.style.opacity = '';
       closeMsgCompose();
       updateMsgWriteBtn();
       overlayEl.style.display = 'flex';
@@ -6946,6 +7442,8 @@
       document.getElementById('palette').classList.toggle('touch-playing', !!(isTouch && playing));
     }
 
+    // Always attempt a native lock on an explicit user gesture (play button or
+    // the look-mode control), regardless of any prior failure.
     function tryPointerLock() {
       if (isTouch) { enterTouchPlay(); return; }
       clearLockTimer();
@@ -6955,6 +7453,13 @@
         onLockFail();
         return;
       }
+      // Safety net for the "silent no-op" denial mode: some browsers neither
+      // reject the promise nor fire pointerlockerror — requestPointerLock()
+      // just returns undefined and does nothing. If we haven't locked shortly
+      // after, assume denial and fall back. Guard on !locked only (not
+      // !playing) so a retry from drag mode — where playing is already true —
+      // still detects a silent failure; pointerlockchange clears this timer on
+      // a real lock so a slow-but-genuine lock isn't clobbered.
       lockTimer = setTimeout(() => {
         lockTimer = null;
         if (!locked) onLockFail();
@@ -6969,6 +7474,8 @@
     document.addEventListener('pointerlockchange', () => {
       locked = document.pointerLockElement === canvas;
       if (locked) {
+        // Native lock acquired — exit drag fallback and clear any "blocked"
+        // state, since mouse-lock just demonstrably works.
         clearLockTimer();
         playing = true;
         dragMode = false;
@@ -7011,6 +7518,8 @@
       }
       refreshControlCopy();
     });
+    // Iframe Permissions-Policy denials commonly surface here (not as a
+    // rejected promise), so this is the primary failure path in production.
     document.addEventListener('pointerlockerror', onLockFail);
 
     // ---- Wager panel helpers ----
@@ -7519,15 +8028,21 @@
     });
 
     canvas.addEventListener('click', () => {
+      // Native path only: re-acquire the lock on a bare canvas click. In
+      // drag fallback mode clicks are handled by the drag/click logic below.
+      // Touch devices drive play via the overlay buttons / touch handlers.
       if (isTouch) return;
       if (!locked && !playing) tryPointerLock();
     });
+    // The look-mode control re-attempts native mouse-lock when clicked from
+    // drag mode (a fresh user gesture, which pointer lock requires).
     lookModeEl.addEventListener('click', () => {
       if (!locked) tryPointerLock();
     });
 
     canvas.addEventListener('contextmenu', (e) => e.preventDefault());
     canvas.addEventListener('mousedown', (e) => {
+      if (inBattleMode) return;
       if (locked) {
         if (gameMode !== 'spectate') {
           // Native path: set placeHeld and fire the first block immediately.
@@ -7547,6 +8062,7 @@
         stampEndCell = null;
         return;
       }
+      // Fallback path: begin a potential look-drag; decide click vs drag on up.
       dragging = true;
       pressX = e.clientX;
       pressY = e.clientY;
@@ -7564,11 +8080,12 @@
         stampEndCell = null;
         return;
       }
-      if (locked || !playing || !dragging) return;
+      if (inBattleMode || locked || !playing || !dragging) return;
       dragging = false;
       canvas.style.cursor = 'grab';
       const moved = Math.hypot(e.clientX - pressX, e.clientY - pressY);
       if (moved < DRAG_THRESHOLD && gameMode !== 'spectate') {
+        // Left adds, right deletes.
         if (e.button === 0) placeBlock();
         else if (e.button === 2) breakBlock();
       }
@@ -7581,6 +8098,10 @@
     };
     window.addEventListener('keydown', (e) => {
       resetIdle();
+      if (inBattleMode) {
+        handleTetrisKey(e);
+        return;
+      }
       // While the chat input is focused, only Escape is handled globally
       // (to close the drawer); all other keys are for typing.
       if (document.activeElement === chatInputEl) {
@@ -7655,6 +8176,8 @@
       // L toggles the leaderboard panel.
       if (e.code === 'KeyL') toggleLeaderboard();
       if (e.code === 'KeyM') { toggleSound(); }
+      // X requests a placement hint (Classic mode only).
+      if (e.code === 'KeyX' && playing && gameMode === 'classic') fetchPlacementHint();
       // P toggles pause while playing (only in playable modes, not spectate).
       if (e.code === 'KeyP' && playing && gameMode !== 'spectate') {
         e.preventDefault();
@@ -7694,6 +8217,7 @@
       }
     });
     window.addEventListener('keyup', (e) => {
+      if (inBattleMode) return;
       if (codeMap[e.code]) move[codeMap[e.code]] = false;
       if (e.code === 'KeyF') placeHeld = false;
     });
@@ -7706,6 +8230,11 @@
     window.addEventListener('touchstart', () => resetIdle(), { passive: true });
 
     // ---- Touch input ----
+    // Look-drag: a one-finger drag on open canvas turns/tilts the camera, reusing
+    // applyLookDelta (the same path the mouse uses). A single touch is tracked by
+    // identifier so a second finger held on a move/build button never hijacks it.
+    // When force-rotated to landscape, raw screen deltas are remapped into the
+    // rotated frame: a 90° CW rotor means local-x = screen-y and local-y = -screen-x.
     let lookTouchId = null, lookLastX = 0, lookLastY = 0;
     canvas.addEventListener('touchstart', (e) => {
       if (!isTouch || !playing || lookTouchId !== null) return;
@@ -7733,6 +8262,8 @@
     window.addEventListener('touchend', endLookTouch);
     window.addEventListener('touchcancel', endLookTouch);
 
+    // Held movement buttons (forward/back/left/right/up/down) flip the same
+    // `move` flags the keyboard uses; tap-action buttons fire once on press.
     function bindHold(el, flag) {
       el.addEventListener('touchstart', (e) => { e.preventDefault(); move[flag] = true; }, { passive: false });
       const release = (e) => { if (e.cancelable) e.preventDefault(); move[flag] = false; };
@@ -7804,6 +8335,8 @@
     // Shared by the `h` key (when not playing) and the top-right "(?)" button —
     // both show/hide the help panel listing every key/mouse binding.
     const controlsEl = document.getElementById('controls');
+    // On touch devices, rewrite the help panel + start-overlay copy to describe
+    // the on-screen controls instead of keyboard/mouse bindings.
     if (isTouch) {
       const ul = controlsEl.querySelector('ul');
       if (ul) ul.innerHTML = [
@@ -8656,11 +9189,13 @@
               '<thead><tr class="text-zinc-500 uppercase border-b border-zinc-700">' +
               '<th class="text-left pb-1 w-6">#</th>' +
               '<th class="text-left pb-1 pl-2">Player</th>' +
+              '<th class="text-right pb-1 pr-1">Lv.</th>' +
               '<th class="text-right pb-1">Score</th></tr></thead><tbody>' +
               entries.map(e =>
                 '<tr class="border-b border-zinc-800/60 last:border-0">' +
                 '<td class="py-1 text-zinc-500">' + e.rank + '</td>' +
                 '<td class="py-1 pl-2 max-w-[180px] truncate"><button class="text-violet-400 hover:text-violet-300 hover:underline cursor-pointer" data-profile-btn>' + escapeHtml(e.username) + '</button></td>' +
+                '<td class="py-1 pr-1 text-right text-violet-400">' + (e.level || 1) + '</td>' +
                 '<td class="py-1 text-right font-mono text-zinc-100">' + e.total_score.toLocaleString() + '</td></tr>'
               ).join('') +
               '</tbody></table>';
@@ -9328,6 +9863,100 @@
     document.getElementById('theme-close').addEventListener('click', closeThemePanel);
 
     document.getElementById('coach-dismiss').addEventListener('click', dismissCoachTip);
+
+    // ---- Hint functions ----
+    function clearHintHighlight() {
+      hintHighlightMesh.visible = false;
+      hintCell = null;
+      hintExpiry = 0;
+    }
+
+    function showHintHighlight(x, y, z, reason) {
+      hintHighlightMesh.position.set(x + 0.5, y + 0.5, z + 0.5);
+      hintHighlightMesh.visible = true;
+      hintCell = { x, y, z };
+      hintExpiry = Date.now() + 20000;
+      lastHintAt = Date.now();
+      showCoachTip(reason);
+    }
+
+    async function fetchPlacementHint(_retried) {
+      if (hintFetching) return;
+      if (!playing || gameMode !== 'classic') return;
+      if (Date.now() - lastHintAt < HINT_COOLDOWN_MS) {
+        hintBtnEl.disabled = true;
+        hintBtnEl.style.opacity = '0.4';
+        setTimeout(() => { hintBtnEl.disabled = false; hintBtnEl.style.opacity = ''; }, 2000);
+        return;
+      }
+
+      // Build nearby blocks list from the live world snapshot.
+      const px = Math.floor(camera.position.x);
+      const py = Math.floor(camera.position.y);
+      const pz = Math.floor(camera.position.z);
+      const nearby = [];
+      for (const [k, t] of blocks) {
+        if (!t) continue;
+        const parts = k.split(',');
+        const bx = +parts[0], by = +parts[1], bz = +parts[2];
+        const d = Math.sqrt((bx - px) ** 2 + (by - py) ** 2 + (bz - pz) ** 2);
+        if (d <= 5) {
+          const nm = (PALETTE.find(p => p.id === t) || {}).name || 'Block';
+          nearby.push({ x: bx, y: by, z: bz, name: nm, d });
+        }
+      }
+      nearby.sort((a, b) => a.d - b.d);
+      nearby.splice(80);
+
+      const pal = PALETTE.find(p => p.id === selectedType) || PALETTE[0] || {};
+      const pts = { 1:1,2:1,3:1,4:1,5:1,6:1,7:2,8:2,9:2,10:2,11:2,12:2,13:2,14:5,15:3,16:4,17:5,18:3 }[selectedType] || 1;
+
+      hintFetching = true;
+      hintBtnEl.style.opacity = '0.5';
+      try {
+        const res = await fetch('/api/hint', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...headers },
+          body: JSON.stringify({
+            selected_type: selectedType,
+            selected_type_name: pal.name || 'Block',
+            selected_type_points: pts,
+            player_pos: { x: camera.position.x, y: camera.position.y, z: camera.position.z },
+            combo_tier: lastComboMultiplier >= 5 ? 4 : lastComboMultiplier >= 3 ? 3 : lastComboMultiplier >= 2 ? 2 : 1,
+            session_score: sessionScore,
+            nearby_blocks: nearby.map(({ x, y, z, name }) => ({ x, y, z, name })),
+          }),
+        });
+        const data = await res.json();
+
+        if (res.status === 403 && data.error === 'grant_required') {
+          if (!_retried) {
+            try {
+              const result = await usernode.requestLlmAccess();
+              if (result && result.granted) {
+                hintFetching = false;
+                hintBtnEl.style.opacity = '';
+                fetchPlacementHint(true);
+                return;
+              }
+            } catch (_) { /* bridge unavailable */ }
+          }
+          return;
+        }
+        if (!res.ok || data.x === undefined) {
+          showCoachTip('Hint unavailable — try again in a moment.');
+          return;
+        }
+        showHintHighlight(data.x, data.y, data.z, data.reason || 'Try placing your block here!');
+      } catch (_) {
+        showCoachTip('Hint unavailable — try again in a moment.');
+      } finally {
+        hintFetching = false;
+        hintBtnEl.style.opacity = '';
+      }
+    }
+
+    hintBtnEl.addEventListener('click', () => fetchPlacementHint());
     document.getElementById('friends-add-btn').addEventListener('click', () => {
       const u = friendsInputEl.value.trim();
       if (u) sendFriendRequest(u);
@@ -9541,7 +10170,7 @@
           if (i < 9) {
             const num = document.createElement('span');
             num.textContent = i + 1;
-            num.className = 'absolute bottom-0 right-0.5 text-[10px] font-bold text-black/60';
+            num.className = 'absolute bottom-0 right-0.5 text-[10px] font-bold text-white/60';
             btn.appendChild(num);
           }
           btn.addEventListener('click', () => selectType(p.id));
@@ -9878,8 +10507,9 @@
         const makeRow = (u, isSpectator) => {
           const safe = u.username.replace(/&/g, '&amp;').replace(/</g, '&lt;');
           const isSelf = myUsername && u.username.toLowerCase() === myUsername.toLowerCase();
+          const isAi = u.username.startsWith('🤖 ');
           let statusHtml = '';
-          if (!isSelf && friendsCache) {
+          if (!isSelf && !isAi && friendsCache) {
             const lc = u.username.toLowerCase();
             const isFriend = friendsCache.friends.some((f) => f.username.toLowerCase() === lc);
             const isOutgoing = friendsCache.outgoing.some((r) => r.username.toLowerCase() === lc);
@@ -9893,7 +10523,7 @@
             } else {
               statusHtml = '<button class="ol-add-btn text-xs ml-1 px-1.5 py-0.5 rounded bg-zinc-700 hover:bg-zinc-600 text-zinc-200 cursor-pointer" data-username="' + safe + '">+ Add</button>';
             }
-          } else if (!isSelf && !friendsCache) {
+          } else if (!isSelf && !isAi && !friendsCache) {
             statusHtml = '<button class="ol-add-btn text-xs ml-1 px-1.5 py-0.5 rounded bg-zinc-700 hover:bg-zinc-600 text-zinc-200 cursor-pointer" data-username="' + safe + '">+ Add</button>';
           }
           const petIcon = u.active_pet
@@ -10090,6 +10720,9 @@
     });
 
     // ---- Render loop ----
+    // forceRotated: true only when a touch device is held in portrait. The rotor
+    // is CSS-rotated 90° (see <style>), so the renderer/camera must use the
+    // SWAPPED (landscape) viewport dimensions to match the rotated box.
     let forceRotated = false;
     const rotorEl = document.getElementById('rotor');
     function updateOrientation() {
@@ -10105,8 +10738,16 @@
       resize();
     }
     function resize() {
+      // When force-rotated, the visible game area is the viewport with width/height
+      // swapped (the rotor is 100vh × 100vw spun 90°).
       const w = forceRotated ? window.innerHeight : window.innerWidth;
       const h = forceRotated ? window.innerWidth : window.innerHeight;
+      // updateStyle MUST stay true (the default): a fixed-position <canvas>
+      // with width:auto is a replaced element that falls back to its intrinsic
+      // (drawing-buffer) size and ignores `inset:0`, so passing false here let
+      // the canvas display at w·devicePixelRatio — 2× the viewport on HiDPI,
+      // breaking aim and making the world appear to "tilt". Let three.js set the
+      // inline CSS size to the viewport while keeping the 2× buffer for sharpness.
       renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
       renderer.setSize(w, h);
       camera.aspect = w / h;
@@ -10205,7 +10846,14 @@
           camera.position.set(cx + 8 * Math.sin(turntableAngle), 3.5, cz + 8 * Math.cos(turntableAngle));
           camera.lookAt(cx, 1.5, cz);
         }
-      } else if (playing && (locked || dragMode)) {
+      } else if (!inBattleMode && playing && (locked || dragMode)) {
+        // Movement basis is derived from `yaw` ALONE — a single scalar that
+        // cannot encode roll or pitch and never depends on the camera's
+        // world-matrix being current. fwd is the camera's horizontal facing and
+        // right is 90° clockwise from it, both unit-length and dead horizontal,
+        // so W/S glide toward/away from the gaze and A/D strafe correctly no
+        // matter what the camera orientation or render timing does. Vertical is
+        // Space/Shift only; aiming/raycasting still use the full pitched look.
         fwd.set(-Math.sin(yaw), 0, -Math.cos(yaw));
         right.set(Math.cos(yaw), 0, -Math.sin(yaw));
 
@@ -10231,6 +10879,7 @@
         if (move.up)   camera.position.y += vertStep;
         if (move.down) camera.position.y -= vertStep;
 
+        // Clamp to the plot (plus a small margin) so you can't fly away.
         const m = 4;
         camera.position.x = Math.max(-m, Math.min(DIMS.w + m, camera.position.x));
         camera.position.z = Math.max(-m, Math.min(DIMS.d + m, camera.position.z));
@@ -10354,6 +11003,11 @@
       updateAttribution();
       // Animate Crystal block emissive glow: gentle 0.2→0.4 pulse (~7.9s period).
       if (crystalMaterial) crystalMaterial.emissiveIntensity = 0.2 + 0.2 * Math.sin(now * 0.0008);
+      // Pulse hint highlight and expire it when the timer runs out.
+      if (hintHighlightMesh.visible) {
+        hintHighlightMat.opacity = 0.5 + 0.5 * Math.abs(Math.sin(now * 0.003));
+      }
+      if (hintExpiry && Date.now() > hintExpiry) clearHintHighlight();
       // Animate Gold Star sparkle: sharp 0.25→0.7 pulse (~2.1s period).
       if (wildcardMaterial) wildcardMaterial.emissiveIntensity = 0.25 + 0.45 * Math.abs(Math.sin(now * 0.003));
       renderBuffHud();
@@ -10547,6 +11201,8 @@
       document.addEventListener('touchstart', resumeAudioOnGesture);
       const ok = await loadWorld();
       if (!ok) return;
+      // Apply stored theme to Three.js scene now that scene objects are ready
+      applyTheme(getStoredTheme());
       // Fetch earned badges so the panel renders correctly from the first open.
       try {
         const badgesRes = await fetch('/api/badges', { headers });
@@ -10557,6 +11213,18 @@
           }
         }
       } catch (_) { /* non-critical; panel will populate on first badge earned */ }
+
+      // Load player XP / level so the HUD is correct before any block placement.
+      try {
+        const meRes = await fetch('/api/me', { headers });
+        if (meRes.ok) {
+          const me = await meRes.json();
+          playerLevel = me.level;
+          playerTotalXP = me.total_score;
+          renderXPHud();
+        }
+      } catch (_) {}
+
       await loadChat();
 
       // Load friends once so the badge is correct and the online list
@@ -10639,6 +11307,604 @@
         }
       } catch (_) {}
     })();
+
+    // ================================================================
+    // ==================== BATTLE MODE / TETRIS =======================
+    // ================================================================
+
+    // ---- Tetris constants ----
+    const TCOLS = 10, TROWS = 20, TCELL = 24;
+    const PIECE_COLORS = [
+      '',
+      '#00e5e5', // I - cyan
+      '#e5e500', // O - yellow
+      '#9000e5', // T - purple
+      '#00e500', // S - green
+      '#e50000', // Z - red
+      '#0000e5', // J - blue
+      '#e57800', // L - orange
+    ];
+    // Piece shapes indexed 1-7, matching PIECE_COLORS
+    const PIECE_SHAPES = [
+      null,
+      [[1,1,1,1]],           // 1 I
+      [[1,1],[1,1]],         // 2 O
+      [[0,1,0],[1,1,1]],     // 3 T
+      [[0,1,1],[1,1,0]],     // 4 S
+      [[1,1,0],[0,1,1]],     // 5 Z
+      [[1,0,0],[1,1,1]],     // 6 J
+      [[0,0,1],[1,1,1]],     // 7 L
+    ];
+
+    // ---- Battle state ----
+    let inBattleMode = false;   // true when battle overlay is visible
+    let battleActive = false;   // true when Tetris game is running
+    let battleRoomCode = '';
+    let battleWs = null;
+    let pingInterval = null;
+
+    // ---- Tetris game state ----
+    let myBoard, activePiece, nextPieceType, pieceBag;
+    let myScore = 0, myLines = 0;
+    let dropInterval = 800;
+    let dropTimer = null, syncTimer = null;
+    let gameRafId = null;
+    let myGameOver = false;
+
+    // Opponent state (received over WS)
+    let oppBoard = null, oppPiece = null, oppScore = 0;
+
+    // ---- Screen helpers ----
+    const battleOverlay = document.getElementById('battle-overlay');
+    const lobbyScreen = document.getElementById('battle-lobby-screen');
+    const waitingScreen = document.getElementById('battle-waiting-screen');
+    const gameScreen = document.getElementById('battle-game-screen');
+
+    function showBattleScreen(name) {
+      inBattleMode = true;
+      battleOverlay.classList.remove('hidden');
+      for (const s of [lobbyScreen, waitingScreen, gameScreen]) {
+        s.classList.add('hidden');
+      }
+      if (name === 'lobby') lobbyScreen.classList.remove('hidden');
+      else if (name === 'waiting') waitingScreen.classList.remove('hidden');
+      else if (name === 'game') gameScreen.classList.remove('hidden');
+    }
+
+    function hideBattleOverlay() {
+      inBattleMode = false;
+      battleActive = false;
+      battleOverlay.classList.add('hidden');
+      stopTetris();
+      closeBattleWs();
+    }
+
+    // ---- WS connection ----
+    function openBattleWs(code) {
+      closeBattleWs();
+      const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const url = `${proto}//${location.host}/ws/tetris?code=${encodeURIComponent(code)}&token=${encodeURIComponent(token)}`;
+      const ws = new WebSocket(url);
+
+      ws.onopen = () => {
+        pingInterval = setInterval(() => {
+          if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'ping' }));
+        }, 15000);
+      };
+
+      ws.onmessage = (event) => {
+        let msg;
+        try { msg = JSON.parse(event.data); } catch { return; }
+        handleBattleMessage(msg);
+      };
+
+      ws.onclose = () => {
+        clearInterval(pingInterval);
+        pingInterval = null;
+        if (battleActive) {
+          // Unexpected close during game - server handles winner notification
+          showGameResult('loss', 'disconnected');
+        }
+      };
+
+      ws.onerror = () => {};
+      battleWs = ws;
+    }
+
+    function closeBattleWs() {
+      clearInterval(pingInterval);
+      pingInterval = null;
+      if (battleWs) {
+        try { battleWs.close(); } catch {}
+        battleWs = null;
+      }
+    }
+
+    function handleBattleMessage(msg) {
+      if (msg.type === 'guest_joined') {
+        document.getElementById('waiting-status-text').textContent =
+          (msg.guest_username || 'Opponent') + ' joined! Game starting in 3 seconds…';
+        document.getElementById('waiting-status').querySelector('.spin').style.display = 'none';
+      }
+
+      if (msg.type === 'opponent_disconnected') {
+        if (!battleActive) {
+          // Pre-game disconnect - return to lobby with message
+          showBattleScreen('lobby');
+          setLobbyError('Opponent disconnected before the game started.');
+        }
+      }
+
+      if (msg.type === 'game_start') {
+        document.getElementById('my-label').textContent = myUsername;
+        document.getElementById('opp-label').textContent = msg.opponent_username || 'Opponent';
+        showBattleScreen('game');
+        startTetris();
+      }
+
+      if (msg.type === 'opponent_update') {
+        oppBoard = msg.board;
+        oppPiece = msg.piece;
+        oppScore = msg.score || 0;
+        document.getElementById('opp-score').textContent = oppScore;
+      }
+
+      if (msg.type === 'game_end') {
+        stopTetris();
+        if (msg.result === 'win') {
+          const reason = msg.reason === 'opponent_disconnected' ? 'Opponent disconnected.' : '';
+          showGameResult('win', reason);
+        } else {
+          showGameResult('loss', '');
+        }
+      }
+    }
+
+    function setLobbyError(msg) {
+      const el = document.getElementById('create-room-error');
+      el.textContent = msg;
+      el.classList.remove('hidden');
+    }
+
+    // ---- Tetris engine ----
+    function shuffleBag() {
+      const b = [1,2,3,4,5,6,7];
+      for (let i = b.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [b[i], b[j]] = [b[j], b[i]];
+      }
+      return b;
+    }
+
+    function nextFromBag() {
+      if (!pieceBag || !pieceBag.length) pieceBag = shuffleBag();
+      return pieceBag.pop();
+    }
+
+    function makeBoard() {
+      return Array.from({ length: TROWS }, () => new Array(TCOLS).fill(0));
+    }
+
+    function canPlace(shape, px, py) {
+      for (let r = 0; r < shape.length; r++) {
+        for (let c = 0; c < shape[r].length; c++) {
+          if (!shape[r][c]) continue;
+          const nr = py + r, nc = px + c;
+          if (nc < 0 || nc >= TCOLS || nr >= TROWS) return false;
+          if (nr >= 0 && myBoard[nr][nc]) return false;
+        }
+      }
+      return true;
+    }
+
+    function spawnPiece() {
+      const type = nextPieceType || nextFromBag();
+      nextPieceType = nextFromBag();
+      const shape = PIECE_SHAPES[type].map(r => [...r]);
+      const x = Math.floor((TCOLS - shape[0].length) / 2);
+      activePiece = { type, shape, x, y: 0 };
+      if (!canPlace(shape, x, 0)) {
+        activePiece = null;
+        myGameOver = true;
+        stopTetris();
+        if (battleWs && battleWs.readyState === WebSocket.OPEN) {
+          battleWs.send(JSON.stringify({ type: 'game_over' }));
+        }
+      }
+      renderNextPiece();
+    }
+
+    function lockPiece() {
+      if (!activePiece) return;
+      for (let r = 0; r < activePiece.shape.length; r++) {
+        for (let c = 0; c < activePiece.shape[r].length; c++) {
+          if (!activePiece.shape[r][c]) continue;
+          const nr = activePiece.y + r, nc = activePiece.x + c;
+          if (nr >= 0 && nr < TROWS) myBoard[nr][nc] = activePiece.type;
+        }
+      }
+      clearLines();
+      spawnPiece();
+    }
+
+    function clearLines() {
+      const full = [];
+      for (let r = 0; r < TROWS; r++) {
+        if (myBoard[r].every(v => v !== 0)) full.push(r);
+      }
+      if (!full.length) return;
+      // Remove full rows (highest index first avoids shifting issues)
+      for (let i = full.length - 1; i >= 0; i--) myBoard.splice(full[i], 1);
+      for (let i = 0; i < full.length; i++) myBoard.unshift(new Array(TCOLS).fill(0));
+      myLines += full.length;
+      const pts = [0, 100, 300, 500, 800][Math.min(full.length, 4)];
+      myScore += pts;
+      dropInterval = Math.max(100, 800 - Math.floor(myLines / 10) * 50);
+      if (dropTimer) { clearInterval(dropTimer); dropTimer = setInterval(tick, dropInterval); }
+      document.getElementById('my-score').textContent = myScore;
+      document.getElementById('my-lines').textContent = myLines;
+    }
+
+    function tick() {
+      if (myGameOver || !activePiece) return;
+      if (canPlace(activePiece.shape, activePiece.x, activePiece.y + 1)) {
+        activePiece.y++;
+      } else {
+        lockPiece();
+      }
+    }
+
+    function rotateShape(shape) {
+      const rows = shape.length, cols = shape[0].length;
+      return Array.from({ length: cols }, (_, c) =>
+        Array.from({ length: rows }, (_, r) => shape[rows - 1 - r][c])
+      );
+    }
+
+    function tryRotate() {
+      if (!activePiece || myGameOver) return;
+      const newShape = rotateShape(activePiece.shape);
+      const kicks = [[0,0],[-1,0],[1,0],[0,-1],[-2,0],[2,0]];
+      for (const [dx, dy] of kicks) {
+        if (canPlace(newShape, activePiece.x + dx, activePiece.y + dy)) {
+          activePiece.shape = newShape;
+          activePiece.x += dx;
+          activePiece.y += dy;
+          return;
+        }
+      }
+    }
+
+    function hardDrop() {
+      if (!activePiece || myGameOver) return;
+      while (canPlace(activePiece.shape, activePiece.x, activePiece.y + 1)) {
+        activePiece.y++;
+      }
+      lockPiece();
+    }
+
+    function handleTetrisKey(e) {
+      if (!battleActive || myGameOver) return;
+      const prevent = ['ArrowLeft','ArrowRight','ArrowUp','ArrowDown','Space'].includes(e.code);
+      if (prevent) e.preventDefault();
+      if (!activePiece) return;
+      switch (e.code) {
+        case 'ArrowLeft': case 'KeyA':
+          if (canPlace(activePiece.shape, activePiece.x - 1, activePiece.y)) activePiece.x--;
+          break;
+        case 'ArrowRight': case 'KeyD':
+          if (canPlace(activePiece.shape, activePiece.x + 1, activePiece.y)) activePiece.x++;
+          break;
+        case 'ArrowDown': case 'KeyS':
+          if (canPlace(activePiece.shape, activePiece.x, activePiece.y + 1)) activePiece.y++;
+          break;
+        case 'ArrowUp': case 'KeyW':
+          tryRotate();
+          break;
+        case 'Space':
+          hardDrop();
+          break;
+      }
+    }
+
+    // ---- Tetris rendering ----
+    function fillCell(ctx, c, r, color) {
+      const x = c * TCELL + 1, y = r * TCELL + 1;
+      const sz = TCELL - 2;
+      ctx.fillStyle = color;
+      ctx.fillRect(x, y, sz, sz);
+      // Simple highlight bevel
+      ctx.fillStyle = 'rgba(255,255,255,0.2)';
+      ctx.fillRect(x, y, sz, 3);
+      ctx.fillRect(x, y, 3, sz);
+      ctx.fillStyle = 'rgba(0,0,0,0.25)';
+      ctx.fillRect(x, y + sz - 3, sz, 3);
+      ctx.fillRect(x + sz - 3, y, 3, sz);
+    }
+
+    function calcGhostY(shape, px, py) {
+      let gy = py;
+      outer: while (true) {
+        for (let r = 0; r < shape.length; r++) {
+          for (let c = 0; c < shape[r].length; c++) {
+            if (!shape[r][c]) continue;
+            const nr = gy + 1 + r, nc = px + c;
+            if (nc < 0 || nc >= TCOLS || nr >= TROWS) break outer;
+            if (nr >= 0 && myBoard[nr][nc]) break outer;
+          }
+        }
+        gy++;
+      }
+      return gy;
+    }
+
+    function drawTetrisBoard(ctx, board, piece, showGhost) {
+      const W = TCOLS * TCELL, H = TROWS * TCELL;
+      ctx.fillStyle = '#0a0a14';
+      ctx.fillRect(0, 0, W, H);
+
+      // Grid
+      ctx.strokeStyle = '#18182a';
+      ctx.lineWidth = 0.5;
+      for (let r = 0; r <= TROWS; r++) {
+        ctx.beginPath(); ctx.moveTo(0, r * TCELL); ctx.lineTo(W, r * TCELL); ctx.stroke();
+      }
+      for (let c = 0; c <= TCOLS; c++) {
+        ctx.beginPath(); ctx.moveTo(c * TCELL, 0); ctx.lineTo(c * TCELL, H); ctx.stroke();
+      }
+
+      // Locked cells
+      for (let r = 0; r < TROWS; r++) {
+        for (let c = 0; c < TCOLS; c++) {
+          if (board[r][c]) fillCell(ctx, c, r, PIECE_COLORS[board[r][c]]);
+        }
+      }
+
+      if (piece) {
+        // Ghost piece (my board only)
+        if (showGhost) {
+          const gy = calcGhostY(piece.shape, piece.x, piece.y);
+          if (gy !== piece.y) {
+            ctx.globalAlpha = 0.2;
+            for (let r = 0; r < piece.shape.length; r++) {
+              for (let c = 0; c < piece.shape[r].length; c++) {
+                if (piece.shape[r][c] && gy + r >= 0) {
+                  ctx.fillStyle = PIECE_COLORS[piece.type];
+                  ctx.fillRect((piece.x + c) * TCELL + 1, (gy + r) * TCELL + 1, TCELL - 2, TCELL - 2);
+                }
+              }
+            }
+            ctx.globalAlpha = 1;
+          }
+        }
+
+        // Active piece
+        for (let r = 0; r < piece.shape.length; r++) {
+          for (let c = 0; c < piece.shape[r].length; c++) {
+            if (piece.shape[r][c] && piece.y + r >= 0) {
+              fillCell(ctx, piece.x + c, piece.y + r, PIECE_COLORS[piece.type]);
+            }
+          }
+        }
+      }
+    }
+
+    function renderMyBoard() {
+      const cvs = document.getElementById('my-canvas');
+      if (!cvs) return;
+      drawTetrisBoard(cvs.getContext('2d'), myBoard, activePiece, true);
+    }
+
+    function renderNextPiece() {
+      const cvs = document.getElementById('next-canvas');
+      if (!cvs || !nextPieceType) return;
+      const ctx = cvs.getContext('2d');
+      ctx.fillStyle = '#0a0a14';
+      ctx.fillRect(0, 0, 80, 80);
+      const shape = PIECE_SHAPES[nextPieceType];
+      const cell = 18;
+      const ox = Math.floor((4 - shape[0].length) / 2) * cell + 4;
+      const oy = Math.floor((4 - shape.length) / 2) * cell + 4;
+      ctx.fillStyle = PIECE_COLORS[nextPieceType];
+      for (let r = 0; r < shape.length; r++) {
+        for (let c = 0; c < shape[r].length; c++) {
+          if (shape[r][c]) ctx.fillRect(ox + c * cell + 1, oy + r * cell + 1, cell - 2, cell - 2);
+        }
+      }
+    }
+
+    function renderOppBoard() {
+      const cvs = document.getElementById('opp-canvas');
+      if (!cvs) return;
+      const ctx = cvs.getContext('2d');
+      if (!oppBoard) {
+        ctx.fillStyle = '#0a0a14';
+        ctx.fillRect(0, 0, cvs.width, cvs.height);
+        ctx.fillStyle = '#334155';
+        ctx.font = '13px system-ui, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('Waiting for', cvs.width / 2, cvs.height / 2 - 10);
+        ctx.fillText('board data…', cvs.width / 2, cvs.height / 2 + 10);
+        return;
+      }
+      drawTetrisBoard(ctx, oppBoard, oppPiece, false);
+    }
+
+    function gameLoop() {
+      if (!battleActive) return;
+      renderMyBoard();
+      renderOppBoard();
+      gameRafId = requestAnimationFrame(gameLoop);
+    }
+
+    function startTetris() {
+      myBoard = makeBoard();
+      pieceBag = shuffleBag();
+      nextPieceType = nextFromBag();
+      myScore = 0; myLines = 0; dropInterval = 800;
+      myGameOver = false;
+      oppBoard = null; oppPiece = null; oppScore = 0;
+      activePiece = null;
+      battleActive = true;
+
+      document.getElementById('my-score').textContent = '0';
+      document.getElementById('my-lines').textContent = '0';
+      document.getElementById('opp-score').textContent = '0';
+      document.getElementById('game-result').classList.add('hidden');
+
+      spawnPiece();
+      if (myGameOver) return; // immediate top-out (shouldn't happen)
+
+      dropTimer = setInterval(tick, dropInterval);
+      syncTimer = setInterval(() => {
+        if (!battleWs || battleWs.readyState !== WebSocket.OPEN) return;
+        battleWs.send(JSON.stringify({
+          type: 'board_update',
+          board: myBoard,
+          piece: activePiece ? { shape: activePiece.shape, x: activePiece.x, y: activePiece.y, type: activePiece.type } : null,
+          score: myScore,
+        }));
+      }, 100);
+
+      gameRafId = requestAnimationFrame(gameLoop);
+    }
+
+    function stopTetris() {
+      battleActive = false;
+      if (dropTimer) { clearInterval(dropTimer); dropTimer = null; }
+      if (syncTimer) { clearInterval(syncTimer); syncTimer = null; }
+      if (gameRafId) { cancelAnimationFrame(gameRafId); gameRafId = null; }
+    }
+
+    function showGameResult(result, reason) {
+      stopTetris();
+      const resultEl = document.getElementById('game-result');
+      const emojiEl = document.getElementById('game-result-emoji');
+      const titleEl = document.getElementById('game-result-title');
+      const subEl = document.getElementById('game-result-sub');
+
+      if (result === 'win') {
+        emojiEl.textContent = '🏆';
+        titleEl.textContent = 'YOU WIN!';
+        titleEl.className = 'text-4xl font-bold mb-2 text-emerald-400';
+        subEl.textContent = reason || 'Your opponent topped out.';
+      } else {
+        emojiEl.textContent = '💀';
+        titleEl.textContent = 'GAME OVER';
+        titleEl.className = 'text-4xl font-bold mb-2 text-rose-400';
+        subEl.textContent = reason || 'Your board topped out.';
+      }
+      resultEl.classList.remove('hidden');
+      // Do one final render to show the topped-out board state
+      renderMyBoard();
+      renderOppBoard();
+    }
+
+    // ---- Battle UI event listeners ----
+    document.getElementById('battle-btn').addEventListener('click', () => {
+      showBattleScreen('lobby');
+      // Clear errors
+      document.getElementById('create-room-error').classList.add('hidden');
+      document.getElementById('join-room-error').classList.add('hidden');
+      document.getElementById('join-code-input').value = '';
+    });
+
+    document.getElementById('battle-back-btn').addEventListener('click', () => {
+      hideBattleOverlay();
+    });
+
+    document.getElementById('create-room-btn').addEventListener('click', async () => {
+      const btn = document.getElementById('create-room-btn');
+      const errEl = document.getElementById('create-room-error');
+      btn.disabled = true;
+      btn.textContent = 'Creating…';
+      errEl.classList.add('hidden');
+      try {
+        const res = await fetch('/api/tetris/rooms', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...headers },
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Failed to create room');
+        battleRoomCode = data.room_code;
+        document.getElementById('display-room-code').textContent = battleRoomCode;
+        document.getElementById('waiting-status-text').textContent = 'Waiting for opponent to join…';
+        document.getElementById('waiting-status').querySelector('.spin').style.display = '';
+        showBattleScreen('waiting');
+        openBattleWs(battleRoomCode);
+      } catch (e) {
+        errEl.textContent = e.message;
+        errEl.classList.remove('hidden');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Create Room';
+      }
+    });
+
+    document.getElementById('join-room-btn').addEventListener('click', async () => {
+      const codeInput = document.getElementById('join-code-input');
+      const code = codeInput.value.trim().toUpperCase();
+      const errEl = document.getElementById('join-room-error');
+      const btn = document.getElementById('join-room-btn');
+      errEl.classList.add('hidden');
+
+      if (code.length !== 5) {
+        errEl.textContent = 'Please enter a 5-character room code.';
+        errEl.classList.remove('hidden');
+        return;
+      }
+
+      btn.disabled = true;
+      btn.textContent = 'Joining…';
+      try {
+        const res = await fetch(`/api/tetris/rooms/${encodeURIComponent(code)}/join`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...headers },
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Failed to join room');
+        battleRoomCode = code;
+        document.getElementById('display-room-code').textContent = battleRoomCode;
+        document.getElementById('waiting-status-text').textContent = 'Joined! Game starting shortly…';
+        document.getElementById('waiting-status').querySelector('.spin').style.display = '';
+        showBattleScreen('waiting');
+        openBattleWs(battleRoomCode);
+      } catch (e) {
+        errEl.textContent = e.message;
+        errEl.classList.remove('hidden');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Join';
+      }
+    });
+
+    // Auto-uppercase join code input
+    document.getElementById('join-code-input').addEventListener('input', (e) => {
+      e.target.value = e.target.value.toUpperCase();
+    });
+
+    // Copy room code
+    document.getElementById('copy-code-btn').addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(battleRoomCode);
+        const confirmEl = document.getElementById('copy-confirm');
+        confirmEl.classList.remove('hidden');
+        setTimeout(() => confirmEl.classList.add('hidden'), 2000);
+      } catch {}
+    });
+
+    // Cancel waiting / back to lobby
+    document.getElementById('waiting-back-btn').addEventListener('click', () => {
+      closeBattleWs();
+      showBattleScreen('lobby');
+    });
+
+    // Back to menu from game result
+    document.getElementById('game-back-btn').addEventListener('click', () => {
+      closeBattleWs();
+      showBattleScreen('lobby');
+    });
+
   </script>
   <script>
   // Animated mode-preview thumbnails
