@@ -127,6 +127,15 @@ function getXPInfo(totalScore) {
 // Sentinel "user" id for staging seed rows so they never reference a real user.
 const SEED_USER_ID = 0;
 
+// ---- Land claim cache ----
+// At most 16 plots (4×4 grid); safe to keep all in memory.
+// Key: "plot_x,plot_z", value: { user_id, username, plot_x, plot_z, claimed_at }
+const claimsCache = new Map();
+function plotKey(px, pz) { return px + ',' + pz; }
+function plotOriginFrom(x, z) {
+  return { px: Math.floor(x / 8) * 8, pz: Math.floor(z / 8) * 8 };
+}
+
 // AI opponent constants.
 const AI_USER_ID = -100;
 const AI_USERNAME = '🤖 BlockBot';
@@ -157,7 +166,6 @@ const SPEEDRUN_LEVELS = [
   { id: 4, name: 'Fortress', zone: { x: [18, 23], y: [1, 2],  z: [18, 23] }, required: 36 },
   { id: 5, name: 'Spire',    zone: { x: [25, 30], y: [1, 10], z: [25, 30] }, required: 50 },
 ];
-
 // ---- Mob / creature system ----
 const MOB_DEFS = {
   slime:   { maxHp: 3, moveIntervalMs: 2500, groundMob: true  },
@@ -609,6 +617,7 @@ app.get('/api/world', async (req, res) => {
       cursor: Number(cur.rows[0].cursor),
       maxDisasterId: Number(maxDisasterRes.rows[0].max_disaster_id),
       unlockedTypes,
+      blocksPlaced: userPlaced,
       activeSkin,
       unlockedPets,
       activePet,
@@ -806,6 +815,15 @@ app.post('/api/block', async (req, res) => {
       );
       if (!passRes.rows.length) {
         return res.status(400).json({ error: 'season_pass_required' });
+      }
+    }
+
+    // Land claim protection: only the plot owner may place or break within their claimed plot.
+    {
+      const { px, pz } = plotOriginFrom(x, z);
+      const claim = claimsCache.get(plotKey(px, pz));
+      if (claim && claim.user_id !== req.user.id) {
+        return res.status(403).json({ error: 'plot_claimed', owner: claim.username });
       }
     }
 
@@ -4838,6 +4856,52 @@ app.post('/api/coach/tip', async (req, res) => {
   }
 });
 
+// ---- Land claims: list all active claims (world-visible, read-only). ----
+app.get('/api/claims', (_req, res) => {
+  res.json({ claims: [...claimsCache.values()] });
+});
+
+// ---- Land claims: stake a plot. Requires >= 10 blocks placed. ----
+app.post('/api/claims', async (req, res) => {
+  try {
+    const plot_x = Number(req.body.plot_x);
+    const plot_z = Number(req.body.plot_z);
+    const VALID_ORIGINS = new Set([0, 8, 16, 24]);
+    if (!VALID_ORIGINS.has(plot_x) || !VALID_ORIGINS.has(plot_z)) {
+      return res.status(400).json({ error: 'invalid plot coordinates' });
+    }
+    // One claim per player.
+    if ([...claimsCache.values()].some((c) => c.user_id === req.user.id)) {
+      return res.status(409).json({ error: 'you already have a claimed plot' });
+    }
+    // Require at least 10 blocks placed before claiming.
+    const lbRes = await pool.query(
+      `SELECT blocks_placed FROM leaderboard WHERE user_id = $1`, [req.user.id]
+    );
+    const placed = lbRes.rows.length ? Number(lbRes.rows[0].blocks_placed) : 0;
+    if (placed < 10) {
+      return res.status(403).json({ error: 'place 10 blocks first to unlock land claims' });
+    }
+    const { rows } = await pool.query(
+      `INSERT INTO land_claims (user_id, username, plot_x, plot_z)
+       VALUES ($1, $2, $3, $4)
+       RETURNING id, user_id, username, plot_x, plot_z, claimed_at`,
+      [req.user.id, req.user.username, plot_x, plot_z]
+    );
+    const claim = rows[0];
+    claimsCache.set(plotKey(claim.plot_x, claim.plot_z), {
+      user_id: claim.user_id, username: claim.username,
+      plot_x: claim.plot_x, plot_z: claim.plot_z, claimed_at: claim.claimed_at,
+    });
+    res.json({ ok: true, claim });
+  } catch (err) {
+    if (err.code === '23505') {
+      return res.status(409).json({ error: 'that plot is already claimed' });
+    }
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ---- AI Placement Hints ----
 const CANNED_HINT = { x: 16, y: 4, z: 16, reason: 'Building upward near the center is a great way to start a combo chain.' };
 
@@ -5104,7 +5168,6 @@ app.post('/api/share-score', async (req, res) => {
   }
 });
 
-
 // ---- Daily Build Theme Voting API ----
 
 app.get('/api/theme/today', async (req, res) => {
@@ -5233,6 +5296,21 @@ app.get('/api/theme/today', async (req, res) => {
         anchor: yesterdayAnchor || null,
       } : null,
     });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- Land claims: release the caller's plot. ----
+app.delete('/api/claims/mine', async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `DELETE FROM land_claims WHERE user_id = $1 RETURNING plot_x, plot_z`,
+      [req.user.id]
+    );
+    if (!rows.length) return res.status(404).json({ error: 'no claim to release' });
+    claimsCache.delete(plotKey(rows[0].plot_x, rows[0].plot_z));
+    res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -6060,6 +6138,16 @@ async function seedStaging() {
     `);
   }
 
+  // Seed 2 demo land claims so staging shows the claim overlay on the minimap.
+  // Uses the same demo user IDs as the leaderboard seed above.
+  await pool.query(
+    `INSERT INTO land_claims (user_id, username, plot_x, plot_z)
+     VALUES (-1, 'staging-demo-alice', 16, 16),
+            (-2, 'staging-demo-bob',   0,  0)
+     ON CONFLICT DO NOTHING`
+  );
+  claimsCache.set(plotKey(16, 16), { user_id: -1, username: 'staging-demo-alice', plot_x: 16, plot_z: 16, claimed_at: new Date() });
+  claimsCache.set(plotKey(0,  0),  { user_id: -2, username: 'staging-demo-bob',   plot_x: 0,  plot_z: 0,  claimed_at: new Date() });
   // Seed 3 past disaster events so staging shows disaster history in chat.
   // Negative IDs are not used for disasters (SERIAL), but ON CONFLICT DO NOTHING
   // makes this idempotent — duplicate rows are skipped if disasters already fired.
@@ -7456,6 +7544,32 @@ async function start() {
   await pool.query(`CREATE INDEX IF NOT EXISTS friendships_addressee_status_idx ON friendships (addressee_id, status)`);
   await pool.query(`CREATE INDEX IF NOT EXISTS friendships_requester_status_idx ON friendships (requester_id, status)`);
 
+  // Land claims: one row per player (UNIQUE user_id) and one per plot (UNIQUE plot_x, plot_z).
+  // Public table — claimed land is world-visible game state, not personal data.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS land_claims (
+      id         SERIAL       PRIMARY KEY,
+      user_id    INTEGER      NOT NULL UNIQUE,
+      username   VARCHAR(255) NOT NULL,
+      plot_x     SMALLINT     NOT NULL,
+      plot_z     SMALLINT     NOT NULL,
+      claimed_at TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+      UNIQUE (plot_x, plot_z)
+    )
+  `);
+  // Warm the in-memory cache from DB so block-placement checks need no extra round-trip.
+  {
+    const { rows: claimRows } = await pool.query(
+      `SELECT user_id, username, plot_x, plot_z, claimed_at FROM land_claims`
+    );
+    for (const c of claimRows) {
+      claimsCache.set(plotKey(c.plot_x, c.plot_z), {
+        user_id: c.user_id, username: c.username,
+        plot_x: c.plot_x, plot_z: c.plot_z, claimed_at: c.claimed_at,
+      });
+    }
+  }
+
   await pool.query(`
     CREATE TABLE IF NOT EXISTS blueprints (
       id BIGSERIAL PRIMARY KEY,
@@ -7583,6 +7697,7 @@ async function start() {
     VALUES (1, 'clear', 0, 0)
     ON CONFLICT (id) DO NOTHING
   `);
+
 
   // Daily build theme voting tables (all public — build activity is not sensitive).
   await pool.query(`
