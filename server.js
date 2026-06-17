@@ -1041,6 +1041,161 @@ app.get('/api/badges', async (req, res) => {
   }
 });
 
+// ---- Public player profile: fetch stats across all modes ----
+app.get('/api/profile/:username', async (req, res) => {
+  try {
+    const username = req.params.username.toLowerCase();
+
+    // Fetch Classic mode stats
+    const classicRes = await pool.query(
+      `SELECT user_id, username, total_score, blocks_placed, best_combo FROM leaderboard WHERE LOWER(username) = $1`,
+      [username]
+    );
+
+    // Fetch Time Attack stats
+    const taRes = await pool.query(
+      `SELECT user_id, username, best_cleared, best_difficulty FROM ta_scores WHERE LOWER(username) = $1`,
+      [username]
+    );
+
+    // Fetch Time Attack 60s stats
+    const ta60Res = await pool.query(
+      `SELECT user_id, username, best_cleared FROM ta_60_scores WHERE LOWER(username) = $1`,
+      [username]
+    );
+
+    // Fetch Endless stats
+    const endlessRes = await pool.query(
+      `SELECT user_id, username, best_placed, best_moves_survived FROM endless_scores WHERE LOWER(username) = $1`,
+      [username]
+    );
+
+    // Get user_id from any available result, or return 404
+    let userId = null;
+    if (classicRes.rows.length) userId = classicRes.rows[0].user_id;
+    else if (taRes.rows.length) userId = taRes.rows[0].user_id;
+    else if (ta60Res.rows.length) userId = ta60Res.rows[0].user_id;
+    else if (endlessRes.rows.length) userId = endlessRes.rows[0].user_id;
+
+    if (!userId) {
+      return res.status(404).json({ error: 'Player not found' });
+    }
+
+    // Get exact username from whichever table had data
+    const exactUsername = classicRes.rows[0]?.username ||
+                         taRes.rows[0]?.username ||
+                         ta60Res.rows[0]?.username ||
+                         endlessRes.rows[0]?.username;
+
+    // Compute ranks for each mode (only if user has stats in that mode)
+    let classicRank = null, taRank = null, ta60Rank = null, endlessRank = null;
+
+    if (classicRes.rows.length) {
+      const rankRes = await pool.query(
+        `SELECT rank() OVER (ORDER BY total_score DESC) AS rank FROM leaderboard WHERE LOWER(username) = $1`,
+        [username]
+      );
+      classicRank = rankRes.rows.length ? Number(rankRes.rows[0].rank) : null;
+    }
+
+    if (taRes.rows.length) {
+      const rankRes = await pool.query(
+        `SELECT rank() OVER (ORDER BY best_cleared DESC) AS rank FROM ta_scores WHERE LOWER(username) = $1`,
+        [username]
+      );
+      taRank = rankRes.rows.length ? Number(rankRes.rows[0].rank) : null;
+    }
+
+    if (ta60Res.rows.length) {
+      const rankRes = await pool.query(
+        `SELECT rank() OVER (ORDER BY best_cleared DESC) AS rank FROM ta_60_scores WHERE LOWER(username) = $1`,
+        [username]
+      );
+      ta60Rank = rankRes.rows.length ? Number(rankRes.rows[0].rank) : null;
+    }
+
+    if (endlessRes.rows.length) {
+      const rankRes = await pool.query(
+        `SELECT rank() OVER (ORDER BY best_placed DESC) AS rank FROM endless_scores WHERE LOWER(username) = $1`,
+        [username]
+      );
+      endlessRank = rankRes.rows.length ? Number(rankRes.rows[0].rank) : null;
+    }
+
+    // Fetch badges
+    const badgesRes = await pool.query(
+      `SELECT pb.badge_id, pb.earned_at, b.name, b.icon
+       FROM player_badges pb
+       JOIN (SELECT id, name, icon FROM (VALUES
+         ('first_block', 'First Block', '🏗️'),
+         ('builder', 'Builder', '🧱'),
+         ('architect', 'Architect', '🏰'),
+         ('high_scorer', 'High Scorer', '⭐'),
+         ('comboist', 'Comboist', '⚡'),
+         ('rainbow_placer', 'Rainbow Placer', '🌈'),
+         ('golden_touch', 'Golden Touch', '✨'),
+         ('glowmaster', 'Glowmaster', '💡'),
+         ('shadow_sculptor', 'Shadow Sculptor', '🌑'),
+         ('material_artist', 'Material Artist', '🎨'),
+         ('crystal_placer', 'Crystal Placer', '💎'),
+         ('streak_3', 'Hot Start', '🔥'),
+         ('streak_7', 'Week Warrior', '🗓️'),
+         ('streak_14', 'Fortnight Pro', '🏆'),
+         ('streak_30', 'Monthly Master', '👑'),
+         ('daily_devotee', 'Daily Devotee', '🌟'),
+         ('daily_champion', 'Daily Champion', '👑'),
+         ('speedrunner', 'Speedrunner', '⚡')
+       ) AS badge_defs(id, name, icon)) AS b ON pb.badge_id = b.id
+       WHERE pb.user_id = $1
+       ORDER BY pb.earned_at`,
+      [userId]
+    );
+
+    // Count distinct block types used
+    const typeCountRes = await pool.query(
+      `SELECT COUNT(DISTINCT block_type) as count FROM player_type_usage WHERE user_id = $1`,
+      [userId]
+    );
+    const blockTypesUsed = typeCountRes.rows[0] ? Number(typeCountRes.rows[0].count) : 0;
+
+    res.json({
+      user_id: userId,
+      username: exactUsername,
+      stats: {
+        classic: {
+          total_score: classicRes.rows.length ? Number(classicRes.rows[0].total_score) : 0,
+          blocks_placed: classicRes.rows.length ? Number(classicRes.rows[0].blocks_placed) : 0,
+          best_combo: classicRes.rows.length ? classicRes.rows[0].best_combo : 1,
+          rank: classicRank,
+        },
+        ta: {
+          best_cleared: taRes.rows.length ? taRes.rows[0].best_cleared : 0,
+          best_difficulty: taRes.rows.length ? taRes.rows[0].best_difficulty : 0,
+          rank: taRank,
+        },
+        ta_60: {
+          best_cleared: ta60Res.rows.length ? ta60Res.rows[0].best_cleared : 0,
+          rank: ta60Rank,
+        },
+        endless: {
+          best_placed: endlessRes.rows.length ? endlessRes.rows[0].best_placed : 0,
+          best_moves_survived: endlessRes.rows.length ? endlessRes.rows[0].best_moves_survived : 0,
+          rank: endlessRank,
+        },
+      },
+      badges: badgesRes.rows.map((r) => ({
+        id: r.badge_id,
+        name: r.name,
+        icon: r.icon,
+        earned_at: r.earned_at,
+      })),
+      block_types_used: blockTypesUsed,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ---- Chat: post a new message ----
 app.post('/api/chat', async (req, res) => {
   try {
@@ -2081,27 +2236,34 @@ async function seedStaging() {
   }
 
   // Seed player_badges for staging users to showcase the panel.
+  // Each player has diverse badges with different earned times to test the profile view.
   const badgeSeed = [
-    { userId: -1, badgeId: 'first_block' },
-    { userId: -1, badgeId: 'builder' },
-    { userId: -1, badgeId: 'architect' },
-    { userId: -1, badgeId: 'high_scorer' },
-    { userId: -1, badgeId: 'comboist' },
-    { userId: -1, badgeId: 'golden_touch' },
-    { userId: -1, badgeId: 'material_artist' },
-    { userId: -1, badgeId: 'crystal_placer' },
-    { userId: -2, badgeId: 'first_block' },
-    { userId: -2, badgeId: 'builder' },
-    { userId: -2, badgeId: 'rainbow_placer' },
-    { userId: -2, badgeId: 'comboist' },
-    { userId: -3, badgeId: 'first_block' },
-    { userId: -4, badgeId: 'first_block' },
-    { userId: -4, badgeId: 'builder' },
+    // Alice: 8 badges with varied earned times (leading player)
+    { userId: -1, badgeId: 'first_block', daysAgo: 10 },
+    { userId: -1, badgeId: 'builder', daysAgo: 9 },
+    { userId: -1, badgeId: 'architect', daysAgo: 8 },
+    { userId: -1, badgeId: 'high_scorer', daysAgo: 7 },
+    { userId: -1, badgeId: 'comboist', daysAgo: 5 },
+    { userId: -1, badgeId: 'golden_touch', daysAgo: 4 },
+    { userId: -1, badgeId: 'material_artist', daysAgo: 3 },
+    { userId: -1, badgeId: 'crystal_placer', daysAgo: 2 },
+    // Bob: 4 badges (second player)
+    { userId: -2, badgeId: 'first_block', daysAgo: 8 },
+    { userId: -2, badgeId: 'builder', daysAgo: 6 },
+    { userId: -2, badgeId: 'rainbow_placer', daysAgo: 5 },
+    { userId: -2, badgeId: 'comboist', daysAgo: 3 },
+    // Carol: 3 badges (newer player)
+    { userId: -3, badgeId: 'first_block', daysAgo: 3 },
+    { userId: -3, badgeId: 'rainbow_placer', daysAgo: 2 },
+    { userId: -3, badgeId: 'builder', daysAgo: 1 },
+    // Dave: 2 badges (casual player)
+    { userId: -4, badgeId: 'first_block', daysAgo: 5 },
+    { userId: -4, badgeId: 'builder', daysAgo: 2 },
   ];
   for (const b of badgeSeed) {
     await pool.query(
       `INSERT INTO player_badges (user_id, badge_id, earned_at)
-       VALUES ($1, $2, NOW() - INTERVAL '3 days')
+       VALUES ($1, $2, NOW() - INTERVAL '${b.daysAgo} days')
        ON CONFLICT DO NOTHING`,
       [b.userId, b.badgeId]
     );
