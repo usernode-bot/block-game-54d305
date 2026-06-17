@@ -1006,6 +1006,13 @@
         musicTimerId = setInterval(musicTick, 3000);
       }
 
+      function stopMusic() {
+        if (musicTimerId !== null) {
+          clearInterval(musicTimerId);
+          musicTimerId = null;
+        }
+      }
+
       function playPlace() {
         if (!ctx) return;
         const t = ctx.currentTime;
@@ -1150,6 +1157,7 @@
       // End-of-run "time's up" cue: a short two-note descending tone.
       function playGameOver() {
         if (!ctx || !masterGain) return;
+        stopMusic();
         const t = ctx.currentTime;
         scheduleNote(392.0, 'triangle', 0.18, t, 0.28, false);       // G4
         scheduleNote(261.6, 'triangle', 0.20, t + 0.18, 0.45, false); // C4
@@ -1190,7 +1198,7 @@
         });
       }
 
-      return { init, playPlace, playBreak, playDisasterSound, playGameOver, playFanfare, toggleMute, isMuted, playLineClear };
+      return { init, playPlace, playBreak, playDisasterSound, playGameOver, playFanfare, toggleMute, isMuted, playLineClear, stopMusic };
     })();
 
     const buildStampEl = document.getElementById('build-stamp');
@@ -5149,6 +5157,8 @@
     (async function init() {
       updateOrientation();
       refreshControlCopy();
+      // Initialize audio system and start menu background music
+      audio.init();
       const ok = await loadWorld();
       if (!ok) return;
       // Fetch earned badges so the panel renders correctly from the first open.
