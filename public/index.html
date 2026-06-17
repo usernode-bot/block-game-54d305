@@ -106,9 +106,12 @@
 
     /* Hold panel swatch transition for locked/unlocked state */
     #hold-swatch { transition: opacity 0.2s; }
+
+    #bg-canvas { position: fixed; inset: 0; pointer-events: none; }
   </style>
 </head>
 <body class="bg-zinc-950 text-zinc-100">
+  <canvas id="bg-canvas"></canvas>
   <!-- Rotor: everything visual lives inside so portrait phones can force-rotate
        the whole app to landscape in one transform (see CSS). -->
   <div id="rotor">
@@ -2578,6 +2581,73 @@
         } catch (_) {}
       }, 30000);
     })();
+  </script>
+  <script>
+  // Animated background: falling, rotating mini-blocks
+  (function () {
+    var bgCanvas = document.getElementById('bg-canvas');
+    var ctx = bgCanvas.getContext('2d');
+    var COLORS = ['#5fae3a','#8d8d92','#ddca8a','#9c4a3c','#3b6dd2','#f5c842'];
+    var particles = [];
+
+    function rand(min, max) { return min + Math.random() * (max - min); }
+
+    function makeParticle(randomY) {
+      var size = rand(14, 22);
+      return {
+        x: rand(0, bgCanvas.width),
+        y: randomY ? rand(-size, bgCanvas.height + size) : -size,
+        size: size,
+        speed: rand(0.4, 1.2),
+        drift: rand(-0.3, 0.3),
+        angle: rand(0, Math.PI * 2),
+        angleSpeed: rand(0.006, 0.010) * (Math.random() < 0.5 ? 1 : -1),
+        alpha: rand(0.45, 0.80),
+        color: COLORS[Math.floor(Math.random() * COLORS.length)],
+      };
+    }
+
+    function resize() {
+      bgCanvas.width = window.innerWidth;
+      bgCanvas.height = window.innerHeight;
+      var count = Math.max(8, Math.round((bgCanvas.width * bgCanvas.height) / 40000));
+      particles = [];
+      for (var i = 0; i < count; i++) particles.push(makeParticle(true));
+    }
+
+    function draw() {
+      ctx.clearRect(0, 0, bgCanvas.width, bgCanvas.height);
+      for (var i = 0; i < particles.length; i++) {
+        var p = particles[i];
+        p.y += p.speed;
+        p.x += p.drift;
+        p.angle += p.angleSpeed;
+        if (p.y > bgCanvas.height + p.size) {
+          particles[i] = makeParticle(false);
+          continue;
+        }
+        ctx.save();
+        ctx.globalAlpha = p.alpha;
+        ctx.fillStyle = p.color;
+        ctx.translate(p.x, p.y);
+        ctx.rotate(p.angle);
+        ctx.fillRect(-p.size / 2, -p.size / 2, p.size, p.size);
+        ctx.restore();
+      }
+    }
+
+    var reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+    resize();
+    window.addEventListener('resize', resize);
+
+    if (!reducedMotion) {
+      (function bgLoop() {
+        draw();
+        requestAnimationFrame(bgLoop);
+      })();
+    }
+  })();
   </script>
 </body>
 </html>
