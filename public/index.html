@@ -130,6 +130,9 @@
        player-placed block. Hidden by default; shown/hidden by JS. -->
   <div id="attribution" class="hidden pointer-events-none fixed left-1/2 z-10 text-xs text-white/90 bg-black/55 rounded px-2 py-1 font-medium whitespace-nowrap" style="top: calc(50% + 20px); transform: translateX(-50%);"></div>
 
+  <!-- Plot owner label: shown when the crosshair is aimed at another player's claimed plot. -->
+  <div id="plot-owner-label" class="hidden pointer-events-none fixed left-1/2 z-10 text-xs text-amber-300/90 bg-black/55 rounded px-2 py-1 font-medium whitespace-nowrap" style="top: calc(50% + 38px); transform: translateX(-50%);"></div>
+
   <!-- Power-up buff HUD: shows active buffs with countdown timers.
        Positioned bottom-right above the palette. -->
   <div id="powerup-hud" class="pointer-events-none fixed bottom-24 right-4 z-20 flex flex-col items-end gap-1"></div>
@@ -402,6 +405,12 @@
   </div>
 
 
+  <!-- Claim HUD: shown in classic mode; lets the player stake or release a plot. -->
+  <div id="claim-hud" class="hidden pointer-events-auto fixed z-20 flex flex-col items-center gap-2" style="bottom: 5.5rem; left: 50%; transform: translateX(-50%);">
+    <button id="claim-btn" class="hidden px-5 py-2 rounded-xl bg-teal-600 hover:bg-teal-500 active:bg-teal-700 text-white text-sm font-semibold shadow-lg transition-colors">Stake This Plot</button>
+    <button id="release-btn" class="hidden px-5 py-2 rounded-xl bg-zinc-700 hover:bg-zinc-600 active:bg-zinc-800 text-white text-sm font-semibold shadow-lg transition-colors">Release Plot</button>
+  </div>
+
   </div><!-- /#rotor -->
 
   <script type="module">
@@ -412,19 +421,22 @@
     const headers = token ? { 'x-usernode-token': token } : {};
     const statusEl = document.getElementById('status');
 
-    // Decode the JWT payload (base64url) to get the current user's username for
-    // self-exclusion in the online list friend buttons. Read-only — no sensitive use.
+    // Decode the JWT payload (base64url) to get the current user's username and id for
+    // self-exclusion in the online list friend buttons and claim ownership checks.
+    // Read-only — no sensitive use.
     let myUsername = null;
+    let myUserId = null;
     try {
       if (token) {
         const payload = JSON.parse(atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
         myUsername = payload.username || null;
+        myUserId = payload.id ?? null;
       }
     } catch (_) {}
 
     // Build identifier — bump this (to the deploying commit short SHA) on every
     // change so the top-right stamp confirms exactly which code is running.
-    const BUILD_VERSION = 'power-ups+hold-queue+achievements-badges+chat+daily-challenge+leaderboard+online-presence+block-attribution+audio-sfx+next-piece-preview+spectator-mode+weekly-tournament+friends+day-night-cycle+minimap+ai-coach';
+    const BUILD_VERSION = 'power-ups+hold-queue+achievements-badges+chat+daily-challenge+leaderboard+online-presence+block-attribution+audio-sfx+next-piece-preview+spectator-mode+weekly-tournament+friends+day-night-cycle+minimap+ai-coach+land-claims';
 
     // Badge definitions — mirror of the server-side BADGES array, extended with
     // a `hint` field shown in the panel for unearned badges.
@@ -656,6 +668,10 @@
     let selectedType = 1;
     let unlockedTypes = new Set(); // block type IDs earned by the current user
     const key = (x, y, z) => x + ',' + y + ',' + z;
+
+    // ---- Land claim state ----
+    let claims = [];               // [{ user_id, username, plot_x, plot_z }]
+    let myTotalBlocksPlaced = 0;   // from /api/world, incremented optimistically on placement
 
     // ---- Power-up state ----
     const powerupMap = new Map(); // id -> { type, x, y, z, mesh }
@@ -937,6 +953,9 @@
     }
     const powerupGroup = new THREE.Group();
     scene.add(powerupGroup);
+
+    const claimGroup = new THREE.Group();
+    scene.add(claimGroup);
 
     // ---- Particle system ----
     const PARTICLE_POOL_SIZE = 150;
@@ -1298,6 +1317,113 @@
       if (html !== _lastHudHtml) { powerupHudEl.innerHTML = html; _lastHudHtml = html; }
     }
 
+    // ---- Land claim helpers ----
+    function getClaimAt(x, z) {
+      const px = Math.max(0, Math.min(24, Math.floor(x / 8) * 8));
+      const pz = Math.max(0, Math.min(24, Math.floor(z / 8) * 8));
+      return claims.find((c) => c.plot_x === px && c.plot_z === pz) || null;
+    }
+
+    function rebuildClaimMeshes() {
+      claimGroup.clear();
+      for (const claim of claims) {
+        const isMine = myUserId !== null && Number(claim.user_id) === Number(myUserId);
+        const color = isMine ? 0x00bcd4 : 0xff9800;
+        const mat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.55, depthWrite: false });
+        const pillarGeom = new THREE.BoxGeometry(0.12, DIMS.h - 1, 0.12);
+        const py = (DIMS.h - 1) / 2 + 1;
+        const corners = [
+          { x: claim.plot_x,     z: claim.plot_z },
+          { x: claim.plot_x + 8, z: claim.plot_z },
+          { x: claim.plot_x,     z: claim.plot_z + 8 },
+          { x: claim.plot_x + 8, z: claim.plot_z + 8 },
+        ];
+        for (const corner of corners) {
+          const mesh = new THREE.Mesh(pillarGeom, mat);
+          mesh.position.set(corner.x, py, corner.z);
+          claimGroup.add(mesh);
+        }
+      }
+    }
+
+    async function fetchClaims() {
+      try {
+        const res = await fetch('/api/claims', { headers });
+        if (!res.ok) return;
+        const data = await res.json();
+        claims = data.claims || [];
+        rebuildClaimMeshes();
+      } catch (_) { /* transient */ }
+    }
+
+    // Badge-style toast for claim events.
+    function showClaimToast(msg) {
+      const container = document.getElementById('badge-toasts');
+      if (!container) return;
+      const toast = document.createElement('div');
+      toast.className = 'flex items-center gap-3 bg-teal-900/90 backdrop-blur rounded-xl px-4 py-2.5 text-sm text-zinc-100 shadow-xl ring-2 ring-teal-500/40';
+      toast.style.cssText = 'opacity:0;transition:opacity 0.3s;';
+      toast.textContent = msg;
+      container.appendChild(toast);
+      requestAnimationFrame(() => { toast.style.opacity = '1'; });
+      setTimeout(() => { toast.style.opacity = '0'; setTimeout(() => toast.remove(), 300); }, 3500);
+    }
+
+    // Show the "plot is claimed" label for 2s then clear it.
+    const plotOwnerLabelEl = document.getElementById('plot-owner-label');
+    let _claimMsgTimer = null;
+    function showClaimBlockedMsg(ownerName) {
+      plotOwnerLabelEl.textContent = 'This plot belongs to ' + ownerName;
+      plotOwnerLabelEl.classList.remove('hidden');
+      if (_claimMsgTimer) clearTimeout(_claimMsgTimer);
+      _claimMsgTimer = setTimeout(() => {
+        _claimMsgTimer = null;
+        plotOwnerLabelEl.classList.add('hidden');
+      }, 2000);
+    }
+
+    // Claim / release HUD: shown during classic mode play.
+    const claimHudEl = document.getElementById('claim-hud');
+    const claimBtnEl = document.getElementById('claim-btn');
+    const releaseBtnEl = document.getElementById('release-btn');
+
+    function updateClaimHud() {
+      if (gameMode !== 'classic' || !playing) {
+        claimHudEl.classList.add('hidden');
+        // Passive plot-owner label also hidden when not playing.
+        if (!_claimMsgTimer) plotOwnerLabelEl.classList.add('hidden');
+        return;
+      }
+      claimHudEl.classList.remove('hidden');
+
+      const px = Math.max(0, Math.min(24, Math.floor(camera.position.x / 8) * 8));
+      const pz = Math.max(0, Math.min(24, Math.floor(camera.position.z / 8) * 8));
+      const playerClaim = claims.find((c) => c.plot_x === px && c.plot_z === pz) || null;
+      const alreadyHaveClaim = claims.some((c) => myUserId !== null && Number(c.user_id) === Number(myUserId));
+
+      if (!playerClaim) {
+        claimBtnEl.classList.toggle('hidden', !(myTotalBlocksPlaced >= 10 && !alreadyHaveClaim));
+        releaseBtnEl.classList.add('hidden');
+      } else if (myUserId !== null && Number(playerClaim.user_id) === Number(myUserId)) {
+        claimBtnEl.classList.add('hidden');
+        releaseBtnEl.classList.remove('hidden');
+      } else {
+        claimBtnEl.classList.add('hidden');
+        releaseBtnEl.classList.add('hidden');
+      }
+
+      // Passive plot-owner label: shown when aiming at another player's claimed cell.
+      if (!_claimMsgTimer) {
+        const aimed = target ? getClaimAt(target.cell.x, target.cell.z) : null;
+        if (aimed && (myUserId === null || Number(aimed.user_id) !== Number(myUserId))) {
+          plotOwnerLabelEl.textContent = aimed.username + "'s plot";
+          plotOwnerLabelEl.classList.remove('hidden');
+        } else {
+          plotOwnerLabelEl.classList.add('hidden');
+        }
+      }
+    }
+
     // ---- Mini-map rendering ----
     function renderMinimap() {
       const SCALE = 4; // px per world unit (128px / 32 units)
@@ -1329,6 +1455,23 @@
               break;
             }
           }
+        }
+      }
+
+      // Land claim overlays: teal for own plot, amber for others.
+      if (gameMode !== 'timeattack') {
+        for (const claim of claims) {
+          const isMine = myUserId !== null && Number(claim.user_id) === Number(myUserId);
+          const fill   = isMine ? 'rgba(0,188,212,0.35)' : 'rgba(255,152,0,0.30)';
+          const stroke = isMine ? 'rgba(0,188,212,0.85)' : 'rgba(255,152,0,0.85)';
+          const rx = claim.plot_x * SCALE;
+          const rz = claim.plot_z * SCALE;
+          const rs = 8 * SCALE; // 8 world units × 4 px/unit
+          minimapCtx.fillStyle = fill;
+          minimapCtx.fillRect(rx, rz, rs, rs);
+          minimapCtx.strokeStyle = stroke;
+          minimapCtx.lineWidth = 1;
+          minimapCtx.strokeRect(rx + 0.5, rz + 0.5, rs - 1, rs - 1);
         }
       }
 
@@ -1472,6 +1615,8 @@
 
     async function sendEdit(x, y, z, t) {
       applyLocal(x, y, z, t);
+      // Optimistic claim-count increment for placements (not breaks).
+      if (t !== 0) myTotalBlocksPlaced++;
       // Optimistic challenge increment for placements (not breaks).
       if (t !== 0 && challengeDate && !challengeCompleted) {
         challengePlaced++;
@@ -1492,7 +1637,18 @@
           headers: { 'Content-Type': 'application/json', ...headers },
           body: JSON.stringify({ x, y, z, block_type: t }),
         });
-        if (res.ok) {
+        if (!res.ok) {
+          // Server-side claim rejection (race condition: claims changed after last fetch).
+          if (res.status === 403) {
+            const errData = await res.json().catch(() => ({}));
+            if (errData.error === 'plot_claimed') {
+              fetchClaims(); // refresh claim data
+              showClaimBlockedMsg(errData.owner || 'another player');
+            }
+          }
+          return;
+        }
+        {
           const data = await res.json();
           // Check combo tier-up before updateComboHud mutates lastComboMultiplier.
           const newMult = data.combo_multiplier || 1;
@@ -1570,6 +1726,14 @@
         return;
       }
       if (blocks.get(key(x, y, z)) === selectedType) return;
+      // Client-side land claim guard: silently block edits in another player's plot.
+      if (gameMode === 'classic') {
+        const claim = getClaimAt(x, z);
+        if (claim && (myUserId === null || Number(claim.user_id) !== Number(myUserId))) {
+          showClaimBlockedMsg(claim.username);
+          return;
+        }
+      }
       audio.playPlace();
       emitBlockPlace(x + 0.5, y + 0.5, z + 0.5);
       sendEdit(x, y, z, selectedType);
@@ -1592,6 +1756,14 @@
         rebuildBlockMeshes();
         updateTaScoreDisplay();
         return;
+      }
+      // Client-side land claim guard: silently block breaks in another player's plot.
+      if (gameMode === 'classic') {
+        const claim = getClaimAt(x, z);
+        if (claim && (myUserId === null || Number(claim.user_id) !== Number(myUserId))) {
+          showClaimBlockedMsg(claim.username);
+          return;
+        }
       }
       if (!blocks.has(key(x, y, z))) return;
       const brokenType = blocks.get(key(x, y, z));
@@ -2875,6 +3047,7 @@
       PALETTE = data.palette;
       cursor = data.cursor || 0;
       unlockedTypes = new Set(data.unlockedTypes || []);
+      myTotalBlocksPlaced = data.blocksPlaced || 0;
       selectedType = PALETTE[0] ? PALETTE[0].id : 1;
       blocks.clear();
       for (const b of data.blocks) blocks.set(key(b.x, b.y, b.z), b.t);
@@ -3129,6 +3302,8 @@
       // Animate Crystal block emissive glow: gentle 0.2→0.4 pulse (~7.9s period).
       if (crystalMaterial) crystalMaterial.emissiveIntensity = 0.2 + 0.2 * Math.sin(now * 0.0008);
       renderBuffHud();
+      claimGroup.visible = (gameMode === 'classic');
+      updateClaimHud();
       renderer.render(scene, camera);
       if (gameMode !== null) renderMinimap();
       requestAnimationFrame(loop);
@@ -3191,6 +3366,44 @@
           if (cr.ok) syncChallenge(await cr.json());
         } catch (_) {}
       }, 30000);
+
+      // Land claims: load on start and refresh every 30s so the map stays fresh
+      // without needing a WebSocket (claims change rarely).
+      fetchClaims();
+      setInterval(fetchClaims, 30000);
+
+      // Claim HUD button handlers.
+      claimBtnEl.addEventListener('click', async () => {
+        const px = Math.max(0, Math.min(24, Math.floor(camera.position.x / 8) * 8));
+        const pz = Math.max(0, Math.min(24, Math.floor(camera.position.z / 8) * 8));
+        try {
+          const res = await fetch('/api/claims', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...headers },
+            body: JSON.stringify({ plot_x: px, plot_z: pz }),
+          });
+          const data = await res.json();
+          if (res.ok) {
+            await fetchClaims();
+            showClaimToast('Plot staked! Only you can build here.');
+          } else {
+            showClaimToast(data.error || 'Could not stake plot.');
+          }
+        } catch (_) { showClaimToast('Could not reach server.'); }
+      });
+
+      releaseBtnEl.addEventListener('click', async () => {
+        try {
+          const res = await fetch('/api/claims/mine', { method: 'DELETE', headers });
+          if (res.ok) {
+            await fetchClaims();
+            showClaimToast('Plot released.');
+          } else {
+            const data = await res.json().catch(() => ({}));
+            showClaimToast(data.error || 'Could not release plot.');
+          }
+        } catch (_) { showClaimToast('Could not reach server.'); }
+      });
     })();
   </script>
   <script>
