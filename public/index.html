@@ -433,6 +433,12 @@
           <button id="play-ta-btn" class="w-full px-4 py-3 rounded-lg bg-amber-600 hover:bg-amber-500 font-semibold text-sm sm:text-sm lg:text-base transition hover:scale-[1.02] active:scale-[0.98]">Play Time Attack</button>
         </div>
         <div class="bg-zinc-900/80 rounded-xl p-5 sm:p-6 lg:p-7 transition hover:bg-zinc-800/80">
+          <canvas id="preview-ta-60" class="w-full rounded-lg mb-4" height="140"></canvas>
+          <h2 class="font-semibold text-lg sm:text-base lg:text-lg text-zinc-100 mb-2">Time Attack (60s)</h2>
+          <p class="text-zinc-400 text-sm sm:text-sm lg:text-sm mb-5">Clear as many blocks as you can in 60 seconds. Blocks stack—no clearing allowed. Single-player only.</p>
+          <button id="play-ta-60-btn" class="w-full px-4 py-3 rounded-lg bg-cyan-600 hover:bg-cyan-500 font-semibold text-sm sm:text-sm lg:text-base transition hover:scale-[1.02] active:scale-[0.98]">Play Time Attack (60s)</button>
+        </div>
+        <div class="bg-zinc-900/80 rounded-xl p-5 sm:p-6 lg:p-7 transition hover:bg-zinc-800/80">
           <canvas id="preview-endless" class="w-full rounded-lg mb-4" height="140"></canvas>
           <h2 class="font-semibold text-lg sm:text-base lg:text-lg text-zinc-100 mb-2">Endless Mode</h2>
           <p class="text-zinc-400 text-sm sm:text-sm lg:text-sm mb-5">Build forever on an endless grid. No timer, no score multiplier—just how long until you run out of valid moves?</p>
@@ -690,6 +696,7 @@
         <button id="tab-alltime" class="px-2 py-0.5 rounded text-xs font-semibold bg-zinc-700 text-zinc-100 cursor-pointer transition-colors">All-time</button>
         <button id="tab-tournament" class="px-2 py-0.5 rounded text-xs font-semibold text-zinc-400 hover:text-zinc-200 cursor-pointer transition-colors">This Week</button>
         <button id="tab-ta" class="px-2 py-0.5 rounded text-xs font-semibold text-zinc-400 hover:text-zinc-200 cursor-pointer transition-colors">Time Attack</button>
+        <button id="tab-ta-60" class="px-2 py-0.5 rounded text-xs font-semibold text-zinc-400 hover:text-zinc-200 cursor-pointer transition-colors">TA (60s)</button>
         <button id="tab-endless" class="px-2 py-0.5 rounded text-xs font-semibold text-zinc-400 hover:text-zinc-200 cursor-pointer transition-colors">Endless</button>
       </div>
       <button id="leaderboard-close" aria-label="Close leaderboard" class="text-zinc-400 hover:text-zinc-100 cursor-pointer leading-none transition-colors">✕</button>
@@ -775,6 +782,12 @@
     <div id="ta-difficulty-label" class="text-[11px] sm:text-xs font-semibold text-zinc-400 bg-black/50 rounded-xl px-3 sm:px-4 py-0.5 sm:py-1 text-center">Difficulty: Easy</div>
   </div>
 
+  <!-- Time Attack (60s) HUD: timer + score shown only during TA (60s) mode -->
+  <div id="ta-60-hud" class="hidden pointer-events-none fixed top-3 left-3 z-20 flex flex-col gap-1">
+    <div id="ta-60-timer" class="text-2xl sm:text-3xl font-mono font-bold text-white bg-black/50 rounded-xl px-3 sm:px-4 py-1.5 sm:py-2 tabular-nums leading-tight border border-cyan-600/50">1:00</div>
+    <div id="ta-60-score" class="text-xs sm:text-sm font-semibold text-zinc-200 bg-black/50 rounded-xl px-3 sm:px-4 py-1 sm:py-1.5 text-center">0 blocks</div>
+  </div>
+
   <!-- Endless Mode HUD: moves counter shown only during Endless mode -->
   <div id="endless-hud" class="hidden pointer-events-none fixed top-3 left-3 z-20 flex flex-col gap-1">
     <div id="endless-moves" class="text-2xl sm:text-3xl font-mono font-bold text-white bg-black/50 rounded-xl px-3 sm:px-4 py-1.5 sm:py-2 tabular-nums leading-tight">999</div>
@@ -812,6 +825,20 @@
       <div class="flex flex-col sm:flex-row gap-2 sm:gap-3 justify-center">
         <button id="ta-play-again" class="w-full sm:w-auto px-6 py-3 rounded-lg bg-amber-600 hover:bg-amber-500 font-semibold transition hover:scale-105 active:scale-95">Play Again</button>
         <button id="ta-back-menu" class="w-full sm:w-auto px-6 py-3 rounded-lg bg-zinc-700 hover:bg-zinc-600 font-semibold transition hover:scale-105 active:scale-95">Back to Menu</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Time Attack (60s) game-over overlay -->
+  <div id="ta-60-gameover" class="hidden fixed inset-0 z-30 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+    <div id="ta-60-gameover-card" class="max-w-sm w-full mx-4 bg-zinc-900/95 rounded-2xl p-6 sm:p-8 text-center shadow-xl">
+      <h2 class="text-2xl font-bold mb-2">Time's up!</h2>
+      <div id="ta-60-best-banner" class="hidden mb-3 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-400 text-zinc-900 font-bold py-2 px-3 text-sm shadow">🎉 New personal best!</div>
+      <p id="ta-60-final-score" class="text-zinc-300 text-lg mb-2">You cleared 0 blocks</p>
+      <p id="ta-60-feedback-msg" class="text-zinc-500 text-sm mb-6"></p>
+      <div class="flex flex-col sm:flex-row gap-2 sm:gap-3 justify-center">
+        <button id="ta-60-play-again" class="w-full sm:w-auto px-6 py-3 rounded-lg bg-cyan-600 hover:bg-cyan-500 font-semibold transition hover:scale-105 active:scale-95">Play Again</button>
+        <button id="ta-60-back-menu" class="w-full sm:w-auto px-6 py-3 rounded-lg bg-zinc-700 hover:bg-zinc-600 font-semibold transition hover:scale-105 active:scale-95">Back to Menu</button>
       </div>
     </div>
   </div>
@@ -1250,7 +1277,7 @@
     }
 
     // ---- Game mode state ----
-    let gameMode = null;           // null | 'classic' | 'timeattack' | 'endless' | 'learn'
+    let gameMode = null;           // null | 'classic' | 'timeattack' | 'endless' | 'learn' | 'time-attack-60'
     const taBlocks = new Map();    // TA layout: client-only, never written to server
     let taScore = 0;
     let taTimeLeft = 60;
@@ -1258,6 +1285,15 @@
     let pollHandle = null;         // classic-mode server poll interval
     let pendingTaInit = false;     // true while waiting for play-entry to fire initTimeAttack
     let sessionShownDailyReward = false; // track if daily reward modal was shown this session
+
+    // ---- Time Attack (60s) state ----
+    const ta60Blocks = new Map();  // TA (60s) layout: client-only, never written to server
+    let ta60Score = 0;
+    let ta60TimeLeft = 60;
+    let ta60TimerHandle = null;
+    let pendingTa60Init = false;   // true while waiting for play-entry to fire initTimeAttack60
+    let ta60RunHistory = lsGet('ta_60_run_history', []);
+    if (!Array.isArray(ta60RunHistory)) ta60RunHistory = [];
 
     // ---- Custom worlds state ----
     let currentWorldId = 0;        // 0 = shared world, >0 = custom world ID
@@ -1723,6 +1759,7 @@
       crystalMaterial = null;
       let source = blocks;
       if (gameMode === 'timeattack') source = taBlocks;
+      else if (gameMode === 'time-attack-60') source = ta60Blocks;
       else if (gameMode === 'endless') source = endlessBlocks;
       else if (gameMode === 'learn') source = learnBlocks;
       const byType = new Map();
@@ -2007,7 +2044,9 @@
       }
 
       // Topmost player-placed block at each (x, z) overpaints the grass.
-      const source = gameMode === 'timeattack' ? taBlocks : blocks;
+      let source = blocks;
+      if (gameMode === 'timeattack') source = taBlocks;
+      else if (gameMode === 'time-attack-60') source = ta60Blocks;
       for (let x = 0; x < DIMS.w; x++) {
         for (let z = 0; z < DIMS.d; z++) {
           for (let y = DIMS.h - 1; y >= 1; y--) {
@@ -2382,6 +2421,10 @@
         rebuildBlockMeshes();
         return;
       }
+      if (gameMode === 'time-attack-60') {
+        // Time Attack (60s) is break-only; placing is a no-op
+        return;
+      }
       if (gameMode === 'endless') {
         const k = key(x, y, z);
         if (endlessBlocks.get(k) === selectedType) return;
@@ -2436,6 +2479,19 @@
         taScore++;
         rebuildBlockMeshes();
         updateTaScoreDisplay();
+        return;
+      }
+      if (gameMode === 'time-attack-60') {
+        const k = key(x, y, z);
+        if (!ta60Blocks.has(k)) return;
+        const brokenTypeTa60 = ta60Blocks.get(k);
+        ta60Blocks.delete(k);
+        audio.playBreak();
+        emitBlockBreak(x + 0.5, y + 0.5, z + 0.5, brokenTypeTa60);
+        spawnScorePop(x + 0.5, y + 0.5, z + 0.5, '+1');
+        ta60Score++;
+        rebuildBlockMeshes();
+        updateTa60ScoreDisplay();
         return;
       }
       if (gameMode === 'endless') {
@@ -2773,6 +2829,119 @@
       updateTouchControlsVisibility();
     }
 
+    function updateTa60TimerDisplay() {
+      const el = document.getElementById('ta-60-timer');
+      const minutes = Math.floor(ta60TimeLeft / 60);
+      const seconds = ta60TimeLeft % 60;
+      el.textContent = minutes + ':' + (seconds < 10 ? '0' : '') + seconds;
+      el.classList.toggle('text-red-400', ta60TimeLeft <= 10);
+      el.classList.toggle('text-white', ta60TimeLeft > 10);
+    }
+
+    function updateTa60ScoreDisplay() {
+      document.getElementById('ta-60-score').textContent =
+        ta60Score + ' block' + (ta60Score === 1 ? '' : 's');
+    }
+
+    function tickTimer60() {
+      ta60TimeLeft--;
+      updateTa60TimerDisplay();
+      if (ta60TimeLeft <= 0) {
+        clearInterval(ta60TimerHandle);
+        ta60TimerHandle = null;
+        endTimeAttack60();
+      }
+    }
+
+    function initTimeAttack60() {
+      ta60Blocks.clear();
+      ta60Score = 0;
+      if (ta60TimerHandle) { clearInterval(ta60TimerHandle); ta60TimerHandle = null; }
+
+      ta60TimeLeft = 60;
+
+      // Scatter 200 blocks across the plot using vivid colors
+      const taTypes = [9, 10, 11, 7, 6, 3]; // Red, Blue, Yellow, Brick, Sand, Stone
+      let count = 0;
+      let attempts = 0;
+      while (count < 200 && attempts < 200 * 15) {
+        attempts++;
+        const x = Math.floor(Math.random() * DIMS.w);
+        const z = Math.floor(Math.random() * DIMS.d);
+        const y = 1 + Math.floor(Math.random() * 8); // spread heights 1-8
+        const k = key(x, y, z);
+        if (!ta60Blocks.has(k)) {
+          ta60Blocks.set(k, taTypes[count % taTypes.length]);
+          count++;
+        }
+      }
+
+      rebuildBlockMeshes();
+      spawnCamera();
+
+      document.getElementById('ta-60-hud').classList.remove('hidden');
+      document.getElementById('palette').classList.add('hidden');
+      updateTa60TimerDisplay();
+      updateTa60ScoreDisplay();
+
+      ta60TimerHandle = setInterval(tickTimer60, 1000);
+    }
+
+    // Submit a finished run to the Time Attack (60s) leaderboard
+    async function submitTa60Score(cleared) {
+      const bannerEl = document.getElementById('ta-60-best-banner');
+      const fbEl = document.getElementById('ta-60-feedback-msg');
+      try {
+        const res = await fetch('/api/ta-60-score', {
+          method: 'POST',
+          headers: Object.assign({ 'content-type': 'application/json' }, headers),
+          body: JSON.stringify({ cleared }),
+        });
+        if (!res.ok) throw new Error('submit failed');
+        const data = await res.json();
+        if (data.is_new_best && cleared > 0) {
+          bannerEl.classList.remove('hidden');
+          audio.playFanfare();
+        } else {
+          audio.playGameOver();
+          if (data.best_cleared > 0) {
+            fbEl.textContent = 'Your best: ' + data.best_cleared +
+              ' block' + (data.best_cleared === 1 ? '' : 's');
+          }
+        }
+      } catch (_) {
+        audio.playGameOver();
+      }
+    }
+
+    function endTimeAttack60() {
+      if (ta60TimerHandle) { clearInterval(ta60TimerHandle); ta60TimerHandle = null; }
+      playing = false;
+      dragMode = false;
+      resetMove();
+      canvas.style.cursor = '';
+      if (locked) { try { document.exitPointerLock(); } catch (_) {} }
+      clearScorePops();
+
+      const clearedThisRun = ta60Score;
+
+      ta60RunHistory.push({ cleared: ta60Score });
+      if (ta60RunHistory.length > 10) ta60RunHistory = ta60RunHistory.slice(-10);
+      lsSet('ta_60_run_history', ta60RunHistory);
+
+      document.getElementById('ta-60-hud').classList.add('hidden');
+      const fs = document.getElementById('ta-60-final-score');
+      fs.textContent = 'You cleared ' + clearedThisRun + ' block' + (clearedThisRun === 1 ? '' : 's');
+      document.getElementById('ta-60-feedback-msg').textContent = '';
+      document.getElementById('ta-60-best-banner').classList.add('hidden');
+      document.getElementById('ta-60-gameover').classList.remove('hidden');
+
+      submitTa60Score(clearedThisRun);
+
+      refreshControlCopy();
+      updateTouchControlsVisibility();
+    }
+
     function hasValidMoveAnywhere() {
       for (const [k, _] of endlessBlocks) {
         const [x, y, z] = k.split(',').map(Number);
@@ -2913,6 +3082,11 @@
         hideScoreHud();
         coachBtnEl.classList.remove('hidden');
         setTimeout(() => fetchCoachTip('time_attack_start'), 2000);
+      } else if (pendingTa60Init) {
+        pendingTa60Init = false;
+        initTimeAttack60();
+        hideScoreHud();
+        coachBtnEl.classList.add('hidden');
       } else if (pendingEndlessInit) {
         pendingEndlessInit = false;
         initEndlessMode();
@@ -2945,6 +3119,7 @@
     function startMode(mode) {
       gameMode = mode;
       if (mode === 'timeattack') pendingTaInit = true;
+      if (mode === 'time-attack-60') pendingTa60Init = true;
       if (mode === 'endless') pendingEndlessInit = true;
       if (mode === 'learn') pendingLearnInit = true;
       refreshUndoButton();
@@ -3017,6 +3192,11 @@
       // In TA mode, if still actively playing, end the run first (shows game-over).
       if (gameMode === 'timeattack' && playing) {
         endTimeAttack();
+        return;
+      }
+      // In TA (60s) mode, if still actively playing, end the run first (shows game-over).
+      if (gameMode === 'time-attack-60' && playing) {
+        endTimeAttack60();
         return;
       }
       // In Learn mode, end the session.
@@ -3129,6 +3309,7 @@
 
     document.getElementById('play-classic-btn').addEventListener('click', () => { audio.init(); startMode('classic'); });
     document.getElementById('play-ta-btn').addEventListener('click', () => { audio.init(); startMode('timeattack'); });
+    document.getElementById('play-ta-60-btn').addEventListener('click', () => { audio.init(); startMode('time-attack-60'); });
     document.getElementById('play-endless-btn').addEventListener('click', () => { audio.init(); startMode('endless'); });
     document.getElementById('play-learn-btn').addEventListener('click', () => { audio.init(); startMode('learn'); });
     document.getElementById('play-spectate-btn').addEventListener('click', () => { audio.init(); startMode('spectate'); });
@@ -3147,6 +3328,15 @@
     });
     document.getElementById('ta-back-menu').addEventListener('click', () => {
       document.getElementById('ta-gameover').classList.add('hidden');
+      exitToMenu();
+    });
+
+    document.getElementById('ta-60-play-again').addEventListener('click', () => {
+      document.getElementById('ta-60-gameover').classList.add('hidden');
+      startMode('time-attack-60');
+    });
+    document.getElementById('ta-60-back-menu').addEventListener('click', () => {
+      document.getElementById('ta-60-gameover').classList.add('hidden');
       exitToMenu();
     });
 
@@ -3443,7 +3633,7 @@
     const leaderboardEl = document.getElementById('leaderboard');
     const leaderboardContentEl = document.getElementById('leaderboard-content');
     let leaderboardTimer = null;
-    let leaderboardTab = 'alltime'; // 'alltime' | 'tournament' | 'ta'
+    let leaderboardTab = 'alltime'; // 'alltime' | 'tournament' | 'ta' | 'ta-60' | 'endless'
 
     function closeLeaderboard() {
       leaderboardEl.classList.add('hidden');
@@ -3463,7 +3653,7 @@
 
     function setLeaderboardTab(tab) {
       leaderboardTab = tab;
-      const tabs = { alltime: 'tab-alltime', tournament: 'tab-tournament', ta: 'tab-ta', endless: 'tab-endless' };
+      const tabs = { alltime: 'tab-alltime', tournament: 'tab-tournament', ta: 'tab-ta', 'ta-60': 'tab-ta-60', endless: 'tab-endless' };
       for (const [key2, id] of Object.entries(tabs)) {
         const el = document.getElementById(id);
         if (!el) continue;
@@ -3578,6 +3768,36 @@
       leaderboardContentEl.innerHTML = html;
     }
 
+    function renderTa60Leaderboard(data) {
+      const medals = ['🥇', '🥈', '🥉'];
+      if (!data.entries.length) {
+        leaderboardContentEl.innerHTML =
+          '<p class="py-1 text-center text-zinc-400">No runs yet — clear some blocks!</p>';
+        return;
+      }
+      let html = '<table class="w-full text-xs">' +
+        '<thead><tr class="text-zinc-500 uppercase border-b border-zinc-700">' +
+        '<th class="text-left pb-1 w-8">#</th>' +
+        '<th class="text-left pb-1 pl-2">Player</th>' +
+        '<th class="text-right pb-1">Blocks Cleared</th></tr></thead><tbody>' +
+        data.entries.map(e =>
+          '<tr class="border-b border-zinc-800/60 last:border-0">' +
+          '<td class="py-1">' + (medals[e.rank - 1] || e.rank) + '</td>' +
+          '<td class="py-1 pl-2 max-w-[130px] truncate">' + escapeHtml(e.username) + '</td>' +
+          '<td class="py-1 text-right font-mono text-zinc-100">' + e.best_cleared + '</td></tr>'
+        ).join('') +
+        '</tbody></table>';
+      if (data.self && !data.entries.find(e => e.user_id === data.self.user_id)) {
+        html += '<div class="mt-2 pt-2 border-t border-zinc-700 text-xs">' +
+          '<table class="w-full"><tbody><tr class="text-cyan-300">' +
+          '<td class="w-8">' + (medals[data.self.rank - 1] || data.self.rank) + '</td>' +
+          '<td class="pl-2 max-w-[120px] truncate">' + escapeHtml(data.self.username) + ' (you)</td>' +
+          '<td class="text-right font-mono">' + data.self.best_cleared + '</td>' +
+          '</tr></tbody></table></div>';
+      }
+      leaderboardContentEl.innerHTML = html;
+    }
+
     async function loadTournamentTeaser() {
       const teaserEl = document.getElementById('tournament-teaser');
       if (!teaserEl) return;
@@ -3617,6 +3837,14 @@
           renderTaLeaderboard(await res.json());
         } catch (_) {
           leaderboardContentEl.innerHTML = '<p class="py-1 text-zinc-500">Couldn\'t load Time Attack scores.</p>';
+        }
+      } else if (leaderboardTab === 'ta-60') {
+        try {
+          const res = await fetch('/api/ta-60-leaderboard', { headers });
+          if (!res.ok) throw new Error('fetch failed');
+          renderTa60Leaderboard(await res.json());
+        } catch (_) {
+          leaderboardContentEl.innerHTML = '<p class="py-1 text-zinc-500">Couldn\'t load Time Attack (60s) scores.</p>';
         }
       } else if (leaderboardTab === 'endless') {
         try {
@@ -3694,6 +3922,7 @@
     document.getElementById('tab-alltime').addEventListener('click', () => setLeaderboardTab('alltime'));
     document.getElementById('tab-tournament').addEventListener('click', () => setLeaderboardTab('tournament'));
     document.getElementById('tab-ta').addEventListener('click', () => setLeaderboardTab('ta'));
+    document.getElementById('tab-ta-60').addEventListener('click', () => setLeaderboardTab('ta-60'));
     document.getElementById('tab-endless').addEventListener('click', () => setLeaderboardTab('endless'));
 
     // ---- Friends panel ----
@@ -4700,6 +4929,7 @@
     var canvases = [
       document.getElementById('preview-classic'),
       document.getElementById('preview-ta'),
+      document.getElementById('preview-ta-60'),
       document.getElementById('preview-endless'),
       document.getElementById('preview-learn'),
       document.getElementById('preview-spectate'),
@@ -4887,10 +5117,103 @@
       }
     })();
 
-    // ---- Endless Mode preview ----
+    // ---- Time Attack (60s) preview ----
     (function () {
       var c = canvases[2];
       var ctx = ctxs[2];
+      var TA60_COLORS = ['#0891b2','#06b6d4','#22d3ee','#1e5f74','#0c4a6e'];
+      var blocks = [];
+      var score = 0;
+      var frame = 0;
+      var BSIZE = 16;
+
+      function makeBlock() {
+        var w = c.offsetWidth || 160, h = 110;
+        return {
+          x: Math.random() * (w - BSIZE),
+          y: Math.random() * (h - BSIZE),
+          color: TA60_COLORS[Math.floor(Math.random() * TA60_COLORS.length)],
+          dx: (Math.random() - 0.5) * 0.5,
+          dy: (Math.random() - 0.5) * 0.25,
+          angle: Math.random() * Math.PI * 2,
+          da: (Math.random() - 0.5) * 0.02,
+          flash: 0,
+        };
+      }
+
+      function initBlocks() {
+        blocks = [];
+        var n = 24;
+        for (var i = 0; i < n; i++) blocks.push(makeBlock());
+      }
+      initBlocks();
+
+      function drawTA60() {
+        if (overlay.classList.contains('hidden')) return;
+        frame++;
+        var w = c.offsetWidth || 160, h = 110;
+        var ctx2 = ctx;
+
+        ctx2.fillStyle = '#0d1117';
+        ctx2.fillRect(0, 0, w, h);
+
+        // every 50 frames, flash one block
+        if (frame % 50 === 0 && blocks.length > 0) {
+          var idx = Math.floor(Math.random() * blocks.length);
+          blocks[idx].flash = 8;
+          score++;
+        }
+
+        for (var i = 0; i < blocks.length; i++) {
+          var b = blocks[i];
+          b.x += b.dx;
+          b.y += b.dy;
+          b.angle += b.da;
+          // bounce off edges
+          if (b.x < 0 || b.x + BSIZE > w) { b.dx *= -1; b.x = Math.max(0, Math.min(w - BSIZE, b.x)); }
+          if (b.y < 0 || b.y + BSIZE > h) { b.dy *= -1; b.y = Math.max(0, Math.min(h - BSIZE, b.y)); }
+
+          if (b.flash > 0) {
+            b.flash--;
+            if (b.flash === 0) {
+              blocks[i] = makeBlock();
+              continue;
+            }
+            ctx2.save();
+            ctx2.translate(b.x + BSIZE/2, b.y + BSIZE/2);
+            ctx2.rotate(b.angle);
+            ctx2.fillStyle = '#ffffff';
+            ctx2.fillRect(-BSIZE/2, -BSIZE/2, BSIZE, BSIZE);
+            ctx2.restore();
+          } else {
+            ctx2.save();
+            ctx2.translate(b.x + BSIZE/2, b.y + BSIZE/2);
+            ctx2.rotate(b.angle);
+            drawBlock(ctx2, -BSIZE/2, -BSIZE/2, BSIZE, b.color);
+            ctx2.restore();
+          }
+        }
+
+        ctx2.fillStyle = '#06b6d4';
+        ctx2.font = 'bold 12px monospace';
+        ctx2.textAlign = 'right';
+        ctx2.fillText('+' + score, w - 6, 16);
+        ctx2.textAlign = 'left';
+
+        if (!reducedMotion) requestAnimationFrame(drawTA60);
+      }
+
+      if (reducedMotion) {
+        setTimeout(drawTA60, 50);
+      } else {
+        requestAnimationFrame(drawTA60);
+      }
+    })();
+
+    // ---- Endless Mode preview ----
+    (function () {
+      var c = canvases[3];
+      var ctx = ctxs[3];
       var ENDLESS_COLORS = ['#d4b860','#b89a5f','#a8764d','#9a6b48','#b8825f'];
       var blocks = [];
       var frame = 0;
@@ -4949,8 +5272,8 @@
 
     // ---- Learn preview ----
     (function () {
-      var c = canvases[3];
-      var ctx = ctxs[3];
+      var c = canvases[4];
+      var ctx = ctxs[4];
       var LEARN_COLORS = ['#90e890','#a8dcc8','#d4a8e8','#d9f090','#ffe880','#f0d9b8'];
       var grid = null;
       var frame = 0;
@@ -5016,8 +5339,8 @@
 
     // ---- Watch (Spectate) preview ----
     (function () {
-      var c = canvases[4];
-      var ctx = ctxs[4];
+      var c = canvases[5];
+      var ctx = ctxs[5];
       var FAR_COLORS  = ['#2ac142','#3dd847','#b8643e','#a8aeb8','#3dd847','#2ac142','#b8643e'];
       var NEAR_COLORS = ['#3dd847','#b8643e','#3dd847','#a8aeb8','#3dd847','#b8643e','#3dd847'];
       var BW = 18; // block width in the parallax strips
