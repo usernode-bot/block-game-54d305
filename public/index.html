@@ -345,6 +345,12 @@
           <button id="play-ta-btn" class="w-full px-4 py-2 rounded-lg bg-amber-600 hover:bg-amber-500 font-semibold text-base sm:text-sm lg:text-base transition hover:scale-[1.02] active:scale-[0.98]">Play Time Attack</button>
         </div>
         <div class="bg-zinc-900/80 rounded-xl p-4 sm:p-5 lg:p-6 transition hover:bg-zinc-800/80">
+          <canvas id="preview-endless" class="w-full rounded-lg mb-3" height="110"></canvas>
+          <h2 class="font-semibold text-base sm:text-sm lg:text-base text-zinc-100 mb-1">Endless Mode</h2>
+          <p class="text-zinc-400 text-sm sm:text-xs lg:text-sm mb-4">Build forever on an endless grid. No timer, no score multiplier—just how long until you run out of valid moves?</p>
+          <button id="play-endless-btn" class="w-full px-4 py-2 rounded-lg bg-rose-600 hover:bg-rose-500 font-semibold text-base sm:text-sm lg:text-base transition hover:scale-[1.02] active:scale-[0.98]">Play Endless</button>
+        </div>
+        <div class="bg-zinc-900/80 rounded-xl p-4 sm:p-5 lg:p-6 transition hover:bg-zinc-800/80">
           <canvas id="preview-spectate" class="w-full rounded-lg mb-3" height="110"></canvas>
           <h2 class="font-semibold text-base sm:text-sm lg:text-base text-zinc-100 mb-1">Watch</h2>
           <p class="text-zinc-400 text-sm sm:text-xs lg:text-sm mb-4">Fly through the world as a spectator. No building required — just explore and chat.</p>
@@ -539,6 +545,7 @@
         <button id="tab-alltime" class="px-2 py-0.5 rounded text-xs font-semibold bg-zinc-700 text-zinc-100 cursor-pointer transition-colors">All-time</button>
         <button id="tab-tournament" class="px-2 py-0.5 rounded text-xs font-semibold text-zinc-400 hover:text-zinc-200 cursor-pointer transition-colors">This Week</button>
         <button id="tab-ta" class="px-2 py-0.5 rounded text-xs font-semibold text-zinc-400 hover:text-zinc-200 cursor-pointer transition-colors">Time Attack</button>
+        <button id="tab-endless" class="px-2 py-0.5 rounded text-xs font-semibold text-zinc-400 hover:text-zinc-200 cursor-pointer transition-colors">Endless</button>
       </div>
       <button id="leaderboard-close" aria-label="Close leaderboard" class="text-zinc-400 hover:text-zinc-100 cursor-pointer leading-none transition-colors">✕</button>
     </div>
@@ -623,6 +630,12 @@
     <div id="ta-difficulty-label" class="text-[11px] sm:text-xs font-semibold text-zinc-400 bg-black/50 rounded-xl px-3 sm:px-4 py-0.5 sm:py-1 text-center">Difficulty: Easy</div>
   </div>
 
+  <!-- Endless Mode HUD: moves counter shown only during Endless mode -->
+  <div id="endless-hud" class="hidden pointer-events-none fixed top-3 left-3 z-20 flex flex-col gap-1">
+    <div id="endless-moves" class="text-2xl sm:text-3xl font-mono font-bold text-white bg-black/50 rounded-xl px-3 sm:px-4 py-1.5 sm:py-2 tabular-nums leading-tight">999</div>
+    <div id="endless-placed" class="text-xs sm:text-sm font-semibold text-zinc-200 bg-black/50 rounded-xl px-3 sm:px-4 py-1 sm:py-1.5 text-center">0 blocks</div>
+  </div>
+
   <!-- Combo HUD: placement streak multiplier badge shown in Classic mode -->
   <div id="combo-hud" class="hidden pointer-events-none fixed top-3 left-3 z-20 transition-opacity duration-200">
     <div id="combo-badge" class="text-2xl sm:text-3xl font-mono font-bold text-white rounded-xl px-3 sm:px-4 py-1 sm:py-2 leading-tight tabular-nums bg-amber-500" style="transition: transform 0.15s ease-out;">2×</div>
@@ -655,6 +668,19 @@
     </div>
   </div>
 
+  <!-- Endless Mode game-over overlay -->
+  <div id="endless-gameover" class="hidden fixed inset-0 z-30 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+    <div id="endless-gameover-card" class="max-w-sm w-full mx-4 bg-zinc-900/95 rounded-2xl p-8 text-center shadow-xl">
+      <h2 class="text-2xl font-bold mb-2">You've reached the end!</h2>
+      <div id="endless-best-banner" class="hidden mb-3 rounded-xl bg-gradient-to-r from-rose-500 to-pink-400 text-zinc-900 font-bold py-2 px-3 text-sm shadow">🎉 New personal best!</div>
+      <p id="endless-final-placed" class="text-zinc-300 text-lg mb-2">You placed 0 blocks</p>
+      <p id="endless-moves-survived" class="text-zinc-500 text-sm mb-6">Survived 0 move decisions</p>
+      <div class="flex gap-3 justify-center">
+        <button id="endless-play-again" class="px-5 py-2 rounded-lg bg-rose-600 hover:bg-rose-500 font-semibold transition hover:scale-105 active:scale-95">Play Again</button>
+        <button id="endless-back-menu" class="px-5 py-2 rounded-lg bg-zinc-700 hover:bg-zinc-600 font-semibold transition hover:scale-105 active:scale-95">Back to Menu</button>
+      </div>
+    </div>
+  </div>
 
   </div><!-- /#rotor -->
 
@@ -1065,13 +1091,20 @@
     }
 
     // ---- Game mode state ----
-    let gameMode = null;           // null | 'classic' | 'timeattack'
+    let gameMode = null;           // null | 'classic' | 'timeattack' | 'endless'
     const taBlocks = new Map();    // TA layout: client-only, never written to server
     let taScore = 0;
     let taTimeLeft = 60;
     let taTimerHandle = null;
     let pollHandle = null;         // classic-mode server poll interval
     let pendingTaInit = false;     // true while waiting for play-entry to fire initTimeAttack
+
+    // ---- Endless Mode state ----
+    const endlessBlocks = new Map();     // infinite grid: key = 'x,y,z', value = block_type
+    let endlessMovesRemaining = 1000;    // total valid moves left this run
+    let endlessBlocksPlaced = 0;         // blocks placed in current run
+    let endlessMovesStarted = 0;         // moves made in this run
+    let pendingEndlessInit = false;      // true while waiting for play-entry to fire initEndlessMode
 
     // ---- Three.js scaffold ----
     const canvas = document.getElementById('scene');
@@ -1519,7 +1552,7 @@
     function rebuildBlockMeshes() {
       blockGroup.clear();
       crystalMaterial = null;
-      const source = gameMode === 'timeattack' ? taBlocks : blocks;
+      const source = gameMode === 'timeattack' ? taBlocks : gameMode === 'endless' ? endlessBlocks : blocks;
       const byType = new Map();
       for (const [k, t] of source) {
         if (!byType.has(t)) byType.set(t, []);
@@ -2107,6 +2140,22 @@
         rebuildBlockMeshes();
         return;
       }
+      if (gameMode === 'endless') {
+        const k = key(x, y, z);
+        if (endlessBlocks.get(k) === selectedType) return;
+        endlessBlocks.set(k, selectedType);
+        endlessBlocksPlaced++;
+        endlessMovesStarted++;
+        endlessMovesRemaining--;
+        emitBlockPlace(x + 0.5, y + 0.5, z + 0.5);
+        audio.playPlace();
+        rebuildBlockMeshes();
+        updateEndlessHud();
+        if (endlessMovesRemaining <= 0 || !hasValidMoveAnywhere()) {
+          endEndlessMode();
+        }
+        return;
+      }
       if (blocks.get(key(x, y, z)) === selectedType) return;
       const prevType = blocks.get(key(x, y, z)) ?? 0;
       audio.playPlace();
@@ -2132,6 +2181,22 @@
         taScore++;
         rebuildBlockMeshes();
         updateTaScoreDisplay();
+        return;
+      }
+      if (gameMode === 'endless') {
+        const k = key(x, y, z);
+        if (!endlessBlocks.has(k)) return;
+        const brokenTypeEndless = endlessBlocks.get(k);
+        endlessBlocks.delete(k);
+        endlessMovesStarted++;
+        endlessMovesRemaining--;
+        audio.playBreak();
+        emitBlockBreak(x + 0.5, y + 0.5, z + 0.5, brokenTypeEndless);
+        rebuildBlockMeshes();
+        updateEndlessHud();
+        if (endlessMovesRemaining <= 0 || !hasValidMoveAnywhere()) {
+          endEndlessMode();
+        }
         return;
       }
       if (!blocks.has(key(x, y, z))) return;
@@ -2442,6 +2507,102 @@
       updateTouchControlsVisibility();
     }
 
+    function hasValidMoveAnywhere() {
+      for (const [k, _] of endlessBlocks) {
+        const [x, y, z] = k.split(',').map(Number);
+        if (countValidMoves(x, y, z) > 0) return true;
+      }
+      return false;
+    }
+
+    function countValidMoves(x, y, z) {
+      let empty = 0;
+      for (let dx = -1; dx <= 1; dx++) {
+        for (let dy = -1; dy <= 1; dy++) {
+          for (let dz = -1; dz <= 1; dz++) {
+            if (dx === 0 && dy === 0 && dz === 0) continue;
+            const nx = x + dx, ny = y + dy, nz = z + dz;
+            if (Math.abs(nx) > 200 || ny < 0 || ny > 100 || Math.abs(nz) > 200) continue;
+            const k = key(nx, ny, nz);
+            if (!endlessBlocks.has(k)) empty++;
+          }
+        }
+      }
+      return empty;
+    }
+
+    function updateEndlessHud() {
+      const movesEl = document.getElementById('endless-moves');
+      const placedEl = document.getElementById('endless-placed');
+      if (movesEl) movesEl.textContent = Math.max(0, endlessMovesRemaining);
+      if (movesEl && endlessMovesRemaining <= 50) {
+        movesEl.style.color = '#ff6b6b';
+      } else if (movesEl) {
+        movesEl.style.color = '#fff';
+      }
+      if (placedEl) placedEl.textContent = endlessBlocksPlaced + ' block' + (endlessBlocksPlaced === 1 ? '' : 's');
+    }
+
+    function initEndlessMode() {
+      endlessBlocks.clear();
+      endlessMovesRemaining = 500 + Math.floor(Math.random() * 1000);
+      endlessBlocksPlaced = 0;
+      endlessMovesStarted = 0;
+
+      document.getElementById('endless-hud').classList.remove('hidden');
+      document.getElementById('palette').classList.remove('hidden');
+      document.getElementById('hold-panel').classList.remove('hidden');
+      document.getElementById('score-hud').classList.add('hidden');
+      document.getElementById('combo-hud').classList.add('hidden');
+
+      rebuildBlockMeshes();
+      spawnCamera();
+      updateEndlessHud();
+    }
+
+    async function submitEndlessScore(placed, movesSurvived) {
+      try {
+        const res = await fetch('/api/endless-score', {
+          method: 'POST',
+          headers: Object.assign({ 'content-type': 'application/json' }, headers),
+          body: JSON.stringify({ placed, moves_survived: movesSurvived }),
+        });
+        if (!res.ok) throw new Error('submit failed');
+        const data = await res.json();
+        const bannerEl = document.getElementById('endless-best-banner');
+        if (data.is_new_best && placed > 0) {
+          bannerEl.classList.remove('hidden');
+          audio.playFanfare();
+        } else {
+          audio.playGameOver();
+        }
+      } catch (_) {
+        audio.playGameOver();
+      }
+    }
+
+    function endEndlessMode() {
+      playing = false;
+      dragMode = false;
+      resetMove();
+      canvas.style.cursor = '';
+      if (locked) { try { document.exitPointerLock(); } catch (_) {} }
+
+      const placedThisRun = endlessBlocksPlaced;
+      const movesSurvived = endlessMovesStarted;
+
+      document.getElementById('endless-hud').classList.add('hidden');
+      document.getElementById('endless-final-placed').textContent = 'You placed ' + placedThisRun + ' block' + (placedThisRun === 1 ? '' : 's');
+      document.getElementById('endless-moves-survived').textContent = 'Survived ' + movesSurvived + ' move' + (movesSurvived === 1 ? '' : 's');
+      document.getElementById('endless-best-banner').classList.add('hidden');
+      document.getElementById('endless-gameover').classList.remove('hidden');
+
+      submitEndlessScore(placedThisRun, movesSurvived);
+
+      refreshControlCopy();
+      updateTouchControlsVisibility();
+    }
+
     // ---- Mode entry ----
 
     // Called once play is actually entered (lock acquired or drag/touch started).
@@ -2455,6 +2616,11 @@
         hideScoreHud();
         coachBtnEl.classList.remove('hidden');
         setTimeout(() => fetchCoachTip('time_attack_start'), 2000);
+      } else if (pendingEndlessInit) {
+        pendingEndlessInit = false;
+        initEndlessMode();
+        coachBtnEl.classList.remove('hidden');
+        setTimeout(() => fetchCoachTip('mode_start'), 2000);
       } else if (gameMode === 'classic') {
         sessionScore = 0;
         updateScoreHud();
@@ -2478,6 +2644,7 @@
     function startMode(mode) {
       gameMode = mode;
       if (mode === 'timeattack') pendingTaInit = true;
+      if (mode === 'endless') pendingEndlessInit = true;
       refreshUndoButton();
       tryPointerLock();
     }
@@ -2635,14 +2802,18 @@
           // Esc pressed mid-TA run in native-lock mode — end the game.
           endTimeAttack();
           return; // endTimeAttack calls refreshControlCopy
-        } else if (gameMode !== 'timeattack') {
+        } else if (gameMode === 'endless' && playing) {
+          // Esc pressed mid-Endless run — end the game.
+          endEndlessMode();
+          return;
+        } else if (gameMode !== 'timeattack' && gameMode !== 'endless') {
           playing = false;
           resetMove();
           hideComboHud();
           hideMinimap();
           overlayEl.style.display = 'flex';
         }
-        // gameMode === 'timeattack' && !playing: endTimeAttack already ran, nothing to do.
+        // gameMode === 'timeattack/endless' && !playing: end*Mode already ran, nothing to do.
       }
       refreshControlCopy();
     });
@@ -2650,6 +2821,7 @@
 
     document.getElementById('play-classic-btn').addEventListener('click', () => { audio.init(); startMode('classic'); });
     document.getElementById('play-ta-btn').addEventListener('click', () => { audio.init(); startMode('timeattack'); });
+    document.getElementById('play-endless-btn').addEventListener('click', () => { audio.init(); startMode('endless'); });
     document.getElementById('play-spectate-btn').addEventListener('click', () => { audio.init(); startMode('spectate'); });
 
     document.getElementById('ta-tier-down').addEventListener('click', () => {
@@ -2669,6 +2841,14 @@
       exitToMenu();
     });
 
+    document.getElementById('endless-play-again').addEventListener('click', () => {
+      document.getElementById('endless-gameover').classList.add('hidden');
+      startMode('endless');
+    });
+    document.getElementById('endless-back-menu').addEventListener('click', () => {
+      document.getElementById('endless-gameover').classList.add('hidden');
+      exitToMenu();
+    });
 
     canvas.addEventListener('click', () => {
       if (isTouch) return;
@@ -2918,7 +3098,7 @@
 
     function setLeaderboardTab(tab) {
       leaderboardTab = tab;
-      const tabs = { alltime: 'tab-alltime', tournament: 'tab-tournament', ta: 'tab-ta' };
+      const tabs = { alltime: 'tab-alltime', tournament: 'tab-tournament', ta: 'tab-ta', endless: 'tab-endless' };
       for (const [key2, id] of Object.entries(tabs)) {
         const el = document.getElementById(id);
         if (!el) continue;
@@ -3073,6 +3253,14 @@
         } catch (_) {
           leaderboardContentEl.innerHTML = '<p class="py-1 text-zinc-500">Couldn\'t load Time Attack scores.</p>';
         }
+      } else if (leaderboardTab === 'endless') {
+        try {
+          const res = await fetch('/api/endless-leaderboard', { headers });
+          if (!res.ok) throw new Error('fetch failed');
+          renderEndlessLeaderboard(await res.json());
+        } catch (_) {
+          leaderboardContentEl.innerHTML = '<p class="py-1 text-zinc-500">Couldn\'t load Endless scores.</p>';
+        }
       } else {
         try {
           const res = await fetch('/api/leaderboard', { headers });
@@ -3103,11 +3291,45 @@
         leaderboardTimer = setTimeout(fetchLeaderboard, 30000);
       }
     }
+
+    function renderEndlessLeaderboard(data) {
+      const medals = ['🥇', '🥈', '🥉'];
+      if (!data.entries.length) {
+        leaderboardContentEl.innerHTML =
+          '<p class="py-1 text-center text-zinc-400">No runs yet — place some blocks!</p>';
+        return;
+      }
+      let html = '<table class="w-full text-xs">' +
+        '<thead><tr class="text-zinc-500 uppercase border-b border-zinc-700">' +
+        '<th class="text-left pb-1 w-8">#</th>' +
+        '<th class="text-left pb-1 pl-2">Player</th>' +
+        '<th class="text-right pb-1">Blocks</th>' +
+        '<th class="text-right pb-1 pl-1">Moves</th></tr></thead><tbody>' +
+        data.entries.map(e =>
+          '<tr class="border-b border-zinc-800/60 last:border-0">' +
+          '<td class="py-1">' + (medals[e.rank - 1] || e.rank) + '</td>' +
+          '<td class="py-1 pl-2 max-w-[130px] truncate">' + escapeHtml(e.username) + '</td>' +
+          '<td class="py-1 text-right font-mono text-zinc-100">' + e.best_placed + '</td>' +
+          '<td class="py-1 text-right pl-1 text-rose-400">' + e.best_moves_survived + '</td></tr>'
+        ).join('') +
+        '</tbody></table>';
+      if (data.self && !data.entries.find(e => e.user_id === data.self.user_id)) {
+        html += '<div class="mt-2 pt-2 border-t border-zinc-700 text-xs">' +
+          '<table class="w-full"><tbody><tr class="text-rose-300">' +
+          '<td class="w-8">' + (medals[data.self.rank - 1] || data.self.rank) + '</td>' +
+          '<td class="pl-2 max-w-[110px] truncate">' + escapeHtml(data.self.username) + ' (you)</td>' +
+          '<td class="text-right font-mono">' + data.self.best_placed + '</td>' +
+          '<td class="text-right pl-1 text-rose-300">' + data.self.best_moves_survived + '</td>' +
+          '</tr></tbody></table></div>';
+      }
+      leaderboardContentEl.innerHTML = html;
+    }
     document.getElementById('leaderboard-btn').addEventListener('click', toggleLeaderboard);
     document.getElementById('leaderboard-close').addEventListener('click', closeLeaderboard);
     document.getElementById('tab-alltime').addEventListener('click', () => setLeaderboardTab('alltime'));
     document.getElementById('tab-tournament').addEventListener('click', () => setLeaderboardTab('tournament'));
     document.getElementById('tab-ta').addEventListener('click', () => setLeaderboardTab('ta'));
+    document.getElementById('tab-endless').addEventListener('click', () => setLeaderboardTab('endless'));
 
     // ---- Friends panel ----
     const friendsPanelEl = document.getElementById('friends-panel');
@@ -3946,6 +4168,7 @@
     var canvases = [
       document.getElementById('preview-classic'),
       document.getElementById('preview-ta'),
+      document.getElementById('preview-endless'),
       document.getElementById('preview-spectate'),
     ];
     var ctxs = canvases.map(function(c) { return c.getContext('2d'); });
@@ -4131,10 +4354,70 @@
       }
     })();
 
-    // ---- Watch (Spectate) preview ----
+    // ---- Endless Mode preview ----
     (function () {
       var c = canvases[2];
       var ctx = ctxs[2];
+      var ENDLESS_COLORS = ['#c0a872','#a98b5f','#92754d','#7a5f3b','#8a7050'];
+      var blocks = [];
+      var frame = 0;
+      var BSIZE = 14;
+
+      function makeBlock() {
+        var w = c.offsetWidth || 160, h = 110;
+        return {
+          x: Math.random() * (w - BSIZE),
+          y: Math.random() * (h - BSIZE),
+          color: ENDLESS_COLORS[Math.floor(Math.random() * ENDLESS_COLORS.length)],
+          rot: Math.random() * 360,
+        };
+      }
+
+      function initBlocks() {
+        blocks = [];
+        var n = 28;
+        for (var i = 0; i < n; i++) blocks.push(makeBlock());
+      }
+      initBlocks();
+
+      function drawEndless() {
+        if (overlay.classList.contains('hidden')) return;
+        frame++;
+        var w = c.offsetWidth || 160, h = 110;
+
+        ctx.fillStyle = '#1a1a2e';
+        ctx.fillRect(0, 0, w, h);
+
+        for (var i = 0; i < blocks.length; i++) {
+          var b = blocks[i];
+          var rotSpeed = 0.5 + (i % 5) * 0.2;
+          b.rot += rotSpeed;
+          ctx.save();
+          ctx.translate(b.x + BSIZE/2, b.y + BSIZE/2);
+          ctx.rotate(b.rot * Math.PI / 180);
+          drawBlock(ctx, -BSIZE/2, -BSIZE/2, BSIZE, b.color);
+          ctx.restore();
+        }
+
+        ctx.fillStyle = 'rgba(255,255,255,0.7)';
+        ctx.font = 'bold 10px monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText('∞', w/2, h - 8);
+
+        if (!reducedMotion) requestAnimationFrame(drawEndless);
+      }
+
+      if (reducedMotion) {
+        setTimeout(drawEndless, 50);
+      } else {
+        requestAnimationFrame(drawEndless);
+      }
+    })();
+
+    // ---- Watch (Spectate) preview ----
+    (function () {
+      var c = canvases[3];
+      var ctx = ctxs[3];
       var FAR_COLORS  = ['#306f27','#4a8a2d','#6b4828','#6e6e73','#4a8a2d','#306f27','#6b4828'];
       var NEAR_COLORS = ['#4a8a2d','#6b4828','#4a8a2d','#6e6e73','#4a8a2d','#6b4828','#4a8a2d'];
       var BW = 18; // block width in the parallax strips
