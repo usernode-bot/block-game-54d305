@@ -1680,7 +1680,7 @@
 
     // Build identifier — bump this (to the deploying commit short SHA) on every
     // change so the top-right stamp confirms exactly which code is running.
-    const BUILD_VERSION = 'speedrun-mode+power-ups+hold-queue+achievements-badges+chat+daily-challenge+leaderboard+online-presence+block-attribution+audio-sfx+next-piece-preview+spectator-mode+weekly-tournament+friends+betting-system+blocks-placed-hud+weather-system+day-night-cycle+minimap+ai-coach+ai-hints+nft-skins+player-stats+leaderboard-daily+new-badges+daily-theme-voting+natural-disasters+community-monuments+undo-redo-history+pastel-chrome+mobs+message-in-a-block+accessibility-panel+pixel-pets+versus-mode';
+    const BUILD_VERSION = 'speedrun-mode+power-ups+hold-queue+achievements-badges+chat+daily-challenge+leaderboard+online-presence+block-attribution+audio-sfx+next-piece-preview+spectator-mode+weekly-tournament+friends+betting-system+blocks-placed-hud+ai-opponent+weather-system+day-night-cycle+minimap+ai-coach+ai-hints+nft-skins+player-stats+leaderboard-daily+new-badges+daily-theme-voting+natural-disasters+community-monuments+undo-redo-history+pastel-chrome+mobs+message-in-a-block+accessibility-panel+pixel-pets+versus-mode';
 
     // Badge definitions — mirror of the server-side BADGES array, extended with
     // a `hint` field shown in the panel for unearned badges.
@@ -9973,8 +9973,9 @@
         const makeRow = (u, isSpectator) => {
           const safe = u.username.replace(/&/g, '&amp;').replace(/</g, '&lt;');
           const isSelf = myUsername && u.username.toLowerCase() === myUsername.toLowerCase();
+          const isAi = u.username.startsWith('🤖 ');
           let statusHtml = '';
-          if (!isSelf && friendsCache) {
+          if (!isSelf && !isAi && friendsCache) {
             const lc = u.username.toLowerCase();
             const isFriend = friendsCache.friends.some((f) => f.username.toLowerCase() === lc);
             const isOutgoing = friendsCache.outgoing.some((r) => r.username.toLowerCase() === lc);
@@ -9988,7 +9989,7 @@
             } else {
               statusHtml = '<button class="ol-add-btn text-xs ml-1 px-1.5 py-0.5 rounded bg-zinc-700 hover:bg-zinc-600 text-zinc-200 cursor-pointer" data-username="' + safe + '">+ Add</button>';
             }
-          } else if (!isSelf && !friendsCache) {
+          } else if (!isSelf && !isAi && !friendsCache) {
             statusHtml = '<button class="ol-add-btn text-xs ml-1 px-1.5 py-0.5 rounded bg-zinc-700 hover:bg-zinc-600 text-zinc-200 cursor-pointer" data-username="' + safe + '">+ Add</button>';
           }
           const petIcon = u.active_pet
