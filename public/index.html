@@ -161,6 +161,12 @@
           <button id="play-ta-btn" class="w-full px-4 py-2 rounded-lg bg-amber-600 hover:bg-amber-500 font-semibold text-sm transition hover:scale-[1.02] active:scale-[0.98]">Play Time Attack</button>
         </div>
         <div class="flex-1 bg-zinc-900/80 rounded-xl p-5 transition hover:bg-zinc-800/80">
+          <canvas id="preview-hard" class="w-full rounded-lg mb-3" height="110"></canvas>
+          <h2 class="font-semibold text-zinc-100 mb-1">Hard Mode</h2>
+          <p class="text-zinc-400 text-xs mb-4">Blocks fall progressively faster. Clear lines and survive as long as you can!</p>
+          <button id="play-hard-btn" class="w-full px-4 py-2 rounded-lg bg-rose-600 hover:bg-rose-500 font-semibold text-sm transition hover:scale-[1.02] active:scale-[0.98]">Play Hard</button>
+        </div>
+        <div class="flex-1 bg-zinc-900/80 rounded-xl p-5 transition hover:bg-zinc-800/80">
           <canvas id="preview-spectate" class="w-full rounded-lg mb-3" height="110"></canvas>
           <h2 class="font-semibold text-zinc-100 mb-1">Watch</h2>
           <p class="text-zinc-400 text-xs mb-4">Fly through the world as a spectator. No building required — just explore and chat.</p>
@@ -423,6 +429,27 @@
     </div>
   </div>
 
+  <!-- Hard mode HUD: score + time survived shown only during hard mode -->
+  <div id="hard-hud" class="hidden pointer-events-none fixed top-3 left-3 z-20 flex flex-col gap-1">
+    <div id="hard-score" class="text-3xl font-mono font-bold text-white bg-black/50 rounded-xl px-4 py-2 tabular-nums leading-none">0</div>
+    <div id="hard-time" class="text-sm font-semibold text-zinc-200 bg-black/50 rounded-xl px-4 py-1.5 text-center">0s</div>
+    <div id="hard-level" class="text-xs font-semibold text-rose-400 bg-black/50 rounded-xl px-4 py-1 text-center">Level: 1</div>
+  </div>
+
+  <!-- Hard mode game-over overlay -->
+  <div id="hard-gameover" class="hidden fixed inset-0 z-30 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+    <div class="max-w-sm w-full mx-4 bg-zinc-900/95 rounded-2xl p-8 text-center shadow-xl">
+      <h2 class="text-2xl font-bold mb-2">Game Over!</h2>
+      <p id="hard-final-score" class="text-zinc-300 text-lg mb-1">Score: 0</p>
+      <p id="hard-time-survived" class="text-zinc-300 text-lg mb-4">Time: 0s</p>
+      <div id="hard-runs-summary" class="text-xs text-zinc-400 mb-6 bg-zinc-800/50 rounded p-3 max-h-32 overflow-y-auto"></div>
+      <div class="flex gap-3 justify-center">
+        <button id="hard-play-again" class="px-5 py-2 rounded-lg bg-rose-600 hover:bg-rose-500 font-semibold transition hover:scale-105 active:scale-95">Play Again</button>
+        <button id="hard-back-menu" class="px-5 py-2 rounded-lg bg-zinc-700 hover:bg-zinc-600 font-semibold transition hover:scale-105 active:scale-95">Back to Menu</button>
+      </div>
+    </div>
+  </div>
+
 
   </div><!-- /#rotor -->
 
@@ -446,7 +473,7 @@
 
     // Build identifier — bump this (to the deploying commit short SHA) on every
     // change so the top-right stamp confirms exactly which code is running.
-    const BUILD_VERSION = 'power-ups+hold-queue+achievements-badges+chat+daily-challenge+leaderboard+online-presence+block-attribution+audio-sfx+next-piece-preview+spectator-mode+weekly-tournament+friends+day-night-cycle+minimap+ai-coach+natural-disasters+undo-stack';
+    const BUILD_VERSION = 'power-ups+hold-queue+achievements-badges+chat+daily-challenge+leaderboard+online-presence+block-attribution+audio-sfx+next-piece-preview+spectator-mode+weekly-tournament+friends+day-night-cycle+minimap+ai-coach+natural-disasters+undo-stack+hard-mode';
 
     // Badge definitions — mirror of the server-side BADGES array, extended with
     // a `hint` field shown in the panel for unearned badges.
@@ -810,13 +837,25 @@
     }
 
     // ---- Game mode state ----
-    let gameMode = null;           // null | 'classic' | 'timeattack'
+    let gameMode = null;           // null | 'classic' | 'timeattack' | 'hard'
     const taBlocks = new Map();    // TA layout: client-only, never written to server
     let taScore = 0;
     let taTimeLeft = 60;
     let taTimerHandle = null;
     let pollHandle = null;         // classic-mode server poll interval
     let pendingTaInit = false;     // true while waiting for play-entry to fire initTimeAttack
+
+    // ---- Hard Mode (falling blocks survival) ----
+    let hardScore = 0;
+    let hardTimeElapsed = 0;
+    let hardTimerHandle = null;
+    let hardLevel = 1;
+    let hardFallSpeed = 1.0;  // seconds per block fall
+    let hardNextFallTime = 0;
+    let hardRunHistory = lsGet('hard_run_history', []);
+    if (!Array.isArray(hardRunHistory)) hardRunHistory = [];
+    const hardBlocks = new Map();  // x,z -> y (top block height at that column)
+    let hardPendingInit = false;   // true while waiting for play-entry to fire initHardMode
 
     // ---- Three.js scaffold ----
     const canvas = document.getElementById('scene');
@@ -2052,6 +2091,70 @@
       updateTouchControlsVisibility();
     }
 
+    function initHardMode() {
+      hardBlocks.clear();
+      hardScore = 0;
+      hardTimeElapsed = 0;
+      hardLevel = 1;
+      hardFallSpeed = 1.0;
+      hardNextFallTime = performance.now() + hardFallSpeed * 1000;
+      if (hardTimerHandle) { clearInterval(hardTimerHandle); hardTimerHandle = null; }
+
+      rebuildBlockMeshes();
+      spawnCamera();
+
+      document.getElementById('hard-hud').classList.remove('hidden');
+      document.getElementById('palette').classList.add('hidden');
+      updateHardHud();
+      hardTimerHandle = setInterval(() => {
+        hardTimeElapsed++;
+        updateHardHud();
+        const levelProgress = Math.floor(hardTimeElapsed / 30);
+        hardLevel = Math.max(1, 1 + levelProgress);
+        hardFallSpeed = Math.max(0.2, 1.0 - levelProgress * 0.15);
+      }, 1000);
+    }
+
+    function updateHardHud() {
+      document.getElementById('hard-score').textContent = hardScore;
+      document.getElementById('hard-time').textContent = hardTimeElapsed + 's';
+      document.getElementById('hard-level').textContent = 'Level: ' + hardLevel;
+    }
+
+    function endHardMode() {
+      if (hardTimerHandle) { clearInterval(hardTimerHandle); hardTimerHandle = null; }
+      playing = false;
+      dragMode = false;
+      resetMove();
+      canvas.style.cursor = '';
+      if (locked) { try { document.exitPointerLock(); } catch (_) {} }
+
+      hardRunHistory.push({ score: hardScore, time: hardTimeElapsed });
+      if (hardRunHistory.length > 10) hardRunHistory = hardRunHistory.slice(-10);
+      lsSet('hard_run_history', hardRunHistory);
+
+      document.getElementById('hard-hud').classList.add('hidden');
+      document.getElementById('hard-final-score').textContent = 'Score: ' + hardScore;
+      document.getElementById('hard-time-survived').textContent = 'Time: ' + hardTimeElapsed + 's';
+
+      let summaryHtml = '<div class="font-semibold mb-2">Last 5 runs:</div>';
+      const recentRuns = hardRunHistory.slice(-5).reverse();
+      if (recentRuns.length === 0) {
+        summaryHtml += '<p class="text-zinc-500 text-xs">No prior runs</p>';
+      } else {
+        summaryHtml += '<ul class="space-y-1 text-xs">';
+        for (const run of recentRuns) {
+          summaryHtml += '<li>Score: ' + run.score + ', Time: ' + run.time + 's</li>';
+        }
+        summaryHtml += '</ul>';
+      }
+      document.getElementById('hard-runs-summary').innerHTML = summaryHtml;
+      document.getElementById('hard-gameover').classList.remove('hidden');
+
+      refreshControlCopy();
+      updateTouchControlsVisibility();
+    }
+
     // ---- Mode entry ----
 
     // Called once play is actually entered (lock acquired or drag/touch started).
@@ -2064,6 +2167,10 @@
         initTimeAttack();
         coachBtnEl.classList.remove('hidden');
         setTimeout(() => fetchCoachTip('time_attack_start'), 2000);
+      } else if (hardPendingInit) {
+        hardPendingInit = false;
+        initHardMode();
+        coachBtnEl.classList.remove('hidden');
       } else if (gameMode === 'classic') {
         if (!pollHandle) pollHandle = setInterval(poll, 1500);
         coachBtnEl.classList.remove('hidden');
@@ -2085,6 +2192,7 @@
     function startMode(mode) {
       gameMode = mode;
       if (mode === 'timeattack') pendingTaInit = true;
+      if (mode === 'hard') hardPendingInit = true;
       refreshUndoButton();
       tryPointerLock();
     }
@@ -2241,14 +2349,16 @@
           // Esc pressed mid-TA run in native-lock mode — end the game.
           endTimeAttack();
           return; // endTimeAttack calls refreshControlCopy
-        } else if (gameMode !== 'timeattack') {
+        } else if (gameMode === 'hard' && playing) {
+          endHardMode();
+          return;
+        } else if (gameMode !== 'timeattack' && gameMode !== 'hard') {
           playing = false;
           resetMove();
           hideComboHud();
           hideMinimap();
           overlayEl.style.display = 'flex';
         }
-        // gameMode === 'timeattack' && !playing: endTimeAttack already ran, nothing to do.
       }
       refreshControlCopy();
     });
@@ -2256,6 +2366,7 @@
 
     document.getElementById('play-classic-btn').addEventListener('click', () => { audio.init(); startMode('classic'); });
     document.getElementById('play-ta-btn').addEventListener('click', () => { audio.init(); startMode('timeattack'); });
+    document.getElementById('play-hard-btn').addEventListener('click', () => { audio.init(); startMode('hard'); });
     document.getElementById('play-spectate-btn').addEventListener('click', () => { audio.init(); startMode('spectate'); });
 
     document.getElementById('ta-tier-down').addEventListener('click', () => {
@@ -2275,6 +2386,14 @@
       exitToMenu();
     });
 
+    document.getElementById('hard-play-again').addEventListener('click', () => {
+      document.getElementById('hard-gameover').classList.add('hidden');
+      startMode('hard');
+    });
+    document.getElementById('hard-back-menu').addEventListener('click', () => {
+      document.getElementById('hard-gameover').classList.add('hidden');
+      exitToMenu();
+    });
 
     canvas.addEventListener('click', () => {
       if (isTouch) return;
@@ -2380,6 +2499,8 @@
         } else if (dragMode && playing) {
           if (gameMode === 'timeattack') {
             endTimeAttack();
+          } else if (gameMode === 'hard') {
+            endHardMode();
           } else {
             playing = false;
             resetMove();
@@ -3398,6 +3519,72 @@
         }
       }
 
+      // Hard mode: drop new blocks and check for game over
+      if (gameMode === 'hard' && playing) {
+        if (now >= hardNextFallTime) {
+          hardNextFallTime = now + hardFallSpeed * 1000;
+          // Drop a new random block at the top
+          const x = Math.floor(Math.random() * DIMS.w);
+          const z = Math.floor(Math.random() * DIMS.d);
+          const blockTypes = [9, 10, 11, 7, 6, 3]; // Red, Blue, Yellow, Brick, Sand, Stone
+          const blockType = blockTypes[Math.floor(Math.random() * blockTypes.length)];
+
+          // Find the top of the stack in this column
+          let topY = 1;
+          for (let y = DIMS.h - 1; y >= 1; y--) {
+            const k = key(x, y, z);
+            if (hardBlocks.has(k) || blocks.has(k)) {
+              topY = y + 1;
+              break;
+            }
+          }
+
+          // If the new block would reach y=DIMS.h-1, game over
+          if (topY >= DIMS.h - 1) {
+            endHardMode();
+          } else {
+            // Place the falling block
+            const k = key(x, topY, z);
+            hardBlocks.set(k, blockType);
+            rebuildBlockMeshes();
+
+            // Check for complete lines (horizontal planes) and clear them
+            const lineClearLevels = new Set();
+            for (let y = 1; y < DIMS.h; y++) {
+              let fullLine = true;
+              for (let xc = 0; xc < DIMS.w; xc++) {
+                for (let zc = 0; zc < DIMS.d; zc++) {
+                  const ck = key(xc, y, zc);
+                  if (!hardBlocks.has(ck) && !blocks.has(ck)) {
+                    fullLine = false;
+                    break;
+                  }
+                }
+                if (!fullLine) break;
+              }
+              if (fullLine) lineClearLevels.add(y);
+            }
+
+            // Award points and remove cleared lines
+            if (lineClearLevels.size > 0) {
+              const linesClearedMultiplier = 1 + (lineClearLevels.size - 1) * 0.5;
+              hardScore += Math.round(100 * linesClearedMultiplier);
+              for (const y of lineClearLevels) {
+                for (let xc = 0; xc < DIMS.w; xc++) {
+                  for (let zc = 0; zc < DIMS.d; zc++) {
+                    const ck = key(xc, y, zc);
+                    hardBlocks.delete(ck);
+                    blocks.delete(ck);
+                  }
+                }
+              }
+              updateHardHud();
+              rebuildBlockMeshes();
+            }
+          }
+        }
+      }
+
       tickParticles(dt);
       updateTarget();
       updateAttribution();
@@ -3508,6 +3695,7 @@
     var canvases = [
       document.getElementById('preview-classic'),
       document.getElementById('preview-ta'),
+      document.getElementById('preview-hard'),
       document.getElementById('preview-spectate'),
     ];
     var ctxs = canvases.map(function(c) { return c.getContext('2d'); });
@@ -3693,10 +3881,74 @@
       }
     })();
 
-    // ---- Watch (Spectate) preview ----
+    // ---- Hard mode preview ----
     (function () {
       var c = canvases[2];
       var ctx = ctxs[2];
+      var COLORS = ['#e63946','#457b9d','#f1faee','#a8dadc','#f77f00'];
+      var BLOCK = 14;
+      var frame = 0;
+      var stacks = {};
+
+      function drawHard() {
+        if (overlay.classList.contains('hidden')) return;
+        frame++;
+        var w = c.offsetWidth || 160, h = 110;
+        var ctx2 = ctx;
+
+        ctx2.fillStyle = '#0d1117';
+        ctx2.fillRect(0, 0, w, h);
+
+        // every 40 frames, add a block to a random column
+        if (frame % 40 === 0) {
+          var col = Math.floor(Math.random() * (w / BLOCK));
+          if (!stacks[col]) stacks[col] = [];
+          if (stacks[col].length < 8) {
+            stacks[col].push(COLORS[Math.floor(Math.random() * COLORS.length)]);
+          }
+        }
+
+        // every 120 frames, remove a full line if present
+        if (frame % 120 === 0) {
+          var fullCols = 0;
+          for (var col in stacks) {
+            if (stacks[col].length >= 8) fullCols++;
+          }
+          if (fullCols === Math.floor(w / BLOCK)) {
+            for (var col in stacks) {
+              stacks[col].pop();
+            }
+          }
+        }
+
+        // draw stacks
+        for (var col in stacks) {
+          var stack = stacks[col];
+          for (var i = 0; i < stack.length; i++) {
+            var y = h - (i + 1) * BLOCK;
+            drawBlock(ctx2, parseInt(col) * BLOCK, y, BLOCK - 1, stack[i]);
+          }
+        }
+
+        ctx2.fillStyle = 'rgba(255,100,100,0.8)';
+        ctx2.font = 'bold 9px monospace';
+        ctx2.textAlign = 'center';
+        ctx2.fillText('FALLING', w / 2, 16);
+
+        if (!reducedMotion) requestAnimationFrame(drawHard);
+      }
+
+      if (reducedMotion) {
+        setTimeout(drawHard, 50);
+      } else {
+        requestAnimationFrame(drawHard);
+      }
+    })();
+
+    // ---- Watch (Spectate) preview ----
+    (function () {
+      var c = canvases[3];
+      var ctx = ctxs[3];
       var FAR_COLORS  = ['#3f8f33','#5fae3a','#8a5a32','#8d8d92','#5fae3a','#3f8f33','#8a5a32'];
       var NEAR_COLORS = ['#5fae3a','#8a5a32','#5fae3a','#8d8d92','#5fae3a','#8a5a32','#5fae3a'];
       var BW = 18; // block width in the parallax strips
