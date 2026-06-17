@@ -552,6 +552,15 @@
     <div id="leaderboard-content" class="text-zinc-400 text-center py-2 text-xs">Loading…</div>
   </div>
 
+  <!-- Leaderboard comparison overlay -->
+  <div id="comparison-overlay" class="hidden fixed inset-0 z-40 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+    <div id="comparison-card" class="max-w-sm w-full mx-4 bg-zinc-900/95 rounded-2xl p-6 text-center shadow-xl">
+      <button id="comparison-close" aria-label="Close comparison" class="float-right text-zinc-400 hover:text-zinc-100 cursor-pointer leading-none transition-colors">✕</button>
+      <div class="clear-both"></div>
+      <div id="comparison-content" class="text-zinc-400 text-sm">Loading…</div>
+    </div>
+  </div>
+
   <!-- Friends panel: friend list with online/offline sections and pending requests.
        Hidden by default; toggled by the 👥 button. -->
   <div id="friends-panel" class="hidden fixed top-28 right-3 z-30 w-full sm:w-72 max-w-[90vw] rounded-xl bg-black/70 backdrop-blur px-3 py-4 sm:p-4 text-base sm:text-sm text-zinc-200 shadow-xl">
@@ -3079,6 +3088,7 @@
     const leaderboardContentEl = document.getElementById('leaderboard-content');
     let leaderboardTimer = null;
     let leaderboardTab = 'alltime'; // 'alltime' | 'tournament' | 'ta'
+    let leaderboardShowAll = false;
 
     function closeLeaderboard() {
       leaderboardEl.classList.add('hidden');
@@ -3263,25 +3273,60 @@
         }
       } else {
         try {
-          const res = await fetch('/api/leaderboard', { headers });
+          const limit = leaderboardShowAll ? 100 : 10;
+          const res = await fetch('/api/leaderboard?limit=' + limit, { headers });
           if (!res.ok) throw new Error('fetch failed');
-          const { entries } = await res.json();
+          const { entries, self, total_players, rank_info } = await res.json();
           if (!entries.length) {
             leaderboardContentEl.innerHTML = '<p class="py-1">No builders yet — be the first!</p>';
           } else {
-            leaderboardContentEl.innerHTML =
+            let html = '<div class="max-h-96 overflow-y-auto">' +
               '<table class="w-full text-xs">' +
-              '<thead><tr class="text-zinc-500 uppercase border-b border-zinc-700">' +
+              '<thead><tr class="text-zinc-500 uppercase border-b border-zinc-700 sticky top-0 bg-black/70">' +
               '<th class="text-left pb-1 w-6">#</th>' +
               '<th class="text-left pb-1 pl-2">Player</th>' +
               '<th class="text-right pb-1">Blocks</th></tr></thead><tbody>' +
               entries.map(e =>
-                '<tr class="border-b border-zinc-800/60 last:border-0">' +
+                '<tr class="border-b border-zinc-800/60 last:border-0 cursor-pointer hover:bg-zinc-800/40 transition-colors" data-player-id="' + e.user_id + '">' +
                 '<td class="py-1 text-zinc-500">' + e.rank + '</td>' +
-                '<td class="py-1 pl-2 max-w-[180px] truncate">' + escapeHtml(e.username) + '</td>' +
+                '<td class="py-1 pl-2 max-w-[180px] truncate hover:text-zinc-100">' + escapeHtml(e.username) + '</td>' +
                 '<td class="py-1 text-right font-mono text-zinc-100">' + e.count + '</td></tr>'
               ).join('') +
-              '</tbody></table>';
+              '</tbody></table></div>';
+
+            if (self && rank_info && !entries.find(e => e.user_id === self.user_id)) {
+              html += '<div class="mt-2 pt-2 border-t border-zinc-700 bg-gradient-to-r from-violet-900/40 to-violet-800/20 rounded-lg p-2 text-xs">' +
+                '<div class="font-semibold text-violet-300 mb-1">You are #' + self.rank + ' of ' + total_players + '</div>' +
+                '<div class="text-zinc-300 truncate mb-1">' + escapeHtml(self.username) + '</div>' +
+                '<div class="font-mono text-violet-200 mb-1">' + self.count + ' blocks</div>' +
+                '<div class="text-zinc-400 text-[10px]">' + rank_info.ahead + ' ahead · ' + rank_info.behind + ' behind</div>' +
+                '</div>';
+            }
+
+            if (!leaderboardShowAll && total_players > 10) {
+              html += '<div class="mt-2 text-center"><button id="show-all-leaderboard" class="px-2 py-1 text-xs bg-zinc-700 hover:bg-zinc-600 rounded text-zinc-100 transition-colors cursor-pointer">Show All (' + total_players + ')</button></div>';
+            }
+
+            leaderboardContentEl.innerHTML = html;
+
+            const rows = leaderboardContentEl.querySelectorAll('tbody tr[data-player-id]');
+            rows.forEach(row => {
+              row.addEventListener('click', (e) => {
+                const playerId = parseInt(row.getAttribute('data-player-id'));
+                if (playerId !== self.user_id) {
+                  showComparison(playerId);
+                }
+              });
+            });
+
+            const showAllBtn = document.getElementById('show-all-leaderboard');
+            if (showAllBtn) {
+              showAllBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                leaderboardShowAll = true;
+                fetchLeaderboard();
+              });
+            }
           }
         } catch (_) {
           leaderboardContentEl.innerHTML = '<p class="py-1 text-zinc-500">Couldn\'t load leaderboard.</p>';
@@ -3326,10 +3371,71 @@
     }
     document.getElementById('leaderboard-btn').addEventListener('click', toggleLeaderboard);
     document.getElementById('leaderboard-close').addEventListener('click', closeLeaderboard);
-    document.getElementById('tab-alltime').addEventListener('click', () => setLeaderboardTab('alltime'));
+    document.getElementById('tab-alltime').addEventListener('click', () => {
+      leaderboardShowAll = false;
+      setLeaderboardTab('alltime');
+    });
     document.getElementById('tab-tournament').addEventListener('click', () => setLeaderboardTab('tournament'));
     document.getElementById('tab-ta').addEventListener('click', () => setLeaderboardTab('ta'));
     document.getElementById('tab-endless').addEventListener('click', () => setLeaderboardTab('endless'));
+
+    // ---- Leaderboard comparison ----
+    const comparisonOverlayEl = document.getElementById('comparison-overlay');
+    const comparisonContentEl = document.getElementById('comparison-content');
+
+    function closeComparison() {
+      comparisonOverlayEl.classList.add('hidden');
+    }
+
+    async function showComparison(playerId) {
+      comparisonOverlayEl.classList.remove('hidden');
+      comparisonContentEl.innerHTML = '<span class="text-zinc-500">Loading…</span>';
+      try {
+        const res = await fetch('/api/leaderboard/compare?player_id=' + playerId, { headers });
+        if (!res.ok) throw new Error('fetch failed');
+        const data = await res.json();
+        renderComparison(data);
+      } catch (_) {
+        comparisonContentEl.innerHTML = '<p class="text-zinc-500 text-sm">Couldn\'t load comparison.</p>';
+      }
+    }
+
+    function renderComparison(data) {
+      const { self, other, gap } = data;
+      const youWinning = gap.score_diff > 0;
+      const scoreDiff = Math.abs(gap.score_diff);
+      const message = youWinning
+        ? 'You\'re ahead by ' + scoreDiff + ' points'
+        : 'They\'re ahead by ' + scoreDiff + ' points. Gain ' + scoreDiff + ' more to catch up!';
+
+      let html = '<div class="text-left">' +
+        '<div class="flex justify-between mb-4">' +
+        '<div class="flex-1">' +
+        '<div class="text-sm font-semibold text-violet-300 mb-1">' + escapeHtml(self.username) + ' (You)</div>' +
+        '<div class="text-lg font-mono font-bold text-violet-200 mb-1">#' + self.total_score + ' pts</div>' +
+        '<div class="text-xs text-zinc-400">Rank #' + self.rank + '</div>' +
+        '</div>' +
+        '<div class="flex-1 text-right">' +
+        '<div class="text-sm font-semibold text-zinc-300 mb-1">' + escapeHtml(other.username) + '</div>' +
+        '<div class="text-lg font-mono font-bold text-zinc-200 mb-1">#' + other.total_score + ' pts</div>' +
+        '<div class="text-xs text-zinc-400">Rank #' + other.rank + '</div>' +
+        '</div>' +
+        '</div>' +
+        '<div class="text-center py-3 border-t border-b border-zinc-700 mb-3">' +
+        '<div class="text-xs text-zinc-400 mb-1">Score difference</div>' +
+        '<div class="text-base font-semibold ' + (youWinning ? 'text-green-400' : 'text-amber-400') + '">' +
+        (youWinning ? '+' : '−') + scoreDiff + '</div>' +
+        '</div>' +
+        '<div class="text-xs text-center text-zinc-300 mb-4">' + message + '</div>' +
+        '</div>';
+
+      comparisonContentEl.innerHTML = html;
+    }
+
+    document.getElementById('comparison-close').addEventListener('click', closeComparison);
+    document.getElementById('comparison-overlay').addEventListener('click', (e) => {
+      if (e.target === comparisonOverlayEl) closeComparison();
+    });
 
     // ---- Friends panel ----
     const friendsPanelEl = document.getElementById('friends-panel');

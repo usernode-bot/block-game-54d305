@@ -576,13 +576,20 @@ app.get('/api/presence/online', async (req, res) => {
 // ---- Leaderboard: top 10 + caller's own row ----
 app.get('/api/leaderboard', async (req, res) => {
   try {
+    const limit = Math.min(Number(req.query.limit) || 10, 100);
     const topRes = await pool.query(
       `SELECT rank() OVER (ORDER BY total_score DESC) AS rank,
               user_id, username, total_score, blocks_placed, best_combo
        FROM leaderboard
        ORDER BY total_score DESC
-       LIMIT 10`
+       LIMIT $1`,
+      [limit]
     );
+    const totalRes = await pool.query(
+      `SELECT COUNT(*)::int AS total FROM leaderboard`
+    );
+    const totalPlayers = totalRes.rows[0].total;
+
     const selfRes = await pool.query(
       `SELECT rank() OVER (ORDER BY total_score DESC) AS rank,
               user_id, username, total_score, blocks_placed, best_combo
@@ -599,9 +606,74 @@ app.get('/api/leaderboard', async (req, res) => {
       best_combo: r.best_combo,
       count: Number(r.blocks_placed),
     });
+
+    const entries = topRes.rows.map(toRow);
+    const self = selfRes.rows.length ? toRow(selfRes.rows[0]) : null;
+    const response = {
+      entries,
+      self,
+      total_players: totalPlayers,
+    };
+
+    if (self && !entries.find(e => e.user_id === self.user_id)) {
+      response.rank_info = {
+        ahead: self.rank - 1,
+        behind: totalPlayers - self.rank,
+      };
+    }
+
+    res.json(response);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- Leaderboard comparison: compare current player to another player ----
+app.get('/api/leaderboard/compare', async (req, res) => {
+  try {
+    const otherUserId = Number(req.query.player_id);
+    if (!Number.isInteger(otherUserId)) {
+      return res.status(400).json({ error: 'player_id must be an integer' });
+    }
+
+    const selfRes = await pool.query(
+      `SELECT rank() OVER (ORDER BY total_score DESC) AS rank,
+              user_id, username, total_score, blocks_placed
+       FROM leaderboard
+       WHERE user_id = $1`,
+      [req.user.id]
+    );
+
+    const otherRes = await pool.query(
+      `SELECT rank() OVER (ORDER BY total_score DESC) AS rank,
+              user_id, username, total_score, blocks_placed
+       FROM leaderboard
+       WHERE user_id = $1`,
+      [otherUserId]
+    );
+
+    const toRow = (r) => ({
+      rank: Number(r.rank),
+      user_id: r.user_id,
+      username: r.username,
+      total_score: Number(r.total_score),
+      blocks_placed: Number(r.blocks_placed),
+    });
+
+    const self = selfRes.rows.length ? toRow(selfRes.rows[0]) : null;
+    const other = otherRes.rows.length ? toRow(otherRes.rows[0]) : null;
+
+    if (!self || !other) {
+      return res.status(404).json({ error: 'Player not found' });
+    }
+
     res.json({
-      entries: topRes.rows.map(toRow),
-      self: selfRes.rows.length ? toRow(selfRes.rows[0]) : null,
+      self,
+      other,
+      gap: {
+        score_diff: self.total_score - other.total_score,
+        rank_diff: other.rank - self.rank,
+      },
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -1427,6 +1499,24 @@ async function seedLeaderboard() {
         [c.x, c.z, p.type, p.userId, p.username]
       );
     }
+  }
+
+  // Seed leaderboard entries for demo users with varied scores
+  const leaderboardSeeds = [
+    { userId: -1, username: 'Staging demo Alice',   total_score: 850,  blocks_placed: 340 },
+    { userId: -2, username: 'Staging demo Bob',     total_score: 720,  blocks_placed: 280 },
+    { userId: -3, username: 'Staging demo Charlie', total_score: 610,  blocks_placed: 220 },
+    { userId: -4, username: 'Staging demo Dana',    total_score: 480,  blocks_placed: 180 },
+    { userId: -5, username: 'Staging demo Eli',     total_score: 300,  blocks_placed: 110 },
+    { userId: -6, username: 'Staging demo Faye',    total_score: 150,  blocks_placed: 60  },
+  ];
+  for (const s of leaderboardSeeds) {
+    await pool.query(
+      `INSERT INTO leaderboard (user_id, username, total_score, blocks_placed, best_combo, updated_at)
+       VALUES ($1, $2, $3, $4, 1, NOW())
+       ON CONFLICT (user_id) DO NOTHING`,
+      [s.userId, s.username, s.total_score, s.blocks_placed]
+    );
   }
 }
 
