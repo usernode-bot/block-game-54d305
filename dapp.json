@@ -1,11 +1,18 @@
 {
-  "secrets": [],
+  "secrets": [
+    {
+      "key": "AI_DIFFICULTY",
+      "description": "BlockBot placement speed: easy (15s per block), medium (6s), hard (3s). Defaults to medium.",
+      "required": false,
+      "default": "medium"
+    }
+  ],
   "visibility": {
     "build": "public",
     "view": "public"
   },
   "llm": {
-    "purpose": "Gives players contextual tips and guidance during gameplay",
-    "suggested_daily_cap_cents": 50
+    "purpose": "Gives players contextual tips and placement suggestions during gameplay",
+    "suggested_daily_cap_cents": 100
   }
 }
