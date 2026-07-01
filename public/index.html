@@ -2989,6 +2989,9 @@
     const WEATHER_STATES = ['clear', 'clear', 'rain', 'clear', 'fog'];
     const WEATHER_CYCLE_MS = 8 * 60 * 1000;  // 8 min per slot → 40 min full cycle
     const DAY_CYCLE_MS = 20 * 60 * 1000;     // 20 min full day/night loop
+    // Anchor the day/night cycle so the world loads at midday (bright daytime)
+    // and cycles normally from there, instead of following the wall clock.
+    const DAY_CYCLE_START = Date.now();
     const WEATHER_CFG = {
       clear: { sky: '#8ec7ff', fog: '#8ec7ff', fogNear: 40, fogFar: 90, ambient: 0.65, sun: 0.90 },
       rain:  { sky: '#637282', fog: '#637282', fogNear: 18, fogFar: 55, ambient: 0.35, sun: 0.15 },
@@ -3764,7 +3767,8 @@
     }
 
     function updateDayNightCycle(now) {
-      const dayPhase = (now % DAY_DURATION_MS) / DAY_DURATION_MS;
+      // + half a cycle so the world starts at noon (phase 0.5) on load, not midnight.
+      const dayPhase = ((now + DAY_DURATION_MS / 2) % DAY_DURATION_MS) / DAY_DURATION_MS;
       const sky = skyColors(dayPhase);
 
       // Sky dome + canvas clear color
@@ -12325,7 +12329,7 @@
       const wSun     = lerpNum(wPrev.sun,     wCurr.sun,     weatherTransitionT);
 
       // Day/night overlay (stacks on top of weather)
-      const _dayT = (Date.now() % DAY_CYCLE_MS) / DAY_CYCLE_MS;
+      const _dayT = (((Date.now() - DAY_CYCLE_START) + DAY_CYCLE_MS / 2) % DAY_CYCLE_MS) / DAY_CYCLE_MS;
       const nightFactor = computeNightFactor(_dayT);
       scene.fog.color.lerp(_NIGHT_SKY, nightFactor * 0.5);
       ambientLight.intensity = wAmbient * (1 - nightFactor * 0.45);
