@@ -5240,6 +5240,25 @@
       rebuildBlockMeshes();
       clearAttribution();
     }
+    // ---- Daily Challenge rendering ----
+    function renderChallenge() {
+      if (!challengeDate) return;
+      const pct = Math.min(100, Math.round((challengePlaced / challengeTarget) * 100));
+      const barColor = challengeCompleted ? '#22c55e' : '#7c3aed';
+      const streakText = dailyChallengeStreak > 0 ? ' • 🔥 ' + dailyChallengeStreak + ' day streak' : '';
+      const COMPLETION_BONUS = 1000;
+      challengeHudEl.innerHTML =
+        '<div style="font-weight:600;color:rgba(95,87,114,0.85);margin-bottom:2px;line-height:1.2">Daily Challenge' + streakText + '</div>' +
+        '<div style="margin-bottom:3px;line-height:1.2">Place ' + challengeTarget + ' blocks</div>' +
+        (challengeCompleted
+          ? '<div style="font-weight:600;color:#2f9e54">✓ Complete! +' + COMPLETION_BONUS + ' bonus</div>'
+          : '<div style="font-variant-numeric:tabular-nums">' + challengePlaced + ' / ' + challengeTarget + '</div>'
+        ) +
+        '<div style="margin-top:5px;height:3px;border-radius:9999px;background:rgba(120,108,150,0.22);overflow:hidden">' +
+          '<div style="width:' + pct + '%;height:100%;border-radius:9999px;background:' + barColor + ';transition:width 0.3s"></div>' +
+        '</div>' +
+        '</div>';
+    }
 
     // ---- Daily Challenge + Mission rendering ----
     function renderMissionSection() {
@@ -7281,7 +7300,8 @@
       document.getElementById('ta-hud').classList.add('hidden');
       document.getElementById('ta-wager-pill').classList.add('hidden');
       const fs = document.getElementById('ta-final-score');
-      fs.textContent = 'You cleared ' + clearedThisRun + ' block' + (clearedThisRun === 1 ? '' : 's');
+      const COMPLETION_BONUS = 1000;
+      fs.textContent = 'You cleared ' + clearedThisRun + ' block' + (clearedThisRun === 1 ? '' : 's') + ' + ' + COMPLETION_BONUS + ' bonus = ' + (clearedThisRun + COMPLETION_BONUS) + ' total';
       document.getElementById('ta-feedback-msg').textContent = feedbackMsg;
       document.getElementById('ta-best-banner').classList.add('hidden');
 
@@ -7421,7 +7441,8 @@
 
       document.getElementById('ta-60-hud').classList.add('hidden');
       const fs = document.getElementById('ta-60-final-score');
-      fs.textContent = 'You cleared ' + clearedThisRun + ' block' + (clearedThisRun === 1 ? '' : 's');
+      const COMPLETION_BONUS = 1000;
+      fs.textContent = 'You cleared ' + clearedThisRun + ' block' + (clearedThisRun === 1 ? '' : 's') + ' + ' + COMPLETION_BONUS + ' bonus = ' + (clearedThisRun + COMPLETION_BONUS) + ' total';
       document.getElementById('ta-60-feedback-msg').textContent = '';
       document.getElementById('ta-60-best-banner').classList.add('hidden');
       document.getElementById('ta-60-gameover').classList.remove('hidden');
@@ -7523,9 +7544,10 @@
 
       const placedThisRun = endlessBlocksPlaced;
       const movesSurvived = endlessMovesStarted;
+      const COMPLETION_BONUS = 1000;
 
       document.getElementById('endless-hud').classList.add('hidden');
-      document.getElementById('endless-final-placed').textContent = 'You placed ' + placedThisRun + ' block' + (placedThisRun === 1 ? '' : 's');
+      document.getElementById('endless-final-placed').textContent = 'You placed ' + placedThisRun + ' block' + (placedThisRun === 1 ? '' : 's') + ' + ' + COMPLETION_BONUS + ' bonus = ' + (placedThisRun + COMPLETION_BONUS) + ' total';
       document.getElementById('endless-moves-survived').textContent = 'Survived ' + movesSurvived + ' move' + (movesSurvived === 1 ? '' : 's');
       document.getElementById('endless-best-banner').classList.add('hidden');
       document.getElementById('endless-gameover').classList.remove('hidden');
