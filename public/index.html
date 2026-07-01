@@ -102,6 +102,12 @@
       -webkit-tap-highlight-color: transparent;
     }
 
+    @keyframes record-pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.4; }
+    }
+    .recording-pulse { animation: record-pulse 1.2s ease-in-out infinite; }
+
     /* ---- Cyberpunk theme overrides ---- */
     [data-theme="cyberpunk"] body {
       background-color: #030314 !important;
@@ -760,6 +766,9 @@
   <!-- Block attribution label -->
   <div id="attribution" class="hidden pointer-events-none fixed left-1/2 z-10 text-xs text-white/90 bg-black/55 rounded px-2 py-1 font-medium whitespace-nowrap" style="top: calc(50% + 20px); transform: translateX(-50%);"></div>
 
+  <!-- Plot owner label: shown when the crosshair is aimed at another player's claimed plot. -->
+  <div id="plot-owner-label" class="hidden pointer-events-none fixed left-1/2 z-10 text-xs text-amber-300/90 bg-black/55 rounded px-2 py-1 font-medium whitespace-nowrap" style="top: calc(50% + 38px); transform: translateX(-50%);"></div>
+
   <!-- Power-up buff HUD: shows active buffs with countdown timers.
        Positioned bottom-right above the palette. -->
   <div id="powerup-hud" class="pointer-events-none fixed bottom-24 right-4 z-20 flex flex-col items-end gap-1"></div>
@@ -856,6 +865,9 @@
           <p class="text-zinc-400 text-xs mb-4">Race to outlast your opponent on your own Tetris board.</p>
           <button id="battle-btn" class="w-full px-4 py-2 rounded-lg bg-emerald-700 hover:bg-emerald-600 font-semibold text-sm transition-colors">⚔ Battle</button>
         </div>
+      </div>
+      <div class="mt-3 text-center">
+        <button id="sp-open-btn" class="text-sm text-violet-400 hover:text-violet-300 transition-colors cursor-pointer">✨ Season Pass →</button>
       </div>
       <div id="tournament-teaser" class="hidden mt-3 rounded-xl bg-zinc-900/60 px-4 py-2.5 text-xs text-zinc-300"></div>
       <div id="collab-teaser" class="hidden mt-2 rounded-xl bg-zinc-900/60 px-4 py-2.5 text-xs text-zinc-300"></div>
@@ -1027,7 +1039,8 @@
 
   <!-- Hold panel: displays the currently held block type (one-slot hold queue).
        Positioned at the bottom-left, aligned with the palette bar. -->
-  <div id="hold-panel" class="pointer-events-none fixed bottom-4 left-4 z-20 flex items-center gap-1.5">
+  <div id="hold-panel" class="pointer-events-none fixed bottom-4 left-4 z-20 flex flex-col items-center gap-1">
+    <div id="coin-hud" class="hidden text-[10px] font-bold text-yellow-300 tabular-nums">🪙 0</div>
     <span class="text-[10px] font-bold text-zinc-400 uppercase tracking-wide">Hold</span>
     <div id="hold-swatch" class="w-10 h-10 rounded-md border-2 border-dashed border-zinc-600 flex items-center justify-center">
       <span class="text-zinc-600 text-sm font-bold">–</span>
@@ -1117,9 +1130,7 @@
     </div>
   </div>
 
-  <!-- Help/controls toggle: circular "(?)" button fixed in the top-right
-       corner. Clicking it does exactly what pressing `h` does — show/hide the
-       controls overlay below. -->
+  <!-- Help/controls toggle: circular "(?)" button fixed in the top-right corner. -->
   <button id="help-btn" title="Controls (h)" aria-label="Toggle controls"
           class="fixed top-3 right-3 z-30 w-12 h-12 sm:w-9 sm:h-9 rounded-full bg-black/50 hover:bg-black/70 text-zinc-100 text-lg font-bold leading-none flex items-center justify-center transition-colors cursor-pointer">?</button>
 
@@ -1131,13 +1142,17 @@
   <button id="friends-btn" title="Friends" aria-label="Toggle friends"
           class="fixed top-[6.25rem] right-3 z-30 w-12 h-12 sm:w-9 sm:h-9 rounded-full bg-black/50 hover:bg-black/70 text-zinc-100 text-lg leading-none flex items-center justify-center transition-colors cursor-pointer relative">👥<span id="friends-badge" class="hidden absolute -top-1 -right-1 w-3 h-3 rounded-full bg-red-500 pointer-events-none"></span></button>
 
-  <!-- AI Coach toggle: below the friends button. Hidden in spectate mode. -->
+  <!-- Wager Matches toggle: below the friends button. -->
+  <button id="wager-btn" title="Wager Matches" aria-label="Toggle wager matches"
+          class="fixed top-[8.5rem] right-3 z-30 w-12 h-12 sm:w-9 sm:h-9 rounded-full bg-black/50 hover:bg-black/70 text-zinc-100 text-lg leading-none flex items-center justify-center transition hover:scale-110 active:scale-95 cursor-pointer">💰<span id="wager-badge" class="hidden absolute -top-1 -right-1 w-3 h-3 rounded-full bg-red-500 pointer-events-none"></span></button>
+
+  <!-- AI Coach toggle: below the wager button. Hidden in spectate mode. -->
   <button id="coach-btn" title="Ask AI Coach" aria-label="Ask AI Coach"
-          class="fixed top-[8.5rem] right-3 z-30 w-12 h-12 sm:w-9 sm:h-9 rounded-full bg-black/50 hover:bg-black/70 text-zinc-100 text-lg leading-none flex items-center justify-center transition-colors cursor-pointer">💡</button>
+          class="fixed top-[10.75rem] right-3 z-30 w-12 h-12 sm:w-9 sm:h-9 rounded-full bg-black/50 hover:bg-black/70 text-zinc-100 text-lg leading-none flex items-center justify-center transition hover:scale-110 active:scale-95 cursor-pointer">💡</button>
 
   <!-- Worlds toggle: below the coach button. -->
   <button id="worlds-btn" title="Worlds" aria-label="Toggle worlds"
-          class="fixed top-[10.75rem] right-3 z-30 w-12 h-12 sm:w-9 sm:h-9 rounded-full bg-black/50 hover:bg-black/70 text-zinc-100 text-lg leading-none flex items-center justify-center transition-colors cursor-pointer">🌍</button>
+          class="fixed top-[13rem] right-3 z-30 w-12 h-12 sm:w-9 sm:h-9 rounded-full bg-black/50 hover:bg-black/70 text-zinc-100 text-lg leading-none flex items-center justify-center transition hover:scale-110 active:scale-95 cursor-pointer">🌍</button>
 
   <!-- Blueprints toggle: sits below friends button. -->
   <button id="blueprints-btn" title="Blueprints (Y)" aria-label="Toggle blueprints"
@@ -1145,7 +1160,7 @@
 
   <!-- Daily Theme toggle: below the coach button. Hidden in Time Attack mode. -->
   <button id="daily-theme-btn" title="Daily Build Theme" aria-label="Daily Build Theme"
-          class="fixed top-[10.5rem] right-3 z-30 w-9 h-9 rounded-full bg-black/50 hover:bg-black/70 text-zinc-100 text-lg leading-none flex items-center justify-center transition-colors cursor-pointer">🌟</button>
+          class="fixed top-[12.75rem] right-3 z-30 w-9 h-9 rounded-full bg-black/50 hover:bg-black/70 text-zinc-100 text-lg leading-none flex items-center justify-center transition-colors cursor-pointer">🌟</button>
 
   <!-- Coins toggle: sits below the friends button. -->
   <button id="coins-btn" title="Coins" aria-label="Toggle coins"
@@ -1163,14 +1178,18 @@
   <button id="accessibility-btn" title="Accessibility" aria-label="Accessibility settings"
           class="fixed top-[11.5rem] right-3 z-30 w-9 h-9 rounded-full bg-black/50 hover:bg-black/70 text-zinc-100 text-lg leading-none flex items-center justify-center transition hover:scale-110 active:scale-95 cursor-pointer">♿</button>
 
+  <!-- Record button: shown only in Classic mode. Hidden until startMode('classic'). -->
+  <button id="record-btn" title="Record session" aria-label="Record session"
+          class="hidden fixed top-14 right-14 z-30 w-9 h-9 rounded-full bg-black/50 hover:bg-black/70 text-zinc-100 text-lg leading-none flex items-center justify-center transition-colors cursor-pointer">⏺</button>
+
   <!-- Inbox toggle: sits below the accessibility button. -->
   <button id="inbox-btn" title="Inbox" aria-label="Toggle inbox"
           class="fixed top-[12.75rem] right-3 z-30 w-9 h-9 rounded-full bg-black/50 hover:bg-black/70 text-zinc-100 text-lg leading-none flex items-center justify-center transition-colors cursor-pointer relative">🔔<span id="inbox-badge" class="hidden absolute -top-1 -right-1 min-w-[14px] h-[14px] rounded-full bg-red-500 text-white text-[9px] font-bold flex items-center justify-center leading-none pointer-events-none select-none px-0.5"></span></button>
 
   <!-- Build/version stamp: always visible, dim, so the running build can be
        confirmed at a glance. Bump BUILD_VERSION (below) on every change.
-       Shifted down to make room for the leaderboard, friends, coach, hint, skins, accessibility, and theme buttons. -->
-  <div id="build-stamp" class="pointer-events-none fixed top-[13rem] right-3 z-20 text-[11px] text-zinc-300/70 bg-black/40 rounded px-2 py-1 font-mono"></div>
+       Shifted down to make room for buttons. -->
+  <div id="build-stamp" class="pointer-events-none fixed top-[15rem] right-3 z-20 text-[11px] text-zinc-300/70 bg-black/40 rounded px-2 py-1 font-mono"></div>
 
   <!-- NFT Skins panel: shows owned NFTs for equipping as block textures. -->
   <div id="skins-panel" class="hidden fixed top-16 right-3 z-30 w-72 max-w-[90vw] rounded-xl bg-black/70 backdrop-blur p-4 text-sm text-zinc-200 shadow-xl">
@@ -1574,6 +1593,42 @@
     <div id="profile-content" class="text-zinc-400 text-center py-2 text-xs">Loading…</div>
   </div>
 
+  <!-- Wager Matches panel: send challenges, view pending, active, and history -->
+  <div id="wager-panel" class="hidden fixed top-28 right-3 z-30 w-full sm:w-96 max-w-[90vw] rounded-xl bg-black/70 backdrop-blur px-3 py-4 sm:p-4 text-sm text-zinc-200 shadow-xl overflow-y-auto max-h-[calc(100vh-120px)]">
+    <div class="flex items-center justify-between mb-4">
+      <h2 id="wager-panel-title" class="font-bold text-zinc-100">Wager Matches</h2>
+      <button id="wager-close" aria-label="Close wager matches" class="text-zinc-400 hover:text-zinc-100 cursor-pointer leading-none transition-colors">✕</button>
+    </div>
+    <div id="wager-content" class="space-y-3">
+      <div class="border-b border-zinc-700/60 pb-3">
+        <h3 class="text-xs font-semibold text-zinc-300 mb-2">Send Challenge</h3>
+        <input id="wager-opponent" type="text" placeholder="Opponent username…" maxlength="100" autocomplete="off"
+               class="w-full bg-zinc-800 text-zinc-100 text-xs rounded px-2 py-1.5 border border-zinc-700 focus:border-violet-500 outline-none placeholder-zinc-500 mb-2">
+        <div class="flex gap-2 items-end">
+          <div class="flex-1">
+            <label class="text-xs text-zinc-400 block mb-1">Wager</label>
+            <input id="wager-amount" type="number" min="1" placeholder="Amount…" value="50"
+                   class="w-full bg-zinc-800 text-zinc-100 text-xs rounded px-2 py-1.5 border border-zinc-700 focus:border-violet-500 outline-none placeholder-zinc-500">
+          </div>
+          <button id="wager-send-btn" class="shrink-0 px-3 py-1.5 bg-violet-600 hover:bg-violet-500 active:bg-violet-700 text-white text-xs font-semibold rounded cursor-pointer transition hover:scale-105 active:scale-95">Send</button>
+        </div>
+        <div id="wager-send-status" class="mt-1 text-xs text-center min-h-[1.2em]"></div>
+      </div>
+      <div id="wager-pending-section" class="hidden border-b border-zinc-700/60 pb-3">
+        <h3 class="text-xs font-semibold text-zinc-300 mb-2">Pending Challenges</h3>
+        <div id="wager-pending-list" class="space-y-2 text-xs"></div>
+      </div>
+      <div id="wager-active-section" class="hidden border-b border-zinc-700/60 pb-3">
+        <h3 class="text-xs font-semibold text-zinc-300 mb-2">Active Match</h3>
+        <div id="wager-active-content" class="text-zinc-400"></div>
+      </div>
+      <div id="wager-history-section" class="hidden">
+        <h3 class="text-xs font-semibold text-zinc-300 mb-2">Match History</h3>
+        <div id="wager-history-list" class="space-y-2 text-xs max-h-48 overflow-y-auto"></div>
+      </div>
+    </div>
+  </div>
+
   <!-- Touch controls: translucent on-screen overlay shown only on touch devices
        while playing. The container is pointer-events-none so empty gaps fall
        through to the canvas (look-drag); each button re-enables pointer events.
@@ -1874,6 +1929,23 @@
     </div>
   </div>
 
+  <!-- Claim HUD: shown in classic mode; lets the player stake or release a plot. -->
+  <div id="claim-hud" class="hidden pointer-events-auto fixed z-20 flex flex-col items-center gap-2" style="bottom: 5.5rem; left: 50%; transform: translateX(-50%);">
+    <button id="claim-btn" class="hidden px-5 py-2 rounded-xl bg-teal-600 hover:bg-teal-500 active:bg-teal-700 text-white text-sm font-semibold shadow-lg transition-colors">Stake This Plot</button>
+    <button id="release-btn" class="hidden px-5 py-2 rounded-xl bg-zinc-700 hover:bg-zinc-600 active:bg-zinc-800 text-white text-sm font-semibold shadow-lg transition-colors">Release Plot</button>
+  </div>
+
+  <!-- Season Pass panel: accessible from the mode-select overlay. z-40 sits above overlay (z-30). -->
+  <div id="sp-panel" class="hidden fixed inset-0 z-40 flex items-center justify-center bg-black/75 backdrop-blur-sm">
+    <div class="max-w-sm w-full mx-4 bg-zinc-900/98 rounded-2xl p-6 shadow-2xl text-zinc-200">
+      <div class="flex items-center justify-between mb-4">
+        <h2 class="text-lg font-bold text-zinc-100">✨ Season Pass — Season 1</h2>
+        <button id="sp-close-btn" class="text-zinc-400 hover:text-zinc-100 cursor-pointer leading-none text-lg">✕</button>
+      </div>
+      <div id="sp-content"><!-- rendered by renderSeasonPassPanel() --></div>
+    </div>
+  </div>
+
   <!-- Daily Challenge game-over overlay -->
   <div id="daily-challenge-gameover" class="hidden fixed inset-0 z-30 flex items-center justify-center bg-black/60 backdrop-blur-sm">
     <div id="daily-challenge-gameover-card" class="max-w-sm w-full mx-4 bg-zinc-900/95 rounded-2xl p-6 sm:p-8 text-center shadow-xl">
@@ -1990,6 +2062,40 @@
     </div>
   </div>
 
+  <!-- Share modal: shown after stopping a recording. -->
+  <div id="share-modal" class="hidden fixed inset-0 z-40 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+    <div class="max-w-sm w-full mx-4 bg-zinc-900/95 rounded-2xl p-8 text-center shadow-xl">
+      <h2 class="text-2xl font-bold mb-2">Session saved!</h2>
+      <p class="text-zinc-400 text-sm mb-4">Share this link to let others watch your replay.</p>
+      <input id="share-url" type="text" readonly
+             class="w-full px-3 py-2 rounded-lg bg-zinc-800 text-zinc-100 text-sm font-mono mb-3 border border-zinc-700 cursor-text select-all" />
+      <div class="flex gap-3 justify-center">
+        <button id="share-copy-btn" class="px-5 py-2 rounded-lg bg-violet-600 hover:bg-violet-500 font-semibold transition-colors">Copy link</button>
+        <button id="share-close-btn" class="px-5 py-2 rounded-lg bg-zinc-700 hover:bg-zinc-600 font-semibold transition-colors">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Replay banner: shown at top when viewing a replay URL. -->
+  <div id="replay-banner" class="hidden fixed top-0 left-0 right-0 z-30 flex items-center justify-center bg-black/65 backdrop-blur-sm py-2 px-4">
+    <span id="replay-banner-text" class="text-sm text-zinc-200 font-medium"></span>
+  </div>
+
+  <!-- Replay controls: play/pause, speed, progress — shown at bottom in replay mode. -->
+  <div id="replay-controls" class="hidden fixed bottom-0 left-0 right-0 z-30 flex items-center gap-3 bg-black/65 backdrop-blur-sm px-4 py-2">
+    <button id="replay-playpause" title="Play / Pause"
+            class="w-8 h-8 rounded-full bg-white/15 hover:bg-white/25 text-white text-sm flex items-center justify-center transition-colors cursor-pointer flex-shrink-0">▶</button>
+    <div id="replay-progress-bar" class="flex-1 h-2 bg-white/20 rounded-full overflow-hidden cursor-pointer" title="Progress">
+      <div id="replay-progress-fill" class="h-full bg-violet-500 rounded-full" style="width:0%;transition:width 0.1s linear"></div>
+    </div>
+    <select id="replay-speed" title="Playback speed"
+            class="bg-black/60 text-white text-xs rounded px-2 py-1 border border-white/20 cursor-pointer flex-shrink-0">
+      <option value="1">1×</option>
+      <option value="2">2×</option>
+      <option value="4">4×</option>
+    </select>
+  </div>
+
   <!-- Weather HUD: shows current weather condition. Hidden during Time Attack (TA timer owns top-left). -->
   <div id="weather-hud" class="pointer-events-none fixed top-3 left-3 z-20 flex items-center gap-1.5 rounded-lg bg-black/45 px-2.5 py-1 text-xs text-zinc-200"></div>
 
@@ -2003,19 +2109,26 @@
     const headers = token ? { 'x-usernode-token': token } : {};
     const statusEl = document.getElementById('status');
 
-    // Decode the JWT payload (base64url) to get the current user's username for
-    // self-exclusion in the online list friend buttons. Read-only — no sensitive use.
+    // Detect replay route: /replay/<id>
+    const replayMatch = window.location.pathname.match(/^\/replay\/([^/]+)$/);
+    const replayId = replayMatch ? replayMatch[1] : null;
+
+    // Decode the JWT payload (base64url) to get the current user's username and id for
+    // self-exclusion in the online list friend buttons and claim ownership checks.
+    // Read-only — no sensitive use.
     let myUsername = null;
+    let myUserId = null;
     try {
       if (token) {
         const payload = JSON.parse(atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
         myUsername = payload.username || null;
+        myUserId = payload.id ?? null;
       }
     } catch (_) {}
 
     // Build identifier — bump this (to the deploying commit short SHA) on every
     // change so the top-right stamp confirms exactly which code is running.
-    const BUILD_VERSION = 'cyberpunk-theme+speedrun-mode+power-ups+hold-queue+achievements-badges+chat+daily-challenge+leaderboard+online-presence+block-attribution+audio-sfx+next-piece-preview+spectator-mode+weekly-tournament+friends+xp-levels+collab-challenges+coin-gifting+betting-system+blocks-placed-hud+ai-opponent+weather-system+weather-tod+day-night-cycle+minimap+ai-coach+ai-hints+nft-skins+player-stats+leaderboard-daily+new-badges+daily-theme-voting+natural-disasters+community-monuments+undo-redo-history+pastel-chrome+mobs+message-in-a-block+accessibility-panel+pixel-pets+versus-mode+blueprint+battle-mode';
+    const BUILD_VERSION = 'season-pass-s1+exclusive-blocks+coin-balance+replay-sharing+cyberpunk-theme+speedrun-mode+power-ups+hold-queue+achievements-badges+chat+daily-challenge+leaderboard+online-presence+block-attribution+audio-sfx+next-piece-preview+spectator-mode+weekly-tournament+friends+xp-levels+collab-challenges+coin-gifting+betting-system+blocks-placed-hud+ai-opponent+weather-system+weather-tod+day-night-cycle+minimap+ai-coach+ai-hints+nft-skins+player-stats+leaderboard-daily+new-badges+daily-theme-voting+natural-disasters+community-monuments+undo-redo-history+pastel-chrome+mobs+land-claims+message-in-a-block+accessibility-panel+pixel-pets+versus-mode+blueprint+battle-mode';
 
     // Badge definitions — mirror of the server-side BADGES array, extended with
     // a `hint` field shown in the panel for unearned badges.
@@ -2030,6 +2143,7 @@
       { id: 'glowmaster',      name: 'Glowmaster',      icon: '💡', flavour: 'Placed a Glowstone block!',       hint: 'Place a Glowstone block' },
       { id: 'shadow_sculptor', name: 'Shadow Sculptor', icon: '🌑', flavour: 'Placed an Obsidian block!',       hint: 'Place an Obsidian block' },
       { id: 'material_artist', name: 'Material Artist', icon: '🎨', flavour: 'Used 8+ different block types!', hint: 'Use 8 or more different block types' },
+      { id: 'season_pass_s1', name: 'Season Founder',  icon: '👑', flavour: 'Purchased the Season 1 Pass!',   hint: 'Purchase the Season 1 Pass' },
       { id: 'crystal_placer',  name: 'Crystal Placer',  icon: '💎', flavour: 'Placed a Crystal Block!',        hint: 'Place a Crystal Block (unlock by placing 50 blocks first)' },
       { id: 'streak_3',        name: 'Hot Start',       icon: '🔥', flavour: 'Logged in 3 days in a row!',     hint: 'Log in 3 days in a row' },
       { id: 'streak_7',        name: 'Week Warrior',    icon: '🗓️', flavour: 'A full week of building!',       hint: 'Log in 7 days in a row' },
@@ -2863,6 +2977,10 @@
     let unlockedTypes = new Set(); // block type IDs earned by the current user
     const key = (x, y, z) => x + ',' + y + ',' + z;
 
+    // ---- Land claim state ----
+    let claims = [];               // [{ user_id, username, plot_x, plot_z }]
+    let myTotalBlocksPlaced = 0;   // from /api/world, incremented optimistically on placement
+
     // ---- Weather state ----
     const WEATHER_STATES = ['clear', 'clear', 'rain', 'clear', 'fog'];
     const WEATHER_CYCLE_MS = 8 * 60 * 1000;  // 8 min per slot → 40 min full cycle
@@ -3101,6 +3219,13 @@
     // ---- Blocks placed (lifetime) ----
     let myBlocksPlaced = 0;
 
+    // ---- Season Pass state ----
+    const SEASON_PASS_COST = 250;
+    let spendableCoins = 0;
+    let seasonPassActive = false;
+    let seasonPassExpiresAt = null;
+    let seasonPassPanelOpen = false;
+
     // ---- Hint state ----
     let hintCell = null;             // {x,y,z} of active highlight, or null
     let hintExpiry = 0;              // ms timestamp when highlight auto-clears
@@ -3117,6 +3242,7 @@
 
     // ---- Game mode state ----
     let gameMode = null;           // null | 'classic' | 'timeattack' | 'endless' | 'learn' | 'tutorial' | 'time-attack-60'
+    let isReplayMode = false;      // true when viewing /replay/<id>
     const taBlocks = new Map();    // TA layout: client-only, never written to server
     let taScore = 0;
     let taTimeLeft = 60;
@@ -3164,6 +3290,9 @@
     let pendingTutorialInit = false;     // true while waiting for play-entry to fire initTutorialMode
     let tutorialEarned = 0;              // score earned during tutorial
     let firstBlockPlacedInTutorial = false;
+
+    // ---- Replay recording state ----
+    let recordingSessionId = null; // UUID of active recording session, or null
 
     // ---- Weather & time-of-day state ----
     // weatherCurrent / weatherChangeAt are synced from the server every 30s.
@@ -3708,6 +3837,9 @@
     const powerupGroup = new THREE.Group();
     scene.add(powerupGroup);
 
+    const claimGroup = new THREE.Group();
+    scene.add(claimGroup);
+
     // ---- Particle systems (rain & snow) ----
     // Positions are in world-space, re-centered on the camera each frame.
     const RAIN_PT_COUNT = 800;
@@ -3788,7 +3920,6 @@
       }
       lastMonumentHash = monuments.map(m => m.id).sort().join(',');
     }
-
     // Mob group: all creature meshes; hidden until Classic mode is entered.
     const mobGroup = new THREE.Group();
     mobGroup.visible = false;
@@ -4636,6 +4767,113 @@
       if (html !== _lastHudHtml) { powerupHudEl.innerHTML = html; _lastHudHtml = html; }
     }
 
+    // ---- Land claim helpers ----
+    function getClaimAt(x, z) {
+      const px = Math.max(0, Math.min(24, Math.floor(x / 8) * 8));
+      const pz = Math.max(0, Math.min(24, Math.floor(z / 8) * 8));
+      return claims.find((c) => c.plot_x === px && c.plot_z === pz) || null;
+    }
+
+    function rebuildClaimMeshes() {
+      claimGroup.clear();
+      for (const claim of claims) {
+        const isMine = myUserId !== null && Number(claim.user_id) === Number(myUserId);
+        const color = isMine ? 0x00bcd4 : 0xff9800;
+        const mat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.55, depthWrite: false });
+        const pillarGeom = new THREE.BoxGeometry(0.12, DIMS.h - 1, 0.12);
+        const py = (DIMS.h - 1) / 2 + 1;
+        const corners = [
+          { x: claim.plot_x,     z: claim.plot_z },
+          { x: claim.plot_x + 8, z: claim.plot_z },
+          { x: claim.plot_x,     z: claim.plot_z + 8 },
+          { x: claim.plot_x + 8, z: claim.plot_z + 8 },
+        ];
+        for (const corner of corners) {
+          const mesh = new THREE.Mesh(pillarGeom, mat);
+          mesh.position.set(corner.x, py, corner.z);
+          claimGroup.add(mesh);
+        }
+      }
+    }
+
+    async function fetchClaims() {
+      try {
+        const res = await fetch('/api/claims', { headers });
+        if (!res.ok) return;
+        const data = await res.json();
+        claims = data.claims || [];
+        rebuildClaimMeshes();
+      } catch (_) { /* transient */ }
+    }
+
+    // Badge-style toast for claim events.
+    function showClaimToast(msg) {
+      const container = document.getElementById('badge-toasts');
+      if (!container) return;
+      const toast = document.createElement('div');
+      toast.className = 'flex items-center gap-3 bg-teal-900/90 backdrop-blur rounded-xl px-4 py-2.5 text-sm text-zinc-100 shadow-xl ring-2 ring-teal-500/40';
+      toast.style.cssText = 'opacity:0;transition:opacity 0.3s;';
+      toast.textContent = msg;
+      container.appendChild(toast);
+      requestAnimationFrame(() => { toast.style.opacity = '1'; });
+      setTimeout(() => { toast.style.opacity = '0'; setTimeout(() => toast.remove(), 300); }, 3500);
+    }
+
+    // Show the "plot is claimed" label for 2s then clear it.
+    const plotOwnerLabelEl = document.getElementById('plot-owner-label');
+    let _claimMsgTimer = null;
+    function showClaimBlockedMsg(ownerName) {
+      plotOwnerLabelEl.textContent = 'This plot belongs to ' + ownerName;
+      plotOwnerLabelEl.classList.remove('hidden');
+      if (_claimMsgTimer) clearTimeout(_claimMsgTimer);
+      _claimMsgTimer = setTimeout(() => {
+        _claimMsgTimer = null;
+        plotOwnerLabelEl.classList.add('hidden');
+      }, 2000);
+    }
+
+    // Claim / release HUD: shown during classic mode play.
+    const claimHudEl = document.getElementById('claim-hud');
+    const claimBtnEl = document.getElementById('claim-btn');
+    const releaseBtnEl = document.getElementById('release-btn');
+
+    function updateClaimHud() {
+      if (gameMode !== 'classic' || !playing) {
+        claimHudEl.classList.add('hidden');
+        // Passive plot-owner label also hidden when not playing.
+        if (!_claimMsgTimer) plotOwnerLabelEl.classList.add('hidden');
+        return;
+      }
+      claimHudEl.classList.remove('hidden');
+
+      const px = Math.max(0, Math.min(24, Math.floor(camera.position.x / 8) * 8));
+      const pz = Math.max(0, Math.min(24, Math.floor(camera.position.z / 8) * 8));
+      const playerClaim = claims.find((c) => c.plot_x === px && c.plot_z === pz) || null;
+      const alreadyHaveClaim = claims.some((c) => myUserId !== null && Number(c.user_id) === Number(myUserId));
+
+      if (!playerClaim) {
+        claimBtnEl.classList.toggle('hidden', !(myTotalBlocksPlaced >= 10 && !alreadyHaveClaim));
+        releaseBtnEl.classList.add('hidden');
+      } else if (myUserId !== null && Number(playerClaim.user_id) === Number(myUserId)) {
+        claimBtnEl.classList.add('hidden');
+        releaseBtnEl.classList.remove('hidden');
+      } else {
+        claimBtnEl.classList.add('hidden');
+        releaseBtnEl.classList.add('hidden');
+      }
+
+      // Passive plot-owner label: shown when aiming at another player's claimed cell.
+      if (!_claimMsgTimer) {
+        const aimed = target ? getClaimAt(target.cell.x, target.cell.z) : null;
+        if (aimed && (myUserId === null || Number(aimed.user_id) !== Number(myUserId))) {
+          plotOwnerLabelEl.textContent = aimed.username + "'s plot";
+          plotOwnerLabelEl.classList.remove('hidden');
+        } else {
+          plotOwnerLabelEl.classList.add('hidden');
+        }
+      }
+    }
+
     // ---- Weather & time-of-day system ----
 
     // Compute current time-of-day (0=midnight, 0.5=noon) from UTC wall clock.
@@ -4848,6 +5086,23 @@
         }
       }
 
+      // Land claim overlays: teal for own plot, amber for others.
+      if (gameMode !== 'timeattack') {
+        for (const claim of claims) {
+          const isMine = myUserId !== null && Number(claim.user_id) === Number(myUserId);
+          const fill   = isMine ? 'rgba(0,188,212,0.35)' : 'rgba(255,152,0,0.30)';
+          const stroke = isMine ? 'rgba(0,188,212,0.85)' : 'rgba(255,152,0,0.85)';
+          const rx = claim.plot_x * SCALE;
+          const rz = claim.plot_z * SCALE;
+          const rs = 8 * SCALE; // 8 world units × 4 px/unit
+          minimapCtx.fillStyle = fill;
+          minimapCtx.fillRect(rx, rz, rs, rs);
+          minimapCtx.strokeStyle = stroke;
+          minimapCtx.lineWidth = 1;
+          minimapCtx.strokeRect(rx + 0.5, rz + 0.5, rs - 1, rs - 1);
+        }
+      }
+
       // Player position dot + facing indicator.
       const mx = Math.max(0, Math.min(SIZE, camera.position.x * SCALE));
       const mz = Math.max(0, Math.min(SIZE, camera.position.z * SCALE));
@@ -4963,7 +5218,7 @@
         stampPreviewMesh.scale.set(w, 1, h);
         stampPreviewMesh.position.set(minX + w / 2, y + 0.5, minZ + h / 2);
         stampPreviewMesh.visible = true;
-      } else if (playing && !stampModeActive && inBounds(target.place.x, target.place.y, target.place.z) && !blocks.has(key(target.place.x, target.place.y, target.place.z))) {
+      } else if (playing && !isReplayMode && !stampModeActive && inBounds(target.place.x, target.place.y, target.place.z) && !blocks.has(key(target.place.x, target.place.y, target.place.z))) {
         previewMesh.position.set(target.place.x + 0.5, target.place.y + 0.5, target.place.z + 0.5);
         previewMesh.visible = true;
       }
@@ -5048,6 +5303,76 @@
       if (gameMode !== 'spectate') challengeHudEl.classList.remove('hidden');
     }
 
+    // ---- Replay recording ----
+    const recordBtnEl = document.getElementById('record-btn');
+    const shareModalEl = document.getElementById('share-modal');
+
+    function updateRecordButton() {
+      if (recordingSessionId) {
+        recordBtnEl.title = 'Stop & Share';
+        recordBtnEl.innerHTML = '<span class="recording-pulse" style="color:#f87171;font-size:0.9rem">⏹</span>';
+      } else {
+        recordBtnEl.title = 'Record session';
+        recordBtnEl.innerHTML = '⏺';
+        recordBtnEl.style.color = '';
+      }
+    }
+
+    function showShareModal(url) {
+      document.getElementById('share-url').value = url;
+      shareModalEl.classList.remove('hidden');
+    }
+
+    async function stopRecording(silent) {
+      if (!recordingSessionId) return;
+      const sid = recordingSessionId;
+      recordingSessionId = null;
+      updateRecordButton();
+      try {
+        const res = await fetch('/api/replay/stop/' + sid, {
+          method: 'POST',
+          headers: { ...headers },
+        });
+        if (res.ok && !silent) {
+          const data = await res.json();
+          showShareModal(window.location.origin + data.share_path);
+        }
+      } catch (_) {}
+    }
+
+    recordBtnEl.addEventListener('click', async () => {
+      if (recordingSessionId) {
+        await stopRecording(false);
+      } else {
+        try {
+          const res = await fetch('/api/replay/start', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...headers },
+          });
+          if (res.ok) {
+            const data = await res.json();
+            recordingSessionId = data.session_id;
+            updateRecordButton();
+          }
+        } catch (_) {}
+      }
+    });
+
+    document.getElementById('share-copy-btn').addEventListener('click', async () => {
+      const url = document.getElementById('share-url').value;
+      try {
+        await navigator.clipboard.writeText(url);
+        const btn = document.getElementById('share-copy-btn');
+        const orig = btn.textContent;
+        btn.textContent = 'Copied!';
+        setTimeout(() => { btn.textContent = orig; }, 2000);
+      } catch (_) {}
+    });
+
+    document.getElementById('share-close-btn').addEventListener('click', () => {
+      shareModalEl.classList.add('hidden');
+    });
+
     // ---- Collab Challenge rendering ----
     function renderCollabChallenge() {
       if (!collabWindowId) return;
@@ -5128,6 +5453,7 @@
       if (gameMode !== 'spectate') challengeHudEl.classList.remove('hidden');
     }
 
+
     function renderBlocksPlacedHud() {
       document.getElementById('blocks-placed-count').textContent = myBlocksPlaced.toLocaleString();
     }
@@ -5138,6 +5464,8 @@
       }
       // Optimistic skin: use active skin for placements, none for breaks.
       applyLocal(x, y, z, t, t !== 0 ? myActiveSkinId : null);
+      // Optimistic claim-count increment for placements (not breaks).
+      if (t !== 0) myTotalBlocksPlaced++;
       // Optimistic challenge and mission updates.
       let goalsChanged = false;
       if (t !== 0 && challengeDate && !challengeCompleted) {
@@ -5172,14 +5500,28 @@
         if (sessionBlocksPlaced % 25 === 0) fetchCoachTip('block_milestone');
       }
       try {
+        const body = { x, y, z, block_type: t };
+        if (recordingSessionId) body.session_id = recordingSessionId;
         const _msgToSend = t !== 0 ? pendingMessage : null;
+        if (_msgToSend) body.message = _msgToSend;
         const endpoint = currentWorldId > 0 ? `/api/worlds/${currentWorldId}/blocks` : '/api/block';
         const res = await fetch(endpoint, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', ...headers },
-          body: JSON.stringify({ x, y, z, block_type: t, ...(_msgToSend ? { message: _msgToSend } : {}) }),
+          body: JSON.stringify(body),
         });
-        if (res.ok) {
+        if (!res.ok) {
+          // Server-side claim rejection (race condition: claims changed after last fetch).
+          if (res.status === 403) {
+            const errData = await res.json().catch(() => ({}));
+            if (errData.error === 'plot_claimed') {
+              fetchClaims(); // refresh claim data
+              showClaimBlockedMsg(errData.owner || 'another player');
+            }
+          }
+          return;
+        }
+        {
           if (_msgToSend) { pendingMessage = null; updateMsgWriteBtn(); }
           const data = await res.json();
           // Check combo tier-up before updateComboHud mutates lastComboMultiplier.
@@ -5243,8 +5585,14 @@
             }
           }
           if (data.challenge) syncChallenge(data.challenge);
-          if (data.coin_balance != null) {
-            coinBalance = data.coin_balance;
+          if (data.session_auto_stopped && recordingSessionId) {
+            const sid = recordingSessionId;
+            recordingSessionId = null;
+            updateRecordButton();
+            showShareModal(window.location.origin + '/replay/' + sid);
+          }
+          if (data.spendable_coins != null) {
+            spendableCoins = data.spendable_coins;
             updateCoinHud();
           }
           if (data.collab) syncCollab(data.collab);
@@ -5742,6 +6090,7 @@
     });
 
     function placeBlock() {
+      if (isReplayMode) return;
       if (!target || paused) return;
       const { x, y, z } = target.place;
       if (!inBounds(x, y, z)) return;
@@ -5805,6 +6154,14 @@
         return;
       }
       if (blocks.get(key(x, y, z)) === actualType) return;
+      // Client-side land claim guard: silently block edits in another player's plot.
+      if (gameMode === 'classic') {
+        const claim = getClaimAt(x, z);
+        if (claim && (myUserId === null || Number(claim.user_id) !== Number(myUserId))) {
+          showClaimBlockedMsg(claim.username);
+          return;
+        }
+      }
       const prevType = blocks.get(key(x, y, z)) ?? 0;
       audio.playPlace();
       if (mode === 'speedrun') speedrunSendBlock(x, y, z, actualType);
@@ -5880,6 +6237,7 @@
     }
 
     function breakBlock() {
+      if (isReplayMode) return;
       // In Classic mode, check if the crosshair is aimed at a mob before a block.
       if (playing && gameMode === 'classic' && mobMeshes.size > 0) {
         const hits = raycaster.intersectObjects([...mobMeshes.keys()], false);
@@ -5904,6 +6262,14 @@
         rebuildBlockMeshes();
         updateTaScoreDisplay();
         return;
+      }
+      // Client-side land claim guard: silently block breaks in another player's plot.
+      if (gameMode === 'classic') {
+        const claim = getClaimAt(x, z);
+        if (claim && (myUserId === null || Number(claim.user_id) !== Number(myUserId))) {
+          showClaimBlockedMsg(claim.username);
+          return;
+        }
       }
       if (gameMode === 'time-attack-60') {
         const k = key(x, y, z);
@@ -6802,7 +7168,7 @@
       const tier = TA_DIFFICULTY_LEVELS[taDifficulty - 1];
       taTimeLeft = tier.duration;
 
-      // Scatter blocks across the plot using vivid colors
+      // Scatter blocks across the plot using vivid colors (exclusive block IDs 19-21 are excluded from the type list)
       const taTypes = [9, 10, 11, 7, 6, 3]; // Red, Blue, Yellow, Brick, Sand, Stone
       let count = 0;
       let attempts = 0;
@@ -7504,6 +7870,7 @@
     // Handles per-mode initialization so it runs at the right moment regardless
     // of whether play was entered via pointer lock, drag fallback, or touch.
     function onPlayEntered() {
+      document.getElementById('coin-hud').classList.remove('hidden');
       refreshUndoButton();
       audio.startReggae();
       if (pendingTaInit) {
@@ -7593,6 +7960,8 @@
         return; // lobby handles entry into play
       }
       refreshUndoButton();
+      // Show record button only in classic mode
+      recordBtnEl.classList.toggle('hidden', mode !== 'classic');
       tryPointerLock();
       // Show energy display while playing
       energyDisplayEl.classList.remove('hidden');
@@ -7682,6 +8051,11 @@
         showAbandonConfirm();
         return;
       }
+      // Stop recording if in progress (silent — don't show share modal on menu exit).
+      if (recordingSessionId) stopRecording(true);
+      recordBtnEl.classList.add('hidden');
+
+
       // In TA mode, if still actively playing, end the run first (shows game-over).
       if (gameMode === 'timeattack' && playing) {
         endTimeAttack();
@@ -7744,6 +8118,7 @@
       document.getElementById('history-panel').classList.add('hidden');
       document.getElementById('crosshair').style.opacity = '';
       hideComboHud();
+      document.getElementById('coin-hud').classList.add('hidden');
       showModeCards();
       hideScoreHud();
 
@@ -8029,6 +8404,12 @@
     document.getElementById('play-tutorial-btn').addEventListener('click', () => { audio.init(); tryStartGameWithEnergy('tutorial'); });
     document.getElementById('play-learn-btn').addEventListener('click', () => { audio.init(); tryStartGameWithEnergy('learn'); });
     document.getElementById('play-spectate-btn').addEventListener('click', () => { audio.init(); startMode('spectate'); });
+    document.getElementById('sp-open-btn').addEventListener('click', openSeasonPassPanel);
+    document.getElementById('sp-close-btn').addEventListener('click', closeSeasonPassPanel);
+    // Close panel when clicking the backdrop.
+    document.getElementById('sp-panel').addEventListener('click', (e) => {
+      if (e.target === document.getElementById('sp-panel')) closeSeasonPassPanel();
+    });
     document.getElementById('play-versus-btn').addEventListener('click', () => { audio.init(); startMode('versus'); });
 
     // Energy modal handlers
@@ -8415,7 +8796,7 @@
       }
       if (inBattleMode || locked || !playing || !dragging) return;
       dragging = false;
-      canvas.style.cursor = 'grab';
+      canvas.style.cursor = isReplayMode ? 'default' : 'grab';
       const moved = Math.hypot(e.clientX - pressX, e.clientY - pressY);
       if (moved < DRAG_THRESHOLD && gameMode !== 'spectate') {
         // Left adds, right deletes.
@@ -8487,13 +8868,13 @@
               showBpNamingOverlay({ x1: minX, y1: minY, z1: minZ, x2: maxX, y2: maxY, z2: maxZ });
             }
           }
-        } else if (gameMode !== 'spectate' && !e.repeat) {
+        } else if (gameMode !== 'spectate' && !isReplayMode && !e.repeat) {
           placeHeld = true;
           placeBlock();
           lastRapidPlace = performance.now();
         }
       }
-      if (e.code === 'KeyG' && playing && gameMode !== 'spectate') breakBlock();
+      if (e.code === 'KeyG' && playing && !isReplayMode && gameMode !== 'spectate') breakBlock();
       // E: reveal the hidden message in the targeted block (Classic mode only)
       if (e.code === 'KeyE' && playing && gameMode === 'classic' && target) {
         const c = target.cell;
@@ -8548,6 +8929,8 @@
           toggleStampMode();
         } else if (!leaderboardEl.classList.contains('hidden')) {
           closeLeaderboard();
+        } else if (!shareModalEl.classList.contains('hidden')) {
+          shareModalEl.classList.add('hidden');
         } else if (!friendsPanelEl.classList.contains('hidden')) {
           closeFriends();
         } else if (!bpPanelEl.classList.contains('hidden')) {
@@ -8557,7 +8940,7 @@
           petPanelEl.classList.add('hidden');
         } else if (!themePanelEl.classList.contains('hidden')) {
           closeThemePanel();
-        } else if (dragMode && playing) {
+        } else if (dragMode && playing && !isReplayMode) {
           if (mode === 'speedrun') {
             showAbandonConfirm();
           } else if (gameMode === 'timeattack') {
@@ -10326,6 +10709,201 @@
       }
     });
 
+    // ---- Wager Matches panel UI ----
+    const wagerBtnEl = document.getElementById('wager-btn');
+    const wagerPanelEl = document.getElementById('wager-panel');
+    const wagerOpponentEl = document.getElementById('wager-opponent');
+    const wagerAmountEl = document.getElementById('wager-amount');
+    const wagerSendBtnEl = document.getElementById('wager-send-btn');
+    const wagerSendStatusEl = document.getElementById('wager-send-status');
+    const wagerContentEl = document.getElementById('wager-content');
+    let wagerOpen = false;
+
+    function closeWager() { wagerPanelEl.classList.add('hidden'); wagerOpen = false; }
+    function toggleWager() {
+      if (wagerOpen) { closeWager(); }
+      else {
+        wagerPanelEl.classList.remove('hidden');
+        wagerOpen = true;
+        loadWagerMatches();
+      }
+    }
+
+    async function loadWagerMatches() {
+      try {
+        // Load pending challenges
+        const pendingRes = await fetch('/api/matches/pending', { headers: { 'x-usernode-token': token } });
+        const pendingData = pendingRes.ok ? await pendingRes.json() : { pending_challenges: [] };
+
+        // Load active match
+        const activeRes = await fetch('/api/matches/active', { headers: { 'x-usernode-token': token } });
+        const activeData = activeRes.ok ? await activeRes.json() : { active_match: null };
+
+        // Load history
+        const historyRes = await fetch('/api/matches/history?limit=10', { headers: { 'x-usernode-token': token } });
+        const historyData = historyRes.ok ? await historyRes.json() : { matches: [] };
+
+        renderWagerMatches(pendingData.pending_challenges, activeData.active_match, historyData.matches);
+      } catch (e) {
+        console.error('load wager matches failed', e);
+      }
+    }
+
+    function renderWagerMatches(pending, active, history) {
+      const pendingSection = document.getElementById('wager-pending-section');
+      const activeSection = document.getElementById('wager-active-section');
+      const historySection = document.getElementById('wager-history-section');
+      const pendingList = document.getElementById('wager-pending-list');
+      const activeContent = document.getElementById('wager-active-content');
+      const historyList = document.getElementById('wager-history-list');
+
+      // Update badge
+      const badge = document.getElementById('wager-badge');
+      if (pending.length > 0) {
+        badge.classList.remove('hidden');
+        badge.textContent = pending.length;
+      } else {
+        badge.classList.add('hidden');
+      }
+
+      // Pending challenges
+      if (pending.length > 0) {
+        pendingSection.classList.remove('hidden');
+        pendingList.innerHTML = '';
+        pending.forEach((c) => {
+          const el = document.createElement('div');
+          el.className = 'p-2 rounded bg-zinc-800/50';
+          el.innerHTML = `
+            <div class="flex justify-between items-start gap-2">
+              <div class="flex-1">
+                <div class="font-semibold text-zinc-100">${c.challenger_username}</div>
+                <div class="text-xs text-zinc-400">Wager: ${c.wager_amount} coins</div>
+              </div>
+              <div class="flex gap-1">
+                <button class="wager-accept px-2 py-1 rounded bg-green-700 hover:bg-green-600 text-white text-xs font-semibold" data-id="${c.id}">Accept</button>
+                <button class="wager-decline px-2 py-1 rounded bg-red-700 hover:bg-red-600 text-white text-xs font-semibold" data-id="${c.id}">Decline</button>
+              </div>
+            </div>
+          `;
+          pendingList.appendChild(el);
+        });
+        document.querySelectorAll('.wager-accept').forEach((btn) => {
+          btn.addEventListener('click', () => acceptWagerMatch(Number(btn.dataset.id)));
+        });
+        document.querySelectorAll('.wager-decline').forEach((btn) => {
+          btn.addEventListener('click', () => declineWagerMatch(Number(btn.dataset.id)));
+        });
+      } else {
+        pendingSection.classList.add('hidden');
+      }
+
+      // Active match
+      if (active) {
+        activeSection.classList.remove('hidden');
+        activeContent.innerHTML = `
+          <div class="p-2 rounded bg-zinc-800/50 space-y-1 text-xs">
+            <div class="flex justify-between"><span class="text-zinc-400">Opponent:</span><span class="text-zinc-100">${active.opponent_username}</span></div>
+            <div class="flex justify-between"><span class="text-zinc-400">Wager:</span><span class="text-amber-400">${active.wager_amount} coins</span></div>
+            <div class="flex justify-between"><span class="text-zinc-400">Status:</span><span class="text-cyan-400">${active.my_score_submitted ? 'Waiting for opponent…' : 'Your turn!'}</span></div>
+            ${active.challenger_score !== null ? '<div class="flex justify-between"><span class="text-zinc-400">Challenger Score:</span><span class="text-zinc-100">' + active.challenger_score + '</span></div>' : ''}
+            ${active.opponent_score !== null ? '<div class="flex justify-between"><span class="text-zinc-400">Opponent Score:</span><span class="text-zinc-100">' + active.opponent_score + '</span></div>' : ''}
+          </div>
+        `;
+      } else {
+        activeSection.classList.add('hidden');
+      }
+
+      // History
+      if (history.length > 0) {
+        historySection.classList.remove('hidden');
+        historyList.innerHTML = '';
+        history.forEach((m) => {
+          const el = document.createElement('div');
+          el.className = 'p-2 rounded bg-zinc-800/50';
+          const resultColor = m.result === 'won' ? 'text-green-400' : m.result === 'lost' ? 'text-red-400' : 'text-zinc-400';
+          el.innerHTML = `
+            <div class="flex justify-between items-start gap-2">
+              <div class="flex-1">
+                <div class="font-semibold text-zinc-100 text-xs">${m.opponent_username}</div>
+                <div class="text-xs text-zinc-400">Wager: ${m.wager_amount} | You: ${m.my_score} vs ${m.opponent_score}</div>
+              </div>
+              <div class="text-xs font-semibold ${resultColor}">${m.result.toUpperCase()}</div>
+            </div>
+          `;
+          historyList.appendChild(el);
+        });
+      } else {
+        historySection.classList.add('hidden');
+      }
+    }
+
+    async function acceptWagerMatch(matchId) {
+      try {
+        const res = await fetch(`/api/matches/${matchId}/accept`, {
+          method: 'POST',
+          headers: { 'x-usernode-token': token, 'content-type': 'application/json' },
+          body: JSON.stringify({})
+        });
+        if (res.ok) {
+          loadWagerMatches();
+        } else {
+          const err = await res.json();
+          alert('Error accepting match: ' + err.error);
+        }
+      } catch (e) {
+        console.error('accept wager match failed', e);
+      }
+    }
+
+    async function declineWagerMatch(matchId) {
+      try {
+        const res = await fetch(`/api/matches/${matchId}/decline`, {
+          method: 'POST',
+          headers: { 'x-usernode-token': token, 'content-type': 'application/json' },
+          body: JSON.stringify({})
+        });
+        if (res.ok) {
+          loadWagerMatches();
+        } else {
+          const err = await res.json();
+          alert('Error declining match: ' + err.error);
+        }
+      } catch (e) {
+        console.error('decline wager match failed', e);
+      }
+    }
+
+    wagerSendBtnEl.addEventListener('click', async () => {
+      const opponent = wagerOpponentEl.value.trim();
+      const amount = Number(wagerAmountEl.value);
+      if (!opponent || !amount || amount < 1) {
+        wagerSendStatusEl.innerHTML = '<span class="text-red-400">Invalid input</span>';
+        return;
+      }
+      try {
+        const res = await fetch('/api/matches/challenge', {
+          method: 'POST',
+          headers: { 'x-usernode-token': token, 'content-type': 'application/json' },
+          body: JSON.stringify({ opponent_username: opponent, wager_amount: amount })
+        });
+        if (res.ok) {
+          wagerSendStatusEl.innerHTML = '<span class="text-green-400">Challenge sent!</span>';
+          wagerOpponentEl.value = '';
+          wagerAmountEl.value = '50';
+          setTimeout(() => { wagerSendStatusEl.innerHTML = ''; loadWagerMatches(); }, 1000);
+        } else {
+          const err = await res.json();
+          wagerSendStatusEl.innerHTML = '<span class="text-red-400">' + err.error + '</span>';
+        }
+      } catch (e) {
+        console.error('send wager challenge failed', e);
+        wagerSendStatusEl.innerHTML = '<span class="text-red-400">Error sending challenge</span>';
+      }
+    });
+
+    document.getElementById('wager-close').addEventListener('click', closeWager);
+    wagerBtnEl.addEventListener('click', toggleWager);
+
     // ---- Coins panel ----
     const coinsPanelEl = document.getElementById('coins-panel');
     const coinsBalanceEl = document.getElementById('coins-balance');
@@ -10943,21 +11521,34 @@
     function buildPalette() {
       const wrap = document.getElementById('palette');
       wrap.innerHTML = '';
+      // If selectedType is an exclusive block and pass is no longer active, reset it.
+      const selPalEntry = PALETTE.find((q) => q.id === selectedType);
+      if (selPalEntry && selPalEntry.exclusive && !seasonPassActive) {
+        selectedType = (PALETTE.find((q) => !q.exclusive) || PALETTE[0]).id;
+      }
       PALETTE.forEach((p, i) => {
-        const isLocked = !!(p.unlockAt && !unlockedTypes.has(p.id));
+        const isExclusive = !!(p.exclusive && !seasonPassActive);
+        const isProgression = !!(p.unlockAt && !unlockedTypes.has(p.id));
+        const isLocked = isExclusive || isProgression;
         const btn = document.createElement('button');
         btn.dataset.id = p.id;
         btn.title = isLocked
-          ? p.name + ' (place ' + p.unlockAt + ' blocks to unlock)'
+          ? (isExclusive ? p.name + ' (Season Pass required)' : p.name + ' (place ' + p.unlockAt + ' blocks to unlock)')
           : p.name + (i < 9 ? ' (' + (i + 1) + ')' : '');
         btn.className = 'relative w-10 h-10 rounded-md ring-offset-1 ring-offset-black/0 transition';
         btn.style.background = hcColor(p.color);
         if (isLocked) {
-          btn.style.opacity = '0.35';
+          btn.style.opacity = '0.45';
+          btn.style.cursor = 'not-allowed';
           const lock = document.createElement('span');
           lock.textContent = '🔒';
-          lock.className = 'absolute top-0 right-0 text-[9px] leading-none';
+          lock.className = 'absolute inset-0 flex items-center justify-center text-xs pointer-events-none';
           btn.appendChild(lock);
+          if (isExclusive) {
+            btn.addEventListener('click', () => {
+              openSeasonPassPanel();
+            });
+          }
         } else {
           if (p.opacity != null && p.opacity < 1) btn.style.opacity = '0.7';
           if (i < 9) {
@@ -11022,6 +11613,133 @@
       heldType = prev;
       holdLocked = true;
       updateHoldPanel();
+    }
+
+    // ---- Season Pass ----
+    function updateCoinHud() {
+      const el = document.getElementById('coin-hud');
+      if (!el) return;
+      el.textContent = '🪙 ' + spendableCoins;
+      // Show during gameplay; hide on the menu overlay.
+      el.classList.toggle('hidden', !playing);
+    }
+
+    function syncSeasonPassBtn() {
+      const btn = document.getElementById('sp-open-btn');
+      if (!btn) return;
+      if (seasonPassActive && seasonPassExpiresAt) {
+        const days = Math.ceil((new Date(seasonPassExpiresAt) - Date.now()) / 86400000);
+        btn.textContent = '👑 Season Pass active · ' + days + ' day' + (days === 1 ? '' : 's') + ' remaining';
+        btn.className = 'text-sm text-emerald-400 hover:text-emerald-300 transition-colors cursor-pointer';
+      } else {
+        btn.textContent = '✨ Season Pass (' + SEASON_PASS_COST + ' coins) →';
+        btn.className = 'text-sm text-violet-400 hover:text-violet-300 transition-colors cursor-pointer';
+      }
+    }
+
+    function renderSeasonPassPanel() {
+      const el = document.getElementById('sp-content');
+      if (!el) return;
+      const exclusiveBlocks = PALETTE.filter((p) => p.exclusive);
+      const daysLeft = seasonPassActive && seasonPassExpiresAt
+        ? Math.ceil((new Date(seasonPassExpiresAt) - Date.now()) / 86400000)
+        : 0;
+      const canAfford = spendableCoins >= SEASON_PASS_COST;
+
+      let statusHtml = '';
+      if (seasonPassActive) {
+        statusHtml = '<div class="mb-4 px-3 py-2 rounded-lg bg-emerald-900/40 border border-emerald-700/50 text-emerald-300 text-sm font-semibold">' +
+          '✓ Active · ' + daysLeft + ' day' + (daysLeft === 1 ? '' : 's') + ' remaining</div>';
+      } else if (seasonPassExpiresAt && !seasonPassActive) {
+        statusHtml = '<div class="mb-4 px-3 py-2 rounded-lg bg-zinc-800/60 border border-zinc-600/40 text-zinc-400 text-sm">Pass expired — re-purchase for another 30 days.</div>';
+      }
+
+      const blockSwatches = exclusiveBlocks.map((p) =>
+        '<div class="flex items-center gap-2">' +
+        '<div class="w-6 h-6 rounded shrink-0" style="background:' + p.color + ';' +
+          (p.opacity ? 'opacity:' + p.opacity : '') + '"></div>' +
+        '<span class="text-xs text-zinc-300">' + p.name + '</span>' +
+        '</div>'
+      ).join('');
+
+      const purchaseBtnHtml = seasonPassActive
+        ? '<button id="sp-purchase-btn" class="w-full mt-4 px-4 py-2.5 rounded-lg bg-emerald-700/50 text-emerald-300 text-sm font-semibold cursor-not-allowed opacity-60">Already active</button>'
+        : (canAfford
+          ? '<button id="sp-purchase-btn" class="w-full mt-4 px-4 py-2.5 rounded-lg bg-violet-600 hover:bg-violet-500 active:bg-violet-700 text-white text-sm font-semibold transition-colors cursor-pointer">Purchase for 250 coins</button>'
+          : '<button id="sp-purchase-btn" class="w-full mt-4 px-4 py-2.5 rounded-lg bg-zinc-700 text-zinc-500 text-sm font-semibold cursor-not-allowed" disabled>Not enough coins (' + spendableCoins + ' / ' + SEASON_PASS_COST + ')</button>');
+
+      el.innerHTML =
+        statusHtml +
+        '<div class="mb-3 flex items-center justify-between text-sm">' +
+          '<span class="text-zinc-400">Your coins</span>' +
+          '<span class="font-bold text-yellow-300 tabular-nums">🪙 ' + spendableCoins + '</span>' +
+        '</div>' +
+        '<div class="mb-4 text-xs text-zinc-500">Coins accumulate as you earn score. Each block placed earns coins.</div>' +
+        '<div class="mb-3 text-sm font-semibold text-zinc-300">30-day pass includes:</div>' +
+        '<div class="mb-2 space-y-2">' + blockSwatches + '</div>' +
+        '<div class="flex items-center gap-2 mt-2">' +
+          '<span class="text-lg leading-none">👑</span>' +
+          '<span class="text-xs text-zinc-300">Season Founder badge (permanent)</span>' +
+        '</div>' +
+        '<div class="mt-3 text-xs text-zinc-600">Blocks you place keep their appearance after expiry.</div>' +
+        purchaseBtnHtml;
+
+      const purchaseBtn = document.getElementById('sp-purchase-btn');
+      if (purchaseBtn && !seasonPassActive && canAfford) {
+        purchaseBtn.addEventListener('click', purchaseSeasonPass);
+      }
+    }
+
+    function openSeasonPassPanel() {
+      seasonPassPanelOpen = true;
+      renderSeasonPassPanel();
+      document.getElementById('sp-panel').classList.remove('hidden');
+    }
+
+    function closeSeasonPassPanel() {
+      seasonPassPanelOpen = false;
+      document.getElementById('sp-panel').classList.add('hidden');
+    }
+
+    async function purchaseSeasonPass() {
+      const btn = document.getElementById('sp-purchase-btn');
+      if (btn) { btn.disabled = true; btn.textContent = 'Purchasing…'; }
+      try {
+        const res = await fetch('/api/season-pass/purchase', { method: 'POST', headers });
+        const data = await res.json();
+        if (!res.ok) {
+          if (btn) { btn.disabled = false; btn.textContent = 'Purchase for 250 coins'; }
+          return;
+        }
+        // Update local state immediately.
+        spendableCoins = data.spendable_remaining;
+        seasonPassActive = true;
+        seasonPassExpiresAt = data.expires_at;
+        updateCoinHud();
+        syncSeasonPassBtn();
+        buildPalette(); // unlock exclusive palette slots
+        if (data.badge) {
+          earnedBadges.set(data.badge.id, { earned_at: new Date().toISOString() });
+          showBadgeToast(data.badge);
+          if (badgesOpen) renderBadgesPanel();
+        }
+        renderSeasonPassPanel(); // refresh panel to show active state
+      } catch (_) {
+        if (btn) { btn.disabled = false; btn.textContent = 'Purchase for 250 coins'; }
+      }
+    }
+
+    async function loadSeasonPass() {
+      try {
+        const res = await fetch('/api/season-pass', { headers });
+        if (!res.ok) return;
+        const data = await res.json();
+        spendableCoins = data.spendable;
+        seasonPassActive = data.active;
+        seasonPassExpiresAt = data.expires_at;
+        updateCoinHud();
+        syncSeasonPassBtn();
+      } catch (_) {}
     }
 
     // ---- Chat ----
@@ -11185,6 +11903,11 @@
         rebuildMonumentMeshes(data.monuments || []);
         applyA11ySettings(); // reflect any saved accessibility prefs on the live world
         spawnCamera();
+        // Bootstrap coin balance and pass state from the world response.
+        if (data.spendable_coins != null) spendableCoins = data.spendable_coins;
+        if (data.season_pass_active != null) seasonPassActive = data.season_pass_active;
+        if (data.season_pass_expires_at != null) seasonPassExpiresAt = data.season_pass_expires_at;
+        syncSeasonPassBtn();
         // Pre-populate the undo stack in staging so the history panel has visible content.
         if (isStaging) {
           const now = Date.now();
@@ -11806,7 +12529,7 @@
       tickParticles(dt);
       tickPet(now);
       updateTarget();
-      updateAttribution();
+      if (!isReplayMode) updateAttribution();
       // Blueprint: update ghost/selection visuals each frame.
       if (bpMode === 'stamp' && bpGhostGroup && target) {
         bpGhostGroup.position.set(target.x, target.y, target.z);
@@ -11843,6 +12566,8 @@
       // Animate Gold Star sparkle: sharp 0.25→0.7 pulse (~2.1s period).
       if (wildcardMaterial) wildcardMaterial.emissiveIntensity = 0.25 + 0.45 * Math.abs(Math.sin(now * 0.003));
       renderBuffHud();
+      claimGroup.visible = (gameMode === 'classic');
+      updateClaimHud();
 
       // Camera shake for disaster events: decaying sine displacement
       if (now < shakeEndTime) {
@@ -11850,6 +12575,7 @@
         camera.position.x += progress * shakeMag * Math.sin(now * shakeFreq * 0.001);
         camera.position.y += progress * shakeMag * 0.3 * Math.sin(now * shakeFreq * 0.0013);
       }
+
 
       renderer.render(scene, camera);
       if (gameMode !== null) renderMinimap();
@@ -11990,61 +12716,128 @@
       skipBtn.addEventListener('click', closeTutorial);
     }
 
-    (async function init() {
+    // ---- Replay viewer ----
+    async function initReplayViewer(sessionId) {
+      isReplayMode = true;
+
+      // Hide all game UI elements that don't belong in replay mode.
+      overlayEl.style.display = 'none';
+      hintEl.classList.add('hidden');
+      hintFallbackEl.classList.add('hidden');
+      lookModeEl.classList.add('hidden');
+      document.getElementById('palette').classList.add('hidden');
+      muteBtnEl.classList.add('hidden');
+      document.getElementById('help-btn').classList.add('hidden');
+      document.getElementById('leaderboard-btn').classList.add('hidden');
+      document.getElementById('build-stamp').classList.add('hidden');
+      challengeHudEl.classList.add('hidden');
+      controlsEl.classList.add('hidden');
+      leaderboardEl.classList.add('hidden');
+      touchControlsEl.classList.add('hidden');
+      document.getElementById('crosshair').classList.add('hidden');
+
+      const replayBannerEl = document.getElementById('replay-banner');
+      const replayBannerTextEl = document.getElementById('replay-banner-text');
+      const replayControlsEl = document.getElementById('replay-controls');
+      const replayPlayPauseEl = document.getElementById('replay-playpause');
+      const replaySpeedEl = document.getElementById('replay-speed');
+      const replayProgressFill = document.getElementById('replay-progress-fill');
+
+      replayBannerTextEl.textContent = 'Loading replay…';
+      replayBannerEl.classList.remove('hidden');
+
       updateOrientation();
 
-      // Register a platform invariant check to catch canvas pixel-dimension
-      // mismatches after orientation changes or DPR shifts. Accounts for the
-      // swapped w/h when the rotor is force-rotated to landscape.
-      if (window.usernode && window.usernode.invariants) {
-        window.usernode.invariants.register('canvas-pixel-dims', function () {
-          const c = document.getElementById('scene');
-          if (!c) return true;
-          const w = forceRotated ? window.innerHeight : window.innerWidth;
-          const h = forceRotated ? window.innerWidth : window.innerHeight;
-          const dpr = Math.min(window.devicePixelRatio, 2);
-          const expW = Math.round(w * dpr);
-          const expH = Math.round(h * dpr);
-          if (c.width !== expW || c.height !== expH) {
-            return 'canvas ' + c.width + 'x' + c.height + ' != expected ' + expW + 'x' + expH;
-          }
-          return true;
-        });
+      // Fetch replay data
+      let sessionData, events;
+      try {
+        const res = await fetch('/api/replay/' + sessionId, { headers });
+        if (!res.ok) {
+          replayBannerTextEl.textContent = res.status === 404 ? 'Replay not found.' : 'Failed to load replay.';
+          requestAnimationFrame(loop);
+          return;
+        }
+        const data = await res.json();
+        sessionData = data.session;
+        events = data.events;
+      } catch (e) {
+        replayBannerTextEl.textContent = 'Failed to load replay.';
+        requestAnimationFrame(loop);
+        return;
       }
 
-      refreshControlCopy();
-      // Initialize audio system and start menu background music. The
-      // AudioContext is created here, but browser autoplay policy keeps it
-      // suspended until the player's first gesture — so also wire one-shot
-      // listeners that re-run the (idempotent) init on first interaction,
-      // which actually resumes the context and makes the menu music audible.
-      audio.init();
-      let audioGestureDone = false;
-      const resumeAudioOnGesture = () => {
-        if (audioGestureDone) return;
-        audioGestureDone = true;
-        audio.init();
-        document.removeEventListener('pointerdown', resumeAudioOnGesture);
-        document.removeEventListener('keydown', resumeAudioOnGesture);
-        document.removeEventListener('touchstart', resumeAudioOnGesture);
-      };
-      document.addEventListener('pointerdown', resumeAudioOnGesture);
-      document.addEventListener('keydown', resumeAudioOnGesture);
-      document.addEventListener('touchstart', resumeAudioOnGesture);
-      const ok = await loadWorld();
-      if (!ok) return;
-      // Apply stored theme to Three.js scene now that scene objects are ready
-      applyTheme(getStoredTheme());
-      // Fetch earned badges so the panel renders correctly from the first open.
-      try {
-        const badgesRes = await fetch('/api/badges', { headers });
-        if (badgesRes.ok) {
-          const badgesData = await badgesRes.json();
-          for (const b of badgesData.badges) {
-            earnedBadges.set(b.id, { earned_at: b.earned_at });
+      // Load DIMS + PALETTE from server (needed for ground/palette rendering).
+      const worldRes = await fetch('/api/world', { headers });
+      if (worldRes.ok) {
+        const worldData = await worldRes.json();
+        DIMS = worldData.dims;
+        PALETTE = worldData.palette;
+        selectedType = PALETTE[0] ? PALETTE[0].id : 1;
+      }
+
+      // Populate blocks from the session's world snapshot.
+      blocks.clear();
+      const snapshot = sessionData.world_snapshot || [];
+      for (const b of snapshot) {
+        if (b.t !== 0) blocks.set(key(b.x, b.y, b.z), b.t);
+      }
+
+      buildGround();
+      buildGroundGrid();
+      buildPalette();
+      rebuildBlockMeshes();
+      spawnCamera();
+
+      // Enable free-fly camera for the viewer (drag-to-look, WASD movement).
+      playing = true;
+      dragMode = true;
+      canvas.style.cursor = 'default';
+
+      // Format the banner.
+      const startDate = new Date(sessionData.started_at);
+      const dateStr = startDate.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+      const safeUsername = escapeHtml(sessionData.username);
+      replayBannerTextEl.innerHTML = '▶ Replay — ' + safeUsername + '’s session · ' + dateStr;
+
+      replayControlsEl.classList.remove('hidden');
+
+      // Playback engine
+      let replayPlaying = false;
+      let replaySpeed = 1;
+      let replayIdx = 0;
+      let replayElapsedMs = 0;
+      let replayTimeoutHandle = null;
+      const totalDuration = events.length > 0 ? events[events.length - 1].offset_ms : 0;
+
+      function updateProgress() {
+        if (!totalDuration) { replayProgressFill.style.width = '100%'; return; }
+        const pct = Math.min(100, (replayElapsedMs / totalDuration) * 100);
+        replayProgressFill.style.width = pct + '%';
+      }
+
+      function scheduleNext() {
+        if (!replayPlaying || replayIdx >= events.length) {
+          if (replayIdx >= events.length) {
+            replayBannerTextEl.innerHTML = '✓ Replay complete — ' + safeUsername;
+            replayPlayPauseEl.textContent = '↺'; // ↺
+            replayProgressFill.style.width = '100%';
           }
+          return;
         }
-      } catch (_) { /* non-critical; panel will populate on first badge earned */ }
+        const ev = events[replayIdx];
+        const delay = Math.max(0, (ev.offset_ms - replayElapsedMs) / replaySpeed);
+        replayTimeoutHandle = setTimeout(() => {
+          replayTimeoutHandle = null;
+          if (!replayPlaying) return;
+          replayElapsedMs = ev.offset_ms;
+          const k = key(ev.x, ev.y, ev.z);
+          if (ev.block_type === 0) blocks.delete(k); else blocks.set(k, ev.block_type);
+          rebuildBlockMeshes();
+          replayIdx++;
+          updateProgress();
+          scheduleNext();
+        }, delay);
+      }
 
       // Load player XP / level so the HUD is correct before any block placement.
       try {
@@ -12057,17 +12850,41 @@
         }
       } catch (_) {}
 
-      await loadChat();
+      function pauseReplay() {
+        replayPlaying = false;
+        if (replayTimeoutHandle !== null) { clearTimeout(replayTimeoutHandle); replayTimeoutHandle = null; }
+        replayPlayPauseEl.textContent = '▶';
+      }
 
-      // Load friends once so the badge is correct and the online list
-      // can show friend status on first render. Non-fatal if unavailable.
-      fetchFriends().catch(() => {});
+      function playReplay() {
+        if (replayIdx >= events.length) {
+          // Restart from beginning.
+          replayIdx = 0;
+          replayElapsedMs = 0;
+          blocks.clear();
+          for (const b of snapshot) {
+            if (b.t !== 0) blocks.set(key(b.x, b.y, b.z), b.t);
+          }
+          rebuildBlockMeshes();
+          updateProgress();
+          replayBannerTextEl.innerHTML = '▶ Replay — ' + safeUsername + '’s session · ' + dateStr;
+        }
+        replayPlaying = true;
+        replayPlayPauseEl.textContent = '⏸';
+        scheduleNext();
+      }
 
-      // Load today's challenge progress (non-fatal if unavailable).
-      try {
-        const cr = await fetch('/api/challenge/today', { headers });
-        if (cr.ok) syncChallenge(await cr.json());
-      } catch (_) {}
+      replayPlayPauseEl.addEventListener('click', () => {
+        if (replayPlaying) pauseReplay(); else playReplay();
+      });
+
+      replaySpeedEl.addEventListener('change', () => {
+        replaySpeed = Number(replaySpeedEl.value);
+        if (replayPlaying) {
+          if (replayTimeoutHandle !== null) { clearTimeout(replayTimeoutHandle); replayTimeoutHandle = null; }
+          scheduleNext();
+        }
+      });
 
       // Load today's mission progress (non-fatal if unavailable).
       try {
@@ -12109,50 +12926,166 @@
       fetchTheme().catch(() => {});
 
       requestAnimationFrame(loop);
-      resetIdle();
-      // Poll is started per-mode in onPlayEntered(), not here.
-      setInterval(poll, 1500);
-      heartbeat();
-      setInterval(heartbeat, 30000);
-      setInterval(flushFogReveal, 15000);
-      pollPresence();
-      setInterval(pollPresence, 15000);
-      pollPowerUps();
-      setInterval(pollPowerUps, 1500);
-      pollMobs();
-      setInterval(pollMobs, 2000);
-      // Re-fetch challenge and mission every 30s to catch midnight UTC rollover
-      // and progress made in other tabs.
-      setInterval(async () => {
+      // Auto-play when loaded
+      playReplay();
+    }
+
+    // ---- Entry point: replay route or normal game ----
+    if (replayId) {
+      initReplayViewer(replayId);
+    } else {
+      (async function init() {
+        updateOrientation();
+
+        // Register a platform invariant check to catch canvas pixel-dimension
+        // mismatches after orientation changes or DPR shifts. Accounts for the
+        // swapped w/h when the rotor is force-rotated to landscape.
+        if (window.usernode && window.usernode.invariants) {
+          window.usernode.invariants.register('canvas-pixel-dims', function () {
+            const c = document.getElementById('scene');
+            if (!c) return true;
+            const w = forceRotated ? window.innerHeight : window.innerWidth;
+            const h = forceRotated ? window.innerWidth : window.innerHeight;
+            const dpr = Math.min(window.devicePixelRatio, 2);
+            const expW = Math.round(w * dpr);
+            const expH = Math.round(h * dpr);
+            if (c.width !== expW || c.height !== expH) {
+              return 'canvas ' + c.width + 'x' + c.height + ' != expected ' + expW + 'x' + expH;
+            }
+            return true;
+          });
+        }
+
+        refreshControlCopy();
+        // Initialize audio system and start menu background music. The
+        // AudioContext is created here, but browser autoplay policy keeps it
+        // suspended until the player's first gesture — so also wire one-shot
+        // listeners that re-run the (idempotent) init on first interaction,
+        // which actually resumes the context and makes the menu music audible.
+        audio.init();
+        let audioGestureDone = false;
+        const resumeAudioOnGesture = () => {
+          if (audioGestureDone) return;
+          audioGestureDone = true;
+          audio.init();
+          document.removeEventListener('pointerdown', resumeAudioOnGesture);
+          document.removeEventListener('keydown', resumeAudioOnGesture);
+          document.removeEventListener('touchstart', resumeAudioOnGesture);
+        };
+        document.addEventListener('pointerdown', resumeAudioOnGesture);
+        document.addEventListener('keydown', resumeAudioOnGesture);
+        document.addEventListener('touchstart', resumeAudioOnGesture);
+        const ok = await loadWorld();
+        if (!ok) return;
+        // Apply stored theme to Three.js scene now that scene objects are ready
+        applyTheme(getStoredTheme());
+        // Fetch earned badges so the panel renders correctly from the first open.
+        try {
+          const badgesRes = await fetch('/api/badges', { headers });
+          if (badgesRes.ok) {
+            const badgesData = await badgesRes.json();
+            for (const b of badgesData.badges) {
+              earnedBadges.set(b.id, { earned_at: b.earned_at });
+            }
+          }
+        } catch (_) { /* non-critical; panel will populate on first badge earned */ }
+        await loadChat();
+
+        // Load friends once so the badge is correct and the online list
+        // can show friend status on first render. Non-fatal if unavailable.
+        fetchFriends().catch(() => {});
+
+        resetIdle();
+        setInterval(poll, 1500);
+
+        // Load today's challenge progress (non-fatal if unavailable).
         try {
           const cr = await fetch('/api/challenge/today', { headers });
           if (cr.ok) syncChallenge(await cr.json());
         } catch (_) {}
-        try {
-          const mr = await fetch('/api/mission/today', { headers });
-          if (mr.ok) syncMission(await mr.json());
-        } catch (_) {}
-      }, 30000);
-      // Re-fetch collab challenge every 30s for overlay and non-playing updates.
-      setInterval(async () => {
-        try {
-          const cr = await fetch('/api/collab/current', { headers });
-          if (cr.ok) syncCollab(await cr.json());
-        } catch (_) {}
-      }, 30000);
+        // Re-fetch collab challenge every 30s for overlay and non-playing updates.
+        setInterval(async () => {
+          try {
+            const cr = await fetch('/api/collab/current', { headers });
+            if (cr.ok) syncCollab(await cr.json());
+          } catch (_) {}
+        }, 30000);
 
-      // Fetch initial weather state and poll every 30 s.
-      pollWeather();
-      setInterval(pollWeather, 30000);
-      // Check for an in-progress speedrun session and surface it on load.
-      try {
-        const res = await fetch('/api/speedrun/session', { headers });
-        if (res.ok) {
-          const active = await res.json();
-          if (active) openSpeedrunLobby(active);
-        }
-      } catch (_) {}
-    })();
+        // Land claims: load on start and refresh every 30s so the map stays fresh
+        // without needing a WebSocket (claims change rarely).
+        fetchClaims();
+        setInterval(fetchClaims, 30000);
+
+        // Claim HUD button handlers.
+        claimBtnEl.addEventListener('click', async () => {
+          const px = Math.max(0, Math.min(24, Math.floor(camera.position.x / 8) * 8));
+          const pz = Math.max(0, Math.min(24, Math.floor(camera.position.z / 8) * 8));
+          try {
+            const res = await fetch('/api/claims', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', ...headers },
+              body: JSON.stringify({ plot_x: px, plot_z: pz }),
+            });
+            const data = await res.json();
+            if (res.ok) {
+              await fetchClaims();
+              showClaimToast('Plot staked! Only you can build here.');
+            } else {
+              showClaimToast(data.error || 'Could not stake plot.');
+            }
+          } catch (_) { showClaimToast('Could not reach server.'); }
+        });
+
+        releaseBtnEl.addEventListener('click', async () => {
+          try {
+            const res = await fetch('/api/claims/mine', { method: 'DELETE', headers });
+            if (res.ok) {
+              await fetchClaims();
+              showClaimToast('Plot released.');
+            } else {
+              const data = await res.json().catch(() => ({}));
+              showClaimToast(data.error || 'Could not release plot.');
+            }
+          } catch (_) { showClaimToast('Could not reach server.'); }
+        });
+
+        requestAnimationFrame(loop);
+        // Poll is started per-mode in onPlayEntered(), not here.
+        heartbeat();
+        setInterval(heartbeat, 30000);
+        setInterval(flushFogReveal, 15000);
+        pollPresence();
+        setInterval(pollPresence, 15000);
+        pollPowerUps();
+        setInterval(pollPowerUps, 1500);
+        pollMobs();
+        setInterval(pollMobs, 2000);
+        // Fetch initial weather state and poll every 30 s.
+        pollWeather();
+        setInterval(pollWeather, 30000);
+        // Re-fetch challenge and mission every 30s to catch midnight UTC rollover
+        // and progress made in other tabs.
+        setInterval(async () => {
+          try {
+            const cr = await fetch('/api/challenge/today', { headers });
+            if (cr.ok) syncChallenge(await cr.json());
+          } catch (_) {}
+          try {
+            const mr = await fetch('/api/mission/today', { headers });
+            if (mr.ok) syncMission(await mr.json());
+          } catch (_) {}
+        }, 30000);
+
+        // Check for an in-progress speedrun session and surface it on load.
+        try {
+          const res = await fetch('/api/speedrun/session', { headers });
+          if (res.ok) {
+            const active = await res.json();
+            if (active) openSpeedrunLobby(active);
+          }
+        } catch (_) {}
+      })();
+    }
 
     // ================================================================
     // ==================== BATTLE MODE / TETRIS =======================
