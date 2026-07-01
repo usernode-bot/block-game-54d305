@@ -14,5 +14,8 @@
   "llm": {
     "purpose": "Gives players contextual tips and placement suggestions during gameplay",
     "suggested_daily_cap_cents": 100
-  }
+  },
+  "tests": [
+    { "name": "Home mode-select renders", "path": "/", "expectSelector": "#overlay [data-mode=\"versus\"]" }
+  ]
 }
