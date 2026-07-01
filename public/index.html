@@ -64,6 +64,7 @@
   <script>(function(){var t=localStorage.getItem('block-game-theme')||'default';document.documentElement.dataset.theme=t;})()</script>
 
   <title>block-game</title>
+  <link rel="icon" type="image/x-icon" href="/favicon.ico">
 
   <!-- Orbitron for cyberpunk theme headings -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -1159,7 +1160,7 @@
           class="fixed top-[9rem] right-3 z-30 w-9 h-9 rounded-full bg-black/50 hover:bg-black/70 text-zinc-100 text-lg leading-none flex items-center justify-center transition-colors cursor-pointer">📋</button>
 
   <!-- Daily Theme toggle: below the coach button. Hidden in Time Attack mode. -->
-  <button id="theme-btn" title="Daily Build Theme" aria-label="Daily Build Theme"
+  <button id="daily-theme-btn" title="Daily Build Theme" aria-label="Daily Build Theme"
           class="fixed top-[12.75rem] right-3 z-30 w-9 h-9 rounded-full bg-black/50 hover:bg-black/70 text-zinc-100 text-lg leading-none flex items-center justify-center transition-colors cursor-pointer">🌟</button>
 
   <!-- Coins toggle: sits below the friends button. -->
@@ -1365,8 +1366,6 @@
   <!-- Login Streak HUD: compact pill above the daily challenge bar. Bottom set by JS. -->
   <div id="streak-hud" class="hidden pointer-events-none fixed right-3 z-20 rounded-lg bg-black/55 px-2 py-1.5 text-xs text-white/90 font-semibold whitespace-nowrap"></div>
 
-  <!-- Coin HUD: shows current coin balance while playing. Hidden until first coin earned. -->
-  <div id="coin-hud" class="hidden pointer-events-none fixed left-3 bottom-20 z-20 rounded-lg bg-black/55 px-2 py-1.5 text-xs text-white/90 font-semibold whitespace-nowrap"></div>
 
   <!-- Daily Challenge HUD: bottom position set by JS (touch devices are raised
        to clear the on-screen action cluster). Hidden until init() loads data. -->
@@ -1594,7 +1593,7 @@
   </div>
 
   <!-- Wager Matches panel: send challenges, view pending, active, and history -->
-  <div id="wager-panel" class="hidden fixed top-28 right-3 z-30 w-full sm:w-96 max-w-[90vw] rounded-xl bg-black/70 backdrop-blur px-3 py-4 sm:p-4 text-sm text-zinc-200 shadow-xl overflow-y-auto max-h-[calc(100vh-120px)]">
+  <div id="wager-matches-panel" class="hidden fixed top-28 right-3 z-30 w-full sm:w-96 max-w-[90vw] rounded-xl bg-black/70 backdrop-blur px-3 py-4 sm:p-4 text-sm text-zinc-200 shadow-xl overflow-y-auto max-h-[calc(100vh-120px)]">
     <div class="flex items-center justify-between mb-4">
       <h2 id="wager-panel-title" class="font-bold text-zinc-100">Wager Matches</h2>
       <button id="wager-close" aria-label="Close wager matches" class="text-zinc-400 hover:text-zinc-100 cursor-pointer leading-none transition-colors">✕</button>
@@ -1607,7 +1606,7 @@
         <div class="flex gap-2 items-end">
           <div class="flex-1">
             <label class="text-xs text-zinc-400 block mb-1">Wager</label>
-            <input id="wager-amount" type="number" min="1" placeholder="Amount…" value="50"
+            <input id="wager-matches-amount" type="number" min="1" placeholder="Amount…" value="50"
                    class="w-full bg-zinc-800 text-zinc-100 text-xs rounded px-2 py-1.5 border border-zinc-700 focus:border-violet-500 outline-none placeholder-zinc-500">
           </div>
           <button id="wager-send-btn" class="shrink-0 px-3 py-1.5 bg-violet-600 hover:bg-violet-500 active:bg-violet-700 text-white text-xs font-semibold rounded cursor-pointer transition hover:scale-105 active:scale-95">Send</button>
@@ -2886,7 +2885,8 @@
     const saBottomPx = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--sai-bottom')) || 0;
     const challengeHudEl = document.getElementById('challenge-hud');
     const challengeBaseBottomPx = isTouch ? 240 : 16; // 15rem=240px, 1rem=16px
-    challengeHudEl.style.bottom = (challengeBaseBottomPx + saBottomPx) + 'px';
+    const challengeHudBottomPx = challengeBaseBottomPx + saBottomPx;
+    challengeHudEl.style.bottom = challengeHudBottomPx + 'px';
     const blocksPlacedHudEl = document.getElementById('blocks-placed-hud');
     blocksPlacedHudEl.style.bottom = isTouch ? '18rem' : '5.5rem';
     const chaosIndicatorEl = document.getElementById('chaos-indicator');
@@ -2905,7 +2905,6 @@
 
     // Coins HUD sits above the streak pill.
     const coinsHudEl = document.getElementById('coins-hud');
-    const STREAK_HUD_HEIGHT_PX = 28;
     coinsHudEl.style.bottom = (challengeHudBottomPx + CHALLENGE_HUD_HEIGHT_PX + STREAK_GAP_PX + STREAK_HUD_HEIGHT_PX + STREAK_GAP_PX) + 'px';
 
     function updateCoinsHud(balance) {
@@ -2925,7 +2924,6 @@
 
     // Collab challenge HUD sits above the streak HUD.
     const collabHudEl = document.getElementById('collab-challenge-hud');
-    const STREAK_HUD_HEIGHT_PX = 28; // approx rendered height of streak pill
     const streakHudBottomPx = challengeHudBottomPx + CHALLENGE_HUD_HEIGHT_PX + STREAK_GAP_PX;
     collabHudEl.style.bottom = (streakHudBottomPx + STREAK_HUD_HEIGHT_PX + STREAK_GAP_PX) + 'px';
 
@@ -3540,7 +3538,9 @@
     let versusPollHandle = null;
     let pendingVersusInit = false;
     let versusIsHost = false;
-    let myUserId = null;
+    // myUserId is already declared and populated from the token near the top of
+    // this module; re-derive here without re-declaring (avoids a redeclaration
+    // SyntaxError that aborts the whole script).
     try {
       if (token) {
         const _vp = JSON.parse(atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
@@ -3549,9 +3549,9 @@
     } catch (_) {}
 
     // ---- Three.js scaffold ----
-    let renderer, scene, camera;
+    let renderer, scene, camera, canvas;
     try {
-      const canvas = document.getElementById('scene');
+      canvas = document.getElementById('scene');
       if (!canvas) throw new Error('Canvas element (id="scene") not found');
       renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
       renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -3843,15 +3843,15 @@
 
     // ---- Particle systems (rain & snow) ----
     // Positions are in world-space, re-centered on the camera each frame.
-    const RAIN_COUNT = 800;
-    const rainPositions = new Float32Array(RAIN_COUNT * 3);
-    for (let i = 0; i < RAIN_COUNT; i++) {
-      rainPositions[i * 3]     = (Math.random() - 0.5) * 40;
-      rainPositions[i * 3 + 1] = Math.random() * 30;
-      rainPositions[i * 3 + 2] = (Math.random() - 0.5) * 40;
+    const RAIN_PT_COUNT = 800;
+    const rainPtPositions = new Float32Array(RAIN_PT_COUNT * 3);
+    for (let i = 0; i < RAIN_PT_COUNT; i++) {
+      rainPtPositions[i * 3]     = (Math.random() - 0.5) * 40;
+      rainPtPositions[i * 3 + 1] = Math.random() * 30;
+      rainPtPositions[i * 3 + 2] = (Math.random() - 0.5) * 40;
     }
     const rainGeom = new THREE.BufferGeometry();
-    rainGeom.setAttribute('position', new THREE.BufferAttribute(rainPositions, 3));
+    rainGeom.setAttribute('position', new THREE.BufferAttribute(rainPtPositions, 3));
 
     // Thin vertical streak texture for rain drops
     const _rainCv = document.createElement('canvas');
@@ -4362,7 +4362,7 @@
 
     // Stamp preview: wireframe box showing the rectangular region during a stamp drag
     const stampMaterial = new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.5 });
-    stampPreviewMesh = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(1, 1, 1)), stampMaterial);
+    const stampPreviewMesh = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(1, 1, 1)), stampMaterial);
     stampPreviewMesh.visible = false;
     scene.add(stampPreviewMesh);
 
@@ -4975,7 +4975,7 @@
         const rp   = rainGeom.attributes.position.array;
         const cx = camera.position.x, cy = camera.position.y, cz = camera.position.z;
         const fs = 18 * dt;
-        for (let i = 0; i < RAIN_COUNT; i++) {
+        for (let i = 0; i < RAIN_PT_COUNT; i++) {
           rp[i * 3 + 1] -= fs;
           if (rp[i * 3 + 1] < cy - 15) {
             rp[i * 3]     = cx + (Math.random() - 0.5) * 40;
@@ -5594,7 +5594,7 @@
           }
           if (data.spendable_coins != null) {
             spendableCoins = data.spendable_coins;
-            updateCoinHud();
+            updateSpendableCoinHud();
           }
           if (data.collab) syncCollab(data.collab);
           if (typeof data.total_score === 'number') {
@@ -6608,7 +6608,6 @@
     let stampStartCell = null;
     let stampEndCell = null;
     let stampDragInProgress = false;
-    let stampPreviewMesh = null;
     const move = { f: false, b: false, l: false, r: false, up: false, down: false };
     const SPEED = 9, SENS = 0.0022;
 
@@ -10394,7 +10393,7 @@
     // ---- Daily Build Theme panel ----
     const themePanelEl = document.getElementById('theme-panel');
     const themeContentEl = document.getElementById('theme-content');
-    const themeBtnEl = document.getElementById('theme-btn');
+    const dailyThemeBtnEl = document.getElementById('daily-theme-btn');
     let themeTimer = null;
     let themeData = null;
 
@@ -10601,7 +10600,7 @@
       }
     }
 
-    themeBtnEl.addEventListener('click', toggleThemePanel);
+    dailyThemeBtnEl.addEventListener('click', toggleThemePanel);
     document.getElementById('theme-close').addEventListener('click', closeThemePanel);
 
     document.getElementById('coach-dismiss').addEventListener('click', dismissCoachTip);
@@ -10713,19 +10712,19 @@
 
     // ---- Wager Matches panel UI ----
     const wagerBtnEl = document.getElementById('wager-btn');
-    const wagerPanelEl = document.getElementById('wager-panel');
+    const wagerMatchesPanelEl = document.getElementById('wager-matches-panel');
     const wagerOpponentEl = document.getElementById('wager-opponent');
-    const wagerAmountEl = document.getElementById('wager-amount');
+    const wagerMatchesAmountEl = document.getElementById('wager-matches-amount');
     const wagerSendBtnEl = document.getElementById('wager-send-btn');
     const wagerSendStatusEl = document.getElementById('wager-send-status');
     const wagerContentEl = document.getElementById('wager-content');
     let wagerOpen = false;
 
-    function closeWager() { wagerPanelEl.classList.add('hidden'); wagerOpen = false; }
+    function closeWager() { wagerMatchesPanelEl.classList.add('hidden'); wagerOpen = false; }
     function toggleWager() {
       if (wagerOpen) { closeWager(); }
       else {
-        wagerPanelEl.classList.remove('hidden');
+        wagerMatchesPanelEl.classList.remove('hidden');
         wagerOpen = true;
         loadWagerMatches();
       }
@@ -10877,7 +10876,7 @@
 
     wagerSendBtnEl.addEventListener('click', async () => {
       const opponent = wagerOpponentEl.value.trim();
-      const amount = Number(wagerAmountEl.value);
+      const amount = Number(wagerMatchesAmountEl.value);
       if (!opponent || !amount || amount < 1) {
         wagerSendStatusEl.innerHTML = '<span class="text-red-400">Invalid input</span>';
         return;
@@ -10891,7 +10890,7 @@
         if (res.ok) {
           wagerSendStatusEl.innerHTML = '<span class="text-green-400">Challenge sent!</span>';
           wagerOpponentEl.value = '';
-          wagerAmountEl.value = '50';
+          wagerMatchesAmountEl.value = '50';
           setTimeout(() => { wagerSendStatusEl.innerHTML = ''; loadWagerMatches(); }, 1000);
         } else {
           const err = await res.json();
@@ -11388,7 +11387,7 @@
       document.querySelectorAll('.load-world-btn').forEach((btn) => {
         btn.addEventListener('click', (e) => {
           const id = Number(e.target.dataset.id);
-          loadWorld(id);
+          loadSavedWorld(id);
         });
       });
       document.querySelectorAll('.delete-world-btn').forEach((btn) => {
@@ -11405,7 +11404,7 @@
       });
     }
 
-    async function loadWorld(id) {
+    async function loadSavedWorld(id) {
       if (!token) return;
       try {
         const res = await fetch(`/api/worlds/${id}/blocks`, { headers: { 'x-usernode-token': token } });
@@ -11618,7 +11617,7 @@
     }
 
     // ---- Season Pass ----
-    function updateCoinHud() {
+    function updateSpendableCoinHud() {
       const el = document.getElementById('coin-hud');
       if (!el) return;
       el.textContent = '🪙 ' + spendableCoins;
@@ -11717,7 +11716,7 @@
         spendableCoins = data.spendable_remaining;
         seasonPassActive = true;
         seasonPassExpiresAt = data.expires_at;
-        updateCoinHud();
+        updateSpendableCoinHud();
         syncSeasonPassBtn();
         buildPalette(); // unlock exclusive palette slots
         if (data.badge) {
@@ -11739,7 +11738,7 @@
         spendableCoins = data.spendable;
         seasonPassActive = data.active;
         seasonPassExpiresAt = data.expires_at;
-        updateCoinHud();
+        updateSpendableCoinHud();
         syncSeasonPassBtn();
       } catch (_) {}
     }
