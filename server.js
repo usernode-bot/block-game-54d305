@@ -5905,6 +5905,26 @@ app.get('/api/skins/:skin_id', async (req, res) => {
   }
 });
 
+// ---- World conditions API ----
+// NOTE: must be registered BEFORE the `app.get('*')` catch-all below, or the
+// catch-all shadows it and every request falls through to the 401 HTML shell.
+app.get('/api/world-conditions', async (_req, res) => {
+  try {
+    const { rows } = await pool.query(
+      'SELECT weather, change_at, next_change FROM world_conditions WHERE id = 1'
+    );
+    if (!rows.length) return res.json({ weather: 'clear', changeAt: 0, nextChangeAt: 0 });
+    const r = rows[0];
+    res.json({
+      weather: r.weather,
+      changeAt: Number(r.change_at),
+      nextChangeAt: Number(r.next_change),
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ---- Static + HTML shell ----
 app.use(express.static(path.join(__dirname, 'public'), {
   setHeaders(res, filePath) {
@@ -6235,7 +6255,7 @@ async function seedStaging() {
   for (const s of srSeeds) {
     await pool.query(
       `INSERT INTO speedrun_sessions (id, user_id, username, started_at, completed_at, elapsed_ms, current_level, status)
-       VALUES ($1, $2, $3, NOW() - ($4 || ' milliseconds')::INTERVAL, NOW(), $4, 5, 'complete')
+       VALUES ($1, $2, $3, NOW() - ($4::bigint * INTERVAL '1 millisecond'), NOW(), $4::bigint, 5, 'complete')
        ON CONFLICT (id) DO NOTHING`,
       [s.sessId, s.userId, s.username, s.ms]
     );
@@ -6450,11 +6470,11 @@ async function seedStaging() {
     const lineBlocks = [];
     for (let x = 0; x < 32; x++) {
       for (let z = 0; z < 32; z++) {
-        lineBlocks.push(`(${x}, 2, ${z}, 3, ${SEED_USER_ID}, 'Staging demo')`);
+        lineBlocks.push(`(${x}, 2, ${z}, 3, nextval('block_seq'), ${SEED_USER_ID}, 'Staging demo')`);
       }
     }
     await pool.query(
-      `INSERT INTO blocks (x, y, z, block_type, updated_by_user_id, updated_by_username) VALUES
+      `INSERT INTO blocks (x, y, z, block_type, seq, updated_by_user_id, updated_by_username) VALUES
        ${lineBlocks.join(',')}
        ON CONFLICT (x, y, z) DO NOTHING`
     );
@@ -6475,11 +6495,11 @@ async function seedStaging() {
         const cellKey = `${bx},5,${bz}`;
         if (cellKey === skipCell) continue;
         const blockType = bombCells.has(cellKey) ? 27 : 3;
-        bombRowBlocks.push(`(${bx}, 5, ${bz}, ${blockType}, ${SEED_USER_ID}, 'Staging demo')`);
+        bombRowBlocks.push(`(${bx}, 5, ${bz}, ${blockType}, nextval('block_seq'), ${SEED_USER_ID}, 'Staging demo')`);
       }
     }
     await pool.query(
-      `INSERT INTO blocks (x, y, z, block_type, updated_by_user_id, updated_by_username) VALUES
+      `INSERT INTO blocks (x, y, z, block_type, seq, updated_by_user_id, updated_by_username) VALUES
        ${bombRowBlocks.join(',')}
        ON CONFLICT (x, y, z) DO NOTHING`
     );
@@ -6940,7 +6960,9 @@ async function weatherSchedulerTick() {
     );
     if (rows.length && Number(rows[0].next_change) <= Date.now()) {
       const next = pickNextWeather(rows[0].weather);
-      const dur = (5 + Math.random() * 25) * 60 * 1000; // 5–30 minutes
+      // Floor to an integer: change_at / next_change are BIGINT columns and
+      // Math.random() makes this a float, which Postgres rejects for bigint.
+      const dur = Math.floor((5 + Math.random() * 25) * 60 * 1000); // 5–30 minutes
       const now = Date.now();
       await pool.query(
         'UPDATE world_conditions SET weather = $1, change_at = $2, next_change = $3 WHERE id = 1',
@@ -6953,25 +6975,6 @@ async function weatherSchedulerTick() {
   }
   setTimeout(weatherSchedulerTick, 60000); // re-check every minute
 }
-
-// ---- World conditions API ----
-
-app.get('/api/world-conditions', async (_req, res) => {
-  try {
-    const { rows } = await pool.query(
-      'SELECT weather, change_at, next_change FROM world_conditions WHERE id = 1'
-    );
-    if (!rows.length) return res.json({ weather: 'clear', changeAt: 0, nextChangeAt: 0 });
-    const r = rows[0];
-    res.json({
-      weather: r.weather,
-      changeAt: Number(r.change_at),
-      nextChangeAt: Number(r.next_change),
-    });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
 
 async function seedCoins() {
   const coinSeeds = [
