@@ -6,6 +6,11 @@ const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const WebSocket = require('ws');
 
+// The platform's address, injected by the platform at deploy (#2047). Never
+// written out here: a hardcoded hostname is what broke this app when the
+// platform moved domains. Empty only outside the platform (local runs).
+const PLATFORM_ORIGIN = (process.env.USERNODE_PLATFORM_ORIGIN || '').replace(/\/+$/, '');
+
 const app = express();
 const httpServer = http.createServer(app);
 const wss = new WebSocket.Server({ noServer: true });
@@ -5529,7 +5534,7 @@ app.post('/api/share-score', async (req, res) => {
     res.json({
       message,
       mode,
-      twitter_url: `https://twitter.com/intent/tweet?text=${encodeURIComponent(message)}&url=${encodeURIComponent('https://social-vibecoding.usernodelabs.org/app/block-game')}`
+      twitter_url: `https://twitter.com/intent/tweet?text=${encodeURIComponent(message)}&url=${encodeURIComponent((PLATFORM_ORIGIN + '/app/block-game'))}`
     });
   } catch (err) {
     console.error('share-score error', err.message);
@@ -5946,7 +5951,7 @@ app.get('*', (req, res) => {
   <div style="max-width:24rem;padding:2rem;text-align:center">
     <h1 style="font-size:1.25rem;margin:0 0 0.5rem">Open this app inside Usernode</h1>
     <p style="color:#a1a1aa;font-size:0.9rem;margin:0 0 1.25rem">This page is served via the platform; direct visits aren't authenticated.</p>
-    <a href="https://social-vibecoding.usernodelabs.org" style="display:inline-block;padding:0.5rem 1rem;background:#7c3aed;color:white;border-radius:0.5rem;text-decoration:none;font-size:0.9rem">Go to Usernode</a>
+    <a href="${PLATFORM_ORIGIN}" style="display:inline-block;padding:0.5rem 1rem;background:#7c3aed;color:white;border-radius:0.5rem;text-decoration:none;font-size:0.9rem">Go to Usernode</a>
   </div>
 </body>`);
   }
