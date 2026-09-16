@@ -73,11 +73,11 @@
 
   <script src="https://cdn.tailwindcss.com"></script>
   <script>tailwind.config = { darkMode: 'class' }</script>
-  <script src="https://social-vibecoding.usernodelabs.org/usernode-bridge/v1/bridge.js"></script>
+  <script src="/usernode-bridge/v1/bridge.js"></script>
   <script type="importmap">
   { "imports": { "three": "https://unpkg.com/three@0.160.0/build/three.module.js" } }
   </script>
-  <script src="https://social-vibecoding.usernodelabs.org/usernode-bridge/v1/bridge.js"></script>
+  <script src="/usernode-bridge/v1/bridge.js"></script>
   <style>
     html, body { margin: 0; height: 100%; overflow: hidden; overscroll-behavior: none; }
     #scene { position: fixed; inset: 0; display: block; }
@@ -8690,7 +8690,15 @@
     document.getElementById('share-usernode-btn').addEventListener('click', () => shareScore('usernode'));
     document.getElementById('share-close-btn').addEventListener('click', closeShareMenu);
 
-    const APP_URL = 'https://social-vibecoding.usernodelabs.org/app/block-game';
+    // The platform's address, from the browser rather than a hostname written
+    // here (#2047): inside the platform the app is framed, so the top frame's
+    // origin is the platform (ancestorOrigins, else the referrer).
+    const PLATFORM_ORIGIN = (() => {
+      try { const a = window.location.ancestorOrigins; if (a && a.length) return a[a.length - 1]; } catch (_) {}
+      try { if (document.referrer) return new URL(document.referrer).origin; } catch (_) {}
+      return '';
+    })();
+    const APP_URL = PLATFORM_ORIGIN + '/app/block-game';
 
     function buildClipboardText(mode, scoreData) {
       const subject = myUsername || 'I';
