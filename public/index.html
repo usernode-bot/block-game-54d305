@@ -82,14 +82,6 @@
     html, body { margin: 0; height: 100%; overflow: hidden; overscroll-behavior: none; }
     #scene { position: fixed; inset: 0; display: block; }
     #rotor { position: fixed; inset: 0; }
-    #rotor.rotated {
-      inset: auto;
-      top: 0; left: 0;
-      width: 100vh;
-      height: 100vw;
-      transform-origin: top left;
-      transform: translateX(100vw) rotate(90deg);
-    }
 
     /* Touch overlay hygiene: never let look-drags scroll/zoom the page or let
        button presses select text. Also prevent stray two-finger gestures outside
@@ -751,8 +743,8 @@
 </head>
 <body class="bg-zinc-950 text-zinc-100">
   <canvas id="bg-canvas"></canvas>
-  <!-- Rotor: everything visual lives inside so portrait phones can force-rotate
-       the whole app to landscape in one transform (see CSS). -->
+  <!-- Rotor: full-viewport wrapper for everything visual. The layout follows
+       the device's real orientation (portrait or landscape); nothing is rotated. -->
   <div id="rotor">
   <canvas id="scene"></canvas>
 
@@ -2205,7 +2197,7 @@
     }
 
     // Touch capability: drives (a) the on-screen control overlay, (b) skipping
-    // mouse-lock in favour of direct touch play, and (c) portrait force-rotation.
+    // mouse-lock in favour of direct touch play, and (c) the landscape control layout.
     // Desktop (isTouch === false) keeps every existing mouse/keyboard path.
     const isTouch = (window.matchMedia && window.matchMedia('(pointer: coarse)').matches)
       || ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
@@ -8993,8 +8985,6 @@
     // Look-drag: a one-finger drag on open canvas turns/tilts the camera, reusing
     // applyLookDelta (the same path the mouse uses). A single touch is tracked by
     // identifier so a second finger held on a move/build button never hijacks it.
-    // When force-rotated to landscape, raw screen deltas are remapped into the
-    // rotated frame: a 90° CW rotor means local-x = screen-y and local-y = -screen-x.
     let lookTouchId = null, lookLastX = 0, lookLastY = 0;
     canvas.addEventListener('touchstart', (e) => {
       if (!isTouch || !playing || lookTouchId !== null) return;
@@ -9008,8 +8998,7 @@
         if (t.identifier !== lookTouchId) continue;
         const pdx = t.clientX - lookLastX, pdy = t.clientY - lookLastY;
         lookLastX = t.clientX; lookLastY = t.clientY;
-        if (forceRotated) applyLookDelta(pdy, -pdx);
-        else applyLookDelta(pdx, pdy);
+        applyLookDelta(pdx, pdy);
         e.preventDefault();
       }
     }, { passive: false });
@@ -12265,15 +12254,10 @@
     });
 
     // ---- Render loop ----
-    // forceRotated: true only when a touch device is held in portrait. The rotor
-    // is CSS-rotated 90° (see <style>), so the renderer/camera must use the
-    // SWAPPED (landscape) viewport dimensions to match the rotated box.
-    let forceRotated = false;
-    const rotorEl = document.getElementById('rotor');
+    // The game follows the device's real orientation on every phone: nothing is
+    // rotated, so the renderer/camera always use the actual viewport size.
     function updateOrientation() {
       const portrait = !!(window.matchMedia && window.matchMedia('(orientation: portrait)').matches);
-      forceRotated = isTouch && portrait;
-      rotorEl.classList.toggle('rotated', forceRotated);
       // In landscape mode on touch devices, enable landscape-specific button layout.
       const touchControlsEl = document.getElementById('touch-controls');
       const isLandscape = !portrait && isTouch;
@@ -12283,10 +12267,8 @@
       resize();
     }
     function resize() {
-      // When force-rotated, the visible game area is the viewport with width/height
-      // swapped (the rotor is 100vh × 100vw spun 90°).
-      const w = forceRotated ? window.innerHeight : window.innerWidth;
-      const h = forceRotated ? window.innerWidth : window.innerHeight;
+      const w = window.innerWidth;
+      const h = window.innerHeight;
       // updateStyle MUST stay true (the default): a fixed-position <canvas>
       // with width:auto is a replaced element that falls back to its intrinsic
       // (drawing-buffer) size and ignores `inset:0`, so passing false here let
@@ -12956,14 +12938,13 @@
         updateOrientation();
 
         // Register a platform invariant check to catch canvas pixel-dimension
-        // mismatches after orientation changes or DPR shifts. Accounts for the
-        // swapped w/h when the rotor is force-rotated to landscape.
+        // mismatches after orientation changes or DPR shifts.
         if (window.usernode && window.usernode.invariants) {
           window.usernode.invariants.register('canvas-pixel-dims', function () {
             const c = document.getElementById('scene');
             if (!c) return true;
-            const w = forceRotated ? window.innerHeight : window.innerWidth;
-            const h = forceRotated ? window.innerWidth : window.innerHeight;
+            const w = window.innerWidth;
+            const h = window.innerHeight;
             const dpr = Math.min(window.devicePixelRatio, 2);
             const expW = Math.round(w * dpr);
             const expH = Math.round(h * dpr);
