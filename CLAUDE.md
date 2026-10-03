@@ -99,11 +99,37 @@ tables you've marked private), etc.
 
 ## About block-game
 
-_(add a sentence or two of product context here so Claude Code has a
-shared understanding of what this app is for)_
+A shared 3D voxel creative building game, like Minecraft creative mode.
+The screen's one job is building in the shared world; its one primary
+action is the crosshair click that Places a block. Players fly around one
+finite 128×64×128 world, pick from an eight-type palette in the Hotbar,
+and Place (left-click) or Break (right-click) blocks. Everyone's edits
+show up for everyone else within about a second; nothing else — no chat,
+avatars, gravity or survival elements.
 
 ## App-specific conventions
 
-_(optional — e.g. "all currency values stored as integer cents, not
-floats"; "the `posts` table is append-only"; "avoid adding new
-dependencies"; etc.)_
+Design: the accent is grass-green (light: `green-600`, dark: `green-400`)
+over warm stone neutrals (`stone-*` for panels, borders and text, in both
+looks) — not the starter's violet/zinc. The signature element is the
+voxel world itself plus the Minecraft-style Hotbar tray along the bottom.
+Words on screen: World, Hotbar, slot, Crosshair, Place (left-click),
+Break (right-click), and the block names Grass, Dirt, Stone, Log, Planks,
+Brick, Glass, Leaves.
+
+- The 3D scene keeps ONE FIXED LOOK (a single daytime sky, sun and fog) —
+  it is the game's own scenery and does not follow the viewer's light/dark
+  theme. Only the HUD chrome has `dark:` variants driven by the theme
+  script on `<html>`.
+- Block positions are integer grid coordinates: cell (x, y, z) is the unit
+  cube whose lowest corner sits there. The world is 0–127 × 0–63 × 0–127.
+- The `blocks` table is an upsert-only log, never deleted from: breaking
+  writes `type = 'air'` as a tombstone row instead of removing the row.
+- Palette of exactly eight types (above); the flat colours in `PALETTE` in
+  `public/game.js` are the single source for both the 3D blocks and the
+  Hotbar previews — change them there only.
+- three.js is vendored into `public/vendor/` by `npm run build:vendor`
+  from the npm package; nothing loads from a CDN at runtime, and the
+  vendored files are never committed.
+- Multiplayer sync is once-a-second polling of `/api/blocks?since=`; no
+  websockets.

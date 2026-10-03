@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  
+
   <script>
   // usernode-dev-console@1
   (function () {
@@ -92,7 +92,9 @@
        the script below reads it. -->
   <script src="/usernode-bridge/v1/bridge.js"></script>
   <!-- Follow the viewer's Homeroom theme (the bridge reports it), with the
-       OS preference as the fallback outside Homeroom. -->
+       OS preference as the fallback outside Homeroom. The 3D scene does NOT
+       follow it — the world is the game's own scenery with one fixed daytime
+       look; only this HUD chrome follows the theme. -->
   <script>
     (function () {
       var media = window.matchMedia('(prefers-color-scheme: dark)');
@@ -107,103 +109,60 @@
     })();
   </script>
 </head>
-<body class="bg-zinc-50 text-zinc-900 dark:bg-zinc-950 dark:text-zinc-100 min-h-screen">
-  <main class="max-w-md mx-auto px-4 py-10 flex flex-col gap-6">
+<body class="bg-stone-100 text-stone-800 dark:bg-stone-950 dark:text-stone-200">
+  <!-- The whole screen is the world. The 3D scene is the game's own scenery,
+       so it keeps one fixed look in both themes; the HUD chrome below it
+       carries the light/dark variants. -->
+  <div class="fixed inset-0 overflow-hidden select-none">
+    <canvas id="game" class="block w-full h-full touch-none"></canvas>
 
-    <!-- usernode-starter-notice@1 — starter-template messaging. When building
-         the user's real app, replace this whole screen and delete this block,
-         both sentinel comments included. -->
-    <section class="rounded-2xl border border-violet-500/30 bg-gradient-to-b from-violet-600/10 dark:from-violet-600/20 to-transparent p-6 text-center flex flex-col items-center gap-3">
-      <span class="inline-block rounded-full bg-violet-600/10 text-violet-700 dark:bg-violet-600/20 dark:text-violet-300 text-xs font-semibold uppercase tracking-wide px-3 py-1">Starter template</span>
-      <h1 class="text-2xl font-bold">block-game</h1>
-      <p class="text-sm text-zinc-600 dark:text-zinc-300 leading-relaxed">Welcome to your new app! Everything on this screen is placeholder content that came with it.</p>
-      <p class="text-sm text-zinc-600 dark:text-zinc-300 leading-relaxed">Tap the <strong class="text-violet-700 dark:text-violet-300 font-semibold">Homeroom icon</strong> in the header and choose <strong class="text-violet-700 dark:text-violet-300 font-semibold">Start a new change</strong> to start building your app. Describe what you'd like in plain English, and it will be turned into your real app.</p>
-    </section>
+    <!-- Crosshair: the aim point everything else serves. Replaced by the
+         session-expired message when the token has died. -->
+    <div id="crosshair" class="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 pointer-events-none" aria-hidden="true">
+      <svg class="w-5 h-5 text-white drop-shadow" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M10 3v14M3 10h14" />
+      </svg>
+    </div>
+    <div id="expired" class="hidden absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 pointer-events-none rounded-lg bg-stone-900/80 text-stone-50 text-sm px-4 py-2">
+      Session expired — reload the page
+    </div>
 
-    <section>
-      <h2 class="text-sm font-medium text-zinc-500 mb-2 px-1">What's already working</h2>
-      <div class="rounded-xl border border-zinc-200 bg-white divide-y divide-zinc-200 dark:border-zinc-800 dark:bg-zinc-900/60 dark:divide-zinc-800">
-        <div class="flex items-start gap-3 p-4">
-          <svg class="w-5 h-5 text-violet-600 dark:text-violet-400 shrink-0 mt-0.5" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M16.7 5.3a1 1 0 0 1 0 1.4l-7 7a1 1 0 0 1-1.4 0l-3-3a1 1 0 1 1 1.4-1.4L9 11.6l6.3-6.3a1 1 0 0 1 1.4 0Z" clip-rule="evenodd"/></svg>
-          <div>
-            <p class="text-sm font-semibold text-zinc-900 dark:text-zinc-100">Sign-in</p>
-            <p class="text-sm text-zinc-600 dark:text-zinc-400">You're signed in through Homeroom automatically — no accounts to build.</p>
-          </div>
-        </div>
-        <div class="flex items-start gap-3 p-4">
-          <svg class="w-5 h-5 text-violet-600 dark:text-violet-400 shrink-0 mt-0.5" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M16.7 5.3a1 1 0 0 1 0 1.4l-7 7a1 1 0 0 1-1.4 0l-3-3a1 1 0 1 1 1.4-1.4L9 11.6l6.3-6.3a1 1 0 0 1 1.4 0Z" clip-rule="evenodd"/></svg>
-          <div>
-            <p class="text-sm font-semibold text-zinc-900 dark:text-zinc-100">Database</p>
-            <p class="text-sm text-zinc-600 dark:text-zinc-400">Your app has its own private database, ready to store things.</p>
-          </div>
-        </div>
-        <div class="flex items-start gap-3 p-4">
-          <svg class="w-5 h-5 text-violet-600 dark:text-violet-400 shrink-0 mt-0.5" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M16.7 5.3a1 1 0 0 1 0 1.4l-7 7a1 1 0 0 1-1.4 0l-3-3a1 1 0 1 1 1.4-1.4L9 11.6l6.3-6.3a1 1 0 0 1 1.4 0Z" clip-rule="evenodd"/></svg>
-          <div>
-            <p class="text-sm font-semibold text-zinc-900 dark:text-zinc-100">Live API</p>
-            <p class="text-sm text-zinc-600 dark:text-zinc-400">The example below talks to a real server — try it.</p>
-          </div>
-        </div>
+    <!-- Name of the block in the selected slot. -->
+    <div id="block-name" class="absolute bottom-24 left-1/2 -translate-x-1/2 pointer-events-none rounded-md bg-stone-200/80 text-stone-800 text-sm font-medium px-3 py-1 dark:bg-stone-900/80 dark:text-stone-100" aria-live="polite"></div>
+
+    <!-- Hotbar: the palette tray, built slot by slot from the same palette
+         data game.js renders the blocks with. Slots are chunky squares with
+         a raised border look; the selected one gets the grass-green accent. -->
+    <div class="absolute bottom-4 left-1/2 -translate-x-1/2">
+      <div id="hotbar" class="flex gap-1 rounded-xl border-2 border-stone-300 bg-stone-200/90 p-1 shadow-lg dark:border-stone-700 dark:bg-stone-900/90" role="toolbar" aria-label="Hotbar"></div>
+    </div>
+
+    <!-- Shown whenever the mouse is NOT locked (Esc, before first click).
+         The hints carry the words the game uses: Place, Break, Hotbar slot. -->
+    <div id="overlay" class="absolute inset-0 flex items-center justify-center bg-stone-900/50">
+      <div class="rounded-2xl border border-stone-300 bg-stone-100 px-8 py-6 text-center max-w-sm dark:border-stone-700 dark:bg-stone-900">
+        <h1 id="overlay-title" class="text-xl font-bold text-stone-900 dark:text-stone-50">Click to build</h1>
+        <p id="overlay-note" class="mt-1 text-sm text-stone-600 dark:text-stone-300">Your mouse will steer the camera.</p>
+        <dl id="overlay-hints" class="mt-4 space-y-1.5 text-sm text-stone-700 dark:text-stone-300">
+          <div class="flex justify-between gap-6"><dt class="text-stone-500 dark:text-stone-400">Move</dt><dd>W A S D</dd></div>
+          <div class="flex justify-between gap-6"><dt class="text-stone-500 dark:text-stone-400">Rise / sink</dt><dd>Space / Shift</dd></div>
+          <div class="flex justify-between gap-6"><dt class="text-stone-500 dark:text-stone-400">Place</dt><dd>Left-click</dd></div>
+          <div class="flex justify-between gap-6"><dt class="text-stone-500 dark:text-stone-400">Break</dt><dd>Right-click</dd></div>
+          <div class="flex justify-between gap-6"><dt class="text-stone-500 dark:text-stone-400">Hotbar slot</dt><dd>1–8 or wheel</dd></div>
+          <div class="flex justify-between gap-6"><dt class="text-stone-500 dark:text-stone-400">Release mouse</dt><dd>Esc</dd></div>
+        </dl>
       </div>
-    </section>
-    <!-- /usernode-starter-notice@1 -->
+    </div>
 
-    <section class="rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900/60 p-5 flex flex-col items-center gap-5">
-      <div class="w-full flex items-baseline justify-between gap-2">
-        <h2 class="text-sm font-medium text-zinc-500">Try the example</h2>
-        <span class="text-xs text-zinc-500 dark:text-zinc-600">This example will be replaced</span>
+    <!-- Touch devices: this version needs a mouse and keyboard. -->
+    <div id="touch-card" class="hidden absolute inset-0 flex items-center justify-center bg-stone-900/50">
+      <div class="rounded-2xl border border-stone-300 bg-stone-100 px-8 py-6 text-center max-w-sm dark:border-stone-700 dark:bg-stone-900">
+        <h1 class="text-xl font-bold text-stone-900 dark:text-stone-50">Open block-game on a computer to build</h1>
+        <p class="mt-1 text-sm text-stone-600 dark:text-stone-300">This version needs a mouse and keyboard.</p>
       </div>
+    </div>
+  </div>
 
-      <button id="press-btn" class="w-32 h-32 rounded-full bg-violet-600 hover:bg-violet-500 active:scale-95 transition-all text-white text-xl font-bold shadow-lg shadow-violet-600/30">
-        Press!
-      </button>
-
-      <div id="count" class="text-lg text-zinc-600 dark:text-zinc-400">0 total presses</div>
-
-      <div class="w-full max-w-sm">
-        <h3 class="text-sm font-medium text-zinc-500 mb-2 text-center">Leaderboard</h3>
-        <div id="leaderboard" class="space-y-1"></div>
-      </div>
-    </section>
-
-    <p class="text-center text-xs text-zinc-500 dark:text-zinc-600">Built on Homeroom — this template screen disappears once you build your real app.</p>
-  </main>
-
-  <script>
-    const params = new URLSearchParams(window.location.search);
-    const token = params.get('token') || '';
-    const headers = token ? { 'x-usernode-token': token } : {};
-
-    async function loadLeaderboard() {
-      const res = await fetch('/api/leaderboard', { headers });
-      if (!res.ok) return;
-      const { leaderboard } = await res.json();
-      const el = document.getElementById('leaderboard');
-      if (!leaderboard.length) {
-        el.innerHTML = '<p class="text-center text-zinc-500 dark:text-zinc-600 text-sm">No presses yet</p>';
-        return;
-      }
-      el.innerHTML = leaderboard.map((r, i) =>
-        '<div class="flex justify-between px-3 py-1 rounded ' + (i === 0 ? 'bg-violet-600/10 text-violet-700 dark:bg-violet-600/20 dark:text-violet-300' : 'text-zinc-600 dark:text-zinc-400') + '">' +
-        '<span>' + (i + 1) + '. ' + r.username + '</span>' +
-        '<span class="font-mono">' + r.presses + '</span></div>'
-      ).join('');
-      const total = leaderboard.reduce((s, r) => s + parseInt(r.presses), 0);
-      document.getElementById('count').textContent = total + ' total presses';
-    }
-
-    document.getElementById('press-btn').addEventListener('click', async () => {
-      try {
-        const res = await fetch('/api/press', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', ...headers },
-        });
-        if (res.ok) loadLeaderboard();
-        else if (res.status === 401) document.getElementById('count').textContent = 'Sign in to press!';
-      } catch {}
-    });
-
-    loadLeaderboard();
-  </script>
+  <script type="module" src="/game.js"></script>
 </body>
 </html>

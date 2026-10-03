@@ -1,3 +1,11 @@
 {
-  "secrets": []
+  "secrets": [],
+  "tests": [
+    {
+      "name": "hotbar tray renders",
+      "path": "/",
+      "expectSelector": "#hotbar",
+      "visual": true
+    }
+  ]
 }

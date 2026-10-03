@@ -6,13 +6,15 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "build": "npm run build:css",
-    "build:css": "tailwindcss -c tailwind.config.js -i styles/tailwind-input.css -o public/tailwind.css --minify"
+    "build": "npm run build:css && npm run build:vendor",
+    "build:css": "tailwindcss -c tailwind.config.js -i styles/tailwind-input.css -o public/tailwind.css --minify",
+    "build:vendor": "mkdir -p public/vendor && cp node_modules/three/build/three.module.js node_modules/three/build/three.core.js public/vendor/"
   },
   "dependencies": {
     "express": "^4.21.0",
+    "jsonwebtoken": "^9.0.2",
     "pg": "^8.13.0",
-    "jsonwebtoken": "^9.0.2"
+    "three": "^0.186.1"
   },
   "devDependencies": {
     "tailwindcss": "3.4.17"

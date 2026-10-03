@@ -5,3 +5,4 @@ public/tailwind.css
 .playwright-mcp/
 test-results/
 playwright-report/
+public/vendor/

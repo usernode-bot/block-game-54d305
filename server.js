@@ -25,6 +25,19 @@ const APP_AUDIENCE = process.env.USERNODE_APP_ID
 // Everything else requires a valid platform-issued JWT.
 const PUBLIC_API_PATHS = new Set(['/health']);
 
+// The world is a finite box of cells: x and z span the ground plane, y the
+// height. Cell (x, y, z) is the unit cube whose lowest corner sits at those
+// integer grid coordinates. Everything else about the world — block types,
+// which cells are solid — lives in the `blocks` table.
+const WORLD = { sizeX: 128, sizeY: 64, sizeZ: 128 };
+
+// The palette the Hotbar offers. `air` is not buildable but is accepted by
+// POST as the break operation: a broken cell keeps its row with type 'air'
+// (a tombstone), so no history is ever destroyed.
+const BLOCK_TYPES = new Set([
+  'grass', 'dirt', 'stone', 'log', 'planks', 'brick', 'glass', 'leaves',
+]);
+
 app.use(express.json());
 
 // The platform's three centrally hosted files — the bridge, the native UI
@@ -109,29 +122,69 @@ app.get('/health', (_req, res) => res.json({ status: 'ok' }));
 // fresh load.
 app.get('/favicon.ico', (_req, res) => res.status(204).end());
 
-// Button press
-app.post('/api/press', async (req, res) => {
+// Read the world. Without a parameter: every row (the full state a client
+// needs on first load). With `?since=<ISO timestamp>`: only cells changed
+// since then, so the client's once-a-second poll stays cheap. `air` rows
+// come through as tombstones so a client can clear a cell it has rendered.
+//
+// serverTime is read from the database clock (never the client's), and the
+// client echoes it back as its next `since` so clock skew can't skip or
+// replay changes.
+app.get('/api/blocks', async (req, res) => {
   try {
-    await pool.query(`
-      INSERT INTO presses (user_id, username) VALUES ($1, $2)
-    `, [req.user.id, req.user.username]);
-    res.json({ ok: true });
+    // An unparseable `since` is treated as absent (full dump) rather than
+    // erroring — a client that sends garbage still converges on the world.
+    let since = null;
+    if (typeof req.query.since === 'string' && req.query.since.trim() !== '') {
+      const t = new Date(req.query.since);
+      if (!Number.isNaN(t.getTime())) since = t;
+    }
+    // serverTime is captured BEFORE the row query, from the same clock as
+    // `updated_at`, and both statements run in the same moment: a row this
+    // first query misses (committed a breath later) always has
+    // updated_at > serverTime, so the next poll echoes serverTime back as
+    // `since` and picks it up. Echoing the client's own clock instead would
+    // risk skipping changes on clock skew.
+    const ts = await pool.query('SELECT now() AS server_time');
+    const { rows } = await pool.query(
+      `SELECT x, y, z, type
+         FROM blocks${since ? ' WHERE updated_at > $1' : ''}
+        ORDER BY updated_at, x, y, z`,
+      since ? [since] : []
+    );
+    res.json({
+      blocks: rows.map(r => [r.x, r.y, r.z, r.type]),
+      serverTime: new Date(ts.rows[0].server_time).toISOString(),
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// Leaderboard
-app.get('/api/leaderboard', async (_req, res) => {
+// Write one cell: a palette type to place it, 'air' to break it. Who did it
+// is recorded but not shown anywhere in this first version.
+app.post('/api/blocks', async (req, res) => {
+  const { x, y, z, type } = req.body || {};
+  const isInt = Number.isInteger(x) && Number.isInteger(y) && Number.isInteger(z);
+  const inBounds = isInt
+    && x >= 0 && x < WORLD.sizeX
+    && y >= 0 && y < WORLD.sizeY
+    && z >= 0 && z < WORLD.sizeZ;
+  if (!inBounds) return res.status(400).json({ error: 'Cell out of bounds' });
+  if (!BLOCK_TYPES.has(type) && type !== 'air') {
+    return res.status(400).json({ error: 'Unknown block type' });
+  }
   try {
-    const { rows } = await pool.query(`
-      SELECT username, COUNT(*) as presses
-      FROM presses
-      GROUP BY username
-      ORDER BY presses DESC
-      LIMIT 50
-    `);
-    res.json({ leaderboard: rows });
+    await pool.query(`
+      INSERT INTO blocks (x, y, z, type, updated_by, updated_by_name)
+      VALUES ($1, $2, $3, $4, $5, $6)
+      ON CONFLICT (x, y, z) DO UPDATE
+        SET type = EXCLUDED.type,
+            updated_by = EXCLUDED.updated_by,
+            updated_by_name = EXCLUDED.updated_by_name,
+            updated_at = NOW()
+    `, [x, y, z, type, req.user.id, req.user.username]);
+    res.json({ ok: true, serverTime: new Date().toISOString() });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -174,15 +227,43 @@ app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
+// The flat grass ground the shared world starts as: one Grass block per
+// ground cell, 16,384 rows in a single statement. Only when the table is
+// empty, and each row ON CONFLICT DO NOTHING, so two app instances starting
+// at once (or a restart after someone already built) cannot double-seed or
+// overwrite the world.
+async function seedGround() {
+  const { rows } = await pool.query('SELECT 1 AS one FROM blocks LIMIT 1');
+  if (rows.length) return;
+  await pool.query(`
+    INSERT INTO blocks (x, y, z, type, updated_by, updated_by_name)
+    SELECT x, 0, z, 'grass', 0, 'block-game'
+      FROM generate_series(0, $1) AS x
+      CROSS JOIN generate_series(0, $2) AS z
+      ON CONFLICT (x, y, z) DO NOTHING
+  `, [WORLD.sizeX - 1, WORLD.sizeZ - 1]);
+  console.log('Seeded flat grass ground');
+}
+
 async function start() {
   await pool.query(`
-    CREATE TABLE IF NOT EXISTS presses (
-      id SERIAL PRIMARY KEY,
-      user_id INTEGER NOT NULL,
-      username VARCHAR(255) NOT NULL,
-      created_at TIMESTAMPTZ DEFAULT NOW()
+    CREATE TABLE IF NOT EXISTS blocks (
+      x INTEGER NOT NULL,
+      y INTEGER NOT NULL,
+      z INTEGER NOT NULL,
+      type VARCHAR(16) NOT NULL,
+      updated_by INTEGER NOT NULL,
+      updated_by_name VARCHAR(255) NOT NULL,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (x, y, z)
     )
   `);
+  // The incremental poll filters on updated_at once per connected client
+  // per second; without this index every poll is a full-table sort.
+  await pool.query(
+    'CREATE INDEX IF NOT EXISTS blocks_updated_at ON blocks (updated_at)'
+  );
+  await seedGround();
   const server = app.listen(port, () => console.log(`Listening on :${port}`));
   // Let Envoy retire idle upstream connections at 60s, with a 15s margin.
   server.keepAliveTimeout = 75_000;

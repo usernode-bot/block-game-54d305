@@ -24,6 +24,9 @@ COPY --chown=1000:1000 . .
 # After the source copy so the compiled stylesheet is not overwritten by the
 # source tree (which deliberately does not contain one).
 COPY --chown=1000:1000 --from=css /build/public/tailwind.css ./public/tailwind.css
+# Same for the vendored three.js: npm run build copies it from node_modules
+# into public/vendor/, and the runtime image runs no build script.
+COPY --chown=1000:1000 --from=css /build/public/vendor ./public/vendor
 EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
   CMD wget -qO- http://localhost:3000/health || exit 1
