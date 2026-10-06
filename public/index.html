@@ -250,9 +250,14 @@
     #friends-btn    { top: calc(6.25rem + env(safe-area-inset-top));  right: calc(0.75rem + env(safe-area-inset-right)); }
     #build-stamp    { top: calc(9rem    + env(safe-area-inset-top));  right: calc(0.75rem + env(safe-area-inset-right)); }
 
-    /* Right-edge HUD pills — bottom is computed by JS (which reads --sai-bottom). */
-    #challenge-hud  { right: calc(0.75rem + env(safe-area-inset-right)); }
-    #streak-hud     { right: calc(0.75rem + env(safe-area-inset-right)); }
+    /* Right-edge Challenges drawer — the toggle's bottom anchor is set by JS
+       (which reads --sai-bottom); the drawer sits a toggle-height above it. */
+    #hud-drawer-toggle { right: calc(0.75rem + env(safe-area-inset-right)); }
+    #hud-drawer        { right: calc(0.75rem + env(safe-area-inset-right)); bottom: calc(3.75rem  + env(safe-area-inset-bottom)); }
+    .touch-device #hud-drawer { bottom: calc(17.75rem + env(safe-area-inset-bottom)); }
+    /* Sections separated by hairlines: every section carries a top border so
+       the divider lands under the header whichever sections are visible. */
+    #hud-drawer .hud-sec { border-top: 1px solid rgba(255,255,255,0.10); }
     #chat-toggle    { right: calc(0.75rem + env(safe-area-inset-right)); }
 
     /* Bottom/left/right-edge game HUD elements */
@@ -279,6 +284,12 @@
     #palette.touch-playing > button {
       flex-shrink: 0;
       scroll-snap-align: start;
+    }
+    /* Swatches never compress on any width: keep their size and let the
+       strip scroll sideways instead, so every block stays reachable. */
+    #palette > button {
+      flex-shrink: 0;
+      min-width: 2.5rem;
     }
     /* Enlarge HUD icon buttons to the 44px minimum recommended touch target. */
     .touch-device #badges-btn,
@@ -311,8 +322,7 @@
     html.a11y-hc #palette,
     html.a11y-hc #ta-hud > div,
     html.a11y-hc #attribution,
-    html.a11y-hc #challenge-hud,
-    html.a11y-hc #streak-hud,
+    html.a11y-hc #hud-drawer,
     html.a11y-hc #hint,
     html.a11y-hc #hint-fallback,
     html.a11y-hc #powerup-hud > div,
@@ -565,9 +575,13 @@
         gap: 0.25rem;
       }
 
-      /* Reduce palette bottom offset to avoid overlap with landscape controls. */
+      /* Landscape: the palette strip sits between the movement pad and the
+         corner action column, and draws above them so swatches win the taps
+         if the two ever meet. */
       #palette.touch-playing {
-        bottom: 8.5rem;
+        bottom: 11rem;
+        max-width: calc(100% - 22rem);
+        z-index: 30;
       }
     }
 
@@ -768,7 +782,7 @@
 
   <!-- Weather / time-of-day indicator: bottom-left, above the hold panel.
        Fades in when weather changes, fades out after 6s of stability. -->
-  <div id="weather-hud" class="pointer-events-none fixed left-4 z-20 text-xs font-semibold text-white/90 bg-black/55 rounded-lg px-2 py-1.5 whitespace-nowrap" style="bottom: 5.5rem; opacity: 0; transition: opacity 0.7s;"></div>
+  <div id="weather-hud" class="pointer-events-none fixed left-4 z-20 text-xs font-semibold text-white/90 bg-black/75 rounded-lg px-2 py-1.5 whitespace-nowrap" style="bottom: 5.5rem; opacity: 0; transition: opacity 0.7s;"></div>
 
   <!-- Mode-select / start overlay.
        overflow-y-auto makes the whole panel scrollable so every mode card is
@@ -1351,29 +1365,32 @@
   <!-- Badge toast container: toasts stack above the palette, bottom-centre. -->
   <div id="badge-toasts" class="pointer-events-none fixed left-1/2 -translate-x-1/2 z-40 flex flex-col-reverse items-center gap-2" style="bottom: 5.5rem"></div>
 
-  <!-- Collab Challenge HUD: stacked above streak/daily HUDs. Bottom set by JS. -->
-  <div id="collab-challenge-hud" class="hidden pointer-events-none fixed right-3 z-20 w-44 rounded-lg bg-black/55 px-2 py-1.5 text-xs text-white/90"></div>
+  <!-- Challenges drawer: the five right-edge info pills (coins, daily prompt,
+       daily challenge + mission, community challenge, login streak) collapsed
+       into one collapsible panel, closed by default. The section IDs stay the
+       same so their renderers are untouched; #hud-drawer-toggle opens/closes. -->
+  <div id="hud-drawer" class="hidden pointer-events-auto fixed right-3 z-[35] w-44 rounded-xl bg-zinc-900/95 backdrop-blur shadow-xl overflow-y-auto text-xs text-white/90" style="max-height:60vh">
+    <div class="flex items-center justify-between px-2.5 pt-2 pb-1.5">
+      <span class="font-bold text-white">Challenges</span>
+      <button id="hud-drawer-close" aria-label="Close challenges" class="text-zinc-400 hover:text-zinc-100 cursor-pointer leading-none">✕</button>
+    </div>
+    <div id="coins-hud" class="hud-sec hidden px-2.5 py-1.5 text-xs text-amber-300 font-semibold whitespace-nowrap"></div>
+    <div id="prompt-hud" class="hud-sec hidden px-2.5 py-1.5 text-xs text-white/90"></div>
+    <div id="challenge-hud" class="hud-sec hidden px-2.5 py-1.5 text-xs text-white/90"></div>
+    <div id="collab-challenge-hud" class="hud-sec hidden px-2.5 py-1.5 text-xs text-white/90"></div>
+    <div id="streak-hud" class="hud-sec hidden px-2.5 py-1.5 text-xs text-white/90 font-semibold whitespace-nowrap"></div>
+  </div>
 
-  <!-- Coins HUD: coin balance pill above the streak pill. Bottom set by JS. -->
-  <div id="coins-hud" class="hidden pointer-events-none fixed right-3 z-20 rounded-lg bg-black/55 px-2 py-1.5 text-xs text-amber-300 font-semibold whitespace-nowrap"></div>
-
-  <!-- Daily Prompt HUD: compact pill above the streak HUD. Bottom set by JS. -->
-  <div id="prompt-hud" class="hidden pointer-events-none fixed right-3 z-20 w-36 rounded-lg bg-black/55 px-2 py-1.5 text-xs text-white/90"></div>
-
-  <!-- Login Streak HUD: compact pill above the daily challenge bar. Bottom set by JS. -->
-  <div id="streak-hud" class="hidden pointer-events-none fixed right-3 z-20 rounded-lg bg-black/55 px-2 py-1.5 text-xs text-white/90 font-semibold whitespace-nowrap"></div>
-
-
-  <!-- Daily Challenge HUD: bottom position set by JS (touch devices are raised
-       to clear the on-screen action cluster). Hidden until init() loads data. -->
-  <div id="challenge-hud" class="hidden pointer-events-none fixed right-3 z-20 w-44 rounded-lg bg-black/55 px-2 py-1.5 text-xs text-white/90"></div>
+  <!-- Challenges drawer toggle: the one visible pill where the old stack sat. -->
+  <button id="hud-drawer-toggle" aria-expanded="false" aria-controls="hud-drawer"
+          class="pointer-events-auto fixed right-3 z-[35] h-9 px-2.5 rounded-lg bg-black/55 active:bg-black/70 text-xs font-semibold text-zinc-100 flex items-center cursor-pointer">🎯 Challenges</button>
 
   <!-- Chaos Mode indicator pill: shown when chaos mode is active. -->
   <div id="chaos-indicator" class="hidden pointer-events-none fixed left-3 z-20 rounded-lg bg-amber-500/80 px-2 py-1 text-xs font-bold text-white whitespace-nowrap">🎲 CHAOS</div>
 
   <!-- Blocks Placed HUD: personal lifetime stat, bottom-left corner.
        Bottom position set by JS (raised on touch to clear movement pad). -->
-  <div id="blocks-placed-hud" class="hidden pointer-events-none fixed left-3 z-20 rounded-lg bg-black/55 px-2 py-1.5 text-white/90">
+  <div id="blocks-placed-hud" class="hidden pointer-events-none fixed left-3 z-20 rounded-lg bg-black/75 px-2 py-1.5 text-white/90">
     <div class="text-[9px] font-bold uppercase tracking-widest text-white/60 leading-tight">Blocks Placed</div>
     <div id="blocks-placed-count" class="text-lg font-mono font-bold leading-tight tabular-nums">0</div>
   </div>
@@ -1391,7 +1408,7 @@
   </div>
 
   <!-- Player HP HUD: shown in Classic mode only. -->
-  <div id="hp-hud" class="hidden pointer-events-none fixed bottom-24 left-4 z-20 rounded-lg bg-black/55 px-2 py-1.5 text-xs text-white/90 font-semibold whitespace-nowrap">&#10084; <span id="hp-value">10</span></div>
+  <div id="hp-hud" class="hidden pointer-events-none fixed bottom-24 left-4 z-20 rounded-lg bg-black/75 px-2 py-1.5 text-xs text-white/90 font-semibold whitespace-nowrap">&#10084; <span id="hp-value">10</span></div>
 
   <!-- Damage vignette: brief red flash when the player takes mob damage. -->
   <div id="damage-vignette" class="pointer-events-none fixed inset-0 z-[60]" style="background:rgba(239,68,68,0);transition:background 0.45s;"></div>
@@ -1635,7 +1652,7 @@
     <button id="tc-menu" data-act="menu" class="touch-ctrl pointer-events-auto absolute top-3 left-3 px-3 h-9 rounded-lg bg-black/45 active:bg-black/70 text-zinc-100 text-sm font-semibold flex items-center justify-center">☰ Menu</button>
 
     <!-- Move pad (forward/back/left/right), bottom-left -->
-    <div id="tc-movepad" class="absolute left-4 bottom-4 grid grid-cols-3 grid-rows-3 gap-1 sm:gap-1.5 opacity-90">
+    <div id="tc-movepad" class="absolute left-4 bottom-4 grid grid-cols-3 grid-rows-3 gap-1 sm:gap-1.5 opacity-60">
       <button data-mv="f" class="touch-ctrl pointer-events-auto col-start-2 row-start-1 w-12 h-12 sm:w-14 sm:h-14 rounded-xl bg-black/40 active:bg-black/70 text-xl sm:text-2xl text-zinc-100 flex items-center justify-center">▲</button>
       <button data-mv="l" class="touch-ctrl pointer-events-auto col-start-1 row-start-2 w-12 h-12 sm:w-14 sm:h-14 rounded-xl bg-black/40 active:bg-black/70 text-xl sm:text-2xl text-zinc-100 flex items-center justify-center">◀</button>
       <button data-mv="r" class="touch-ctrl pointer-events-auto col-start-3 row-start-2 w-12 h-12 sm:w-14 sm:h-14 rounded-xl bg-black/40 active:bg-black/70 text-xl sm:text-2xl text-zinc-100 flex items-center justify-center">▶</button>
@@ -2835,7 +2852,10 @@
     updateLanguageToggleUI();
 
     const buildStampEl = document.getElementById('build-stamp');
-    buildStampEl.textContent = 'build ' + BUILD_VERSION;
+    // Short tag: the first feature name plus a count of the rest, so the long
+    // feature list can't spill across the sky or under the HUD panels.
+    const buildParts = BUILD_VERSION.split('+');
+    buildStampEl.textContent = 'build ' + buildParts[0] + ' +' + (buildParts.length - 1) + ' more';
 
     // ---- Theme management ----
     function getStoredTheme() {
@@ -2876,33 +2896,32 @@
       applyTheme(current === 'cyberpunk' ? 'default' : 'cyberpunk');
     });
 
-    // Daily Challenge HUD element — bottom position raised on touch to clear
-    // the on-screen fly/build action cluster that lives at bottom-right.
-    // Incorporates safe-area-inset-bottom so the pill clears the home indicator.
+    // Challenges drawer toggle — the one computed bottom anchor on the right
+    // edge now (the five info pills stack in flow inside #hud-drawer, whose
+    // offset lives in CSS). Incorporates safe-area-inset-bottom so the toggle
+    // clears the home indicator.
     const saBottomPx = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--sai-bottom')) || 0;
     const challengeHudEl = document.getElementById('challenge-hud');
     const challengeBaseBottomPx = isTouch ? 240 : 16; // 15rem=240px, 1rem=16px
-    const challengeHudBottomPx = challengeBaseBottomPx + saBottomPx;
-    challengeHudEl.style.bottom = challengeHudBottomPx + 'px';
+    const hudDrawerToggleEl = document.getElementById('hud-drawer-toggle');
+    hudDrawerToggleEl.style.bottom = (challengeBaseBottomPx + saBottomPx) + 'px';
     const blocksPlacedHudEl = document.getElementById('blocks-placed-hud');
     blocksPlacedHudEl.style.bottom = isTouch ? '18rem' : '5.5rem';
     const chaosIndicatorEl = document.getElementById('chaos-indicator');
     chaosIndicatorEl.style.bottom = isTouch ? 'calc(18rem + 2.5rem)' : 'calc(5.5rem + 2.5rem)';
 
-    // Streak HUD pill sits above the challenge HUD.
     const streakHudEl = document.getElementById('streak-hud');
-    const CHALLENGE_HUD_HEIGHT_PX = 102; // approx rendered height (px) of challenge+mission pill
-    const STREAK_GAP_PX = 6;
-    streakHudEl.style.bottom = (challengeBaseBottomPx + saBottomPx + CHALLENGE_HUD_HEIGHT_PX + STREAK_GAP_PX) + 'px';
-
-    // Prompt HUD pill sits above the streak HUD.
     const promptHudEl = document.getElementById('prompt-hud');
-    const STREAK_HUD_HEIGHT_PX = 28; // approx rendered height (px) of streak pill
-    promptHudEl.style.bottom = (challengeHudBottomPx + CHALLENGE_HUD_HEIGHT_PX + STREAK_GAP_PX + STREAK_HUD_HEIGHT_PX + STREAK_GAP_PX) + 'px';
-
-    // Coins HUD sits above the streak pill.
     const coinsHudEl = document.getElementById('coins-hud');
-    coinsHudEl.style.bottom = (challengeHudBottomPx + CHALLENGE_HUD_HEIGHT_PX + STREAK_GAP_PX + STREAK_HUD_HEIGHT_PX + STREAK_GAP_PX) + 'px';
+
+    // ---- Challenges drawer: toggle + close button ----
+    const hudDrawerEl = document.getElementById('hud-drawer');
+    function setHudDrawerOpen(open) {
+      hudDrawerEl.classList.toggle('hidden', !open);
+      hudDrawerToggleEl.setAttribute('aria-expanded', open ? 'true' : 'false');
+    }
+    hudDrawerToggleEl.addEventListener('click', () => setHudDrawerOpen(hudDrawerEl.classList.contains('hidden')));
+    document.getElementById('hud-drawer-close').addEventListener('click', () => setHudDrawerOpen(false));
 
     function updateCoinsHud(balance) {
       coinsHudEl.textContent = '🪙 ' + balance;
@@ -2919,10 +2938,8 @@
       } catch (_) {}
     }
 
-    // Collab challenge HUD sits above the streak HUD.
+    // Collab challenge HUD section lives inside the drawer (flow layout).
     const collabHudEl = document.getElementById('collab-challenge-hud');
-    const streakHudBottomPx = challengeHudBottomPx + CHALLENGE_HUD_HEIGHT_PX + STREAK_GAP_PX;
-    collabHudEl.style.bottom = (streakHudBottomPx + STREAK_HUD_HEIGHT_PX + STREAK_GAP_PX) + 'px';
 
     // Apply touch-device layout overrides once at startup.
     if (isTouch) {
@@ -7973,8 +7990,15 @@
     // Reflect the active control scheme in the overlay copy, keys hint, and the
     // always-visible look-mode control.
 
+    // The build tag is menu chrome: hide it while actually building, bring it
+    // back when play ends. refreshControlCopy runs on every play-state change
+    // (pointer lock, touch play, menu return, mode endings).
+    function updateBuildStampVisibility() {
+      buildStampEl.classList.toggle('hidden', playing || isReplayMode);
+    }
 
     function refreshControlCopy() {
+      updateBuildStampVisibility();
       if (isTouch) {
         // Touch devices use the on-screen overlay; the keyboard/mouse hints and
         // the look-mode control don't apply.

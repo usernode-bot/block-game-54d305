@@ -17,6 +17,10 @@
     "suggested_daily_cap_cents": 100
   },
   "tests": [
-    { "name": "Home mode-select renders", "path": "/", "expectSelector": "#overlay [data-mode=\"versus\"]" }
+    { "name": "Home mode-select renders", "path": "/", "expectSelector": "#overlay [data-mode=\"versus\"]" },
+    { "name": "HUD drawer toggle renders", "path": "/", "expectSelector": "#hud-drawer-toggle" },
+    { "name": "HUD drawer sections render", "path": "/", "expectSelector": "#hud-drawer #challenge-hud" },
+    { "name": "Build stamp shows short tag", "path": "/", "expectText": "build season-pass-s1 +" },
+    { "id": "hud-drawer", "name": "Challenges drawer", "path": "/", "expectSelector": "#hud-drawer-toggle", "visual": true, "impact": ["public/index.html"] }
   ]
 }
