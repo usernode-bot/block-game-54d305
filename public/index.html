@@ -162,10 +162,6 @@
     [data-theme="cyberpunk"] #theme-btn:hover {
       background: rgba(0, 8, 28, 1) !important;
     }
-    [data-theme="cyberpunk"] #build-stamp {
-      color: #4a9aaa !important;
-      background: rgba(0, 8, 28, 0.60) !important;
-    }
     [data-theme="cyberpunk"] #controls {
       background: rgba(0, 8, 28, 0.92) !important;
       border: 1px solid rgba(0, 229, 255, 0.25) !important;
@@ -248,7 +244,6 @@
     #badges-btn     { top: calc(0.75rem + env(safe-area-inset-top));  right: calc(6.25rem + env(safe-area-inset-right)); }
     #leaderboard-btn{ top: calc(3.5rem  + env(safe-area-inset-top));  right: calc(0.75rem + env(safe-area-inset-right)); }
     #friends-btn    { top: calc(6.25rem + env(safe-area-inset-top));  right: calc(0.75rem + env(safe-area-inset-right)); }
-    #build-stamp    { top: calc(9rem    + env(safe-area-inset-top));  right: calc(0.75rem + env(safe-area-inset-right)); }
 
     /* Right-edge HUD pills — bottom is computed by JS (which reads --sai-bottom). */
     #challenge-hud  { right: calc(0.75rem + env(safe-area-inset-right)); }
@@ -569,6 +564,214 @@
       #palette.touch-playing {
         bottom: 8.5rem;
       }
+    }
+
+    /* ---- Challenges panel (all screen sizes) ----
+       One collapsible panel, closed by default, with a solid surface so the
+       3D world never shows through the text. */
+    #challenges-panel {
+      background-color: rgb(var(--surf-panel));
+      border: 1px solid var(--dark-border);
+      box-shadow: 0 4px 14px rgba(0, 0, 0, 0.38);
+      right: calc(0.75rem + env(safe-area-inset-right));
+      /* Above the other HUD pills (z-20), below menus, panels and overlays. */
+      z-index: 21;
+    }
+    #challenges-panel > summary { list-style: none; }
+    #challenges-panel > summary::-webkit-details-marker { display: none; }
+    #challenges-panel > summary:focus-visible { outline: 2px solid var(--acc-h); outline-offset: 2px; border-radius: 0.5rem; }
+    #challenges-panel[open] .challenges-chevron { transform: rotate(180deg); }
+    #challenges-panel .challenges-body { max-height: 50vh; overflow-y: auto; }
+    #challenges-panel .challenges-body > div + div:not(.hidden) {
+      border-top: 1px solid var(--dark-border);
+      padding-top: 0.5rem;
+    }
+    [data-theme="cyberpunk"] #challenges-panel {
+      background-color: rgb(0, 8, 28);
+      border-color: rgba(0, 229, 255, 0.25);
+    }
+
+    /* ---- Phones (under 640px wide) ----
+       A fixed, non-overlapping layout:
+         row 1  Menu (left) · chat, sound, ☰ (right)
+         row 2  stats bar: level + XP (left), blocks placed (right)
+         row 3+ status pills down the left, the challenges panel and the
+                minimap down the right
+         bottom block palette, then the movement pad and the action grid.
+       Everything else that used to float on its own moves into the ☰ menu. */
+    @media (max-width: 639px) {
+      .phone-menu-item { display: flex; }
+
+      /* Round buttons that now live in the ☰ menu instead. */
+      #theme-btn, #pet-btn, #wager-btn, #coins-btn, #worlds-btn, #blueprints-btn,
+      #daily-theme-btn, #skins-btn, #accessibility-btn, #inbox-btn {
+        display: none !important;
+      }
+      /* Pills that crowded the screen: the stats bar keeps only level, XP and
+         blocks placed (coins stay reachable from the menu). */
+      #weather-hud, #energy-display, #coins-hud, #streak-hud, #prompt-hud {
+        display: none !important;
+      }
+
+      /* Row 1 */
+      #tc-menu {
+        top: calc(0.75rem + env(safe-area-inset-top));
+        left: calc(0.75rem + env(safe-area-inset-left));
+        height: 2.75rem;
+      }
+      #menu-btn, #mute-btn, #chat-toggle {
+        width: 2.75rem !important;
+        height: 2.75rem !important;
+        top: calc(0.75rem + env(safe-area-inset-top)) !important;
+        bottom: auto !important;
+      }
+      #menu-btn    { right: calc(0.75rem + env(safe-area-inset-right)) !important; }
+      #mute-btn    { right: calc(3.75rem + env(safe-area-inset-right)) !important; }
+      #chat-toggle { right: calc(6.75rem + env(safe-area-inset-right)) !important; }
+      #menu-panel  { top: calc(4rem + env(safe-area-inset-top)); }
+
+      /* Row 2: stats bar */
+      #xp-hud {
+        top: calc(4rem + env(safe-area-inset-top)) !important;
+        left: calc(0.75rem + env(safe-area-inset-left));
+        right: calc(9.25rem + env(safe-area-inset-right)) !important;
+        width: auto;
+        height: 2rem;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding-top: 0;
+        padding-bottom: 0;
+      }
+      #xp-hud > div:first-child { margin-bottom: 0; }
+      #xp-hud > div:nth-child(2) { flex: 1; min-width: 1.5rem; margin-bottom: 0 !important; }
+      #xp-hud > span { white-space: nowrap; }
+      #blocks-placed-hud {
+        top: calc(4rem + env(safe-area-inset-top));
+        bottom: auto !important;
+        left: auto;
+        right: calc(0.75rem + env(safe-area-inset-right));
+        width: 8rem;
+        height: 2rem;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.375rem;
+        padding-top: 0;
+        padding-bottom: 0;
+      }
+      #blocks-placed-hud.hidden { display: none; }
+      #blocks-placed-count { font-size: 0.875rem; }
+
+      /* Left column under the stats bar */
+      #hp-hud, #ta-hud, #ta-60-hud, #endless-hud, #sr-hud, #combo-hud {
+        top: calc(6.5rem + env(safe-area-inset-top));
+        bottom: auto;
+        left: calc(0.75rem + env(safe-area-inset-left));
+      }
+      .touch-device #undo-redo-hud {
+        top: calc(8.75rem + env(safe-area-inset-top));
+        bottom: auto !important;
+        left: calc(0.75rem + env(safe-area-inset-left)) !important;
+      }
+      #chaos-indicator {
+        top: calc(11.25rem + env(safe-area-inset-top));
+        bottom: auto !important;
+      }
+      #score-hud {
+        top: calc(13.25rem + env(safe-area-inset-top));
+        left: calc(0.75rem + env(safe-area-inset-left));
+      }
+
+      /* Right column under the stats bar */
+      #challenges-panel {
+        top: calc(6.5rem + env(safe-area-inset-top));
+        bottom: auto !important;
+        width: 11rem;
+      }
+      #challenges-panel .challenges-body {
+        max-height: calc(100vh - 24rem);
+        max-height: calc(100dvh - 24rem);
+      }
+      #minimap {
+        top: calc(9.25rem + env(safe-area-inset-top)) !important;
+        width: 6rem;
+        height: 6rem;
+      }
+      #record-btn, #hint-btn, #msg-write-btn {
+        top: calc(15.75rem + env(safe-area-inset-top));
+        bottom: auto;
+        width: 2.25rem;
+        height: 2.25rem;
+        z-index: 20; /* under the challenges panel when it is open */
+      }
+      #hint-btn      { right: calc(0.75rem + env(safe-area-inset-right)); }
+      #record-btn    { right: calc(3.5rem + env(safe-area-inset-right)); }
+      #msg-write-btn { right: calc(6.25rem + env(safe-area-inset-right)); }
+
+      /* Block palette: sits just above the controls, scrolls sideways, and
+         keeps breathing room at both edges so no swatch looks cut off. */
+      #palette.touch-playing {
+        bottom: calc(9.25rem + env(safe-area-inset-bottom));
+        max-width: calc(100vw - 1.5rem);
+        padding: 0.375rem 0.75rem;
+        scroll-padding-inline: 0.75rem;
+        scroll-snap-type: x proximity;
+        overscroll-behavior-x: contain;
+        touch-action: pan-x;
+      }
+
+      /* Controls: movement on the left (pad), actions grouped on the right in
+         a compact two-row grid. Up/Down form their own column, set apart
+         from Undo/Delete/Add/Hold/Stamp. */
+      .touch-device #tc-movepad {
+        left: calc(0.75rem + env(safe-area-inset-left));
+        bottom: calc(0.75rem + env(safe-area-inset-bottom));
+        gap: 0.25rem;
+      }
+      .touch-device #tc-movepad > button {
+        width: 2.5rem;
+        height: 2.5rem;
+        font-size: 1.125rem;
+      }
+      .touch-device #touch-controls:not(.landscape-mode) #tc-actions {
+        right: calc(0.75rem + env(safe-area-inset-right));
+        bottom: calc(0.75rem + env(safe-area-inset-bottom));
+        display: grid;
+        grid-template-columns: 2.5rem 0.25rem repeat(3, 2.5rem);
+        grid-template-rows: repeat(2, 2.5rem);
+        gap: 0.25rem;
+        align-items: stretch;
+        justify-items: stretch;
+      }
+      .touch-device #touch-controls:not(.landscape-mode) #tc-actions > div { display: contents; }
+      .touch-device #touch-controls:not(.landscape-mode) #tc-actions button {
+        width: auto;
+        height: auto;
+        border-radius: 0.75rem;
+        font-size: 0.6875rem;
+        line-height: 1.1;
+        text-align: center;
+        padding: 0 0.125rem;
+      }
+      .touch-device #touch-controls:not(.landscape-mode) #tc-actions [data-mv="up"]    { grid-column: 1; grid-row: 1; }
+      .touch-device #touch-controls:not(.landscape-mode) #tc-actions [data-mv="down"]  { grid-column: 1; grid-row: 2; }
+      .touch-device #touch-controls:not(.landscape-mode) #tc-actions [data-act="undo"] { grid-column: 3; grid-row: 1; }
+      .touch-device #touch-controls:not(.landscape-mode) #tc-actions [data-act="hold"] { grid-column: 4; grid-row: 1; }
+      .touch-device #touch-controls:not(.landscape-mode) #tc-actions [data-act="stamp"] { grid-column: 5; grid-row: 1; }
+      .touch-device #touch-controls:not(.landscape-mode) #tc-actions [data-act="break"] { grid-column: 3; grid-row: 2; }
+      .touch-device #touch-controls:not(.landscape-mode) #tc-actions [data-act="place"] { grid-column: 4 / span 2; grid-row: 2; font-size: 0.8125rem; }
+
+      /* Toasts, tips and power-up pills clear the palette. */
+      .touch-device #powerup-hud,
+      .touch-device #badge-toasts,
+      .touch-device #coach-bubble,
+      .touch-device #move-rating-hud { bottom: calc(13.5rem + env(safe-area-inset-bottom)) !important; }
+      .touch-device #coach-bubble,
+      .touch-device #move-rating-hud { left: calc(0.75rem + env(safe-area-inset-left)); }
+    }
+    @media (min-width: 640px) {
+      .phone-menu-item { display: none !important; }
     }
 
     #overlay h1 {
@@ -1123,6 +1326,17 @@
       <button data-menu-item="worlds" class="w-full text-left px-4 py-2.5 text-sm text-zinc-200 hover:bg-zinc-800/50 flex items-center gap-3 transition menu-text">🌍 Worlds</button>
       <button data-menu-item="settings" class="w-full text-left px-4 py-2.5 text-sm text-zinc-200 hover:bg-zinc-800/50 flex items-center gap-3 transition menu-text">⚙️ Settings</button>
       <button data-menu-item="pause" class="w-full text-left px-4 py-2.5 text-sm text-zinc-200 hover:bg-zinc-800/50 flex items-center gap-3 transition menu-text">⏸ Pause</button>
+      <!-- Phone-only entries: these features have their own round buttons on
+           wider screens, which are hidden on phones to keep the play area clear. -->
+      <button data-menu-item="inbox" class="phone-menu-item w-full text-left px-4 py-2.5 text-sm text-zinc-200 hover:bg-zinc-800/50 flex items-center gap-3 transition menu-text">🔔 Inbox</button>
+      <button data-menu-item="coins" class="phone-menu-item w-full text-left px-4 py-2.5 text-sm text-zinc-200 hover:bg-zinc-800/50 flex items-center gap-3 transition menu-text">🪙 Coins</button>
+      <button data-menu-item="wager" class="phone-menu-item w-full text-left px-4 py-2.5 text-sm text-zinc-200 hover:bg-zinc-800/50 flex items-center gap-3 transition menu-text">💰 Wager matches</button>
+      <button data-menu-item="daily-theme" class="phone-menu-item w-full text-left px-4 py-2.5 text-sm text-zinc-200 hover:bg-zinc-800/50 flex items-center gap-3 transition menu-text">🌟 Daily build theme</button>
+      <button data-menu-item="blueprints" class="phone-menu-item w-full text-left px-4 py-2.5 text-sm text-zinc-200 hover:bg-zinc-800/50 flex items-center gap-3 transition menu-text">📋 Blueprints</button>
+      <button data-menu-item="skins" class="phone-menu-item w-full text-left px-4 py-2.5 text-sm text-zinc-200 hover:bg-zinc-800/50 flex items-center gap-3 transition menu-text">🎨 Block skins</button>
+      <button data-menu-item="pets" class="phone-menu-item w-full text-left px-4 py-2.5 text-sm text-zinc-200 hover:bg-zinc-800/50 flex items-center gap-3 transition menu-text">🐾 Pets</button>
+      <button data-menu-item="theme" class="phone-menu-item w-full text-left px-4 py-2.5 text-sm text-zinc-200 hover:bg-zinc-800/50 flex items-center gap-3 transition menu-text">◈ Switch theme</button>
+      <button data-menu-item="accessibility" class="phone-menu-item w-full text-left px-4 py-2.5 text-sm text-zinc-200 hover:bg-zinc-800/50 flex items-center gap-3 transition menu-text">♿ Accessibility</button>
       <div class="border-t border-zinc-700/60"></div>
       <button data-menu-item="mute" class="w-full text-left px-4 py-2.5 text-sm text-zinc-200 hover:bg-zinc-800/50 flex items-center gap-3 transition menu-text">🔊 Mute</button>
     </div>
@@ -1183,11 +1397,6 @@
   <!-- Inbox toggle: sits below the accessibility button. -->
   <button id="inbox-btn" title="Inbox" aria-label="Toggle inbox"
           class="fixed top-[12.75rem] right-3 z-30 w-9 h-9 rounded-full bg-black/50 hover:bg-black/70 text-zinc-100 text-lg leading-none flex items-center justify-center transition-colors cursor-pointer relative">🔔<span id="inbox-badge" class="hidden absolute -top-1 -right-1 min-w-[14px] h-[14px] rounded-full bg-red-500 text-white text-[9px] font-bold flex items-center justify-center leading-none pointer-events-none select-none px-0.5"></span></button>
-
-  <!-- Build/version stamp: always visible, dim, so the running build can be
-       confirmed at a glance. Bump BUILD_VERSION (below) on every change.
-       Shifted down to make room for buttons. -->
-  <div id="build-stamp" class="pointer-events-none fixed top-[15rem] right-3 z-20 text-[11px] text-zinc-300/70 bg-black/40 rounded px-2 py-1 font-mono"></div>
 
   <!-- NFT Skins panel: shows owned NFTs for equipping as block textures. -->
   <div id="skins-panel" class="hidden fixed top-16 right-3 z-30 w-72 max-w-[90vw] rounded-xl bg-black/70 backdrop-blur p-4 text-sm text-zinc-200 shadow-xl">
@@ -1351,8 +1560,6 @@
   <!-- Badge toast container: toasts stack above the palette, bottom-centre. -->
   <div id="badge-toasts" class="pointer-events-none fixed left-1/2 -translate-x-1/2 z-40 flex flex-col-reverse items-center gap-2" style="bottom: 5.5rem"></div>
 
-  <!-- Collab Challenge HUD: stacked above streak/daily HUDs. Bottom set by JS. -->
-  <div id="collab-challenge-hud" class="hidden pointer-events-none fixed right-3 z-20 w-44 rounded-lg bg-black/55 px-2 py-1.5 text-xs text-white/90"></div>
 
   <!-- Coins HUD: coin balance pill above the streak pill. Bottom set by JS. -->
   <div id="coins-hud" class="hidden pointer-events-none fixed right-3 z-20 rounded-lg bg-black/55 px-2 py-1.5 text-xs text-amber-300 font-semibold whitespace-nowrap"></div>
@@ -1364,9 +1571,21 @@
   <div id="streak-hud" class="hidden pointer-events-none fixed right-3 z-20 rounded-lg bg-black/55 px-2 py-1.5 text-xs text-white/90 font-semibold whitespace-nowrap"></div>
 
 
-  <!-- Daily Challenge HUD: bottom position set by JS (touch devices are raised
-       to clear the on-screen action cluster). Hidden until init() loads data. -->
-  <div id="challenge-hud" class="hidden pointer-events-none fixed right-3 z-20 w-44 rounded-lg bg-black/55 px-2 py-1.5 text-xs text-white/90"></div>
+  <!-- Challenges panel: one collapsible panel (closed by default) holding the
+       Community Challenge and the Daily Challenge / Mission. Bottom set by JS
+       (touch devices are raised to clear the on-screen action cluster); on
+       phones in portrait it sits under the stats bar instead. The panel shows
+       itself whenever either section is visible (see syncChallengesPanel). -->
+  <details id="challenges-panel" class="hidden fixed right-3 w-48 rounded-lg text-xs text-white/90">
+    <summary class="flex items-center justify-between gap-2 px-2.5 py-2 font-semibold cursor-pointer select-none">
+      <span>Challenges</span>
+      <span class="challenges-chevron" aria-hidden="true">▾</span>
+    </summary>
+    <div class="challenges-body flex flex-col gap-2 px-2.5 pb-2">
+      <div id="collab-challenge-hud" class="hidden"></div>
+      <div id="challenge-hud" class="hidden"></div>
+    </div>
+  </details>
 
   <!-- Chaos Mode indicator pill: shown when chaos mode is active. -->
   <div id="chaos-indicator" class="hidden pointer-events-none fixed left-3 z-20 rounded-lg bg-amber-500/80 px-2 py-1 text-xs font-bold text-white whitespace-nowrap">🎲 CHAOS</div>
@@ -2124,7 +2343,6 @@
 
     // Build identifier — bump this (to the deploying commit short SHA) on every
     // change so the top-right stamp confirms exactly which code is running.
-    const BUILD_VERSION = 'season-pass-s1+exclusive-blocks+coin-balance+replay-sharing+cyberpunk-theme+speedrun-mode+power-ups+hold-queue+achievements-badges+chat+daily-challenge+leaderboard+online-presence+block-attribution+audio-sfx+next-piece-preview+spectator-mode+weekly-tournament+friends+xp-levels+collab-challenges+coin-gifting+betting-system+blocks-placed-hud+ai-opponent+weather-system+weather-tod+day-night-cycle+minimap+ai-coach+ai-hints+nft-skins+player-stats+leaderboard-daily+new-badges+daily-theme-voting+natural-disasters+community-monuments+undo-redo-history+pastel-chrome+mobs+land-claims+message-in-a-block+accessibility-panel+pixel-pets+versus-mode+blueprint+battle-mode';
 
     // Badge definitions — mirror of the server-side BADGES array, extended with
     // a `hint` field shown in the panel for unearned badges.
@@ -2834,9 +3052,6 @@
     updateUILanguage();
     updateLanguageToggleUI();
 
-    const buildStampEl = document.getElementById('build-stamp');
-    buildStampEl.textContent = 'build ' + BUILD_VERSION;
-
     // ---- Theme management ----
     function getStoredTheme() {
       return localStorage.getItem('block-game-theme') || 'default';
@@ -2876,14 +3091,16 @@
       applyTheme(current === 'cyberpunk' ? 'default' : 'cyberpunk');
     });
 
-    // Daily Challenge HUD element — bottom position raised on touch to clear
-    // the on-screen fly/build action cluster that lives at bottom-right.
-    // Incorporates safe-area-inset-bottom so the pill clears the home indicator.
+    // Challenges panel — bottom position raised on touch to clear the
+    // on-screen fly/build action cluster that lives at bottom-right.
+    // Incorporates safe-area-inset-bottom so the panel clears the home indicator.
+    // Collapsed by default; it opens upward over the pills stacked above it.
     const saBottomPx = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--sai-bottom')) || 0;
+    const challengesPanelEl = document.getElementById('challenges-panel');
     const challengeHudEl = document.getElementById('challenge-hud');
     const challengeBaseBottomPx = isTouch ? 240 : 16; // 15rem=240px, 1rem=16px
     const challengeHudBottomPx = challengeBaseBottomPx + saBottomPx;
-    challengeHudEl.style.bottom = challengeHudBottomPx + 'px';
+    challengesPanelEl.style.bottom = challengeHudBottomPx + 'px';
     const blocksPlacedHudEl = document.getElementById('blocks-placed-hud');
     blocksPlacedHudEl.style.bottom = isTouch ? '18rem' : '5.5rem';
     const chaosIndicatorEl = document.getElementById('chaos-indicator');
@@ -2891,7 +3108,7 @@
 
     // Streak HUD pill sits above the challenge HUD.
     const streakHudEl = document.getElementById('streak-hud');
-    const CHALLENGE_HUD_HEIGHT_PX = 102; // approx rendered height (px) of challenge+mission pill
+    const CHALLENGE_HUD_HEIGHT_PX = 34; // approx rendered height (px) of the collapsed challenges panel
     const STREAK_GAP_PX = 6;
     streakHudEl.style.bottom = (challengeBaseBottomPx + saBottomPx + CHALLENGE_HUD_HEIGHT_PX + STREAK_GAP_PX) + 'px';
 
@@ -2919,10 +3136,18 @@
       } catch (_) {}
     }
 
-    // Collab challenge HUD sits above the streak HUD.
+    // Collab challenge section lives inside the challenges panel.
     const collabHudEl = document.getElementById('collab-challenge-hud');
-    const streakHudBottomPx = challengeHudBottomPx + CHALLENGE_HUD_HEIGHT_PX + STREAK_GAP_PX;
-    collabHudEl.style.bottom = (streakHudBottomPx + STREAK_HUD_HEIGHT_PX + STREAK_GAP_PX) + 'px';
+
+    // The panel is shown whenever either of its sections is. Existing code
+    // keeps toggling `hidden` on the sections themselves, so mirror that here.
+    function syncChallengesPanel() {
+      const anyVisible = !challengeHudEl.classList.contains('hidden') || !collabHudEl.classList.contains('hidden');
+      challengesPanelEl.classList.toggle('hidden', !anyVisible);
+    }
+    const challengesObserver = new MutationObserver(syncChallengesPanel);
+    challengesObserver.observe(challengeHudEl, { attributes: true, attributeFilter: ['class'] });
+    challengesObserver.observe(collabHudEl, { attributes: true, attributeFilter: ['class'] });
 
     // Apply touch-device layout overrides once at startup.
     if (isTouch) {
@@ -9153,7 +9378,16 @@
           'badges': 'badges-btn',
           'settings': 'settings-btn',
           'pause': 'pause-btn',
-          'mute': 'mute-btn'
+          'mute': 'mute-btn',
+          'inbox': 'inbox-btn',
+          'coins': 'coins-btn',
+          'wager': 'wager-btn',
+          'daily-theme': 'daily-theme-btn',
+          'blueprints': 'blueprints-btn',
+          'skins': 'skins-btn',
+          'pets': 'pet-btn',
+          'theme': 'theme-btn',
+          'accessibility': 'accessibility-btn'
         };
 
         const btnId = actionMap[action];
@@ -12729,7 +12963,6 @@
       muteBtnEl.classList.add('hidden');
       document.getElementById('help-btn').classList.add('hidden');
       document.getElementById('leaderboard-btn').classList.add('hidden');
-      document.getElementById('build-stamp').classList.add('hidden');
       challengeHudEl.classList.add('hidden');
       controlsEl.classList.add('hidden');
       leaderboardEl.classList.add('hidden');

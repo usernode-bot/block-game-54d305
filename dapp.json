@@ -17,6 +17,7 @@
     "suggested_daily_cap_cents": 100
   },
   "tests": [
-    { "name": "Home mode-select renders", "path": "/", "expectSelector": "#overlay [data-mode=\"versus\"]" }
+    { "name": "Home mode-select renders", "path": "/", "expectSelector": "#overlay [data-mode=\"versus\"]" },
+    { "name": "Challenges share one collapsible panel, closed by default", "path": "/", "expectSelector": "details#challenges-panel:not([open]) #collab-challenge-hud ~ #challenge-hud" }
   ]
 }
