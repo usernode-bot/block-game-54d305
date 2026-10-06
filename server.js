@@ -77,6 +77,8 @@ const PALETTE = [
   { id: 26, name: 'Terracotta',    color: '#c5694a' },
   { id: 27, name: 'Bomb',          color: '#3d3a52', emissive: '#e8500a', emissiveIntensity: 0.45, material: 'standard', metalness: 0.2, roughness: 0.65, unlockAt: 75, unlockIcon: '💣' },
   { id: 28, name: 'Gold Star',     color: '#ffd700', wildcard: true, material: 'standard', metalness: 0.85, roughness: 0.12, emissive: '#ffa500', emissiveIntensity: 0.4, unlockIcon: '⭐' },
+  // Lamp: dark by day, lit by the client's day/night cycle from dusk to dawn.
+  { id: 29, name: 'Lamp',          color: '#e8dcb0', lamp: true, emissive: '#ffc35a', emissiveIntensity: 0 },
 ];
 const VALID_TYPES = new Set(PALETTE.map((p) => p.id));
 const EXCLUSIVE_TYPES = new Set(PALETTE.filter((p) => p.exclusive).map((p) => p.id));
@@ -97,6 +99,7 @@ const BLOCK_POINTS = {
   26: 1,  // Terracotta
   27: 3,  // Bomb
   28: 5,  // Gold Star
+  29: 3,  // Lamp
 };
 
 // XP / levelling — XP equals total_score. Index i corresponds to level i+1.
@@ -146,6 +149,10 @@ const AI_USER_ID = -100;
 const AI_USERNAME = '🤖 BlockBot';
 const AI_DIFFICULTY_MAP = { easy: 15000, medium: 6000, hard: 3000 };
 const AI_INTERVAL_MS = AI_DIFFICULTY_MAP[process.env.AI_DIFFICULTY] || AI_DIFFICULTY_MAP.medium;
+
+// Length of one full in-game day/night loop, sent to the client with the world.
+const DAY_CYCLE_MINUTES = Math.min(120, Math.max(1, Number(process.env.DAY_CYCLE_MINUTES) || 10));
+const DAY_CYCLE_MS = Math.round(DAY_CYCLE_MINUTES * 60 * 1000);
 
 // ---- NFT skin helpers ----
 const nftCache = new Map(); // user_id -> { ts: number, nfts: Array }
@@ -624,6 +631,7 @@ app.get('/api/world', async (req, res) => {
     res.json({
       dims: DIMS,
       palette: PALETTE,
+      dayCycleMs: DAY_CYCLE_MS,
       petTypes: PET_TYPES,
       blocks: rows.map((r) => { const b = { x: r.x, y: r.y, z: r.z, t: r.block_type }; if (r.skin_id) b.s = r.skin_id; if (r.has_message) b.m = 1; return b; }),
       cursor: Number(cur.rows[0].cursor),
@@ -6157,6 +6165,10 @@ function buildSeedCells() {
   set(23, 1, 10, 17); // Rainbow Block
   set(24, 1, 10, 18); // Crystal Block (showcase row)
   set(20, 1, 11, 13); // Snow
+  // Lamp posts beside the house, so the dusk lamps are easy to find.
+  set(13, 1, 13, 4); set(13, 2, 13, 29);
+  set(19, 1, 13, 4); set(19, 2, 13, 29);
+  set(25, 1, 10, 29); // Lamp (showcase row)
   // Crystal spire so staging reviewers can see the block's appearance.
   set(10, 1, 22, 18);
   set(10, 2, 22, 18);
