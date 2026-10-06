@@ -2947,7 +2947,7 @@
     const MOVE_POINTS = {
       1:1, 2:1, 3:1, 4:1, 5:1, 6:1, 13:1,  // Grass, Dirt, Stone, Wood, Leaves, Sand, Snow
       7:2, 8:2, 9:2, 10:2, 11:2, 12:2,      // Brick, Glass, Red, Blue, Yellow, White
-      15:3, 18:3,                            // Glowstone, Crystal
+      15:3, 18:3, 29:3,                      // Glowstone, Crystal, Lamp
       16:4,                                  // Obsidian
       14:5, 17:5,                            // Gold Block, Rainbow Block
     };
@@ -2980,10 +2980,26 @@
     // ---- Weather state ----
     const WEATHER_STATES = ['clear', 'clear', 'rain', 'clear', 'fog'];
     const WEATHER_CYCLE_MS = 8 * 60 * 1000;  // 8 min per slot → 40 min full cycle
-    const DAY_CYCLE_MS = 20 * 60 * 1000;     // 20 min full day/night loop
+    // Full day/night loop length. The server sends the configured value
+    // (DAY_CYCLE_MINUTES in dapp.json) with the world; 10 min until then.
+    let DAY_CYCLE_MS = 10 * 60 * 1000;
     // Anchor the day/night cycle so the world loads at midday (bright daytime)
     // and cycles normally from there, instead of following the wall clock.
-    const DAY_CYCLE_START = Date.now();
+    let DAY_CYCLE_START = Date.now();
+    // The one game clock every day/night effect reads: 0 = midnight,
+    // 0.25 = dawn, 0.5 = noon, 0.75 = dusk.
+    function getDayPhase() {
+      const ms = Date.now() - DAY_CYCLE_START + DAY_CYCLE_MS / 2;
+      return (((ms % DAY_CYCLE_MS) + DAY_CYCLE_MS) % DAY_CYCLE_MS) / DAY_CYCLE_MS;
+    }
+    // Change the cycle length without jumping to a different time of day.
+    function setDayCycleLength(ms) {
+      ms = Number(ms);
+      if (!(ms > 0) || ms === DAY_CYCLE_MS) return;
+      const phase = getDayPhase();
+      DAY_CYCLE_MS = ms;
+      DAY_CYCLE_START = Date.now() - (phase - 0.5) * ms;
+    }
     const WEATHER_CFG = {
       clear: { sky: '#8ec7ff', fog: '#8ec7ff', fogNear: 40, fogFar: 90, ambient: 0.65, sun: 0.90 },
       rain:  { sky: '#637282', fog: '#637282', fogNear: 18, fogFar: 55, ambient: 0.35, sun: 0.15 },
@@ -3620,7 +3636,6 @@
     const _fogDummy = new THREE.Object3D();
 
     // ---- Day/night cycle ----
-    const DAY_DURATION_MS = 600_000; // 10 minutes per full cycle
 
     // Sky color keyframes: [midnight, dawn, noon, dusk]
     const SKY_KEYS = [
@@ -3758,9 +3773,49 @@
       scene.userData.castleMat = castleMat;
     }
 
+    // ---- Lamps: lit automatically from dusk to dawn ----
+    // Lamp blocks glow through their shared emissive material; a small fixed
+    // pool of point lights follows the lamps nearest the camera so they also
+    // light the blocks around them. The pool is hidden by day, so daytime
+    // rendering costs nothing extra.
+    const LAMP_TYPE_ID = 29;
+    const LAMP_GLOW = 1.6;            // emissive intensity when fully lit
+    const LAMP_LIGHT_INTENSITY = 6;   // point light intensity when fully lit
+    const lampMaterials = [];         // filled by rebuildBlockMeshes
+    let lampCells = [];               // [{x,y,z}] filled by rebuildBlockMeshes
+    let lampLightsAssignedAt = -Infinity;
+    const lampLights = [];
+    for (let i = 0; i < (isTouch ? 2 : 3); i++) {
+      const l = new THREE.PointLight('#ffc35a', 0, 9, 2);
+      l.visible = false;
+      scene.add(l);
+      lampLights.push(l);
+    }
+    function updateLamps(glow, now) {
+      for (const m of lampMaterials) m.emissiveIntensity = glow * LAMP_GLOW;
+      const on = glow > 0.01 && lampCells.length > 0;
+      if (on && now - lampLightsAssignedAt > 500) {
+        // Re-pick the nearest lamps a couple of times a second, not per frame.
+        lampLightsAssignedAt = now;
+        const cx = camera.position.x, cy = camera.position.y, cz = camera.position.z;
+        const near = lampCells
+          .map((c) => ({ c, d: (c.x + 0.5 - cx) ** 2 + (c.y + 0.5 - cy) ** 2 + (c.z + 0.5 - cz) ** 2 }))
+          .sort((a, b) => a.d - b.d);
+        lampLights.forEach((l, i) => {
+          const n = near[i];
+          if (n) l.position.set(n.c.x + 0.5, n.c.y + 0.5, n.c.z + 0.5);
+          l.userData.used = !!n;
+        });
+      }
+      for (const l of lampLights) {
+        l.visible = on && !!l.userData.used;
+        l.intensity = glow * LAMP_LIGHT_INTENSITY;
+      }
+    }
+
     function updateDayNightCycle(now) {
-      // + half a cycle so the world starts at noon (phase 0.5) on load, not midnight.
-      const dayPhase = ((now + DAY_DURATION_MS / 2) % DAY_DURATION_MS) / DAY_DURATION_MS;
+      // Starts at noon (phase 0.5) on load; see getDayPhase.
+      const dayPhase = getDayPhase();
       const sky = skyColors(dayPhase);
 
       // Sky dome + canvas clear color
@@ -3797,6 +3852,9 @@
       const distFromNoon = Math.abs(dayPhase - 0.5);
       const nightness = Math.max(0, Math.min(1, (distFromNoon - 0.15) / 0.2));
       starsMat.opacity = nightness;
+
+      // Lamps switch on as dusk deepens and off again as dawn breaks.
+      updateLamps(_smoothstepW(0.2, 0.6, computeNightFactor(dayPhase)), now);
 
       // Castle: deep navy at night → medium slate at noon
       const castleMat = scene.userData.castleMat;
@@ -4205,6 +4263,8 @@
       blockGroup.clear();
       crystalMaterial = null;
       wildcardMaterial = null;
+      lampMaterials.length = 0;
+      lampCells = [];
       let source = blocks;
       if (gameMode === 'timeattack') source = taBlocks;
       else if (gameMode === 'time-attack-60') source = ta60Blocks;
@@ -4237,6 +4297,7 @@
         const mat = materialFor(p);
         if (t === 18) crystalMaterial = mat;
         if (t === 27) wildcardMaterial = mat;
+        if (t === LAMP_TYPE_ID) { lampMaterials.push(mat); lampCells = lampCells.concat(cells); }
         const mesh = new THREE.InstancedMesh(cube, mat, cells.length);
         cells.forEach((c, i) => {
           dummy.position.set(c.x + 0.5, c.y + 0.5, c.z + 0.5);
@@ -4878,10 +4939,10 @@
 
     // ---- Weather & time-of-day system ----
 
-    // Compute current time-of-day (0=midnight, 0.5=noon) from UTC wall clock.
-    // Full cycle = 20 real minutes, so all clients stay in sync without a server call.
+    // Current time-of-day (0=midnight, 0.5=noon) on the shared game clock, so
+    // lighting and fog follow the same day as the sky, stars and lamps.
     function computeTOD() {
-      return ((Date.now() / 1000) % 1200) / 1200;
+      return getDayPhase();
     }
 
     // Interpolate TOD keyframes, returning { sky: THREE.Color, amb, sun }.
@@ -11888,6 +11949,7 @@
         const data = await res.json();
         DIMS = data.dims;
         PALETTE = data.palette;
+        setDayCycleLength(data.dayCycleMs);
         cursor = data.cursor || 0;
         eventsCursor = data.maxDisasterId || 0;
         unlockedTypes = new Set(data.unlockedTypes || []);
@@ -12319,8 +12381,7 @@
       const wSun     = lerpNum(wPrev.sun,     wCurr.sun,     weatherTransitionT);
 
       // Day/night overlay (stacks on top of weather)
-      const _dayT = (((Date.now() - DAY_CYCLE_START) + DAY_CYCLE_MS / 2) % DAY_CYCLE_MS) / DAY_CYCLE_MS;
-      const nightFactor = computeNightFactor(_dayT);
+      const nightFactor = computeNightFactor(getDayPhase());
       scene.fog.color.lerp(_NIGHT_SKY, nightFactor * 0.5);
       ambientLight.intensity = wAmbient * (1 - nightFactor * 0.45);
       sun.intensity          = wSun     * (1 - nightFactor * 0.80);
@@ -12772,6 +12833,7 @@
         const worldData = await worldRes.json();
         DIMS = worldData.dims;
         PALETTE = worldData.palette;
+        setDayCycleLength(worldData.dayCycleMs);
         selectedType = PALETTE[0] ? PALETTE[0].id : 1;
       }
 

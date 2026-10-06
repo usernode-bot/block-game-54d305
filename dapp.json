@@ -6,6 +6,12 @@
       "description": "BlockBot placement speed: easy (15s per block), medium (6s), hard (3s). Defaults to medium.",
       "required": false,
       "default": "medium"
+    },
+    {
+      "key": "DAY_CYCLE_MINUTES",
+      "description": "Length of one full in-game day/night loop in minutes (1 to 120). Each visit starts at noon. Lamps light at dusk, a quarter of the loop later. Defaults to 10.",
+      "required": false,
+      "default": "10"
     }
   ],
   "visibility": {
@@ -17,6 +23,7 @@
     "suggested_daily_cap_cents": 100
   },
   "tests": [
-    { "name": "Home mode-select renders", "path": "/", "expectSelector": "#overlay [data-mode=\"versus\"]" }
+    { "name": "Home mode-select renders", "path": "/", "expectSelector": "#overlay [data-mode=\"versus\"]" },
+    { "name": "Lamp block is in the palette", "path": "/", "expectSelector": "#palette button[data-id=\"29\"]" }
   ]
 }
