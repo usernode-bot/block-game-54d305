@@ -523,6 +523,11 @@
         right: auto;
       }
 
+      /* Movement joystick raised above the fixed Undo/Delete buttons. */
+      #touch-controls.landscape-mode #tc-movepad {
+        bottom: calc(5.75rem + env(safe-area-inset-bottom));
+      }
+
       /* Keep row 2 container visible but only Add will show on the right. */
       #touch-controls.landscape-mode #tc-actions > div:nth-child(2) {
         position: relative;
@@ -721,18 +726,21 @@
         touch-action: pan-x;
       }
 
-      /* Controls: movement on the left (pad), actions grouped on the right in
+      /* Controls: movement on the left (joystick), actions grouped on the right in
          a compact two-row grid. Up/Down form their own column, set apart
          from Undo/Delete/Add/Hold/Stamp. */
       .touch-device #tc-movepad {
         left: calc(0.75rem + env(safe-area-inset-left));
         bottom: calc(0.75rem + env(safe-area-inset-bottom));
-        gap: 0.25rem;
       }
-      .touch-device #tc-movepad > button {
-        width: 2.5rem;
-        height: 2.5rem;
-        font-size: 1.125rem;
+      .touch-device #tc-joystick {
+        width: 7rem;
+        height: 7rem;
+      }
+      .touch-device #tc-joystick-knob {
+        width: 3rem;
+        height: 3rem;
+        margin: -1.5rem 0 0 -1.5rem;
       }
       .touch-device #touch-controls:not(.landscape-mode) #tc-actions {
         right: calc(0.75rem + env(safe-area-inset-right));
@@ -1847,18 +1855,18 @@
   <!-- Touch controls: translucent on-screen overlay shown only on touch devices
        while playing. The container is pointer-events-none so empty gaps fall
        through to the canvas (look-drag); each button re-enables pointer events.
+       The joystick is DRAGGED (sets/clears the f/b/l/r move flags); Up/Down
        data-mv buttons are HELD (set/clear a move flag); data-act buttons fire
        once on press. Hidden until JS reveals it on a touch device. -->
   <div id="touch-controls" class="hidden absolute inset-0 z-20 pointer-events-none select-none">
     <!-- Menu / pause (Esc equivalent), top-left -->
     <button id="tc-menu" data-act="menu" class="touch-ctrl pointer-events-auto absolute top-3 left-3 px-3 h-9 rounded-lg bg-black/45 active:bg-black/70 text-zinc-100 text-sm font-semibold flex items-center justify-center">☰ Menu</button>
 
-    <!-- Move pad (forward/back/left/right), bottom-left -->
-    <div id="tc-movepad" class="absolute left-4 bottom-4 grid grid-cols-3 grid-rows-3 gap-1 sm:gap-1.5 opacity-90">
-      <button data-mv="f" class="touch-ctrl pointer-events-auto col-start-2 row-start-1 w-12 h-12 sm:w-14 sm:h-14 rounded-xl bg-black/40 active:bg-black/70 text-xl sm:text-2xl text-zinc-100 flex items-center justify-center">▲</button>
-      <button data-mv="l" class="touch-ctrl pointer-events-auto col-start-1 row-start-2 w-12 h-12 sm:w-14 sm:h-14 rounded-xl bg-black/40 active:bg-black/70 text-xl sm:text-2xl text-zinc-100 flex items-center justify-center">◀</button>
-      <button data-mv="r" class="touch-ctrl pointer-events-auto col-start-3 row-start-2 w-12 h-12 sm:w-14 sm:h-14 rounded-xl bg-black/40 active:bg-black/70 text-xl sm:text-2xl text-zinc-100 flex items-center justify-center">▶</button>
-      <button data-mv="b" class="touch-ctrl pointer-events-auto col-start-2 row-start-3 w-12 h-12 sm:w-14 sm:h-14 rounded-xl bg-black/40 active:bg-black/70 text-xl sm:text-2xl text-zinc-100 flex items-center justify-center">▼</button>
+    <!-- Movement joystick (forward/back/left/right), bottom-left -->
+    <div id="tc-movepad" class="absolute left-4 bottom-4 opacity-90">
+      <div id="tc-joystick" aria-label="Move" role="application" class="touch-ctrl pointer-events-auto relative w-32 h-32 rounded-full bg-black/40 border border-white/10">
+        <div id="tc-joystick-knob" class="absolute left-1/2 top-1/2 w-14 h-14 -ml-7 -mt-7 rounded-full bg-zinc-700/80 border border-white/20 pointer-events-none"></div>
+      </div>
     </div>
 
     <!-- Fly + build cluster, bottom-right -->
@@ -6835,6 +6843,7 @@
     let stampEndCell = null;
     let stampDragInProgress = false;
     const move = { f: false, b: false, l: false, r: false, up: false, down: false };
+    const joy = { id: null, cx: 0, cy: 0 };  // joystick touch: tracked identifier + base centre
     const SPEED = 9, SENS = 0.0022;
 
     const overlayEl = document.getElementById('overlay');
@@ -7344,6 +7353,7 @@
       for (const k in move) move[k] = false;
       dragging = false;
       placeHeld = false;
+      releaseJoystick();
     }
     window.addEventListener('blur', resetMove);
     document.addEventListener('visibilitychange', () => { if (document.hidden) resetMove(); });
@@ -9244,6 +9254,60 @@
       el.addEventListener('touchend', release);
       el.addEventListener('touchcancel', release);
     }
+
+    // Virtual joystick (forward/back/left/right): drag the knob and it sets the
+    // same `move` flags the old arrow buttons did. One touch is tracked by
+    // identifier so a second finger never hijacks it; move/end listen on window
+    // so a thumb sliding off the base stays tracked, matching the look-drag.
+    const joystickEl = document.getElementById('tc-joystick');
+    const joystickKnobEl = document.getElementById('tc-joystick-knob');
+    function updateJoystick(dx, dy) {
+      const max = joystickEl.offsetWidth / 2 - joystickKnobEl.offsetWidth / 2;
+      const len = Math.hypot(dx, dy);
+      let x = dx, y = dy;
+      if (len > max) { x = dx / len * max; y = dy / len * max; }
+      joystickKnobEl.style.transform = `translate(${x}px, ${y}px)`;
+      if (!len || len < 0.25 * max) {
+        move.f = move.b = move.l = move.r = false;   // dead zone: resting thumb
+        return;
+      }
+      const nx = dx / len, ny = dy / len;            // direction from the raw drag, not the clamped vector
+      move.r = nx > 0.38;
+      move.l = nx < -0.38;
+      move.f = ny < -0.38;                            // screen up is forward, matching ▲
+      move.b = ny > 0.38;
+    }
+    function releaseJoystick() {
+      joy.id = null;
+      move.f = move.b = move.l = move.r = false;
+      joystickKnobEl.style.transform = 'translate(0px, 0px)';
+    }
+    joystickEl.addEventListener('touchstart', (e) => {
+      if (joy.id !== null) return;
+      e.preventDefault();
+      const t = e.changedTouches[0];
+      joy.id = t.identifier;
+      const r = joystickEl.getBoundingClientRect();
+      joy.cx = r.left + r.width / 2;
+      joy.cy = r.top + r.height / 2;
+      updateJoystick(t.clientX - joy.cx, t.clientY - joy.cy);
+    }, { passive: false });
+    window.addEventListener('touchmove', (e) => {
+      if (joy.id === null) return;
+      for (const t of e.changedTouches) {
+        if (t.identifier !== joy.id) continue;
+        updateJoystick(t.clientX - joy.cx, t.clientY - joy.cy);
+        e.preventDefault();
+      }
+    }, { passive: false });
+    function endJoystickTouch(e) {
+      if (joy.id === null) return;
+      for (const t of e.changedTouches) {
+        if (t.identifier === joy.id) { releaseJoystick(); return; }
+      }
+    }
+    window.addEventListener('touchend', endJoystickTouch);
+    window.addEventListener('touchcancel', endJoystickTouch);
     function bindTap(el, fn) {
       el.addEventListener('touchstart', (e) => { e.preventDefault(); fn(); }, { passive: false });
     }
