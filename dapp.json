@@ -1,23 +1,11 @@
 {
   "icon": { "image": "brand/icon.png" },
-  "secrets": [
-    {
-      "key": "AI_DIFFICULTY",
-      "description": "BlockBot placement speed: easy (15s per block), medium (6s), hard (3s). Defaults to medium.",
-      "required": false,
-      "default": "medium"
-    }
-  ],
+  "secrets": [],
   "visibility": {
     "build": "public",
     "view": "public"
   },
-  "llm": {
-    "purpose": "Gives players contextual tips and placement suggestions during gameplay",
-    "suggested_daily_cap_cents": 100
-  },
   "tests": [
-    { "name": "Home mode-select renders", "path": "/", "expectSelector": "#overlay [data-mode=\"versus\"]" },
-    { "name": "Challenges share one collapsible panel, closed by default", "path": "/", "expectSelector": "details#challenges-panel:not([open]) #collab-challenge-hud ~ #challenge-hud" }
+    { "name": "Click to play start screen renders", "path": "/", "expectSelector": "#overlay #play-btn", "expectText": "Click to play" }
   ]
 }
