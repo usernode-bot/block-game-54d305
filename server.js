@@ -188,10 +188,10 @@ app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-// ---- Staging seed: an obviously-fake "Staging demo" starter build so a
-// fresh staging DB (the blocks table is created empty by the migration)
-// has something to render, target, break, and sync. No-op in production. ----
-function buildSeedCells() {
+// ---- The starter world: the early game's one starter house standing
+// alone on empty grass. Shared by the one-time world reset (below) and the
+// staging seed, so every copy of the world starts the same way. ----
+function buildStarterHouse() {
   const cells = [];
   const set = (x, y, z, t) => cells.push({ x, y, z, t });
   // A 5x5 hollow stone hut near plot center (x 14..18, z 14..18).
@@ -214,32 +214,24 @@ function buildSeedCells() {
   for (let x = x0; x <= x1; x++) {
     for (let z = z0; z <= z1; z++) set(x, 4, z, 4);
   }
-  // A small tree to the side: wood trunk + leaf canopy.
-  const tx = 23, tz = 23;
-  for (let y = 1; y <= 3; y++) set(tx, y, tz, 4);
-  for (let dx = -1; dx <= 1; dx++) {
-    for (let dz = -1; dz <= 1; dz++) {
-      set(tx + dx, 4, tz + dz, 5);
-    }
-  }
-  set(tx, 5, tz, 5);
-  // A short sand path leading to the door.
-  set(16, 1, 13, 6);
-  set(16, 1, 12, 6);
   return cells;
 }
 
-async function seedStaging() {
-  const cells = buildSeedCells();
-  for (const c of cells) {
+// Seed rows are written by the sentinel user so they never reference a real
+// one. `username` differs per environment: staging rows stay obviously fake.
+async function seedStarterWorld(username) {
+  for (const c of buildStarterHouse()) {
     await pool.query(
       `INSERT INTO blocks (x, y, z, block_type, seq, updated_by_user_id, updated_by_username, updated_at)
-       VALUES ($1, $2, $3, $4, nextval('block_seq'), $5, 'Staging demo', NOW())
+       VALUES ($1, $2, $3, $4, nextval('block_seq'), $5, $6, NOW())
        ON CONFLICT (x, y, z) DO NOTHING`,
-      [c.x, c.y, c.z, c.t, SEED_USER_ID]
+      [c.x, c.y, c.z, c.t, SEED_USER_ID, username]
     );
   }
 }
+
+// The key marking the 2026-10 world reset as applied in a given database.
+const WORLD_RESET_KEY = 'world-reset-starter-house-2026-10';
 
 async function start() {
   await pool.query(`
@@ -258,8 +250,34 @@ async function start() {
   await pool.query(`CREATE SEQUENCE IF NOT EXISTS block_seq`);
   await pool.query(`CREATE INDEX IF NOT EXISTS blocks_seq_idx ON blocks (seq)`);
 
+  // ---- One-time world reset (2026-10): go back to the early world. ----
+  // Every block people have built in the shared world since is permanently
+  // deleted, and the world comes back as empty grass plus the starter
+  // house. The app_meta marker makes this run exactly once per database:
+  // later boots never wipe again, and anything built afterwards stays.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS app_meta (
+      key VARCHAR(255) PRIMARY KEY,
+      applied_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+  const reset = await pool.query(
+    `INSERT INTO app_meta (key) VALUES ($1) ON CONFLICT DO NOTHING RETURNING key`,
+    [WORLD_RESET_KEY]
+  );
+  if (reset.rowCount > 0) {
+    await pool.query(`DELETE FROM blocks`);
+    await pool.query(`ALTER SEQUENCE block_seq RESTART WITH 1`);
+    console.log('world reset applied: player-built blocks wiped, starter house restored');
+    try { await seedStarterWorld(IS_STAGING ? 'Staging demo' : 'Starter house'); }
+    catch (err) { console.error('starter house seed failed', err); }
+  }
+
+  // Staging seed: a fresh staging DB (blocks table created empty) gets the
+  // starter house too, so it always has something to render, target,
+  // break, and sync. Idempotent; never touches production. ----
   if (IS_STAGING) {
-    try { await seedStaging(); }
+    try { await seedStarterWorld('Staging demo'); }
     catch (err) { console.error('staging seed failed', err); }
   }
 
