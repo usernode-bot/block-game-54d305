@@ -1,5 +1,7 @@
 {
-  "icon": { "image": "brand/icon.png" },
+  "icon": {
+    "image": "brand/icon.png"
+  },
   "secrets": [
     {
       "key": "AI_DIFFICULTY",
@@ -17,7 +19,18 @@
     "suggested_daily_cap_cents": 100
   },
   "tests": [
-    { "name": "Home mode-select renders", "path": "/", "expectSelector": "#overlay [data-mode=\"versus\"]" },
-    { "name": "Challenges share one collapsible panel, closed by default", "path": "/", "expectSelector": "details#challenges-panel:not([open]) #collab-challenge-hud ~ #challenge-hud" }
-  ]
+    {
+      "name": "Home mode-select renders",
+      "path": "/",
+      "expectSelector": "#overlay [data-mode=\"versus\"]"
+    },
+    {
+      "name": "Challenges share one collapsible panel, closed by default",
+      "path": "/",
+      "expectSelector": "details#challenges-panel:not([open]) #collab-challenge-hud ~ #challenge-hud"
+    }
+  ],
+  "governance": {
+    "preset": "you_or_the_group"
+  }
 }
