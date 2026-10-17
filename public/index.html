@@ -73,7 +73,11 @@
   </script>
   <style>
     html, body { margin: 0; height: 100%; overflow: hidden; }
-    #scene { position: fixed; inset: 0; display: block; }
+    /* The game container mounts hidden so the start screen is unobstructed on
+       launch; it is revealed only while the game is actually being played
+       (see setSceneVisible). Kept in the layout (visibility, not display) so
+       three.js sizing via renderer.setSize is unaffected. */
+    #scene { position: fixed; inset: 0; display: block; visibility: hidden; }
   </style>
 </head>
 <body class="bg-zinc-950 text-zinc-100">
@@ -157,7 +161,7 @@
 
     // Build identifier — bump this (to the deploying commit short SHA) on every
     // change so the top-right stamp confirms exactly which code is running.
-    const BUILD_VERSION = 'simple-revert-reset';
+    const BUILD_VERSION = 'scene-hidden-until-play';
     const buildStampEl = document.getElementById('build-stamp');
     buildStampEl.textContent = 'build ' + BUILD_VERSION;
 
@@ -362,6 +366,11 @@
     const hintFallbackEl = document.getElementById('hint-fallback');
     const lookModeEl = document.getElementById('lookmode');
 
+    // The game canvas starts hidden (see the #scene CSS) so the start screen
+    // is unobstructed on launch; it shows only while the game is running and
+    // hides again whenever play is released back to the start screen.
+    function setSceneVisible(v) { canvas.style.visibility = v ? 'visible' : 'hidden'; }
+
     // Reusable temporaries + one-shot roll diagnostic state for applyLook().
     const _lookFwd = new THREE.Vector3();
     const _lookTarget = new THREE.Vector3();
@@ -450,6 +459,9 @@
         : 'Click to play — move the mouse to look, press Esc to release. If your browser blocks mouse-lock, you can drag to look instead.';
       // The interactive control is only meaningful while the game is running.
       lookModeEl.classList.toggle('hidden', !playing);
+      // The game canvas mirrors the playing state: visible only while the
+      // game is actually running, hidden behind the start screen otherwise.
+      setSceneVisible(playing);
     }
 
     function clearLockTimer() {
@@ -476,6 +488,9 @@
     // the look-mode control), regardless of any prior failure.
     function tryPointerLock() {
       clearLockTimer();
+      // Reveal the game before asking for the lock: a visibility:hidden
+      // element can be refused pointer lock by some browsers.
+      setSceneVisible(true);
       try {
         Promise.resolve(canvas.requestPointerLock()).catch(onLockFail);
       } catch (e) {
