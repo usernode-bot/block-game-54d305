@@ -73,7 +73,38 @@
   </script>
   <style>
     html, body { margin: 0; height: 100%; overflow: hidden; }
-    #scene { position: fixed; inset: 0; display: block; }
+    #scene { position: fixed; inset: 0; display: block; touch-action: none; }
+    /* Phones: the keyboard hint, the look-mode label and the build stamp pile
+       up over the top of the world, so hide them on touch devices entirely.
+       !important wins over refreshControlCopy()'s `hidden` class toggling. */
+    .touch-device #hint,
+    .touch-device #hint-fallback,
+    .touch-device #lookmode,
+    .touch-device #build-stamp { display: none !important; }
+    /* Palette: cap it to the window so every colour is reachable, scrolling
+       sideways on narrow screens instead of running off both edges. */
+    #palette { max-width: calc(100vw - 1.5rem); overflow-x: auto; scrollbar-width: none; }
+    #palette::-webkit-scrollbar { display: none; }
+    #palette > button { flex-shrink: 0; }
+    .touch-device #palette { bottom: calc(0.75rem + var(--un-safe-inset-bottom, env(safe-area-inset-bottom, 0px))); }
+    /* Touch controls: positioned against the viewport with the platform
+       safe-area insets so home bars and notches don't cover them. */
+    #tc-menu {
+      top: calc(0.75rem + var(--un-safe-inset-top, env(safe-area-inset-top, 0px)));
+      left: calc(0.75rem + var(--un-safe-inset-left, env(safe-area-inset-left, 0px)));
+    }
+    #tc-movepad {
+      left: calc(0.75rem + var(--un-safe-inset-left, env(safe-area-inset-left, 0px)));
+      bottom: calc(5rem + var(--un-safe-inset-bottom, env(safe-area-inset-bottom, 0px)));
+    }
+    #tc-actions {
+      right: calc(0.75rem + var(--un-safe-inset-right, env(safe-area-inset-right, 0px)));
+      bottom: calc(5rem + var(--un-safe-inset-bottom, env(safe-area-inset-bottom, 0px)));
+    }
+    /* The (?) panel lists touch controls on phones, keyboard keys elsewhere. */
+    .controls-touch { display: none; }
+    .touch-device .controls-keys { display: none; }
+    .touch-device .controls-touch { display: block; }
   </style>
 </head>
 <body class="bg-zinc-950 text-zinc-100">
@@ -118,6 +149,26 @@
   <!-- Block palette -->
   <div id="palette" class="fixed bottom-4 left-1/2 -translate-x-1/2 z-20 flex gap-1.5 p-1.5 rounded-xl bg-black/50 backdrop-blur"></div>
 
+  <!-- Touch controls (phones only): Menu top left, joystick bottom left,
+       build actions bottom right. The container never captures touches
+       (pointer-events-none), so drags on the world reach the canvas; each
+       control opts back in with pointer-events-auto. Shown by
+       startTouchPlay(), hidden again by pauseToMenu(). -->
+  <div id="touch-controls" class="hidden fixed inset-0 z-20 pointer-events-none select-none">
+    <button id="tc-menu" class="pointer-events-auto fixed h-9 px-3 rounded-lg bg-black/40 active:bg-black/70 text-zinc-100 text-sm font-semibold flex items-center transition-colors cursor-pointer">☰ Menu</button>
+    <div id="tc-movepad" class="fixed">
+      <div id="tc-joystick" aria-label="Move" class="pointer-events-auto relative w-28 h-28 rounded-full bg-black/40 border border-white/10">
+        <div id="tc-joystick-knob" class="absolute left-1/2 top-1/2 w-12 h-12 -ml-6 -mt-6 rounded-full bg-zinc-700/80 border border-white/20 pointer-events-none"></div>
+      </div>
+    </div>
+    <div id="tc-actions" class="fixed grid grid-cols-2 gap-2">
+      <button data-mv="up" class="pointer-events-auto w-12 h-12 rounded-xl bg-black/40 active:bg-black/70 text-zinc-100 text-xs font-semibold flex items-center justify-center transition-colors cursor-pointer touch-manipulation">▲ Up</button>
+      <button data-act="place" class="pointer-events-auto w-12 h-12 rounded-xl bg-black/40 active:bg-black/70 text-zinc-100 text-xs font-semibold flex items-center justify-center transition-colors cursor-pointer touch-manipulation">Add</button>
+      <button data-mv="down" class="pointer-events-auto w-12 h-12 rounded-xl bg-black/40 active:bg-black/70 text-zinc-100 text-xs font-semibold flex items-center justify-center transition-colors cursor-pointer touch-manipulation">▼ Down</button>
+      <button data-act="break" class="pointer-events-auto w-12 h-12 rounded-xl bg-black/40 active:bg-black/70 text-zinc-100 text-xs font-semibold flex items-center justify-center transition-colors cursor-pointer touch-manipulation">Delete</button>
+    </div>
+  </div>
+
   <!-- Help/controls toggle: circular "(?)" button fixed in the top-right
        corner. Clicking it does exactly what pressing `h` does — show/hide the
        controls overlay below. -->
@@ -136,7 +187,7 @@
       <h2 class="font-bold text-zinc-100">Controls</h2>
       <button id="controls-close" aria-label="Close controls" class="text-zinc-400 hover:text-zinc-100 cursor-pointer leading-none">✕</button>
     </div>
-    <ul class="space-y-1.5">
+    <ul class="controls-keys space-y-1.5">
       <li><span class="font-semibold">WASD</span> / arrows — move</li>
       <li><span class="font-semibold">Space</span> / <span class="font-semibold">Shift</span> — up / down</li>
       <li><span class="font-semibold">Left-click</span> or <span class="font-semibold">F</span> — add a block</li>
@@ -144,6 +195,14 @@
       <li><span class="font-semibold">1–9</span> — pick block type</li>
       <li><span class="font-semibold">H</span> or <span class="font-semibold">(?)</span> — toggle this panel</li>
       <li><span class="font-semibold">Esc</span> — release / menu</li>
+    </ul>
+    <ul class="controls-touch space-y-1.5">
+      <li><span class="font-semibold">Drag the screen</span> — look</li>
+      <li><span class="font-semibold">Stick</span> — move</li>
+      <li><span class="font-semibold">Up / Down</span> — fly up or down</li>
+      <li><span class="font-semibold">Add / Delete</span> — build at the crosshair</li>
+      <li><span class="font-semibold">Tap a colour</span> — pick block type</li>
+      <li><span class="font-semibold">Menu</span> — pause</li>
     </ul>
   </div>
 
@@ -155,9 +214,16 @@
     const headers = token ? { 'x-usernode-token': token } : {};
     const statusEl = document.getElementById('status');
 
+    // Touch devices (phones, tablets whose main input is touch) get the touch
+    // layout and handlers instead of the keyboard/mouse ones. Decided once,
+    // before any control copy runs. A laptop with a touchscreen and a mouse
+    // reports a fine pointer and keeps the desktop layout.
+    const isTouch = window.matchMedia('(pointer: coarse)').matches;
+    if (isTouch) document.documentElement.classList.add('touch-device');
+
     // Build identifier — bump this (to the deploying commit short SHA) on every
     // change so the top-right stamp confirms exactly which code is running.
-    const BUILD_VERSION = 'simple-revert-reset';
+    const BUILD_VERSION = 'phone-touch-layout';
     const buildStampEl = document.getElementById('build-stamp');
     buildStampEl.textContent = 'build ' + BUILD_VERSION;
 
@@ -361,6 +427,7 @@
     const hintEl = document.getElementById('hint');
     const hintFallbackEl = document.getElementById('hint-fallback');
     const lookModeEl = document.getElementById('lookmode');
+    const touchControlsEl = document.getElementById('touch-controls');
 
     // Reusable temporaries + one-shot roll diagnostic state for applyLook().
     const _lookFwd = new THREE.Vector3();
@@ -420,6 +487,7 @@
     function resetMove() {
       for (const k in move) move[k] = false;
       dragging = false;
+      releaseJoystick();
     }
     window.addEventListener('blur', resetMove);
     document.addEventListener('visibilitychange', () => { if (document.hidden) resetMove(); });
@@ -448,6 +516,10 @@
       overlayHelpEl.textContent = lockUnavailable
         ? 'Click to play — drag to look, click to build, press Esc for this menu.'
         : 'Click to play — move the mouse to look, press Esc to release. If your browser blocks mouse-lock, you can drag to look instead.';
+      // Touch devices never use mouse-lock; the copy explains touch play.
+      if (isTouch) {
+        overlayHelpEl.textContent = 'Drag to look, use the stick to move, and Add or Delete to build. Menu pauses the game.';
+      }
       // The interactive control is only meaningful while the game is running.
       lookModeEl.classList.toggle('hidden', !playing);
     }
@@ -528,10 +600,24 @@
     // Iframe Permissions-Policy denials commonly surface here (not as a
     // rejected promise), so this is the primary failure path in production.
     document.addEventListener('pointerlockerror', onLockFail);
-    document.getElementById('play-btn').addEventListener('click', tryPointerLock);
+
+    // Touch path: phones cannot use pointer lock, so tapping the play button
+    // starts straight into drag-look play with the on-screen controls shown.
+    function startTouchPlay() {
+      dragMode = true;
+      playing = true;
+      overlayEl.style.display = 'none';
+      touchControlsEl.classList.remove('hidden');
+      refreshControlCopy();
+    }
+    document.getElementById('play-btn').addEventListener('click', () => {
+      if (isTouch) startTouchPlay();
+      else tryPointerLock();
+    });
     canvas.addEventListener('click', () => {
       // Native path only: re-acquire the lock on a bare canvas click. In
       // drag fallback mode clicks are handled by the drag/click logic below.
+      if (isTouch) return;
       if (!locked && !playing) tryPointerLock();
     });
     // The look-mode control re-attempts native mouse-lock when clicked from
@@ -589,14 +675,118 @@
       // Drag mode has no OS pointer lock to release, so Escape returns to the
       // overlay manually. In native (locked) mode the browser handles Esc and
       // fires pointerlockchange, which restores the overlay there.
-      if (e.code === 'Escape' && dragMode && playing) {
-        playing = false;
-        resetMove();
-        canvas.style.cursor = '';
-        overlayEl.style.display = 'flex';
-        refreshControlCopy();
-      }
+      if (e.code === 'Escape' && dragMode && playing) pauseToMenu();
     });
+
+    // Return to the start menu from touch play (and from drag-mode Escape).
+    // Native mode is handled by pointerlockchange instead.
+    function pauseToMenu() {
+      playing = false;
+      resetMove();
+      canvas.style.cursor = '';
+      overlayEl.style.display = 'flex';
+      touchControlsEl.classList.add('hidden');
+      refreshControlCopy();
+    }
+    document.getElementById('tc-menu').addEventListener('click', pauseToMenu);
+
+    // ---- Look by touch ----
+    // One touch tracked by identifier; a touch that starts on a control
+    // button never reaches the canvas. preventDefault stops the browser from
+    // panning/zooming and from firing emulated mouse events that would build.
+    const TOUCH_LOOK = 2;
+    let lookTouchId = null, lookX = 0, lookY = 0;
+    canvas.addEventListener('touchstart', (e) => {
+      if (!playing) return;
+      e.preventDefault();
+      if (lookTouchId !== null) return;
+      const t = e.changedTouches[0];
+      lookTouchId = t.identifier;
+      lookX = t.clientX;
+      lookY = t.clientY;
+    }, { passive: false });
+    canvas.addEventListener('touchmove', (e) => {
+      if (!playing) return;
+      e.preventDefault();
+      for (const t of e.changedTouches) {
+        if (t.identifier !== lookTouchId) continue;
+        applyLookDelta((t.clientX - lookX) * TOUCH_LOOK, (t.clientY - lookY) * TOUCH_LOOK);
+        lookX = t.clientX;
+        lookY = t.clientY;
+      }
+    }, { passive: false });
+    const endLookTouch = (e) => {
+      for (const t of e.changedTouches) {
+        if (t.identifier === lookTouchId) lookTouchId = null;
+      }
+    };
+    canvas.addEventListener('touchend', endLookTouch);
+    canvas.addEventListener('touchcancel', endLookTouch);
+
+    // ---- Joystick ----
+    const joystickEl = document.getElementById('tc-joystick');
+    const joystickKnobEl = document.getElementById('tc-joystick-knob');
+    const joy = { id: null, cx: 0, cy: 0 };
+    const JOY_DEAD = 0.25, JOY_DIR = 0.38;
+    function releaseJoystick() {
+      joy.id = null;
+      joystickKnobEl.style.transform = '';
+    }
+    function updateJoystick(t) {
+      const maxR = (joystickEl.clientWidth - joystickKnobEl.clientWidth) / 2;
+      const dx = t.clientX - joy.cx, dy = t.clientY - joy.cy;
+      const dist = Math.hypot(dx, dy);
+      // The knob follows the thumb, clamped to the base circle.
+      const clamp = dist > maxR ? maxR / dist : 1;
+      joystickKnobEl.style.transform = 'translate(' + (dx * clamp) + 'px,' + (dy * clamp) + 'px)';
+      const n = dist / maxR;
+      if (n < JOY_DEAD) { move.f = move.b = move.l = move.r = false; return; }
+      const nx = dx / dist, ny = dy / dist;
+      move.f = ny < -JOY_DIR;
+      move.b = ny > JOY_DIR;
+      move.l = nx < -JOY_DIR;
+      move.r = nx > JOY_DIR;
+    }
+    joystickEl.addEventListener('touchstart', (e) => {
+      e.preventDefault();
+      if (joy.id !== null) return;
+      const t = e.changedTouches[0];
+      joy.id = t.identifier;
+      const r = joystickEl.getBoundingClientRect();
+      joy.cx = r.left + r.width / 2;
+      joy.cy = r.top + r.height / 2;
+      updateJoystick(t);
+    }, { passive: false });
+    window.addEventListener('touchmove', (e) => {
+      if (joy.id === null) return;
+      for (const t of e.changedTouches) {
+        if (t.identifier === joy.id) { e.preventDefault(); updateJoystick(t); }
+      }
+    }, { passive: false });
+    const endJoyTouch = (e) => {
+      for (const t of e.changedTouches) {
+        if (t.identifier === joy.id) releaseJoystick();
+      }
+    };
+    window.addEventListener('touchend', endJoyTouch);
+    window.addEventListener('touchcancel', endJoyTouch);
+
+    // ---- Up / Down / Add / Delete buttons ----
+    document.querySelectorAll('#tc-actions [data-mv]').forEach((btn) => {
+      const mv = btn.dataset.mv;
+      btn.addEventListener('touchstart', (e) => { e.preventDefault(); move[mv] = true; }, { passive: false });
+      const end = (e) => { e.preventDefault(); move[mv] = false; };
+      btn.addEventListener('touchend', end);
+      btn.addEventListener('touchcancel', end);
+    });
+    document.querySelector('#tc-actions [data-act="place"]').addEventListener('touchstart', (e) => {
+      e.preventDefault();
+      if (playing) placeBlock();
+    }, { passive: false });
+    document.querySelector('#tc-actions [data-act="break"]').addEventListener('touchstart', (e) => {
+      e.preventDefault();
+      if (playing) breakBlock();
+    }, { passive: false });
     window.addEventListener('keyup', (e) => { if (codeMap[e.code]) move[codeMap[e.code]] = false; });
 
     // ---- Controls overlay toggle ----
