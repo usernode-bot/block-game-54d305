@@ -8,6 +8,16 @@
   "tests": [
     { "name": "Click to play start screen renders", "path": "/", "expectSelector": "#overlay #play-btn", "expectText": "Click to play" },
     { "name": "Touch controls are on the page", "path": "/", "expectSelector": "#touch-controls #tc-joystick" },
-    { "name": "Undo button is in the palette and starts disabled", "path": "/", "expectSelector": "#palette #undo-btn[disabled]" }
+    { "name": "Undo button is in the palette and starts disabled", "path": "/", "expectSelector": "#palette #undo-btn[disabled]" },
+    { "name": "Targeted block HUD is on the page", "path": "/", "expectSelector": "body > #target-hud" },
+    { "name": "Targeted block HUD has X, Y and Z fields", "path": "/", "expectSelector": "#target-hud:has(#hud-x):has(#hud-y):has(#hud-z)" },
+    { "name": "Targeted block HUD has a block name field", "path": "/", "expectSelector": "#target-hud #hud-name" },
+    { "name": "Targeted block HUD starts faded out", "path": "/", "expectSelector": "#target-hud.opacity-0[aria-hidden=\"true\"]" },
+    { "name": "Help panel has a Show block info toggle", "path": "/", "expectSelector": "#controls label:has(input#hud-toggle[type=\"checkbox\"])" },
+    { "name": "Block info toggle restores its saved choice", "path": "/", "expectSelector": "#hud-toggle:checked" },
+    { "name": "Targeted block HUD is driven by the live target", "path": "/", "expectSelector": "#target-hud[data-target]" },
+    { "name": "Targeted block HUD is not tied to the touch controls", "path": "/", "expectSelector": "#touch-controls ~ #target-hud" },
+    { "name": "Targeted block HUD sits outside the palette", "path": "/", "expectSelector": "#palette ~ #target-hud" },
+    { "name": "Targeted block HUD is hidden while the menu is open", "path": "/", "expectSelector": "#overlay ~ #target-hud[aria-hidden=\"true\"]" }
   ]
 }

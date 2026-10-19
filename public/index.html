@@ -112,6 +112,9 @@
     .controls-touch { display: none; }
     .touch-device .controls-keys { display: none; }
     .touch-device .controls-touch { display: block; }
+    /* Targeted-block HUD: centred just under the crosshair, far above the
+       palette (and the touch stick/actions) at both phone and desktop sizes. */
+    #target-hud { top: calc(50% + 1.5rem); }
   </style>
 </head>
 <body class="bg-zinc-950 text-zinc-100">
@@ -181,6 +184,18 @@
     </div>
   </div>
 
+  <!-- Targeted-block HUD: name + X/Y/Z of the cell under the crosshair.
+       Filled by updateHud(); never captures input. -->
+  <div id="target-hud" aria-hidden="true"
+       class="pointer-events-none fixed left-1/2 -translate-x-1/2 z-10 flex items-center gap-2
+              text-xs text-zinc-200 bg-black/50 backdrop-blur rounded-lg px-2.5 py-1
+              whitespace-nowrap opacity-0 transition-opacity duration-300">
+    <span id="hud-name" class="font-semibold text-zinc-100"></span>
+    <span class="font-mono"><span class="text-zinc-400">X</span> <span id="hud-x"></span></span>
+    <span class="font-mono"><span class="text-zinc-400">Y</span> <span id="hud-y"></span></span>
+    <span class="font-mono"><span class="text-zinc-400">Z</span> <span id="hud-z"></span></span>
+  </div>
+
   <!-- Help/controls toggle: circular "(?)" button fixed in the top-right
        corner. Clicking it does exactly what pressing `h` does — show/hide the
        controls overlay below. -->
@@ -218,6 +233,9 @@
       <li><span class="font-semibold">Undo</span> — reverse your last block edit</li>
       <li><span class="font-semibold">Menu</span> — pause</li>
     </ul>
+    <label class="mt-3 pt-3 border-t border-white/10 flex items-center gap-2 cursor-pointer select-none">
+      <input id="hud-toggle" type="checkbox" class="accent-violet-600 cursor-pointer"> Show block info
+    </label>
   </div>
 
   <script type="module">
@@ -237,7 +255,7 @@
 
     // Build identifier — bump this (to the deploying commit short SHA) on every
     // change so the top-right stamp confirms exactly which code is running.
-    const BUILD_VERSION = 'undo-last-block-edit';
+    const BUILD_VERSION = 'targeted-block-hud';
     const buildStampEl = document.getElementById('build-stamp');
     buildStampEl.textContent = 'build ' + BUILD_VERSION;
 
@@ -375,18 +393,21 @@
       const hits = raycaster.intersectObjects(targets, false);
       target = null;
       highlight.visible = false;
-      if (!hits.length) return;
-      const hit = hits[0];
-      const cells = hit.object.userData.cells;
-      const cell = cells && cells[hit.instanceId];
-      if (!cell) return;
-      const n = hit.face ? hit.face.normal : { x: 0, y: 1, z: 0 };
-      target = {
-        cell,
-        place: { x: cell.x + n.x, y: cell.y + n.y, z: cell.z + n.z },
-      };
-      highlight.position.set(cell.x + 0.5, cell.y + 0.5, cell.z + 0.5);
-      highlight.visible = true;
+      if (hits.length) {
+        const hit = hits[0];
+        const cells = hit.object.userData.cells;
+        const cell = cells && cells[hit.instanceId];
+        if (cell) {
+          const n = hit.face ? hit.face.normal : { x: 0, y: 1, z: 0 };
+          target = {
+            cell,
+            place: { x: cell.x + n.x, y: cell.y + n.y, z: cell.z + n.z },
+          };
+          highlight.position.set(cell.x + 0.5, cell.y + 0.5, cell.z + 0.5);
+          highlight.visible = true;
+        }
+      }
+      updateHud();
     }
 
     const inBounds = (x, y, z) =>
@@ -905,6 +926,60 @@
       controlsEl.classList.add('hidden');
     });
 
+    // ---- Targeted-block HUD ----
+    // Names the block under the crosshair and shows its cell position. The
+    // toggle lives at the bottom of the Controls panel and its choice is
+    // remembered in this browser. The HUD is not shown while a menu is up.
+    const HUD_KEY = 'blockGame.hudVisible';
+    const hudEl = document.getElementById('target-hud');
+    const hudNameEl = document.getElementById('hud-name');
+    const hudXEl = document.getElementById('hud-x');
+    const hudYEl = document.getElementById('hud-y');
+    const hudZEl = document.getElementById('hud-z');
+    const hudToggle = document.getElementById('hud-toggle');
+    let hudEnabled = true;
+    try { hudEnabled = localStorage.getItem(HUD_KEY) !== '0'; } catch (e) { /* storage unavailable */ }
+    hudToggle.checked = hudEnabled;
+    let hudState = null; // last state written, so idle frames skip the DOM
+    function updateHud() {
+      const show = hudEnabled && playing && !!target;
+      let state = 'none';
+      if (target) {
+        const { x, y, z } = target.cell;
+        let name = '';
+        if (y === 0) {
+          const grass = PALETTE.find((p) => p.name === 'Grass') || PALETTE[0];
+          name = grass ? grass.name : '';
+        } else {
+          const p = PALETTE.find((q) => q.id === blocks.get(key(x, y, z)));
+          name = p ? p.name : '';
+        }
+        state = (show ? 'show' : 'hide') + '|' + x + ',' + y + ',' + z + '|' + name;
+        if (state === hudState) return; // idle frame: no DOM writes
+        hudState = state;
+        hudEl.dataset.target = x + ',' + y + ',' + z;
+        // Written only when a target exists, so the last values stay
+        // readable while the box fades out.
+        hudNameEl.textContent = name;
+        hudXEl.textContent = x;
+        hudYEl.textContent = y;
+        hudZEl.textContent = z;
+      } else {
+        if (state === hudState) return;
+        hudState = state;
+        hudEl.dataset.target = 'none';
+      }
+      hudEl.classList.toggle('opacity-0', !show);
+      hudEl.classList.toggle('opacity-100', show);
+      hudEl.setAttribute('aria-hidden', String(!show));
+    }
+    hudToggle.addEventListener('change', () => {
+      hudEnabled = hudToggle.checked;
+      try { localStorage.setItem(HUD_KEY, hudEnabled ? '1' : '0'); } catch (e) { /* storage unavailable */ }
+      hudToggle.blur(); // keep a later Space (fly up) from flipping the box
+      updateHud();
+    });
+
     // ---- Palette UI ----
     function selectType(id) {
       selectedType = id;
@@ -1043,6 +1118,10 @@
 
     // Fade the controls hint after a few seconds.
     setTimeout(() => { hintEl.style.opacity = '0'; hintFallbackEl.style.opacity = '0'; }, 6000);
+
+    // Write the initial hidden state before the world load, so the HUD is
+    // known to be off even if /api/world never answers.
+    updateHud();
 
     (async function init() {
       resize();
