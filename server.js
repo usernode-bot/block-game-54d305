@@ -148,7 +148,9 @@ app.get('/api/world/changes', async (req, res) => {
     const since = Number(req.query.since) || 0;
     const { rows } = await pool.query(
       `SELECT x, y, z,
-              CASE WHEN block_type BETWEEN 1 AND 12 THEN block_type ELSE 3 END AS block_type,
+              CASE WHEN block_type = 0 THEN 0
+                   WHEN block_type BETWEEN 1 AND 12 THEN block_type
+                   ELSE 3 END AS block_type,
               seq FROM blocks WHERE seq > $1 ORDER BY seq`,
       [since]
     );

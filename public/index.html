@@ -86,10 +86,13 @@
     .touch-device #lookmode,
     .touch-device #build-stamp { display: none !important; }
     /* Palette: cap it to the window so every colour is reachable, scrolling
-       sideways on narrow screens instead of running off both edges. */
-    #palette { max-width: calc(100vw - 1.5rem); overflow-x: auto; scrollbar-width: none; }
-    #palette::-webkit-scrollbar { display: none; }
-    #palette > button { flex-shrink: 0; }
+       sideways on narrow screens instead of running off both edges. The
+       colour swatches scroll inside #palette-scroll; the Undo button stays
+       put at the left of the strip. */
+    #palette { max-width: calc(100vw - 1.5rem); }
+    #palette-scroll { overflow-x: auto; scrollbar-width: none; min-width: 0; }
+    #palette-scroll::-webkit-scrollbar { display: none; }
+    #palette-scroll > button { flex-shrink: 0; }
     .touch-device #palette { bottom: calc(0.75rem + var(--un-safe-inset-bottom, env(safe-area-inset-bottom, 0px))); }
     /* Touch controls: positioned against the viewport with the platform
        safe-area insets so home bars and notches don't cover them. */
@@ -150,8 +153,13 @@
        and NOT faded, so it stays interactive after the keys hint fades. -->
   <button id="lookmode" class="hidden fixed top-12 left-1/2 -translate-x-1/2 z-20 text-xs text-zinc-200 bg-black/50 hover:bg-black/70 rounded-lg px-3 py-1.5 transition-colors cursor-pointer"></button>
 
-  <!-- Block palette -->
-  <div id="palette" class="fixed bottom-4 left-1/2 -translate-x-1/2 z-20 flex gap-1.5 p-1.5 rounded-xl bg-black/50 backdrop-blur"></div>
+  <!-- Block palette + single-step undo. The Undo button reverses this
+       player's most recent block edit and is disabled until there is one. -->
+  <div id="palette" class="fixed bottom-4 left-1/2 -translate-x-1/2 z-20 flex items-center gap-1.5 p-1.5 rounded-xl bg-black/50 backdrop-blur">
+    <button id="undo-btn" title="Undo your last block" disabled
+            class="shrink-0 h-10 px-3 rounded-md bg-white/10 hover:bg-white/20 text-zinc-100 text-sm font-semibold transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-white/10">Undo</button>
+    <div id="palette-scroll" class="flex gap-1.5 min-w-0"></div>
+  </div>
 
   <!-- Touch controls (phones only): Menu top left, joystick bottom left,
        build actions bottom right. The container never captures touches
@@ -197,6 +205,7 @@
       <li><span class="font-semibold">Left-click</span> or <span class="font-semibold">F</span> — add a block</li>
       <li><span class="font-semibold">Right-click</span> or <span class="font-semibold">G</span> — delete a block</li>
       <li><span class="font-semibold">1–9</span> — pick block type</li>
+      <li><span class="font-semibold">Undo</span> (button in the palette) — reverse your last block edit</li>
       <li><span class="font-semibold">H</span> or <span class="font-semibold">(?)</span> — toggle this panel</li>
       <li><span class="font-semibold">Esc</span> — release / menu</li>
     </ul>
@@ -206,6 +215,7 @@
       <li><span class="font-semibold">Up / Down</span> — fly up or down</li>
       <li><span class="font-semibold">Add / Delete</span> — build at the crosshair</li>
       <li><span class="font-semibold">Tap a colour</span> — pick block type</li>
+      <li><span class="font-semibold">Undo</span> — reverse your last block edit</li>
       <li><span class="font-semibold">Menu</span> — pause</li>
     </ul>
   </div>
@@ -227,7 +237,7 @@
 
     // Build identifier — bump this (to the deploying commit short SHA) on every
     // change so the top-right stamp confirms exactly which code is running.
-    const BUILD_VERSION = 'mouselock-retry-scene-hidden-until-play';
+    const BUILD_VERSION = 'undo-last-block-edit';
     const buildStampEl = document.getElementById('build-stamp');
     buildStampEl.textContent = 'build ' + BUILD_VERSION;
 
@@ -237,6 +247,11 @@
     const blocks = new Map();        // "x,y,z" -> block_type (non-zero only)
     let cursor = 0;                  // last seq seen from the server
     let selectedType = 1;
+    // This player's most recent block edit, kept so a single-step undo can
+    // reverse it: { x, y, z, prev, applied } where `prev` is the block type
+    // the cell held before the edit (0 = empty) and `applied` is what the
+    // edit left there. Null when there is nothing to undo.
+    let lastEdit = null;
     const key = (x, y, z) => x + ',' + y + ',' + z;
 
     // ---- Three.js scaffold ----
@@ -383,7 +398,13 @@
       if (t === 0) blocks.delete(k); else blocks.set(k, t);
       rebuildBlockMeshes();
     }
-    async function sendEdit(x, y, z, t) {
+    // `record` is false for the undo edit itself, so undoing doesn't become
+    // a new undoable step (single-step undo, then the button disables).
+    async function sendEdit(x, y, z, t, record = true) {
+      if (record) {
+        lastEdit = { x, y, z, prev: blocks.get(key(x, y, z)) || 0, applied: t };
+        updateUndoButton();
+      }
       applyLocal(x, y, z, t);
       try {
         const res = await fetch('/api/block', {
@@ -412,6 +433,30 @@
       if (!blocks.has(key(x, y, z))) return;
       sendEdit(x, y, z, 0);
     }
+
+    // ---- Single-step undo ----
+    // The palette's Undo button reverses THIS player's most recent block
+    // edit (a placement, a replacement or a break): the cell goes back to
+    // the type it held before. One step only — undoing clears the record
+    // and disables the button until the next edit. Other players' edits are
+    // never undoable here.
+    const undoBtnEl = document.getElementById('undo-btn');
+    function updateUndoButton() {
+      undoBtnEl.disabled = !lastEdit;
+    }
+    function undoLastEdit() {
+      if (!lastEdit) return;
+      const { x, y, z, prev, applied } = lastEdit;
+      lastEdit = null;
+      // If the cell no longer holds what the edit left there, the world has
+      // moved on since (another change reached that cell) and there is
+      // nothing left to safely reverse. `|| 0` maps the map's missing key
+      // (an empty cell) to the same 0 the edit recorded.
+      if ((blocks.get(key(x, y, z)) || 0) !== applied) { updateUndoButton(); return; }
+      sendEdit(x, y, z, prev, false);
+      updateUndoButton();
+    }
+    undoBtnEl.addEventListener('click', undoLastEdit);
 
     // ---- Pointer-lock fly camera ----
     let yaw = 0, pitch = 0;
@@ -869,7 +914,7 @@
       }
     }
     function buildPalette() {
-      const wrap = document.getElementById('palette');
+      const wrap = document.getElementById('palette-scroll');
       wrap.innerHTML = '';
       PALETTE.forEach((p, i) => {
         const btn = document.createElement('button');
@@ -925,6 +970,13 @@
             if (ch.t === 0) blocks.delete(k); else blocks.set(k, ch.t);
           }
           rebuildBlockMeshes();
+          // A change that reached this player's last-edited cell voids the
+          // undo: the cell no longer holds what the edit left there.
+          // `|| 0` maps the map's missing key (an empty cell) to 0.
+          if (lastEdit && (blocks.get(key(lastEdit.x, lastEdit.y, lastEdit.z)) || 0) !== lastEdit.applied) {
+            lastEdit = null;
+            updateUndoButton();
+          }
         }
         if (c && c > cursor) cursor = c;
       } catch (e) { /* transient; next tick retries */ }
