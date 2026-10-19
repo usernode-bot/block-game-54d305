@@ -88,29 +88,38 @@
     /* Palette: cap it to the window so every colour is reachable, scrolling
        sideways on narrow screens instead of running off both edges. The
        colour swatches scroll inside #palette-scroll; the Undo button stays
-       put at the left of the strip. */
+       put at the left of the strip. The bar is two rows now (search/recent
+       above, undo/swatches below), still pinned to the bottom edge. */
     #palette { max-width: calc(100vw - 1.5rem); }
     #palette-scroll { overflow-x: auto; scrollbar-width: none; min-width: 0; }
     #palette-scroll::-webkit-scrollbar { display: none; }
     #palette-scroll > button { flex-shrink: 0; }
+    /* Recent row: same sideways-scroll treatment as the main swatch strip. */
+    #recent-scroll { overflow-x: auto; scrollbar-width: none; min-width: 0; }
+    #recent-scroll::-webkit-scrollbar { display: none; }
+    #recent-scroll > button { flex-shrink: 0; }
+    /* 16px input text keeps mobile browsers from zooming the page on focus. */
+    .touch-device #palette-search { font-size: 16px; }
     .touch-device #palette { bottom: calc(0.75rem + var(--un-safe-inset-bottom, env(safe-area-inset-bottom, 0px))); }
     /* Targeted-block HUD: anchored just below the crosshair (the crosshair is
        20px tall and centred, so +2.25rem clears it comfortably). The palette
        is pinned to the bottom edge of the window, so the two never meet. */
     #target-hud { top: calc(50% + 2.25rem); }
     /* Touch controls: positioned against the viewport with the platform
-       safe-area insets so home bars and notches don't cover them. */
+       safe-area insets so home bars and notches don't cover them. The bar is
+       two rows tall now (~90px: search/recent above, undo/swatches below), so
+       the joystick and build buttons sit above it, not behind it. */
     #tc-menu {
       top: calc(0.75rem + var(--un-safe-inset-top, env(safe-area-inset-top, 0px)));
       left: calc(0.75rem + var(--un-safe-inset-left, env(safe-area-inset-left, 0px)));
     }
     #tc-movepad {
       left: calc(0.75rem + var(--un-safe-inset-left, env(safe-area-inset-left, 0px)));
-      bottom: calc(5rem + var(--un-safe-inset-bottom, env(safe-area-inset-bottom, 0px)));
+      bottom: calc(7.5rem + var(--un-safe-inset-bottom, env(safe-area-inset-bottom, 0px)));
     }
     #tc-actions {
       right: calc(0.75rem + var(--un-safe-inset-right, env(safe-area-inset-right, 0px)));
-      bottom: calc(5rem + var(--un-safe-inset-bottom, env(safe-area-inset-bottom, 0px)));
+      bottom: calc(7.5rem + var(--un-safe-inset-bottom, env(safe-area-inset-bottom, 0px)));
     }
     /* The (?) panel lists touch controls on phones, keyboard keys elsewhere. */
     .controls-touch { display: none; }
@@ -171,12 +180,27 @@
        and NOT faded, so it stays interactive after the keys hint fades. -->
   <button id="lookmode" class="hidden fixed top-12 left-1/2 -translate-x-1/2 z-20 text-xs text-zinc-200 bg-black/50 hover:bg-black/70 rounded-lg px-3 py-1.5 transition-colors cursor-pointer"></button>
 
-  <!-- Block palette + single-step undo. The Undo button reverses this
-       player's most recent block edit and is disabled until there is one. -->
-  <div id="palette" class="fixed bottom-4 left-1/2 -translate-x-1/2 z-20 flex items-center gap-1.5 p-1.5 rounded-xl bg-black/50 backdrop-blur">
-    <button id="undo-btn" title="Undo your last block" disabled
-            class="shrink-0 h-10 px-3 rounded-md bg-white/10 hover:bg-white/20 text-zinc-100 text-sm font-semibold transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-white/10">Undo</button>
-    <div id="palette-scroll" class="flex gap-1.5 min-w-0"></div>
+  <!-- Block palette: search/recent row above, undo + colour swatches below.
+       The Undo button reverses this player's most recent block edit and is
+       disabled until there is one. The search box filters the swatches by
+       name (Enter picks the first match, Escape clears it); the Recent row
+       shows this player's last five placements, remembered in localStorage,
+       and stays hidden until something has been placed. -->
+  <div id="palette" class="fixed bottom-4 left-1/2 -translate-x-1/2 z-20 flex flex-col gap-1.5 p-1.5 rounded-xl bg-black/50 backdrop-blur">
+    <div class="flex items-center gap-1.5 min-w-0">
+      <input id="palette-search" type="text" placeholder="Search blocks" autocomplete="off"
+             class="shrink-0 w-44 h-8 px-2.5 rounded-md bg-white/10 focus:bg-white/20 text-zinc-100 text-sm placeholder-zinc-400 outline-none min-w-0">
+      <div id="recent-row" class="hidden flex items-center gap-1.5 min-w-0">
+        <span class="shrink-0 text-[11px] font-semibold text-zinc-300">Recent</span>
+        <div id="recent-scroll" class="flex gap-1.5 min-w-0"></div>
+      </div>
+    </div>
+    <div class="flex items-center gap-1.5 min-w-0">
+      <button id="undo-btn" title="Undo your last block" disabled
+              class="shrink-0 h-10 px-3 rounded-md bg-white/10 hover:bg-white/20 text-zinc-100 text-sm font-semibold transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-white/10">Undo</button>
+      <div id="palette-scroll" class="flex gap-1.5 min-w-0"></div>
+      <span id="palette-empty" class="hidden px-2 text-sm text-zinc-300 whitespace-nowrap">No blocks match</span>
+    </div>
   </div>
 
   <!-- Touch controls (phones only): Menu top left, joystick bottom left,
@@ -223,6 +247,7 @@
       <li><span class="font-semibold">Left-click</span> or <span class="font-semibold">F</span> — add a block</li>
       <li><span class="font-semibold">Right-click</span> or <span class="font-semibold">G</span> — delete a block</li>
       <li><span class="font-semibold">1–9</span> — pick block type</li>
+      <li><span class="font-semibold">Search</span> (box in the palette) — filter blocks by name; Enter picks the first match, Esc clears</li>
       <li><span class="font-semibold">Undo</span> (button in the palette) — reverse your last block edit</li>
       <li><span class="font-semibold">H</span> or <span class="font-semibold">(?)</span> — toggle this panel</li>
       <li><span class="font-semibold">Esc</span> — release / menu</li>
@@ -233,6 +258,7 @@
       <li><span class="font-semibold">Up / Down</span> — fly up or down</li>
       <li><span class="font-semibold">Add / Delete</span> — build at the crosshair</li>
       <li><span class="font-semibold">Tap a colour</span> — pick block type</li>
+      <li><span class="font-semibold">Search</span> (box in the palette) — filter blocks by name</li>
       <li><span class="font-semibold">Undo</span> — reverse your last block edit</li>
       <li><span class="font-semibold">Menu</span> — pause</li>
     </ul>
@@ -263,7 +289,7 @@
 
     // Build identifier — bump this (to the deploying commit short SHA) on every
     // change so the top-right stamp confirms exactly which code is running.
-    const BUILD_VERSION = 'target-block-hud';
+    const BUILD_VERSION = 'palette-search-recent';
     const buildStampEl = document.getElementById('build-stamp');
     buildStampEl.textContent = 'build ' + BUILD_VERSION;
 
@@ -433,6 +459,7 @@
       if (record) {
         lastEdit = { x, y, z, prev: blocks.get(key(x, y, z)) || 0, applied: t };
         updateUndoButton();
+        if (t !== 0) pushRecent(t); // placements feed the palette's Recent row
       }
       applyLocal(x, y, z, t);
       try {
@@ -795,6 +822,10 @@
       Space: 'up', ShiftLeft: 'down', ShiftRight: 'down',
     };
     window.addEventListener('keydown', (e) => {
+      // Typing in the palette search box is just typing: keys go into the
+      // box and must not move the camera, pick blocks, build, or toggle the
+      // panel. (Enter/Escape are handled — and stopped — on the box itself.)
+      if (e.target && e.target.id === 'palette-search') return;
       if (codeMap[e.code]) { move[codeMap[e.code]] = true; if (e.code === 'Space') e.preventDefault(); }
       if (e.code.startsWith('Digit')) {
         const n = parseInt(e.code.slice(5), 10);
@@ -1020,6 +1051,94 @@
         wrap.appendChild(btn);
       });
       selectType(selectedType);
+      applyPaletteFilter(searchEl.value);
+    }
+
+    // ---- Palette search ----
+    // The box filters the swatches by name, case-insensitively, in place:
+    // non-matching buttons are hidden (not removed) so the selection-ring
+    // logic keeps working. Enter picks the first remaining match and clears
+    // the search; Escape clears it. Both leave the box so play can resume.
+    const searchEl = document.getElementById('palette-search');
+    const paletteEmptyEl = document.getElementById('palette-empty');
+    function applyPaletteFilter(q) {
+      const query = q.trim().toLowerCase();
+      let visible = 0;
+      for (const el of document.querySelectorAll('#palette-scroll > button')) {
+        const p = PALETTE.find((x) => String(x.id) === el.dataset.id);
+        const match = !!p && (!query || p.name.toLowerCase().includes(query));
+        el.classList.toggle('hidden', !match);
+        if (match) visible++;
+      }
+      paletteEmptyEl.classList.toggle('hidden', visible > 0);
+    }
+    function clearPaletteSearch() {
+      searchEl.value = '';
+      applyPaletteFilter('');
+      searchEl.blur();
+    }
+    searchEl.addEventListener('input', () => applyPaletteFilter(searchEl.value));
+    searchEl.addEventListener('keydown', (e) => {
+      // Handled — and stopped — here so the window handler never turns these
+      // keys into "release the mouse-lock / pause the game" while typing.
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        e.stopPropagation();
+        const query = searchEl.value.trim().toLowerCase();
+        if (!query) { searchEl.blur(); return; }
+        const first = PALETTE.find((p) => p.name.toLowerCase().includes(query));
+        if (first) selectType(first.id);
+        clearPaletteSearch();
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        e.stopPropagation();
+        clearPaletteSearch();
+      }
+    });
+
+    // ---- Recent blocks row ----
+    // The last five block types THIS player placed, newest first, persisted
+    // per browser (same localStorage pattern as the HUD preference). Only
+    // placements record: breaks (t = 0) and undo edits never touch it. The
+    // row stays hidden until something has been placed. All storage access
+    // is guarded: an unavailable localStorage means an empty, hidden row.
+    const RECENT_KEY = 'block-game:recent';
+    const recentRowEl = document.getElementById('recent-row');
+    const recentScrollEl = document.getElementById('recent-scroll');
+    let recentTypes = [];
+    function loadRecentTypes() {
+      recentTypes = [];
+      try {
+        const raw = JSON.parse(localStorage.getItem(RECENT_KEY) || '[]');
+        if (Array.isArray(raw)) {
+          recentTypes = raw
+            .filter((t) => PALETTE.some((p) => p.id === t))
+            .slice(0, 5);
+        }
+      } catch (e) { /* storage unavailable or corrupt: start empty */ }
+    }
+    function saveRecentTypes() {
+      try { localStorage.setItem(RECENT_KEY, JSON.stringify(recentTypes)); } catch (e) { /* ignore */ }
+    }
+    function pushRecent(t) {
+      recentTypes = [t, ...recentTypes.filter((x) => x !== t)].slice(0, 5);
+      saveRecentTypes();
+      renderRecent();
+    }
+    function renderRecent() {
+      recentScrollEl.innerHTML = '';
+      recentTypes.forEach((t) => {
+        const p = PALETTE.find((q) => q.id === t);
+        if (!p) return;
+        const btn = document.createElement('button');
+        btn.title = p.name;
+        btn.className = 'relative w-7 h-7 rounded-md transition';
+        btn.style.background = p.color;
+        if (p.opacity != null && p.opacity < 1) btn.style.opacity = '0.7';
+        btn.addEventListener('click', () => selectType(p.id));
+        recentScrollEl.appendChild(btn);
+      });
+      recentRowEl.classList.toggle('hidden', recentTypes.length === 0);
     }
 
     // ---- Server sync ----
@@ -1039,6 +1158,10 @@
       buildGround();
       buildGroundGrid();
       buildPalette();
+      // Restore the Recent row now that the palette is known: persisted ids
+      // that no longer exist in the palette are dropped, never rendered.
+      loadRecentTypes();
+      renderRecent();
       rebuildBlockMeshes();
       // Re-aim spawn now that real dims are known so the camera frames the plot.
       spawnCamera();
@@ -1254,6 +1377,134 @@
       }
     }
 
+    // ---- Palette self-test (?selftest=palette) ----
+    // Same idea as the HUD surface: a deterministic testing surface that
+    // drives the REAL search/recent code paths (the same DOM events and
+    // functions normal play uses) and renders one row per case with
+    // data-ok="1"/"0". Recent entries are recorded through pushRecent — the
+    // exact call a real placement makes from sendEdit — so no blocks are
+    // written to the shared world during a test run.
+    async function runPaletteSelfTest() {
+      const root = document.createElement('div');
+      root.id = 'selftest';
+      root.dataset.status = 'running';
+      root.className = 'fixed top-2 left-2 z-40 text-[11px] font-mono leading-4 bg-black/80 text-zinc-200 rounded-lg p-2';
+      document.body.appendChild(root);
+      const row = (id, label) => {
+        const el = document.createElement('div');
+        el.dataset.case = id;
+        el.dataset.ok = '0';
+        el.textContent = label;
+        root.appendChild(el);
+        return el;
+      };
+      const pass = (el) => { el.dataset.ok = '1'; el.textContent += ' ok'; };
+      const visibleSwatches = () =>
+        Array.from(document.querySelectorAll('#palette-scroll > button'))
+          .filter((b) => !b.classList.contains('hidden'));
+      const typeSearch = (v) => { searchEl.value = v; searchEl.dispatchEvent(new Event('input')); };
+      const keyInSearch = (k) =>
+        searchEl.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true }));
+      const idOf = (name) => (PALETTE.find((p) => p.name === name) || {}).id;
+      const resetRecent = () => {
+        try { localStorage.removeItem(RECENT_KEY); } catch (e) {}
+        recentTypes = [];
+        renderRecent();
+      };
+
+      beginPlay(isTouch);
+      try {
+        // Deterministic start: an empty search and an empty recent list.
+        clearPaletteSearch();
+        resetRecent();
+        await settleFrames(2);
+
+        // Exists: the palette owns a text search box.
+        const exists = row('search-exists', 'Palette has a search box');
+        if (searchEl && searchEl.type === 'text' && document.getElementById('palette').contains(searchEl)) pass(exists);
+
+        // Filters: "bri" leaves exactly Brick in the strip.
+        const filters = row('search-filters', 'Search filters blocks by name');
+        typeSearch('bri');
+        const vis = visibleSwatches();
+        if (vis.length === 1 && vis[0].title.startsWith('Brick')) pass(filters);
+
+        // Empty state: nothing matches, the message shows, no swatches do.
+        const empty = row('search-empty', 'No match shows an empty state');
+        typeSearch('zzz');
+        if (visibleSwatches().length === 0 && !paletteEmptyEl.classList.contains('hidden')) pass(empty);
+
+        // Enter: the first remaining match is selected and the search clears.
+        const enter = row('search-enter', 'Enter picks the first matching block');
+        typeSearch('woo');
+        keyInSearch('Enter');
+        if (searchEl.value === ''
+          && visibleSwatches().length === PALETTE.length
+          && selectedType === idOf('Wood')) pass(enter);
+
+        // Escape: the search clears, every block is back, and the game did
+        // not pause (Escape is the pause key in drag mode).
+        const escape = row('search-escape', 'Escape clears the search');
+        typeSearch('sto');
+        keyInSearch('Escape');
+        if (searchEl.value === ''
+          && visibleSwatches().length === PALETTE.length
+          && playing) pass(escape);
+
+        // Recent row: three placements, newest first.
+        resetRecent();
+        const recentRow = row('recent-row', 'Recent row shows the placed blocks');
+        pushRecent(idOf('Wood')); pushRecent(idOf('Glass')); pushRecent(idOf('Brick'));
+        if (recentTypes.join(',') === [idOf('Brick'), idOf('Glass'), idOf('Wood')].join(',')
+          && recentScrollEl.children.length === 3
+          && !recentRowEl.classList.contains('hidden')) pass(recentRow);
+
+        // Updates: re-placing moves to the front; a fifth and sixth distinct
+        // type cap the row at five with the oldest dropping off.
+        const upd = row('recent-updates', 'Recent row updates after placing');
+        pushRecent(idOf('Wood'));
+        const afterRe = recentTypes.join(',');
+        pushRecent(idOf('Grass')); pushRecent(idOf('Dirt'));
+        pushRecent(idOf('Stone')); pushRecent(idOf('Sand')); pushRecent(idOf('Leaves'));
+        if (afterRe === [idOf('Wood'), idOf('Brick'), idOf('Glass')].join(',')
+          && recentTypes.length === 5
+          && recentTypes[0] === idOf('Leaves')
+          && recentScrollEl.children.length === 5) pass(upd);
+
+        // Persist: what is stored is what was recorded, and the boot restore
+        // path (loadRecentTypes) rebuilds the same row — the reload check.
+        const pers = row('recent-persist', 'Recent row persists after a reload');
+        let stored = null;
+        try { stored = JSON.parse(localStorage.getItem(RECENT_KEY) || 'null'); } catch (e) {}
+        const snapshot = recentTypes.slice();
+        recentTypes = [];
+        loadRecentTypes();
+        if (Array.isArray(stored)
+          && JSON.stringify(stored) === JSON.stringify(snapshot)
+          && JSON.stringify(recentTypes) === JSON.stringify(snapshot)) pass(pers);
+
+        // Hidden when empty: nothing recorded, nothing shown.
+        const hid = row('recent-hidden', 'Recent row hidden when empty');
+        resetRecent();
+        if (recentRowEl.classList.contains('hidden') && recentScrollEl.children.length === 0) pass(hid);
+
+        // Overflow: the whole bar fits the window width and the swatch strip
+        // scrolls internally (the phone look is covered by the mobile shots).
+        const noOv = row('palette-no-overflow', 'Palette stays inside the screen');
+        const pr = document.getElementById('palette').getBoundingClientRect();
+        const ps = document.getElementById('palette-scroll');
+        if (pr.left >= 0 && pr.right <= window.innerWidth + 1
+          && ps.scrollWidth <= ps.clientWidth + 1) pass(noOv);
+
+        root.dataset.status = 'done';
+      } catch (err) {
+        const fail = document.createElement('div');
+        fail.textContent = 'error ' + (err && err.message ? err.message : err);
+        root.appendChild(fail);
+        root.dataset.status = 'done';
+      }
+    }
+
     (async function init() {
       resize();
       const ok = await loadWorld();
@@ -1261,6 +1512,7 @@
       requestAnimationFrame(loop);
       setInterval(poll, 1500);
       if (params.get('selftest') === 'hud') runHudSelfTest();
+      if (params.get('selftest') === 'palette') runPaletteSelfTest();
     })();
   </script>
 </body>
