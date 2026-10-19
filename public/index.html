@@ -93,6 +93,14 @@
     #palette-scroll { overflow-x: auto; scrollbar-width: none; min-width: 0; }
     #palette-scroll::-webkit-scrollbar { display: none; }
     #palette-scroll > button { flex-shrink: 0; }
+    /* Recent row: scrolls sideways exactly like the block row above the
+       Undo strip, so five swatches never widen the palette past the screen. */
+    #palette-recent-list { overflow-x: auto; scrollbar-width: none; min-width: 0; }
+    #palette-recent-list::-webkit-scrollbar { display: none; }
+    #palette-recent-list > button { flex-shrink: 0; }
+    /* Search box: a bit narrower on phones so the Recent row fits beside it. */
+    @media (max-width: 480px) { #palette-search { width: 7rem; } }
+    .touch-device #palette-search { width: 7rem; }
     .touch-device #palette { bottom: calc(0.75rem + var(--un-safe-inset-bottom, env(safe-area-inset-bottom, 0px))); }
     /* Targeted-block HUD: anchored just below the crosshair (the crosshair is
        20px tall and centred, so +2.25rem clears it comfortably). The palette
@@ -106,11 +114,11 @@
     }
     #tc-movepad {
       left: calc(0.75rem + var(--un-safe-inset-left, env(safe-area-inset-left, 0px)));
-      bottom: calc(5rem + var(--un-safe-inset-bottom, env(safe-area-inset-bottom, 0px)));
+      bottom: calc(7.5rem + var(--un-safe-inset-bottom, env(safe-area-inset-bottom, 0px)));
     }
     #tc-actions {
       right: calc(0.75rem + var(--un-safe-inset-right, env(safe-area-inset-right, 0px)));
-      bottom: calc(5rem + var(--un-safe-inset-bottom, env(safe-area-inset-bottom, 0px)));
+      bottom: calc(7.5rem + var(--un-safe-inset-bottom, env(safe-area-inset-bottom, 0px)));
     }
     /* The (?) panel lists touch controls on phones, keyboard keys elsewhere. */
     .controls-touch { display: none; }
@@ -172,11 +180,25 @@
   <button id="lookmode" class="hidden fixed top-12 left-1/2 -translate-x-1/2 z-20 text-xs text-zinc-200 bg-black/50 hover:bg-black/70 rounded-lg px-3 py-1.5 transition-colors cursor-pointer"></button>
 
   <!-- Block palette + single-step undo. The Undo button reverses this
-       player's most recent block edit and is disabled until there is one. -->
-  <div id="palette" class="fixed bottom-4 left-1/2 -translate-x-1/2 z-20 flex items-center gap-1.5 p-1.5 rounded-xl bg-black/50 backdrop-blur">
-    <button id="undo-btn" title="Undo your last block" disabled
-            class="shrink-0 h-10 px-3 rounded-md bg-white/10 hover:bg-white/20 text-zinc-100 text-sm font-semibold transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-white/10">Undo</button>
-    <div id="palette-scroll" class="flex gap-1.5 min-w-0"></div>
+       player's most recent block edit and is disabled until there is one.
+       Two rows: search + Recent on top, Undo + the block swatches below.
+       The Recent row holds the last five blocks this player placed
+       (persisted in localStorage) and is hidden until there is one. -->
+  <div id="palette" class="fixed bottom-4 left-1/2 -translate-x-1/2 z-20 flex flex-col gap-1.5 p-1.5 rounded-xl bg-black/50 backdrop-blur">
+    <div class="flex items-center gap-1.5 min-w-0">
+      <input id="palette-search" type="search" placeholder="Search blocks" aria-label="Search blocks" autocomplete="off"
+             class="shrink-0 w-40 h-8 px-2.5 rounded-md bg-white/10 text-zinc-100 text-[13px] placeholder:text-zinc-400 outline-none focus:ring-1 focus:ring-white/40">
+      <div id="palette-recent" class="hidden flex items-center gap-1.5 min-w-0">
+        <span class="shrink-0 pl-1.5 text-xs font-semibold text-zinc-300">Recent</span>
+        <div id="palette-recent-list" class="flex gap-1.5 min-w-0"></div>
+      </div>
+    </div>
+    <div class="flex items-center gap-1.5 min-w-0">
+      <button id="undo-btn" title="Undo your last block" disabled
+              class="shrink-0 h-10 px-3 rounded-md bg-white/10 hover:bg-white/20 text-zinc-100 text-sm font-semibold transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-white/10">Undo</button>
+      <div id="palette-scroll" class="flex gap-1.5 min-w-0"></div>
+      <div id="palette-empty" class="hidden h-10 flex items-center px-2 text-xs text-zinc-300 whitespace-nowrap">No blocks match</div>
+    </div>
   </div>
 
   <!-- Touch controls (phones only): Menu top left, joystick bottom left,
@@ -263,7 +285,7 @@
 
     // Build identifier — bump this (to the deploying commit short SHA) on every
     // change so the top-right stamp confirms exactly which code is running.
-    const BUILD_VERSION = 'target-block-hud';
+    const BUILD_VERSION = 'palette-search-recent';
     const buildStampEl = document.getElementById('build-stamp');
     buildStampEl.textContent = 'build ' + BUILD_VERSION;
 
@@ -454,6 +476,7 @@
       if (!inBounds(x, y, z)) return;
       if (blocks.get(key(x, y, z)) === selectedType) return;
       sendEdit(x, y, z, selectedType);
+      recordRecent(selectedType);
     }
     function breakBlock() {
       if (!target) return;
@@ -753,6 +776,11 @@
       if (isTouch) return;
       if (!locked && !playing) tryPointerLock();
     });
+    // Clicking/tapping the world returns the keys to the game: a focused
+    // search box would otherwise swallow WASD and digits.
+    canvas.addEventListener('pointerdown', () => {
+      if (document.activeElement === paletteSearchEl) paletteSearchEl.blur();
+    });
     // The look-mode control re-attempts native mouse-lock when clicked from
     // drag mode (a fresh user gesture, which pointer lock requires).
     lookModeEl.addEventListener('click', () => {
@@ -795,6 +823,9 @@
       Space: 'up', ShiftLeft: 'down', ShiftRight: 'down',
     };
     window.addEventListener('keydown', (e) => {
+      // Typing in the palette search box is never a game key: letters, digits
+      // and Escape go into the box (its own keydown handler handles them).
+      if (e.target === paletteSearchEl) return;
       if (codeMap[e.code]) { move[codeMap[e.code]] = true; if (e.code === 'Space') e.preventDefault(); }
       if (e.code.startsWith('Digit')) {
         const n = parseInt(e.code.slice(5), 10);
@@ -1000,6 +1031,87 @@
         el.classList.toggle('ring-white', Number(el.dataset.id) === id);
       }
     }
+
+    // ---- Palette search ----
+    // Typing in the box filters the block row by name (case-insensitive
+    // substring). While the box holds focus, the window keydown handler
+    // ignores every key so letters never move the player or pick blocks.
+    const paletteSearchEl = document.getElementById('palette-search');
+    const paletteEmptyEl = document.getElementById('palette-empty');
+    function filterPalette() {
+      const q = paletteSearchEl.value.trim().toLowerCase();
+      let visible = 0;
+      for (const btn of document.querySelectorAll('#palette-scroll > button[data-id]')) {
+        const p = PALETTE.find((entry) => entry.id === Number(btn.dataset.id));
+        const show = !q || (p && p.name.toLowerCase().includes(q));
+        btn.classList.toggle('hidden', !show);
+        if (show) visible++;
+      }
+      const none = q !== '' && visible === 0;
+      paletteEmptyEl.classList.toggle('hidden', !none);
+      document.getElementById('palette-scroll').classList.toggle('hidden', none);
+    }
+    paletteSearchEl.addEventListener('input', filterPalette);
+    paletteSearchEl.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        const btn = document.querySelector('#palette-scroll > button[data-id]:not(.hidden)');
+        if (btn) selectType(Number(btn.dataset.id));
+        paletteSearchEl.value = '';
+        filterPalette();
+        paletteSearchEl.blur();
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        paletteSearchEl.value = '';
+        filterPalette();
+        paletteSearchEl.blur();
+      }
+    });
+
+    // ---- Recent blocks row ----
+    // The last five blocks THIS player placed (placements only — breaks,
+    // undo and other players' edits don't count), most recent first,
+    // deduped, persisted per browser in localStorage next to the HUD pref.
+    const RECENT_KEY = 'block-game:recent';
+    const RECENT_MAX = 5;
+    let recentTypes = [];
+    function loadRecent() {
+      recentTypes = [];
+      try {
+        const parsed = JSON.parse(localStorage.getItem(RECENT_KEY) || '[]');
+        if (Array.isArray(parsed)) {
+          for (const id of parsed) {
+            if (!recentTypes.includes(id) && PALETTE.some((p) => p.id === id)) recentTypes.push(id);
+            if (recentTypes.length >= RECENT_MAX) break;
+          }
+        }
+      } catch (e) { recentTypes = []; }
+    }
+    function recordRecent(id) {
+      recentTypes = [id, ...recentTypes.filter((t) => t !== id)].slice(0, RECENT_MAX);
+      try { localStorage.setItem(RECENT_KEY, JSON.stringify(recentTypes)); } catch (e) { /* session-only */ }
+      renderRecent();
+    }
+    function renderRecent() {
+      recentListEl.innerHTML = '';
+      for (const id of recentTypes) {
+        const p = PALETTE.find((q) => q.id === id);
+        if (!p) continue;
+        const btn = document.createElement('button');
+        btn.dataset.id = id;
+        btn.title = p.name;
+        btn.className = 'w-8 h-8 rounded-md ring-offset-1 ring-offset-black/0 transition';
+        btn.style.background = p.color;
+        if (p.opacity != null && p.opacity < 1) btn.style.opacity = '0.7';
+        btn.addEventListener('click', () => selectType(id));
+        recentListEl.appendChild(btn);
+      }
+      recentWrapEl.classList.toggle('hidden', recentListEl.children.length === 0);
+      selectType(selectedType);
+    }
+    const recentWrapEl = document.getElementById('palette-recent');
+    const recentListEl = document.getElementById('palette-recent-list');
+
     function buildPalette() {
       const wrap = document.getElementById('palette-scroll');
       wrap.innerHTML = '';
@@ -1020,6 +1132,7 @@
         wrap.appendChild(btn);
       });
       selectType(selectedType);
+      filterPalette();
     }
 
     // ---- Server sync ----
@@ -1039,6 +1152,8 @@
       buildGround();
       buildGroundGrid();
       buildPalette();
+      loadRecent();
+      renderRecent();
       rebuildBlockMeshes();
       // Re-aim spawn now that real dims are known so the camera frames the plot.
       spawnCamera();
@@ -1139,9 +1254,24 @@
     // updates normal play uses) through every behaviour the proposal's checks
     // assert, and renders one row per case with data-ok="1"/"0". Nothing runs
     // unless the query parameter asks for it.
-    const waitFrame = () => new Promise((r) => requestAnimationFrame(r));
-    async function settleFrames(n) { for (let i = 0; i < n; i++) await waitFrame(); }
-    async function runHudSelfTest() {
+    // The selftests step the frame logic directly instead of waiting on real
+    // frames: a headless checker throttles requestAnimationFrame AND timers
+    // to about 1Hz, which would stretch a run far past the checks'
+    // assertion window. updateTarget()/updateTargetHud() are the per-frame
+    // parts every assertion reads; the render itself is not needed. One
+    // microtask yield lets pending promise callbacks interleave — microtasks
+    // are never throttled.
+    async function settleFrames(n) {
+      for (let i = 0; i < n; i++) {
+        camera.updateMatrixWorld();
+        updateTarget();
+        updateTargetHud();
+      }
+      await Promise.resolve();
+    }
+    // Shared scaffolding for the ?selftest surfaces: one report root, one row
+    // per behaviour with data-ok="1"/"0", flipped by pass().
+    function makeSelfTestRoot() {
       const root = document.createElement('div');
       root.id = 'selftest';
       root.dataset.status = 'running';
@@ -1156,6 +1286,10 @@
         return el;
       };
       const pass = (el) => { el.dataset.ok = '1'; el.textContent += ' ok'; };
+      return { root, row, pass };
+    }
+    async function runHudSelfTest() {
+      const { root, row, pass } = makeSelfTestRoot();
       const hudShown = () => targetHudEl.dataset.shown === '1';
       const coordsText = () => Array.from(targetHudCoordEls).map((s) => s.textContent).join(' ');
 
@@ -1254,6 +1388,141 @@
       }
     }
 
+    // ---- Palette self-test (?selftest=palette) ----
+    // Same shape as the HUD self-test: drives the REAL search/recent code
+    // paths — input events and keydowns on #palette-search, recordRecent,
+    // placeBlock, the startup loadRecent/renderRecent pair — one row per
+    // behaviour. Restores the browser's stored Recent list at the end.
+    async function runPaletteSelfTest() {
+      const { root, row, pass } = makeSelfTestRoot();
+      beginPlay(isTouch);
+      let savedRecent = null;
+      try { savedRecent = localStorage.getItem(RECENT_KEY); } catch (e) {}
+      const setQuery = (v) => {
+        paletteSearchEl.value = v;
+        paletteSearchEl.dispatchEvent(new Event('input'));
+      };
+      const visibleButtons = () => Array.from(document.querySelectorAll('#palette-scroll > button[data-id]'))
+        .filter((b) => !b.classList.contains('hidden'));
+      try {
+        await settleFrames(2);
+
+        // Search box: an input, inside the palette.
+        const boxRow = row('palette-search', 'Palette has a search box');
+        if (paletteSearchEl.tagName === 'INPUT' && document.getElementById('palette').contains(paletteSearchEl)) pass(boxRow);
+
+        // Typing "bri" leaves exactly Brick visible.
+        const filterRow = row('palette-filter', 'Typing filters by name');
+        setQuery('bri');
+        const brick = PALETTE.find((p) => p.name.toLowerCase() === 'brick');
+        const vis = visibleButtons();
+        if (vis.length === 1 && Number(vis[0].dataset.id) === brick.id) pass(filterRow);
+
+        // No match: empty state shows, the block row hides.
+        const emptyRow = row('palette-empty', 'No match shows empty state');
+        setQuery('zzzz');
+        if (visibleButtons().length === 0
+          && !paletteEmptyEl.classList.contains('hidden')
+          && paletteEmptyEl.textContent.trim() === 'No blocks match') pass(emptyRow);
+
+        // Enter picks the first visible match (Glass) and clears the box.
+        const enterRow = row('palette-enter', 'Enter picks first match');
+        setQuery('gla');
+        paletteSearchEl.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+        const glass = PALETTE.find((p) => p.name === 'Glass');
+        if (selectedType === glass.id && paletteSearchEl.value === '') pass(enterRow);
+
+        // Escape clears the search and shows every block again.
+        const escRow = row('palette-escape', 'Escape clears the search');
+        setQuery('st');
+        paletteSearchEl.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+        if (paletteSearchEl.value === '' && visibleButtons().length === PALETTE.length
+          && paletteEmptyEl.classList.contains('hidden')) pass(escRow);
+
+        // Recent: capped at five, deduped, most recent first.
+        const fiveRow = row('recent-five', 'Recent row shows last five');
+        try { localStorage.removeItem(RECENT_KEY); } catch (e) {}
+        recentTypes = [];
+        const ids = PALETTE.slice(0, 6).map((p) => p.id); // 1..6
+        for (const id of ids) recordRecent(id);
+        recordRecent(ids[2]); // a repeat of the 3rd moves it back to the front
+        const recentIds = Array.from(recentListEl.children).map((b) => Number(b.dataset.id));
+        if (recentIds.length === 5
+          && recentIds[0] === ids[2]
+          && new Set(recentIds).size === 5) pass(fiveRow);
+
+        // Recent updates after a real placement through placeBlock().
+        const updRow = row('recent-updates', 'Recent updates after placing');
+        spawnCamera();
+        await settleFrames(5);
+        const front = recentTypes[0];
+        const cellType = target ? (blocks.get(key(target.place.x, target.place.y, target.place.z)) || 0) : 0;
+        const pick = PALETTE.find((p) => p.id !== front && p.id !== cellType) || PALETTE[0];
+        selectType(pick.id);
+        placeBlock();
+        await settleFrames(1);
+        if (recentTypes[0] === pick.id
+          && recentListEl.children[0] && Number(recentListEl.children[0].dataset.id) === pick.id) pass(updRow);
+        undoLastEdit(); // leave the world as we found it
+
+        // Persistence: the startup path re-reads the stored list.
+        const persRow = row('recent-persists', 'Recent persists after reload');
+        const noted = recentTypes.slice();
+        recentTypes = [];
+        loadRecent();
+        renderRecent();
+        let stored = null;
+        try { stored = JSON.parse(localStorage.getItem(RECENT_KEY) || 'null'); } catch (e) {}
+        if (JSON.stringify(recentTypes) === JSON.stringify(noted)
+          && JSON.stringify(stored) === JSON.stringify(noted)) pass(persRow);
+
+        // Hidden when empty.
+        const hidRow = row('recent-hidden', 'Recent hidden when empty');
+        try { localStorage.removeItem(RECENT_KEY); } catch (e) {}
+        recentTypes = [];
+        loadRecent();
+        renderRecent();
+        if (recentWrapEl.classList.contains('hidden')
+          && recentWrapEl.getBoundingClientRect().height === 0) pass(hidRow);
+
+        // Phone width: everything stays inside a 366px palette and the block
+        // row scrolls sideways instead of widening it.
+        const phoneRow = row('palette-phone', 'Palette works at phone width');
+        recentTypes = PALETTE.slice(0, 5).map((p) => p.id);
+        renderRecent();
+        const paletteEl = document.getElementById('palette');
+        paletteEl.style.maxWidth = '366px';
+        await settleFrames(3);
+        const pr = paletteEl.getBoundingClientRect();
+        const sr = paletteSearchEl.getBoundingClientRect();
+        const rr = recentWrapEl.getBoundingClientRect();
+        const scrollEl = document.getElementById('palette-scroll');
+        const phoneOk = pr.width <= 366
+          && sr.left >= pr.left && sr.right <= pr.right
+          && rr.left >= pr.left && rr.right <= pr.right
+          && getComputedStyle(scrollEl).overflowX === 'auto'
+          && scrollEl.scrollWidth >= scrollEl.clientWidth;
+        paletteEl.style.maxWidth = '';
+        if (phoneOk) pass(phoneRow);
+
+        // Restore whatever this browser had stored before the test ran.
+        try {
+          if (savedRecent === null) localStorage.removeItem(RECENT_KEY);
+          else localStorage.setItem(RECENT_KEY, savedRecent);
+        } catch (e) {}
+        loadRecent();
+        renderRecent();
+        setQuery('');
+
+        root.dataset.status = 'done';
+      } catch (err) {
+        const fail = document.createElement('div');
+        fail.textContent = 'error ' + (err && err.message ? err.message : err);
+        root.appendChild(fail);
+        root.dataset.status = 'done';
+      }
+    }
+
     (async function init() {
       resize();
       const ok = await loadWorld();
@@ -1261,6 +1530,7 @@
       requestAnimationFrame(loop);
       setInterval(poll, 1500);
       if (params.get('selftest') === 'hud') runHudSelfTest();
+      if (params.get('selftest') === 'palette') runPaletteSelfTest();
     })();
   </script>
 </body>
