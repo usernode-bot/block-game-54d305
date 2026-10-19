@@ -7,6 +7,7 @@
   },
   "tests": [
     { "name": "Click to play start screen renders", "path": "/", "expectSelector": "#overlay #play-btn", "expectText": "Click to play" },
-    { "name": "Touch controls are on the page", "path": "/", "expectSelector": "#touch-controls #tc-joystick" }
+    { "name": "Touch controls are on the page", "path": "/", "expectSelector": "#touch-controls #tc-joystick" },
+    { "name": "Undo button is in the palette and starts disabled", "path": "/", "expectSelector": "#palette #undo-btn[disabled]" }
   ]
 }
