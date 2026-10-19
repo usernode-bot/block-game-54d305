@@ -8,6 +8,29 @@
   "tests": [
     { "name": "Click to play start screen renders", "path": "/", "expectSelector": "#overlay #play-btn", "expectText": "Click to play" },
     { "name": "Touch controls are on the page", "path": "/", "expectSelector": "#touch-controls #tc-joystick" },
-    { "name": "Undo button is in the palette and starts disabled", "path": "/", "expectSelector": "#palette #undo-btn[disabled]" }
+    { "name": "Undo button is in the palette and starts disabled", "path": "/", "expectSelector": "#palette #undo-btn[disabled]" },
+
+    { "id": "hud.appears", "visual": true, "impact": ["public/index.html"],
+      "name": "Target HUD appears when a block is targeted",
+      "path": "/?selftest=hud",
+      "expectSelector": "#selftest[data-status='done'] [data-case='hud-appears'][data-ok='1']" },
+    { "id": "hud.xyz", "name": "Target HUD shows X/Y/Z coordinates", "path": "/?selftest=hud",
+      "expectSelector": "#selftest[data-status='done'] [data-case='hud-xyz'][data-ok='1']" },
+    { "id": "hud.name", "name": "Target HUD shows the block name", "path": "/?selftest=hud",
+      "expectSelector": "#selftest[data-status='done'] [data-case='hud-name'][data-ok='1']" },
+    { "id": "hud.fades", "name": "Target HUD fades out with no target", "path": "/?selftest=hud",
+      "expectSelector": "#selftest[data-status='done'] [data-case='hud-fades'][data-ok='1']" },
+    { "id": "hud.updates", "name": "Target HUD updates as the target moves", "path": "/?selftest=hud",
+      "expectSelector": "#selftest[data-status='done'] [data-case='hud-updates'][data-ok='1']" },
+    { "id": "hud.menu-hidden", "name": "Target HUD hidden while a menu is open", "path": "/?selftest=hud",
+      "expectSelector": "#selftest[data-status='done'] [data-case='hud-menu-hidden'][data-ok='1']" },
+    { "id": "hud.toggle-exists", "name": "Help panel has the HUD toggle", "path": "/?selftest=hud",
+      "expectSelector": "#selftest[data-status='done'] [data-case='hud-toggle-exists'][data-ok='1']" },
+    { "id": "hud.toggle-saved", "name": "HUD toggle choice is saved per browser", "path": "/?selftest=hud",
+      "expectSelector": "#selftest[data-status='done'] [data-case='hud-toggle-saved'][data-ok='1']" },
+    { "id": "hud.no-overlap", "name": "Target HUD does not overlap the palette", "path": "/?selftest=hud",
+      "expectSelector": "#selftest[data-status='done'] [data-case='hud-no-overlap'][data-ok='1']" },
+    { "id": "hud.touch", "name": "Touch targeting shows the target HUD", "path": "/?selftest=hud&device=touch",
+      "expectSelector": "#selftest[data-status='done'] [data-case='hud-appears'][data-ok='1']" }
   ]
 }

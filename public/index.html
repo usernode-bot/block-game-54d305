@@ -94,6 +94,10 @@
     #palette-scroll::-webkit-scrollbar { display: none; }
     #palette-scroll > button { flex-shrink: 0; }
     .touch-device #palette { bottom: calc(0.75rem + var(--un-safe-inset-bottom, env(safe-area-inset-bottom, 0px))); }
+    /* Targeted-block HUD: anchored just below the crosshair (the crosshair is
+       20px tall and centred, so +2.25rem clears it comfortably). The palette
+       is pinned to the bottom edge of the window, so the two never meet. */
+    #target-hud { top: calc(50% + 2.25rem); }
     /* Touch controls: positioned against the viewport with the platform
        safe-area insets so home bars and notches don't cover them. */
     #tc-menu {
@@ -122,6 +126,20 @@
     <div class="w-5 h-5 relative">
       <span class="absolute left-1/2 top-0 h-5 w-px -translate-x-1/2 bg-white/80"></span>
       <span class="absolute top-1/2 left-0 w-5 h-px -translate-y-1/2 bg-white/80"></span>
+    </div>
+  </div>
+
+  <!-- Targeted-block HUD: a readout just below the crosshair naming the aimed
+       block and its X/Y/Z cell. Fades in when something is aimed at, fades
+       out when nothing is. Hidden whenever a menu owns the screen (start /
+       pause overlay, help panel) and when the player turns it off in the
+       help panel; that choice is persisted per browser in localStorage.
+       Positioned by the #target-hud rule in the style block. -->
+  <div id="target-hud" data-shown="0"
+       class="pointer-events-none fixed left-1/2 -translate-x-1/2 z-10 opacity-0 transition-opacity duration-300 text-center bg-black/50 rounded-lg px-3 py-1.5">
+    <div id="target-hud-name" class="text-xs font-semibold text-zinc-100"></div>
+    <div id="target-hud-coords" class="text-[11px] font-mono text-zinc-300 leading-4">
+      <span data-axis="x"></span><span class="mx-1">·</span><span data-axis="y"></span><span class="mx-1">·</span><span data-axis="z"></span>
     </div>
   </div>
 
@@ -218,6 +236,11 @@
       <li><span class="font-semibold">Undo</span> — reverse your last block edit</li>
       <li><span class="font-semibold">Menu</span> — pause</li>
     </ul>
+    <div class="mt-3 pt-3 border-t border-white/10 flex items-center justify-between gap-3">
+      <label for="hud-toggle" class="font-semibold cursor-pointer">Target info HUD</label>
+      <input id="hud-toggle" type="checkbox" checked
+             class="w-4 h-4 cursor-pointer accent-violet-500">
+    </div>
   </div>
 
   <script type="module">
@@ -232,12 +255,15 @@
     // layout and handlers instead of the keyboard/mouse ones. Decided once,
     // before any control copy runs. A laptop with a touchscreen and a mouse
     // reports a fine pointer and keeps the desktop layout.
-    const isTouch = window.matchMedia('(pointer: coarse)').matches;
+    let isTouch = window.matchMedia('(pointer: coarse)').matches;
+    // Testing surface: ?device=touch forces the touch layout so the touch
+    // targeting path can be exercised on a desktop browser.
+    if (params.get('device') === 'touch') isTouch = true;
     if (isTouch) document.documentElement.classList.add('touch-device');
 
     // Build identifier — bump this (to the deploying commit short SHA) on every
     // change so the top-right stamp confirms exactly which code is running.
-    const BUILD_VERSION = 'undo-last-block-edit';
+    const BUILD_VERSION = 'target-block-hud';
     const buildStampEl = document.getElementById('build-stamp');
     buildStampEl.textContent = 'build ' + BUILD_VERSION;
 
@@ -384,6 +410,9 @@
       target = {
         cell,
         place: { x: cell.x + n.x, y: cell.y + n.y, z: cell.z + n.z },
+        // Ground cells are not in the `blocks` map; the HUD needs to know
+        // which side the hit came from to name the block.
+        ground: hit.object.userData.ground === true,
       };
       highlight.position.set(cell.x + 0.5, cell.y + 0.5, cell.z + 0.5);
       highlight.visible = true;
@@ -703,13 +732,17 @@
 
     // Touch path: phones cannot use pointer lock, so tapping the play button
     // starts straight into drag-look play with the on-screen controls shown.
-    function startTouchPlay() {
+    // beginPlay is the shared "start without mouse-lock" path (touch play and
+    // the ?selftest=hud surface both use it); only touch play shows the
+    // on-screen controls.
+    function beginPlay(showTouchControls) {
       dragMode = true;
       playing = true;
       overlayEl.style.display = 'none';
-      touchControlsEl.classList.remove('hidden');
+      touchControlsEl.classList.toggle('hidden', !showTouchControls);
       refreshControlCopy();
     }
+    function startTouchPlay() { beginPlay(true); }
     document.getElementById('play-btn').addEventListener('click', () => {
       if (isTouch) startTouchPlay();
       else tryPointerLock();
@@ -905,6 +938,60 @@
       controlsEl.classList.add('hidden');
     });
 
+    // ---- Targeted-block HUD ----
+    // A small readout under the crosshair: the aimed cell's X/Y/Z and the
+    // name of the block occupying it. It fades in when something is aimed at
+    // and fades out when nothing is (a CSS opacity transition, driven by the
+    // `opacity-0` class). It is hidden whenever a menu owns the screen — the
+    // start/pause overlay (`!playing`) or the help panel — and when the
+    // player has turned it off in the help panel. That choice persists per
+    // browser in localStorage.
+    const HUD_PREF_KEY = 'block-game:hud';
+    const targetHudEl = document.getElementById('target-hud');
+    const targetHudNameEl = document.getElementById('target-hud-name');
+    const targetHudCoordEls = document.querySelectorAll('#target-hud-coords [data-axis]');
+    const hudToggleEl = document.getElementById('hud-toggle');
+    let hudEnabled = true;
+    try { hudEnabled = localStorage.getItem(HUD_PREF_KEY) !== '0'; } catch (e) { /* storage unavailable: default on */ }
+    hudToggleEl.checked = hudEnabled;
+    hudToggleEl.addEventListener('change', () => {
+      hudEnabled = hudToggleEl.checked;
+      try { localStorage.setItem(HUD_PREF_KEY, hudEnabled ? '1' : '0'); } catch (e) { /* ignore */ }
+    });
+    let hudShown = false;
+    let hudContent = '';
+    function groundBlockName() {
+      // The ground layer is built from the Grass palette entry (or the first
+      // one when that is missing) — see buildGround().
+      const grass = PALETTE.find((p) => p.name === 'Grass') || PALETTE[0];
+      return grass ? grass.name : 'Ground';
+    }
+    function updateTargetHud() {
+      const menuOpen = !playing || !controlsEl.classList.contains('hidden');
+      const shouldShow = hudEnabled && !menuOpen && !!target;
+      if (shouldShow) {
+        const { x, y, z } = target.cell;
+        // Ground cells hold no map entry; name them by the palette entry the
+        // ground was built from. Anything else looks up its own type.
+        const name = target.ground
+          ? groundBlockName()
+          : (PALETTE.find((p) => p.id === (blocks.get(key(x, y, z)) || 0)) || { name: 'Unknown' }).name;
+        const content = name + '|' + x + '|' + y + '|' + z;
+        if (content !== hudContent) {
+          hudContent = content;
+          targetHudNameEl.textContent = name;
+          targetHudCoordEls[0].textContent = 'X ' + x;
+          targetHudCoordEls[1].textContent = 'Y ' + y;
+          targetHudCoordEls[2].textContent = 'Z ' + z;
+        }
+      }
+      if (shouldShow !== hudShown) {
+        hudShown = shouldShow;
+        targetHudEl.classList.toggle('opacity-0', !shouldShow);
+        targetHudEl.dataset.shown = shouldShow ? '1' : '0';
+      }
+    }
+
     // ---- Palette UI ----
     function selectType(id) {
       selectedType = id;
@@ -1037,6 +1124,7 @@
       }
 
       updateTarget();
+      updateTargetHud();
       renderer.render(scene, camera);
       requestAnimationFrame(loop);
     }
@@ -1044,12 +1132,135 @@
     // Fade the controls hint after a few seconds.
     setTimeout(() => { hintEl.style.opacity = '0'; hintFallbackEl.style.opacity = '0'; }, 6000);
 
+    // ---- HUD self-test (?selftest=hud) ----
+    // A deterministic testing surface, used by the dapp.json checks and as a
+    // stable demo of the HUD: it starts play without mouse-lock, drives the
+    // REAL targeting/HUD code path (the same per-frame raycast and DOM
+    // updates normal play uses) through every behaviour the proposal's checks
+    // assert, and renders one row per case with data-ok="1"/"0". Nothing runs
+    // unless the query parameter asks for it.
+    const waitFrame = () => new Promise((r) => requestAnimationFrame(r));
+    async function settleFrames(n) { for (let i = 0; i < n; i++) await waitFrame(); }
+    async function runHudSelfTest() {
+      const root = document.createElement('div');
+      root.id = 'selftest';
+      root.dataset.status = 'running';
+      root.className = 'fixed top-2 left-2 z-40 text-[11px] font-mono leading-4 bg-black/80 text-zinc-200 rounded-lg p-2';
+      document.body.appendChild(root);
+      const row = (id, label) => {
+        const el = document.createElement('div');
+        el.dataset.case = id;
+        el.dataset.ok = '0';
+        el.textContent = label;
+        root.appendChild(el);
+        return el;
+      };
+      const pass = (el) => { el.dataset.ok = '1'; el.textContent += ' ok'; };
+      const hudShown = () => targetHudEl.dataset.shown === '1';
+      const coordsText = () => Array.from(targetHudCoordEls).map((s) => s.textContent).join(' ');
+
+      beginPlay(isTouch);
+      try {
+        // Start from the default preference (on) so the run is deterministic
+        // no matter what a previous run in this browser stored.
+        hudToggleEl.checked = true;
+        hudToggleEl.dispatchEvent(new Event('change'));
+        await settleFrames(5); // let the render loop aim once at the spawn view
+
+        // Appears: the spawn view is aimed at the plot, so a block is targeted.
+        const appears = row('hud-appears', 'HUD appears on target');
+        if (hudShown()) pass(appears);
+
+        // X/Y/Z: each axis readout is present and numeric.
+        const xyz = row('hud-xyz', 'HUD shows X/Y/Z');
+        const axisText = Array.from(targetHudCoordEls).map((s) => s.textContent);
+        if (axisText.length === 3
+          && /^X -?\d+$/.test(axisText[0])
+          && /^Y -?\d+$/.test(axisText[1])
+          && /^Z -?\d+$/.test(axisText[2])) pass(xyz);
+
+        // Name: the readout names the block actually occupying the targeted
+        // cell — the ground entry for ground cells, the palette entry for
+        // built ones (the seeded starter house makes the spawn view target a
+        // stone wall, so the expected name is derived, not hardcoded).
+        const nameRow = row('hud-name', 'HUD shows block name');
+        const shownName = targetHudNameEl.textContent;
+        const c = target.cell;
+        const expectedName = target.ground
+          ? groundBlockName()
+          : (PALETTE.find((p) => p.id === (blocks.get(key(c.x, c.y, c.z)) || 0)) || { name: 'Unknown' }).name;
+        if (shownName && shownName === expectedName) pass(nameRow);
+
+        // Fades: from high above the world looking up, nothing is targeted —
+        // the HUD must fade out (data-shown flips immediately, the CSS
+        // transition does the visible fade).
+        const fades = row('hud-fades', 'HUD fades with no target');
+        camera.position.set(DIMS.w / 2, DIMS.h + 20, DIMS.d / 2);
+        pitch = 1.4; yaw = 0; applyLook();
+        await settleFrames(3);
+        if (!hudShown() && targetHudEl.classList.contains('opacity-0')) pass(fades);
+
+        // Updates: back on the ground, then shift sideways — the readout
+        // must follow the new targeted cell.
+        spawnCamera();
+        await settleFrames(3);
+        const updates = row('hud-updates', 'HUD updates as target moves');
+        const before = coordsText();
+        camera.position.x += 3;
+        await settleFrames(3);
+        if (hudShown() && coordsText() !== before) pass(updates);
+
+        // Menu: with the help panel open the HUD must hide, and come back
+        // when the panel closes.
+        const menuRow = row('hud-menu-hidden', 'HUD hidden while menu open');
+        controlsEl.classList.remove('hidden');
+        await settleFrames(2);
+        const hiddenUnderMenu = !hudShown();
+        controlsEl.classList.add('hidden');
+        await settleFrames(2);
+        if (hiddenUnderMenu && hudShown()) pass(menuRow);
+
+        // Toggle exists: the help panel owns the HUD switch.
+        const toggleRow = row('hud-toggle-exists', 'Help panel has HUD toggle');
+        if (controlsEl.contains(hudToggleEl) && hudToggleEl.type === 'checkbox') pass(toggleRow);
+
+        // Toggle saved: unchecking hides the HUD and stores the choice;
+        // re-checking shows it again.
+        const saved = row('hud-toggle-saved', 'Toggle choice saved');
+        hudToggleEl.checked = false;
+        hudToggleEl.dispatchEvent(new Event('change'));
+        await settleFrames(2);
+        let stored = null;
+        try { stored = localStorage.getItem(HUD_PREF_KEY); } catch (e) {}
+        const hidesWhenOff = !hudShown();
+        hudToggleEl.checked = true;
+        hudToggleEl.dispatchEvent(new Event('change'));
+        await settleFrames(2);
+        if (hidesWhenOff && stored === '0' && hudShown()) pass(saved);
+
+        // Overlap: the shown HUD and the palette must not share screen space.
+        const overlapRow = row('hud-no-overlap', 'HUD clear of palette');
+        const a = targetHudEl.getBoundingClientRect();
+        const b = document.getElementById('palette').getBoundingClientRect();
+        const intersects = !(a.right <= b.left || b.right <= a.left || a.bottom <= b.top || b.bottom <= a.top);
+        if (hudShown() && !intersects) pass(overlapRow);
+
+        root.dataset.status = 'done';
+      } catch (err) {
+        const fail = document.createElement('div');
+        fail.textContent = 'error ' + (err && err.message ? err.message : err);
+        root.appendChild(fail);
+        root.dataset.status = 'done';
+      }
+    }
+
     (async function init() {
       resize();
       const ok = await loadWorld();
       if (!ok) return;
       requestAnimationFrame(loop);
       setInterval(poll, 1500);
+      if (params.get('selftest') === 'hud') runHudSelfTest();
     })();
   </script>
 </body>
