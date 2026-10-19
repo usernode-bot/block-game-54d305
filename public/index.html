@@ -227,7 +227,7 @@
 
     // Build identifier — bump this (to the deploying commit short SHA) on every
     // change so the top-right stamp confirms exactly which code is running.
-    const BUILD_VERSION = 'scene-hidden-until-play';
+    const BUILD_VERSION = 'mouselock-retry-scene-hidden-until-play';
     const buildStampEl = document.getElementById('build-stamp');
     buildStampEl.textContent = 'build ' + BUILD_VERSION;
 
@@ -420,6 +420,11 @@
     let dragMode = false;        // fallback: playing without OS pointer lock
     let lockUnavailable = false; // a *retry* was denied — stop inviting retries
     let lockTimer = null;        // pending silent-denial watchdog (cleared per try)
+    let lockAttempt = 0;         // incremented per requestPointerLock call
+    let failedAttempt = 0;       // last attempt token already handled as a failure
+    let retryTimer = null;       // pending automatic retry of a refused lock
+    let lastAttemptIsRetry = false; // retry flag for the document-level error event
+    const LOCK_RETRY_MS = 1300;  // rides out Chrome's ~1s post-Esc rejection window
     let dragging = false;        // fallback: a look-drag is in progress
     let pressX = 0, pressY = 0;  // fallback: where the press started
     const DRAG_THRESHOLD = 5;    // px of movement that turns a click into a drag
@@ -431,6 +436,7 @@
     const hintEl = document.getElementById('hint');
     const hintFallbackEl = document.getElementById('hint-fallback');
     const lookModeEl = document.getElementById('lookmode');
+    const playBtnEl = document.getElementById('play-btn');
     const touchControlsEl = document.getElementById('touch-controls');
 
     // The game canvas starts hidden (see the #scene CSS) so the start screen
@@ -504,7 +510,11 @@
     // Reflect the active control scheme in the overlay copy, keys hint, and the
     // always-visible look-mode control.
     function refreshControlCopy() {
-      if (locked) {
+      // A pending automatic retry holds both controls on its waiting copy.
+      playBtnEl.textContent = retryTimer !== null ? 'Getting mouse-lock…' : 'Click to play';
+      if (retryTimer !== null) {
+        lookModeEl.textContent = 'Getting mouse-lock…';
+      } else if (locked) {
         lookModeEl.textContent = 'Look: Mouse-lock (Esc to release)';
         hintEl.classList.remove('hidden');
         hintFallbackEl.classList.add('hidden');
@@ -512,11 +522,11 @@
         // In drag fallback: invite a retry unless a retry already failed.
         lookModeEl.textContent = lockUnavailable
           ? 'Mouse-lock unavailable here'
-          : 'Look: Drag — click for mouse-lock';
+          : 'Look: Drag (click for mouse-lock)';
         hintEl.classList.add('hidden');
         hintFallbackEl.classList.remove('hidden');
       } else {
-        lookModeEl.textContent = 'Look: Drag — click for mouse-lock';
+        lookModeEl.textContent = 'Look: Drag (click for mouse-lock)';
         hintEl.classList.remove('hidden');
         hintFallbackEl.classList.add('hidden');
       }
@@ -539,14 +549,36 @@
     function clearLockTimer() {
       if (lockTimer !== null) { clearTimeout(lockTimer); lockTimer = null; }
     }
+    function clearRetryTimer() {
+      if (retryTimer !== null) {
+        clearTimeout(retryTimer);
+        retryTimer = null;
+        refreshControlCopy(); // drop the "Getting mouse-lock…" waiting copy
+      }
+    }
 
-    // A pointer-lock attempt was denied — start (or stay in) drag-to-look.
-    // Never permanently blocks future attempts; retries are always allowed.
-    function onLockFail() {
+    // A pointer-lock attempt was denied. The first refusal schedules one
+    // automatic retry (browsers refuse locks for ~1s after Esc); only a
+    // failed retry enters drag mode and marks mouse-lock unavailable.
+    function onLockFail(token, isRetry) {
       clearLockTimer();
-      if (locked) return;           // a real lock won the race; ignore stale denial
-      // If we were already playing in drag mode, this denial came from an
-      // explicit retry that also failed — stop inviting further retries.
+      if (locked) return;                     // a real lock won the race
+      if (token !== lockAttempt || failedAttempt === token) return; // stale or already handled
+      failedAttempt = token;
+      if (!isRetry) {
+        // First refusal: stay in the current mode (overlay up if we started
+        // from there, drag mode keeps running) and try once more on our own.
+        retryTimer = setTimeout(() => {
+          retryTimer = null;
+          tryPointerLock(true);
+        }, LOCK_RETRY_MS);
+        refreshControlCopy();
+        return;
+      }
+      // The automatic retry also failed: fall back to drag-to-look. Only
+      // mark mouse-lock unavailable when the failed attempt started from
+      // drag mode itself (its first try and retry both refused there) — a
+      // first entry from the overlay still offers re-locks via clicks.
       if (dragMode && playing) lockUnavailable = true;
       dragMode = true;
       playing = true;
@@ -556,17 +588,22 @@
       refreshControlCopy();
     }
 
-    // Always attempt a native lock on an explicit user gesture (play button or
-    // the look-mode control), regardless of any prior failure.
-    function tryPointerLock() {
+    // Always attempt a native lock on an explicit user gesture (play button,
+    // canvas click or the look-mode control), regardless of any prior failure.
+    // Ignores extra clicks while an automatic retry is already pending.
+    function tryPointerLock(isRetry = false) {
+      if (retryTimer !== null) return;
+      clearRetryTimer();
       clearLockTimer();
       // Reveal the game before asking for the lock: a visibility:hidden
       // element can be refused pointer lock by some browsers.
       setSceneVisible(true);
+      const token = ++lockAttempt;
+      lastAttemptIsRetry = isRetry;
       try {
-        Promise.resolve(canvas.requestPointerLock()).catch(onLockFail);
+        Promise.resolve(canvas.requestPointerLock()).catch(() => onLockFail(token, isRetry));
       } catch (e) {
-        onLockFail();
+        onLockFail(token, isRetry);
         return;
       }
       // Safety net for the "silent no-op" denial mode: some browsers neither
@@ -578,7 +615,7 @@
       // a real lock so a slow-but-genuine lock isn't clobbered.
       lockTimer = setTimeout(() => {
         lockTimer = null;
-        if (!locked) onLockFail();
+        if (!locked) onLockFail(token, isRetry);
       }, 400);
     }
 
@@ -597,6 +634,7 @@
         // Native lock acquired — exit drag fallback and clear any "blocked"
         // state, since mouse-lock just demonstrably works.
         clearLockTimer();
+        clearRetryTimer();
         playing = true;
         dragMode = false;
         lockUnavailable = false;
@@ -614,7 +652,9 @@
     });
     // Iframe Permissions-Policy denials commonly surface here (not as a
     // rejected promise), so this is the primary failure path in production.
-    document.addEventListener('pointerlockerror', onLockFail);
+    document.addEventListener('pointerlockerror', () => {
+      onLockFail(lockAttempt, lastAttemptIsRetry);
+    });
 
     // Touch path: phones cannot use pointer lock, so tapping the play button
     // starts straight into drag-look play with the on-screen controls shown.
@@ -662,8 +702,11 @@
       canvas.style.cursor = 'grab';
       const moved = Math.hypot(e.clientX - pressX, e.clientY - pressY);
       if (moved < DRAG_THRESHOLD) {
-        // Left adds, right deletes.
-        if (e.button === 0) placeBlock();
+        // In drag fallback a plain left-click asks for mouse-lock again (this
+        // mouseup is inside the user gesture pointer lock needs) — until a
+        // retry has actually failed, after which left-clicks build as usual.
+        if (e.button === 0 && dragMode && !lockUnavailable) tryPointerLock();
+        else if (e.button === 0) placeBlock();
         else if (e.button === 2) breakBlock();
       }
     });
@@ -687,6 +730,9 @@
       // H toggles the controls overlay (same as the "(?)" button), available
       // whether or not the game is currently being played.
       if (e.code === 'KeyH') toggleControls();
+      // Escape cancels a pending mouse-lock retry in any mode, restoring the
+      // normal button/label copy right away.
+      if (e.code === 'Escape' && retryTimer !== null) clearRetryTimer();
       // Drag mode has no OS pointer lock to release, so Escape returns to the
       // overlay manually. In native (locked) mode the browser handles Esc and
       // fires pointerlockchange, which restores the overlay there.
