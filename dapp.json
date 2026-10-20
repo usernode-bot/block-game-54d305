@@ -56,5 +56,8 @@
       "expectSelector": "#selftest[data-status='done'] [data-case='hud-no-overlap'][data-ok='1']" },
     { "id": "hud.touch", "name": "Touch targeting shows the target HUD", "path": "/?selftest=hud&device=touch",
       "expectSelector": "#selftest[data-status='done'] [data-case='hud-appears'][data-ok='1']" }
-  ]
+  ],
+  "governance": {
+    "preset": "you_or_the_group"
+  }
 }
