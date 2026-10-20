@@ -78,5 +78,8 @@
       "expectSelector": "#selftest[data-status='done'] [data-case='recent-hidden'][data-ok='1']" },
     { "id": "palette.phone", "name": "The palette works at phone width", "path": "/?selftest=palette&device=touch",
       "expectSelector": "#selftest[data-status='done'] [data-case='palette-phone'][data-ok='1']" }
-  ]
+  ],
+  "governance": {
+    "preset": "you_or_the_group"
+  }
 }
