@@ -93,11 +93,15 @@
     #palette { max-width: calc(100vw - 1.5rem); }
     #palette-scroll { overflow-x: auto; scrollbar-width: none; min-width: 0; }
     #palette-scroll::-webkit-scrollbar { display: none; }
-    #palette-scroll > button { flex-shrink: 0; }
+    /* Swatch sizes live here as well as in the buttons' Tailwind classes:
+       the swatches are built from script after the world loads, and the
+       CDN's JIT styles them a beat later, so the bar would briefly lay out
+       at zero width without these. */
+    #palette-scroll > button { flex-shrink: 0; width: 2.5rem; height: 2.5rem; }
     /* Recent row: same sideways-scroll treatment as the main swatch strip. */
     #recent-scroll { overflow-x: auto; scrollbar-width: none; min-width: 0; }
     #recent-scroll::-webkit-scrollbar { display: none; }
-    #recent-scroll > button { flex-shrink: 0; }
+    #recent-scroll > button { flex-shrink: 0; width: 1.75rem; height: 1.75rem; }
     /* 16px input text keeps mobile browsers from zooming the page on focus. */
     .touch-device #palette-search { font-size: 16px; }
     .touch-device #palette { bottom: calc(0.75rem + var(--un-safe-inset-bottom, env(safe-area-inset-bottom, 0px))); }
@@ -780,6 +784,11 @@
       if (isTouch) return;
       if (!locked && !playing) tryPointerLock();
     });
+    // Clicking/tapping the world returns the keys to the game: a focused
+    // search box would otherwise swallow WASD and digits.
+    canvas.addEventListener('pointerdown', () => {
+      if (document.activeElement === searchEl) searchEl.blur();
+    });
     // The look-mode control re-attempts native mouse-lock when clicked from
     // drag mode (a fresh user gesture, which pointer lock requires).
     lookModeEl.addEventListener('click', () => {
@@ -1031,6 +1040,7 @@
         el.classList.toggle('ring-white', Number(el.dataset.id) === id);
       }
     }
+
     function buildPalette() {
       const wrap = document.getElementById('palette-scroll');
       wrap.innerHTML = '';
@@ -1262,9 +1272,24 @@
     // updates normal play uses) through every behaviour the proposal's checks
     // assert, and renders one row per case with data-ok="1"/"0". Nothing runs
     // unless the query parameter asks for it.
-    const waitFrame = () => new Promise((r) => requestAnimationFrame(r));
-    async function settleFrames(n) { for (let i = 0; i < n; i++) await waitFrame(); }
-    async function runHudSelfTest() {
+    // The selftests step the frame logic directly instead of waiting on real
+    // frames: a headless checker throttles requestAnimationFrame AND timers
+    // to about 1Hz, which would stretch a run far past the checks'
+    // assertion window. updateTarget()/updateTargetHud() are the per-frame
+    // parts every assertion reads; the render itself is not needed. One
+    // microtask yield lets pending promise callbacks interleave — microtasks
+    // are never throttled.
+    async function settleFrames(n) {
+      for (let i = 0; i < n; i++) {
+        camera.updateMatrixWorld();
+        updateTarget();
+        updateTargetHud();
+      }
+      await Promise.resolve();
+    }
+    // Shared scaffolding for the ?selftest surfaces: one report root, one row
+    // per behaviour with data-ok="1"/"0", flipped by pass().
+    function makeSelfTestRoot() {
       const root = document.createElement('div');
       root.id = 'selftest';
       root.dataset.status = 'running';
@@ -1279,6 +1304,10 @@
         return el;
       };
       const pass = (el) => { el.dataset.ok = '1'; el.textContent += ' ok'; };
+      return { root, row, pass };
+    }
+    async function runHudSelfTest() {
+      const { root, row, pass } = makeSelfTestRoot();
       const hudShown = () => targetHudEl.dataset.shown === '1';
       const coordsText = () => Array.from(targetHudCoordEls).map((s) => s.textContent).join(' ');
 
@@ -1471,6 +1500,16 @@
           && recentTypes[0] === idOf('Leaves')
           && recentScrollEl.children.length === 5) pass(upd);
 
+        // Five: six distinct placements leave exactly the newest five in the
+        // row, newest first, with the oldest dropped off.
+        resetRecent();
+        const five = row('recent-five', 'Recent row shows the last five');
+        for (const name of ['Grass', 'Dirt', 'Stone', 'Wood', 'Glass', 'Brick']) pushRecent(idOf(name));
+        const expectedFive = ['Brick', 'Glass', 'Wood', 'Stone', 'Dirt'].map(idOf);
+        if (recentTypes.join(',') === expectedFive.join(',')
+          && recentScrollEl.children.length === 5
+          && !recentRowEl.classList.contains('hidden')) pass(five);
+
         // Persist: what is stored is what was recorded, and the boot restore
         // path (loadRecentTypes) rebuilds the same row — the reload check.
         const pers = row('recent-persist', 'Recent row persists after a reload');
@@ -1482,6 +1521,31 @@
         if (Array.isArray(stored)
           && JSON.stringify(stored) === JSON.stringify(snapshot)
           && JSON.stringify(recentTypes) === JSON.stringify(snapshot)) pass(pers);
+
+        // Phone width: the checker cannot resize the browser, so constrain
+        // the bar itself to a phone column (360px, or the window less its
+        // margins when narrower) and check it stays usable at that width:
+        // the bar does not overflow, the search box and Undo stay fully
+        // inside it on one row each, and the swatch strip scrolls sideways
+        // inside the bar instead of spilling off screen.
+        const phone = row('palette-phone', 'Palette usable at phone width');
+        const pal = document.getElementById('palette');
+        const swatchStrip = document.getElementById('palette-scroll');
+        const phoneW = Math.min(360, window.innerWidth - 24);
+        const prevWidth = pal.style.width;
+        pal.style.width = phoneW + 'px';
+        const pr2 = pal.getBoundingClientRect();
+        const searchRect = searchEl.getBoundingClientRect();
+        const undoRect = document.getElementById('undo-btn').getBoundingClientRect();
+        const insideBar = (r) => r.width > 0 && r.left >= pr2.left - 0.5 && r.right <= pr2.right + 0.5;
+        const phoneOk = pr2.width <= phoneW + 1
+          && pr2.left >= 0 && pr2.right <= window.innerWidth + 1
+          && pal.scrollWidth <= pal.clientWidth + 1
+          && insideBar(searchRect) && insideBar(undoRect)
+          && swatchStrip.scrollWidth > swatchStrip.clientWidth
+          && visibleSwatches().length === PALETTE.length;
+        pal.style.width = prevWidth;
+        if (phoneOk) pass(phone);
 
         // Hidden when empty: nothing recorded, nothing shown.
         const hid = row('recent-hidden', 'Recent row hidden when empty');
