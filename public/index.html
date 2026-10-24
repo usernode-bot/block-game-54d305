@@ -293,7 +293,7 @@
 
     // Build identifier — bump this (to the deploying commit short SHA) on every
     // change so the top-right stamp confirms exactly which code is running.
-    const BUILD_VERSION = 'palette-search-recent';
+    const BUILD_VERSION = 'ghost-preview';
     const buildStampEl = document.getElementById('build-stamp');
     buildStampEl.textContent = 'build ' + BUILD_VERSION;
 
@@ -421,6 +421,21 @@
     highlight.visible = false;
     scene.add(highlight);
 
+    // Ghost preview: a see-through copy of the selected block in the cell the
+    // next placement will fill, so you can see where a block lands before you
+    // drop it. It has its own materials (never the shared `materials` cache)
+    // and lives directly in the scene, not in `blockGroup`, so the targeting
+    // raycast never hits it. The 0.98 scale keeps its faces off the block it
+    // touches; depthWrite is off so it never hides what is behind it.
+    const ghostFill = new THREE.MeshLambertMaterial({ transparent: true, opacity: 0.4, depthWrite: false });
+    const ghostEdge = new THREE.LineBasicMaterial({ transparent: true, opacity: 0.9 });
+    const ghost = new THREE.Group();
+    ghost.add(new THREE.Mesh(cube, ghostFill));
+    ghost.add(new THREE.LineSegments(new THREE.EdgesGeometry(cube), ghostEdge));
+    ghost.scale.setScalar(0.98);
+    ghost.visible = false;
+    scene.add(ghost);
+
     // ---- Raycast from screen center to find the aimed cell + face ----
     const raycaster = new THREE.Raycaster();
     const centre = new THREE.Vector2(0, 0);
@@ -431,11 +446,11 @@
       const hits = raycaster.intersectObjects(targets, false);
       target = null;
       highlight.visible = false;
-      if (!hits.length) return;
+      if (!hits.length) { updateGhost(); return; }
       const hit = hits[0];
       const cells = hit.object.userData.cells;
       const cell = cells && cells[hit.instanceId];
-      if (!cell) return;
+      if (!cell) { updateGhost(); return; }
       const n = hit.face ? hit.face.normal : { x: 0, y: 1, z: 0 };
       target = {
         cell,
@@ -446,10 +461,35 @@
       };
       highlight.position.set(cell.x + 0.5, cell.y + 0.5, cell.z + 0.5);
       highlight.visible = true;
+      updateGhost();
     }
 
     const inBounds = (x, y, z) =>
       x >= 0 && x < DIMS.w && z >= 0 && z < DIMS.d && y >= 1 && y < DIMS.h;
+
+    // The ghost shows exactly where placeBlock() would accept an edit: it is
+    // hidden with no target, outside the plot, or where the selected block
+    // already sits, and whenever a menu owns the screen (before play or the
+    // help panel open). Its colour follows the palette selection.
+    let ghostType = null;
+    function updateGhost() {
+      const menuOpen = !playing || !controlsEl.classList.contains('hidden');
+      const p = target && target.place;
+      if (menuOpen || !p || !inBounds(p.x, p.y, p.z)
+        || blocks.get(key(p.x, p.y, p.z)) === selectedType) {
+        ghost.visible = false;
+        return;
+      }
+      const entry = PALETTE.find((q) => q.id === selectedType);
+      if (!entry) { ghost.visible = false; return; }
+      ghost.position.set(p.x + 0.5, p.y + 0.5, p.z + 0.5);
+      if (ghostType !== selectedType) {
+        ghostType = selectedType;
+        ghostFill.color.set(entry.color);
+        ghostEdge.color.set(entry.color);
+      }
+      ghost.visible = true;
+    }
 
     // ---- Apply an edit locally + send to server (optimistic) ----
     function applyLocal(x, y, z, t) {
@@ -1569,6 +1609,137 @@
       }
     }
 
+    // ---- Ghost preview self-test (?selftest=ghost) ----
+    // Drives the REAL per-frame targeting path (settleFrames -> updateTarget ->
+    // updateGhost), exactly as normal play does, and asserts the ghost's state
+    // and position. It writes nothing to the shared world: the one synthetic
+    // block it inserts goes straight into the local `blocks` map (never through
+    // sendEdit) and is removed again.
+    async function runGhostSelfTest() {
+      const { root, row, pass } = makeSelfTestRoot();
+      const atPlace = () => !!target
+        && ghost.position.x === target.place.x + 0.5
+        && ghost.position.y === target.place.y + 0.5
+        && ghost.position.z === target.place.z + 0.5;
+      const entryOf = (name) => PALETTE.find((p) => p.name === name) || {};
+      const sameColour = (name) => {
+        const entry = entryOf(name);
+        return !!entry.color
+          && ghostFill.color.getHexString() === new THREE.Color(entry.color).getHexString();
+      };
+
+      try {
+        // Before play starts the ghost stays hidden even though the spawn
+        // view already aims at the plot.
+        await settleFrames(3);
+        const before = row('ghost-before-play', 'Ghost hidden before play');
+        if (!playing && !ghost.visible) pass(before);
+
+        // Appears at the cell the next placement will fill.
+        beginPlay(isTouch);
+        spawnCamera();
+        await settleFrames(3);
+        // The shared world may already hold a block exactly where the spawn
+        // view lands; the ghost is correctly hidden when that block is the
+        // selected type. Nudge the aim down if the landing cell is out of
+        // bounds, and pick a palette entry the cell does not already hold, so
+        // the preview is exercised on any world.
+        for (let i = 0; i < 5 && target
+          && !inBounds(target.place.x, target.place.y, target.place.z); i++) {
+          pitch = Math.max(-1.4, pitch - 0.15);
+          applyLook();
+          await settleFrames(2);
+        }
+        const occupant = target && blocks.get(key(target.place.x, target.place.y, target.place.z));
+        if (occupant !== undefined && occupant === selectedType) {
+          const alt = PALETTE.find((p) => p.id !== occupant);
+          if (alt) { selectType(alt.id); await settleFrames(2); }
+        }
+        const appears = row('ghost-appears', 'Ghost appears on target');
+        if (ghost.visible && atPlace()) pass(appears);
+
+        // Colour follows the palette selection. Brick and Blue are the usual
+        // choices; if the landing cell already holds one of them the ghost is
+        // correctly hidden, so fall back to other palette entries then.
+        const colourRow = row('ghost-colour', 'Ghost uses the selected colour');
+        const cellType = target && blocks.get(key(target.place.x, target.place.y, target.place.z));
+        const choices = [entryOf('Brick'), entryOf('Blue')].filter((e) => e.id !== cellType);
+        for (const p of PALETTE) {
+          if (choices.length >= 2) break;
+          if (p.id !== cellType && !choices.includes(p)) choices.push(p);
+        }
+        selectType(choices[0].id);
+        await settleFrames(2);
+        const firstOk = sameColour(choices[0].name);
+        selectType(choices[1].id);
+        await settleFrames(2);
+        if (firstOk && sameColour(choices[1].name)) pass(colourRow);
+
+        // Follows the aim.
+        const follows = row('ghost-follows', 'Ghost follows the aim');
+        const beforePos = ghost.position.clone();
+        camera.position.x += 3;
+        await settleFrames(3);
+        if (ghost.visible && atPlace() && !ghost.position.equals(beforePos)) pass(follows);
+
+        // Hidden with no target: high above the plot, looking up.
+        const noTarget = row('ghost-no-target', 'Ghost hidden with no target');
+        camera.position.set(DIMS.w / 2, DIMS.h + 20, DIMS.d / 2);
+        pitch = 1.4; yaw = 0; applyLook();
+        await settleFrames(3);
+        if (!target && !ghost.visible) pass(noTarget);
+
+        // Hidden when the landing cell is outside the plot: from beside the
+        // plot, aim at the side of an edge ground cell so `place` is out of
+        // bounds (the same case placeBlock() refuses).
+        const oob = row('ghost-out-of-bounds', 'Ghost hidden outside the plot');
+        camera.position.set(-2, 0.5, DIMS.d / 2 + 0.5);
+        pitch = 0; yaw = -Math.PI / 2; applyLook();
+        await settleFrames(3);
+        if (target && !ghost.visible) pass(oob);
+
+        // Hidden where the selected block already sits, shown again once the
+        // cell is empty. The world is restored exactly as it was.
+        spawnCamera();
+        await settleFrames(3);
+        const sameRow = row('ghost-same-block', 'Ghost hidden where the selected block is');
+        const placeKey = target && key(target.place.x, target.place.y, target.place.z);
+        const prevType = placeKey ? blocks.get(placeKey) : undefined;
+        if (placeKey) blocks.set(placeKey, selectedType);
+        await settleFrames(2);
+        const hiddenOnSame = !ghost.visible;
+        if (placeKey) {
+          if (prevType === undefined) blocks.delete(placeKey);
+          else blocks.set(placeKey, prevType);
+        }
+        await settleFrames(2);
+        if (placeKey && hiddenOnSame && ghost.visible) pass(sameRow);
+
+        // Hidden while the help panel is open, back when it closes.
+        const menuRow = row('ghost-menu-hidden', 'Ghost hidden while menu open');
+        controlsEl.classList.remove('hidden');
+        await settleFrames(2);
+        const hiddenUnderMenu = !ghost.visible;
+        controlsEl.classList.add('hidden');
+        await settleFrames(2);
+        if (hiddenUnderMenu && ghost.visible) pass(menuRow);
+
+        // The aimed cell keeps its dark outline while the ghost is shown.
+        const keptRow = row('ghost-highlight-kept', 'Aimed block keeps its outline');
+        if (ghost.visible && highlight.visible && !!target
+          && highlight.position.x === target.cell.x + 0.5
+          && highlight.position.y === target.cell.y + 0.5
+          && highlight.position.z === target.cell.z + 0.5) pass(keptRow);
+
+        root.dataset.status = 'done';
+      } catch (err) {
+        const fail = document.createElement('div');
+        fail.textContent = 'error ' + (err && err.message ? err.message : err);
+        root.appendChild(fail);
+        root.dataset.status = 'done';
+      }
+    }
+
     (async function init() {
       resize();
       const ok = await loadWorld();
@@ -1577,6 +1748,7 @@
       setInterval(poll, 1500);
       if (params.get('selftest') === 'hud') runHudSelfTest();
       if (params.get('selftest') === 'palette') runPaletteSelfTest();
+      if (params.get('selftest') === 'ghost') runGhostSelfTest();
     })();
   </script>
 </body>
